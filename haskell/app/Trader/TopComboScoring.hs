@@ -5,6 +5,8 @@ module Trader.TopComboScoring (
     clampLiveAnnualizedReturnWithConfig,
     topComboDrawdownMultiplier,
     topComboEquityTerm,
+    topComboFreshnessAdjustedScore,
+    topComboFreshnessMultiplier,
     topComboLiveBlendWeight,
     topComboLiveQuarantinedByConfig,
     topComboValidatedAnnualizedReturn,
@@ -24,6 +26,8 @@ data TopComboScoringConfig = TopComboScoringConfig
     , tcscDrawdownPenaltyScale :: !Double
     , tcscEquityFloor :: !Double
     , tcscEquityLogFloor :: !Double
+    , tcscFreshnessHalfLifeDays :: !Double
+    , tcscFreshnessFloorMultiplier :: !Double
     }
     deriving (Eq, Show)
 
@@ -42,6 +46,8 @@ defaultTopComboScoringConfig =
         , tcscDrawdownPenaltyScale = 10
         , tcscEquityFloor = 1.0e-9
         , tcscEquityLogFloor = -1
+        , tcscFreshnessHalfLifeDays = 0
+        , tcscFreshnessFloorMultiplier = 0.35
         }
 
 validateTopComboScoringConfig :: TopComboScoringConfig -> Either String TopComboScoringConfig
@@ -60,6 +66,8 @@ validateTopComboScoringConfig config = do
     finiteNonNegative "--score-drawdown-penalty-scale" (tcscDrawdownPenaltyScale config)
     finitePositive "--score-equity-floor" (tcscEquityFloor config)
     finite "--score-equity-log-floor" (tcscEquityLogFloor config)
+    finiteNonNegative "--score-freshness-half-life-days" (tcscFreshnessHalfLifeDays config)
+    finiteUnit "--score-freshness-floor-multiplier" (tcscFreshnessFloorMultiplier config)
     pure config
   where
     ensure msg ok =
@@ -72,6 +80,9 @@ validateTopComboScoringConfig config = do
     finitePositive name value = do
         finite name value
         ensure (name ++ " must be > 0") (value > 0)
+    finiteUnit name value = do
+        finite name value
+        ensure (name ++ " must be between 0 and 1") (value >= 0 && value <= 1)
 
 isFinite :: Double -> Bool
 isFinite value = not (isNaN value || isInfinite value)
@@ -114,3 +125,22 @@ topComboDrawdownMultiplier config drawdown =
 topComboEquityTerm :: TopComboScoringConfig -> Double -> Double
 topComboEquityTerm config finalEquity =
     max (tcscEquityLogFloor config) (log (max (tcscEquityFloor config) finalEquity))
+
+topComboFreshnessMultiplier :: TopComboScoringConfig -> Maybe Double -> Double
+topComboFreshnessMultiplier config ageDays
+    | halfLife <= 0 = 1
+    | otherwise =
+        case ageDays of
+            Nothing -> floorMultiplier
+            Just age
+                | isNaN age || isInfinite age -> floorMultiplier
+                | age <= 0 -> 1
+                | otherwise -> floorMultiplier + (1 - floorMultiplier) * (0.5 ** (age / halfLife))
+  where
+    halfLife = tcscFreshnessHalfLifeDays config
+    floorMultiplier = max 0 (min 1 (tcscFreshnessFloorMultiplier config))
+
+topComboFreshnessAdjustedScore :: TopComboScoringConfig -> Maybe Double -> Double -> Double
+topComboFreshnessAdjustedScore config ageDays score
+    | score <= 0 = score
+    | otherwise = score * topComboFreshnessMultiplier config ageDays

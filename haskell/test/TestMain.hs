@@ -186,15 +186,18 @@ import Trader.ThresholdCalibration (
     thresholdAtPercentile,
     validateThresholdCalibrationConfig,
  )
-import Trader.TopComboScoring (defaultTopComboScoringConfig)
+import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig, topComboFreshnessMultiplier)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
+    ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
+    applyComboUpdatesWithStatsWithPolicy,
     blendedAnnualizedReturn,
     comboBacktestDueForRefresh,
+    comboBacktestDueForRefreshWithPolicy,
     comboBacktestFreshnessMs,
     comboBacktestStaleAfterMs,
     comboIdentityKey,
@@ -207,6 +210,7 @@ import Trader.TopCombosStore (
     mergeTopCombosPayloads,
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
+    selectCombosForBacktestRefreshWithPolicy,
  )
 import Trader.Trading (
     BacktestCostAttribution (..),
@@ -406,6 +410,8 @@ main = do
     testLowTradeTopCombosSinkBelowEvidenceFloor
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
+    testTopComboFreshnessMultiplierDefaultsDisabled
+    testMergeFreshnessScoringPromotesFreshCandidate
     testMergeExecutableAnnotatesProcessingAndDedupe
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
     testPrunedBacktestTombstonePreventsStaleResurrection
@@ -991,6 +997,20 @@ testTopComboBacktestPrunesRoiLosers = do
                             && cbasPrunedCount stats == 1
                             && cbasPrunedKeys stats == [key]
                         )
+                    let lenientPolicy =
+                            ComboBacktestRefreshPolicy
+                                { cbrpStaleAfterMs = comboBacktestStaleAfterMs
+                                , cbrpPruneFinalEquityFloor = 0.95
+                                }
+                    case applyComboUpdatesWithStatsWithPolicy lenientPolicy 2 (HM.singleton key update) payload of
+                        Left err -> assert ("lenient top-combo backtest update succeeds: " ++ err) False
+                        Right (keptPayload, lenientStats) ->
+                            assert
+                                "configured prune final-equity floor controls refreshed loser pruning"
+                                ( topCombosCount keptPayload == 1
+                                    && cbasUpdatedCount lenientStats == 1
+                                    && cbasPrunedCount lenientStats == 0
+                                )
 
 testNormalizeBarsForLookbackAutoAdjustsApiInputs :: IO ()
 testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
@@ -4187,6 +4207,20 @@ comboProcessingReasonsForTest combo =
             KM.lookup "reasons" processing >>= AT.parseMaybe Aeson.parseJSON
         _ -> Nothing
 
+comboMethodForTest :: Aeson.Value -> Maybe T.Text
+comboMethodForTest combo =
+    case combo of
+        Aeson.Object c -> do
+            Aeson.Object params <- KM.lookup "params" c
+            KM.lookup "method" params >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboWithCreatedAtForTest :: Int64 -> Aeson.Value -> Aeson.Value
+comboWithCreatedAtForTest createdAt val =
+    case val of
+        Aeson.Object o -> Aeson.Object (KM.insert "createdAtMs" (Aeson.toJSON createdAt) o)
+        _ -> val
+
 testMergeDedupesSourceAndNullEquivalentCombos :: IO ()
 testMergeDedupesSourceAndNullEquivalentCombos = do
     let dbCopy = processingComboForTest "same-strategy" "db" True Nothing 2.0 adoptionMinTradeCount
@@ -4229,6 +4263,75 @@ testDeployableTierRanksAheadOfUnvalidatedCandidate = do
     assert
         "walk-forward deployable tier ranks ahead of a higher-return unvalidated candidate"
         (listToMaybe (mapMaybe comboProcessingTierForTest combos) == Just "deployable")
+
+testTopComboFreshnessMultiplierDefaultsDisabled :: IO ()
+testTopComboFreshnessMultiplierDefaultsDisabled =
+    assert
+        "default top-combo freshness scoring is disabled"
+        (topComboFreshnessMultiplier defaultTopComboScoringConfig (Just 365) == 1)
+
+testMergeFreshnessScoringPromotesFreshCandidate :: IO ()
+testMergeFreshnessScoringPromotesFreshCandidate = do
+    (inputPath, inputHandle) <- openTempFile "/tmp" "trader-merge-freshness-input.json"
+    hClose inputHandle
+    (outputPath, outputHandle) <- openTempFile "/tmp" "trader-merge-freshness-output.json"
+    hClose outputHandle
+    let staleHighReturn =
+            comboWithCreatedAtForTest 0 $
+                processingComboForTest
+                    "stale-high-return"
+                    "db"
+                    False
+                    (Just adoptionMinWalkForwardSharpeMean)
+                    2.0
+                    adoptionMinTradeCount
+        freshLowerReturn =
+            comboWithCreatedAtForTest 4102444800000 $
+                processingComboForTest
+                    "fresh-lower-return"
+                    "db"
+                    False
+                    (Just adoptionMinWalkForwardSharpeMean)
+                    1.0
+                    adoptionMinTradeCount
+        scoringConfig =
+            defaultTopComboScoringConfig
+                { tcscFreshnessHalfLifeDays = 30
+                , tcscFreshnessFloorMultiplier = 0.35
+                }
+        payload =
+            Aeson.object
+                [ "combos" .= [staleHighReturn, freshLowerReturn]
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+    BL.writeFile inputPath (Aeson.encode payload)
+    code <-
+        runMerge
+            MergeArgs
+                { maTopJson = inputPath
+                , maFromJsonl = []
+                , maFromTopJson = []
+                , maOut = outputPath
+                , maMax = 10
+                , maHistoryDir = Nothing
+                , maScoringConfig = scoringConfig
+                , maCopyToDist = False
+                }
+    decoded <- (Aeson.eitherDecode <$> BL.readFile outputPath) :: IO (Either String Aeson.Value)
+    let firstMethod =
+            case decoded of
+                Right (Aeson.Object o) -> case KM.lookup "combos" o of
+                    Just (Aeson.Array v) | not (V.null v) -> comboMethodForTest (V.head v)
+                    _ -> Nothing
+                _ -> Nothing
+    assert "freshness-scored merge exits successfully" (code == 0)
+    assert
+        "freshness scoring promotes the newer validated combo over an older higher-return row"
+        (firstMethod == Just "fresh-lower-return")
+    _ <- try (removeFile inputPath) :: IO (Either SomeException ())
+    _ <- try (removeFile outputPath) :: IO (Either SomeException ())
+    pure ()
 
 testMergeExecutableAnnotatesProcessingAndDedupe :: IO ()
 testMergeExecutableAnnotatesProcessingAndDedupe = do
@@ -4305,9 +4408,18 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
         freshLowRank = selectionComboForTest "fresh-low-rank" 0.2 (Just (now - oneDay)) Nothing
         missingFreshness = selectionComboForTest "missing-freshness" 0.3 Nothing Nothing
         exactlyAtBoundary = selectionComboForTest "boundary" 0.4 (Just (now - comboBacktestStaleAfterMs)) Nothing
+        shortStalePolicy =
+            ComboBacktestRefreshPolicy
+                { cbrpStaleAfterMs = oneDay
+                , cbrpPruneFinalEquityFloor = 1.0
+                }
+        shortStale = selectionComboForTest "short-stale" 0.25 (Just (now - oneDay - 1)) Nothing
         selected = selectCombosForBacktestRefresh 1 now [staleLowRank, freshLowRank, topFresh, missingFreshness]
+        selectedShortPolicy = selectCombosForBacktestRefreshWithPolicy shortStalePolicy 1 now [shortStale, freshLowRank, topFresh]
         selectedKeys = mapMaybe comboIdentityKey selected
+        selectedShortPolicyKeys = mapMaybe comboIdentityKey selectedShortPolicy
         has combo = maybe False (`elem` selectedKeys) (comboIdentityKey combo)
+        hasShortPolicy combo = maybe False (`elem` selectedShortPolicyKeys) (comboIdentityKey combo)
     assert
         "selection keeps the top-ranked combo and every stale combo outside topN"
         ( length selected == 3
@@ -4320,6 +4432,12 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
         "missing freshness is due, exactly three days old is not older than three days"
         ( comboBacktestDueForRefresh now missingFreshness
             && not (comboBacktestDueForRefresh now exactlyAtBoundary)
+        )
+    assert
+        "configured stale age controls periodic backtest refresh selection"
+        ( comboBacktestDueForRefreshWithPolicy shortStalePolicy now shortStale
+            && hasShortPolicy shortStale
+            && not (hasShortPolicy freshLowRank)
         )
 
 testPrunedBacktestTombstonePreventsStaleResurrection :: IO ()

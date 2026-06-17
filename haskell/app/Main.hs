@@ -429,12 +429,14 @@ import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
+    ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
+    applyComboUpdatesWithStatsWithPolicy,
     blendedAnnualizedReturn,
     comboIdentityKey,
     comboLiveStats,
@@ -444,6 +446,7 @@ import Trader.TopCombosStore (
     comboMetricInt,
     comboPerformanceKey,
     compactTopCombosPayloadForSync,
+    defaultComboBacktestRefreshPolicy,
     isTopCombosPayload,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
@@ -456,10 +459,11 @@ import Trader.TopCombosStore (
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
-    selectCombosForBacktestRefresh,
+    selectCombosForBacktestRefreshWithPolicy,
     setComboLiveStats,
     topCombosGeneratedAtMs,
     topCombosPayloadEquivalent,
+    validateComboBacktestRefreshPolicy,
     withTopCombosLock,
     writeTopCombosValue,
  )
@@ -11657,6 +11661,10 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     -- 'BacktestNoVerdict' (fail open, no prune). Tunable via
     -- @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
     -- 'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
+    , tcbcRefreshPolicy :: !ComboBacktestRefreshPolicy
+    -- ^ Policy for periodic top-combo backtest refresh selection and
+    -- pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
+    -- @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
     }
 
 withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
@@ -11826,7 +11834,7 @@ backtestTopCombosOnce topNRaw ctx = do
                         Just (Aeson.Array combos) -> do
                             selectionNow <- getTimestampMs
                             let combosList = V.toList combos
-                                selected = selectCombosForBacktestRefresh topN selectionNow combosList
+                                selected = selectCombosForBacktestRefreshWithPolicy (tcbcRefreshPolicy ctx) topN selectionNow combosList
                                 selectedCount = length selected
                             updates <- fmap catMaybes (forM selected backtestCombo)
                             if null updates
@@ -11847,9 +11855,10 @@ backtestTopCombosOnce topNRaw ctx = do
                                                     now <- getTimestampMs
                                                     let updateMap = HM.fromList updates
                                                     -- Periodic refreshes are authoritative for stale combos:
-                                                    -- prune sub-1.0 refreshed performance and carry a tombstone
-                                                    -- in the payload so stale replicas cannot resurrect it.
-                                                    case applyComboUpdatesWithStats now updateMap latestVal of
+                                                    -- prune refreshed performance below the configured floor and
+                                                    -- carry a tombstone in the payload so stale replicas cannot
+                                                    -- resurrect it.
+                                                    case applyComboUpdatesWithStatsWithPolicy (tcbcRefreshPolicy ctx) now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                             pure False
@@ -11943,7 +11952,9 @@ autoTopCombosBacktestLoop ctx =
                         Just n | n >= 60 -> n
                         _ -> 86400
             let topJsonPath = tcsPath (tcbcStore ctx)
-            putStrLn (printf "Top combos backtest enabled: topN=%d everySec=%d path=%s" topN everySec topJsonPath)
+                policy = tcbcRefreshPolicy ctx
+                staleDays = fromIntegral (cbrpStaleAfterMs policy) / 86400000 :: Double
+            putStrLn (printf "Top combos backtest enabled: topN=%d everySec=%d staleDays=%.3f pruneFinalEquityFloor=%.6f path=%s" topN everySec staleDays (cbrpPruneFinalEquityFloor policy) topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
                 runOnce = withTopCombosBacktestLock ctx (backtestTopCombosOnce topN ctx)
                 loop = do
@@ -13710,6 +13721,21 @@ runRestApi cliArgs mWebhook = do
             case botStartMinTradesEnv >>= readMaybe . dropWhile isSpace . takeWhile (not . isSpace) of
                 Just n | n > 0 -> n
                 _ -> defaultBotStartupBacktestMinTrades
+    topCombosStaleDaysEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS"
+    topCombosPruneFloorEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR"
+    let defaultRefreshPolicy = defaultComboBacktestRefreshPolicy
+        defaultStaleDays = fromIntegral (cbrpStaleAfterMs defaultRefreshPolicy) / 86400000
+        topCombosStaleDays = readNonNegativeDoubleMaybe topCombosStaleDaysEnv defaultStaleDays
+        topCombosPruneFloor = readNonNegativeDoubleMaybe topCombosPruneFloorEnv (cbrpPruneFinalEquityFloor defaultRefreshPolicy)
+        topCombosRefreshPolicyRaw =
+            defaultRefreshPolicy
+                { cbrpStaleAfterMs = floor (topCombosStaleDays * 86400000)
+                , cbrpPruneFinalEquityFloor = topCombosPruneFloor
+                }
+    topCombosRefreshPolicy <-
+        case validateComboBacktestRefreshPolicy topCombosRefreshPolicyRaw of
+            Left err -> ioError (userError err)
+            Right policy -> pure policy
     topCombosLock <- newMVar ()
     topCombosCandleQueue <- newTBQueueIO 1
     let topCombosCtx =
@@ -13725,6 +13751,7 @@ runRestApi cliArgs mWebhook = do
                 , tcbcCandleQueue = topCombosCandleQueue
                 , tcbcEnabled = topCombosEnabled
                 , tcbcMinTradesForAbort = botStartMinTradesForAbort
+                , tcbcRefreshPolicy = topCombosRefreshPolicy
                 }
     let defaultAsyncDir = maybe (tmpRoot </> "async") (</> "async") mStateDir
     asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
@@ -16812,6 +16839,8 @@ mergeTopComboScoringArgsFromEnv = do
         , ("TRADER_TOP_COMBO_SCORE_DRAWDOWN_PENALTY_SCALE", "--score-drawdown-penalty-scale", tcscDrawdownPenaltyScale def)
         , ("TRADER_TOP_COMBO_SCORE_EQUITY_FLOOR", "--score-equity-floor", tcscEquityFloor def)
         , ("TRADER_TOP_COMBO_SCORE_EQUITY_LOG_FLOOR", "--score-equity-log-floor", tcscEquityLogFloor def)
+        , ("TRADER_TOP_COMBO_SCORE_FRESHNESS_HALF_LIFE_DAYS", "--score-freshness-half-life-days", tcscFreshnessHalfLifeDays def)
+        , ("TRADER_TOP_COMBO_SCORE_FRESHNESS_FLOOR_MULTIPLIER", "--score-freshness-floor-multiplier", tcscFreshnessFloorMultiplier def)
         ]
     intSpecs =
         [ ("TRADER_TOP_COMBO_SCORE_LIVE_QUARANTINE_MIN_OPERATIONS", "--score-live-quarantine-min-operations", tcscLiveQuarantineMinOperations def)

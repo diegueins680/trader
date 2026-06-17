@@ -2,15 +2,18 @@
 
 module Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
+    ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
+    applyComboUpdatesWithStatsWithPolicy,
     applyComboUpdatesWithStats,
     applyComboUpdatesKeepAllWithStats,
     blendedAnnualizedReturn,
     comboBacktestDueForRefresh,
+    comboBacktestDueForRefreshWithPolicy,
     comboBacktestFreshnessMs,
     comboBacktestStaleAfterMs,
     compactTopCombosPayloadForSync,
@@ -24,6 +27,7 @@ module Trader.TopCombosStore (
     comboMetricInt,
     comboMetricsDouble,
     comboPerformanceKey,
+    defaultComboBacktestRefreshPolicy,
     liveBlendShrinkageOps,
     liveQuarantineMinOperations,
     liveQuarantineMaxFinalEquity,
@@ -46,8 +50,10 @@ module Trader.TopCombosStore (
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
     selectCombosForBacktestRefresh,
+    selectCombosForBacktestRefreshWithPolicy,
     topCombosPayloadEquivalent,
     topCombosGeneratedAtMs,
+    validateComboBacktestRefreshPolicy,
     withTopCombosLock,
     writeTopCombosValue,
 ) where
@@ -373,6 +379,9 @@ coerceIntValue value =
                      in readMaybe trimmed
                 _ -> Nothing
 
+topCombosFiniteDouble :: Double -> Bool
+topCombosFiniteDouble x = not (isNaN x || isInfinite x)
+
 comboMetricDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricDouble key val =
     comboMetricValue key val >>= coerceDoubleValue
@@ -675,21 +684,47 @@ comboBacktestFreshnessMs :: Aeson.Value -> Maybe Int64
 comboBacktestFreshnessMs val =
     comboBacktestRefreshedAtMs val <|> comboTopLevelInt64 "createdAtMs" val
 
+data ComboBacktestRefreshPolicy = ComboBacktestRefreshPolicy
+    { cbrpStaleAfterMs :: !Int64
+    , cbrpPruneFinalEquityFloor :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultComboBacktestRefreshPolicy :: ComboBacktestRefreshPolicy
+defaultComboBacktestRefreshPolicy =
+    ComboBacktestRefreshPolicy
+        { cbrpStaleAfterMs = 3 * 86400000
+        , cbrpPruneFinalEquityFloor = 1.0
+        }
+
+validateComboBacktestRefreshPolicy :: ComboBacktestRefreshPolicy -> Either String ComboBacktestRefreshPolicy
+validateComboBacktestRefreshPolicy policy = do
+    let ensure msg ok = if ok then Right () else Left msg
+    ensure "top-combos backtest stale age must be >= 0" (cbrpStaleAfterMs policy >= 0)
+    ensure "top-combos backtest prune final-equity floor must be finite and >= 0" (topCombosFiniteDouble (cbrpPruneFinalEquityFloor policy) && cbrpPruneFinalEquityFloor policy >= 0)
+    Right policy
+
 comboBacktestStaleAfterMs :: Int64
-comboBacktestStaleAfterMs = 3 * 86400000
+comboBacktestStaleAfterMs = cbrpStaleAfterMs defaultComboBacktestRefreshPolicy
 
 comboBacktestDueForRefresh :: Int64 -> Aeson.Value -> Bool
-comboBacktestDueForRefresh now val =
+comboBacktestDueForRefresh = comboBacktestDueForRefreshWithPolicy defaultComboBacktestRefreshPolicy
+
+comboBacktestDueForRefreshWithPolicy :: ComboBacktestRefreshPolicy -> Int64 -> Aeson.Value -> Bool
+comboBacktestDueForRefreshWithPolicy policy now val =
     case comboBacktestFreshnessMs val of
         Nothing -> True
-        Just refreshedAt -> now - refreshedAt > comboBacktestStaleAfterMs
+        Just refreshedAt -> now - refreshedAt > cbrpStaleAfterMs policy
 
 selectCombosForBacktestRefresh :: Int -> Int64 -> [Aeson.Value] -> [Aeson.Value]
-selectCombosForBacktestRefresh topNRaw now combos =
+selectCombosForBacktestRefresh = selectCombosForBacktestRefreshWithPolicy defaultComboBacktestRefreshPolicy
+
+selectCombosForBacktestRefreshWithPolicy :: ComboBacktestRefreshPolicy -> Int -> Int64 -> [Aeson.Value] -> [Aeson.Value]
+selectCombosForBacktestRefreshWithPolicy policy topNRaw now combos =
     let topN = max 1 topNRaw
         indexed = zip [0 :: Int ..] combos
         ranked = take topN (sortBy compareRank indexed)
-        stale = filter (comboBacktestDueForRefresh now . snd) indexed
+        stale = filter (comboBacktestDueForRefreshWithPolicy policy now . snd) indexed
      in map snd (dedupeSelected (ranked ++ stale))
   where
     compareRank (_, a) (_, b) = compare (comboPerformanceKey a) (comboPerformanceKey b)
@@ -1595,7 +1630,10 @@ deleted 124 healthy combos in the 2026-06-10 launchd log. We detect the
 zero-trade case by reading the inbound update's metrics directly.
 -}
 applyComboUpdatesWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
-applyComboUpdatesWithStats = applyComboUpdatesWithStatsPrune True
+applyComboUpdatesWithStats = applyComboUpdatesWithStatsWithPolicy defaultComboBacktestRefreshPolicy
+
+applyComboUpdatesWithStatsWithPolicy :: ComboBacktestRefreshPolicy -> Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
+applyComboUpdatesWithStatsWithPolicy policy = applyComboUpdatesWithStatsPrune policy True
 
 {- | Like 'applyComboUpdatesWithStats' but never prunes: an unprofitable
 refresh keeps the combo with its deflated metrics (and refresh stamp).
@@ -1605,10 +1643,10 @@ selected combo. Scheduled stale refreshes should use
 tombstoned against stale replica resurrection.
 -}
 applyComboUpdatesKeepAllWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
-applyComboUpdatesKeepAllWithStats = applyComboUpdatesWithStatsPrune False
+applyComboUpdatesKeepAllWithStats = applyComboUpdatesWithStatsPrune defaultComboBacktestRefreshPolicy False
 
-applyComboUpdatesWithStatsPrune :: Bool -> Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
-applyComboUpdatesWithStatsPrune pruneUnprofitable now updates val =
+applyComboUpdatesWithStatsPrune :: ComboBacktestRefreshPolicy -> Bool -> Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
+applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
     case val of
         Aeson.Object o ->
             case KM.lookup (AK.fromString "combos") o of
@@ -1625,7 +1663,7 @@ applyComboUpdatesWithStatsPrune pruneUnprofitable now updates val =
                                         mTrades = comboMetricInt "tradeCount" (cbuMetrics upd)
                                         -- A zero-trade update is not a verdict; keep the combo as-is.
                                         zeroTradeUpdate = mTrades == Just 0
-                                        keep = not pruneUnprofitable || maybe True (> 1.0) mEquity || zeroTradeUpdate
+                                        keep = not pruneUnprofitable || maybe True (> cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
                                      in if keep
                                             then (updated : acc, updCount + 1, pruneCount, pKeys, tKeys)
                                             else case comboIdentityKey comboVal of

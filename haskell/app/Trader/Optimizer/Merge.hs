@@ -59,6 +59,8 @@ import Trader.TopComboScoring (
     tcscLiveQuarantineMinOperations,
     topComboDrawdownMultiplier,
     topComboEquityTerm,
+    topComboFreshnessAdjustedScore,
+    topComboFreshnessMultiplier,
     topComboLiveBlendWeight,
     topComboLiveQuarantinedByConfig,
     topComboValidatedAnnualizedReturn,
@@ -319,10 +321,10 @@ normalizeComboIdentityField key val
 
 writeTopJson :: TopComboScoringConfig -> FilePath -> [Combo] -> Int -> IO ()
 writeTopJson scoringConfig path combos maxItems = do
-    let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1 && comboOpenThresholdDeployable combo) combos
-        sorted = take maxItems (sortBy (compareCombos scoringConfig) eligible)
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
-    let comboValues = zipWith (comboToValue scoringConfig) [1 ..] sorted
+    let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1 && comboOpenThresholdDeployable combo) combos
+        sorted = take maxItems (sortBy (compareCombos scoringConfig nowMs) eligible)
+        comboValues = zipWith (comboToValue scoringConfig nowMs) [1 ..] sorted
         exportVal =
             object
                 [ "generatedAtMs" .= nowMs
@@ -338,12 +340,12 @@ writeTopJson scoringConfig path combos maxItems = do
     hClose h
     renameFile tmpPath path
 
-compareCombos :: TopComboScoringConfig -> Combo -> Combo -> Ordering
-compareCombos config a b =
-    compare (comboPerformanceKey config a) (comboPerformanceKey config b)
+compareCombos :: TopComboScoringConfig -> Int -> Combo -> Combo -> Ordering
+compareCombos config nowMs a b =
+    compare (comboPerformanceKey config nowMs a) (comboPerformanceKey config nowMs b)
 
-comboPerformanceKey :: TopComboScoringConfig -> Combo -> (Int, Double, Double, Double, Double)
-comboPerformanceKey config combo =
+comboPerformanceKey :: TopComboScoringConfig -> Int -> Combo -> (Int, Double, Double, Double, Double)
+comboPerformanceKey config nowMs combo =
     let ann = comboAnnualizedReturn combo
         ann'
             | comboLiveQuarantined config combo = negate (1 / 0)
@@ -351,7 +353,7 @@ comboPerformanceKey config combo =
             | otherwise = blendedAnnualizedReturn config ann (comboLiveStats combo)
         score = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore combo))
         eq = sanitizeEq (comboFinalEquity combo)
-     in (comboProcessingTierRank config combo, negate (comboValidatedScore config combo), negate ann', negate score, negate eq)
+     in (comboProcessingTierRank config combo, negate (comboRankScore config nowMs combo), negate ann', negate score, negate eq)
 
 comboMetricDouble :: String -> Combo -> Maybe Double
 comboMetricDouble key combo = do
@@ -436,12 +438,27 @@ comboValidatedScore config combo =
         equityTerm = topComboEquityTerm config (sanitizeEq (comboFinalEquity combo))
      in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
 
-comboProcessingValue :: TopComboScoringConfig -> Combo -> Value
-comboProcessingValue config combo =
+comboFreshnessAgeDays :: Int -> Combo -> Maybe Double
+comboFreshnessAgeDays nowMs combo = do
+    createdAtMs <- comboCreatedAtMs combo
+    let ageMs = max 0 (nowMs - createdAtMs)
+    pure (fromIntegral ageMs / 86400000)
+
+comboRankScore :: TopComboScoringConfig -> Int -> Combo -> Double
+comboRankScore config nowMs combo =
+    topComboFreshnessAdjustedScore
+        config
+        (comboFreshnessAgeDays nowMs combo)
+        (comboValidatedScore config combo)
+
+comboProcessingValue :: TopComboScoringConfig -> Int -> Combo -> Value
+comboProcessingValue config nowMs combo =
     object
         [ "tier" .= comboProcessingTier config combo
         , "tierRank" .= comboProcessingTierRank config combo
         , "validatedScore" .= comboValidatedScore config combo
+        , "freshnessMultiplier" .= topComboFreshnessMultiplier config (comboFreshnessAgeDays nowMs combo)
+        , "rankScore" .= comboRankScore config nowMs combo
         , "reasons" .= comboProcessingReasons config combo
         ]
 
@@ -558,8 +575,8 @@ compareDesc a b
     | a < b = GT
     | otherwise = EQ
 
-comboToValue :: TopComboScoringConfig -> Int -> Combo -> Value
-comboToValue scoringConfig rank combo =
+comboToValue :: TopComboScoringConfig -> Int -> Int -> Combo -> Value
+comboToValue scoringConfig nowMs rank combo =
     let metricsVal =
             maybe Null Object (comboMetrics combo)
         uuidVal = comboUuid combo
@@ -575,7 +592,7 @@ comboToValue scoringConfig rank combo =
                 , "closeThreshold" .= comboCloseThreshold combo
                 , "source" .= comboSource combo
                 , "metrics" .= metricsVal
-                , "processing" .= comboProcessingValue scoringConfig combo
+                , "processing" .= comboProcessingValue scoringConfig nowMs combo
                 , "params" .= Object (comboParams combo)
                 ]
      in case comboOperations combo of

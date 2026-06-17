@@ -73,6 +73,8 @@ scoringConfigParser =
         <*> scoreDouble "score-drawdown-penalty-scale" tcscDrawdownPenaltyScale "Drawdown penalty scale used as 1/(1 + scale * drawdown)"
         <*> scoreDouble "score-equity-floor" tcscEquityFloor "Minimum final equity used before the log-equity term"
         <*> scoreDouble "score-equity-log-floor" tcscEquityLogFloor "Floor applied to the log-equity term in validatedScore"
+        <*> scoreDouble "score-freshness-half-life-days" tcscFreshnessHalfLifeDays "Half-life in days for ranking by combo createdAtMs; 0 disables the freshness multiplier"
+        <*> scoreDouble "score-freshness-floor-multiplier" tcscFreshnessFloorMultiplier "Lowest multiplier applied by the freshness rank adjustment"
   where
     def = defaultTopComboScoringConfig
     scoreDouble name getter helpText =
