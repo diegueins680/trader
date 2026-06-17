@@ -11070,6 +11070,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     survivorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_EDGE_WEIGHT"
                                     survivorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_RANK_BIAS"
                                     pLongShortEnv <- lookupEnv "TRADER_OPTIMIZER_P_LONG_SHORT"
+                                    pCostAwareEdgeEnv <- lookupEnv "TRADER_OPTIMIZER_P_COST_AWARE_EDGE"
                                     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
                                     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
                                     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -11198,6 +11199,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 ++ maybeDoubleArg "--survivor-rank-bias" (fmap (max 0) (readFiniteDoubleMaybe survivorRankBiasEnv))
                                         pLongShortArgs =
                                             maybeDoubleArg "--p-long-short" (fmap clamp01 (readFiniteDoubleMaybe pLongShortEnv))
+                                        pCostAwareEdgeArgs =
+                                            maybeDoubleArg "--p-cost-aware-edge" (fmap clamp01 (readFiniteDoubleMaybe pCostAwareEdgeEnv))
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -11417,8 +11420,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                 recoverySeed = (seed + 7919) `mod` 2000000000
                                                                                 appendPositioning args =
                                                                                     case adoptOverride of
-                                                                                        Nothing -> args ++ pLongShortArgs
-                                                                                        Just pLongShort -> args ++ ["--p-long-short", show pLongShort]
+                                                                                        Nothing -> args ++ pLongShortArgs ++ pCostAwareEdgeArgs
+                                                                                        Just pLongShort -> args ++ ["--p-long-short", show pLongShort] ++ pCostAwareEdgeArgs
                                                                                 mkCliArgs outPath seedVal trialsVal timeoutVal minRoundTripsVal minExposureVal minSharpeVal minCalmarVal extraArgs =
                                                                                     appendPositioning $
                                                                                         [ "--data"
@@ -15835,6 +15838,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     survivorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_EDGE_WEIGHT"
     survivorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_RANK_BIAS"
     pLongShortEnv <- lookupEnv "TRADER_OPTIMIZER_P_LONG_SHORT"
+    pCostAwareEdgeEnv <- lookupEnv "TRADER_OPTIMIZER_P_COST_AWARE_EDGE"
     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -16140,7 +16144,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeDoubleArg "--edge-buffer-min" (fmap (max 0) (arrEdgeBufferMin req))
                         ++ maybeDoubleArg "--edge-buffer-max" (fmap (max 0) (arrEdgeBufferMax req))
                 pCostAwareEdgeArgs =
-                    maybeDoubleArg "--p-cost-aware-edge" (arrPCostAwareEdge req)
+                    maybeDoubleArg "--p-cost-aware-edge" (fmap clamp01 (arrPCostAwareEdge req <|> readFiniteDoubleMaybe pCostAwareEdgeEnv))
                 trendLookbackArgs =
                     maybeIntArg "--trend-lookback-min" (fmap (max 0) (arrTrendLookbackMin req))
                         ++ maybeIntArg "--trend-lookback-max" (fmap (max 0) (arrTrendLookbackMax req))

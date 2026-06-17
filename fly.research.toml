@@ -41,6 +41,7 @@ primary_region = "fra"
   TRADER_TOP_COMBO_SCORE_FRESHNESS_FLOOR_MULTIPLIER = "0.10"
   TRADER_OPTIMIZER_PRIOR_MISSING_AGE_MULTIPLIER = "0.10"
   TRADER_OPTIMIZER_P_LONG_SHORT = "0.2"
+  TRADER_OPTIMIZER_P_COST_AWARE_EDGE = "1.0"
 
   # Cross-instance combo sync — SAME bucket + prefix as trader-hs / Hetzner / local.
   # Credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) are set via `fly secrets`.
