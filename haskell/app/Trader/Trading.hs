@@ -27,12 +27,16 @@ module Trader.Trading (
     exitReasonFromCode,
     mkEntryGateState,
     defaultTriLayerPriceActionBodyOpenThresholdMult,
+    defaultOutcomeWeightConfig,
+    OutcomeWeightConfig (..),
     outcomeWeightCap,
     outcomeWeightLossScale,
     outcomeWeightWinScale,
     tradeEntrySourceCode,
     tradeOutcomeWeightFactor,
+    tradeOutcomeWeightFactorWithConfig,
     tradeOutcomeWeights,
+    tradeOutcomeWeightsWithConfig,
     positionSizeScaleHardFailMultiplier,
 ) where
 
@@ -575,17 +579,37 @@ dominate the fine-tune window.
 outcomeWeightCap :: Double
 outcomeWeightCap = 3
 
+data OutcomeWeightConfig = OutcomeWeightConfig
+    { owcWinScale :: !Double
+    , owcLossScale :: !Double
+    , owcCap :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultOutcomeWeightConfig :: OutcomeWeightConfig
+defaultOutcomeWeightConfig =
+    OutcomeWeightConfig
+        { owcWinScale = outcomeWeightWinScale
+        , owcLossScale = outcomeWeightLossScale
+        , owcCap = outcomeWeightCap
+        }
+
 {- | Loss-weight multiplier a closed trade assigns to the bars it spanned.
 Nothing for break-even or non-finite returns (no signal to learn from).
 -}
 tradeOutcomeWeightFactor :: Trade -> Maybe Double
-tradeOutcomeWeightFactor tr =
+tradeOutcomeWeightFactor = tradeOutcomeWeightFactorWithConfig defaultOutcomeWeightConfig
+
+tradeOutcomeWeightFactorWithConfig :: OutcomeWeightConfig -> Trade -> Maybe Double
+tradeOutcomeWeightFactorWithConfig cfg tr =
     let r = trReturn tr
      in if isNaN r || isInfinite r || r == 0
             then Nothing
             else
-                let scale = if r < 0 then outcomeWeightLossScale else outcomeWeightWinScale
-                 in Just (min outcomeWeightCap (1 + scale * abs r))
+                let rawScale = if r < 0 then owcLossScale cfg else owcWinScale cfg
+                    scale = if finiteDouble rawScale && rawScale >= 0 then rawScale else 0
+                    cap = if finiteDouble (owcCap cfg) && owcCap cfg >= 1 then owcCap cfg else 1
+                 in Just (min cap (1 + scale * abs r))
 
 {- | Per-bar loss weights for a price/observation series of length @n@,
 derived from closed trades whose entry/exit indices live in the same index
@@ -594,11 +618,14 @@ position at a time, so spans effectively don't overlap; where they touch
 (close + reopen on the same bar) the later trade in the list wins.
 -}
 tradeOutcomeWeights :: [Trade] -> Int -> [Double]
-tradeOutcomeWeights trades n
+tradeOutcomeWeights = tradeOutcomeWeightsWithConfig defaultOutcomeWeightConfig
+
+tradeOutcomeWeightsWithConfig :: OutcomeWeightConfig -> [Trade] -> Int -> [Double]
+tradeOutcomeWeightsWithConfig cfg trades n
     | n <= 0 = []
     | otherwise =
         let updatesFor tr =
-                case tradeOutcomeWeightFactor tr of
+                case tradeOutcomeWeightFactorWithConfig cfg tr of
                     Nothing -> []
                     Just f ->
                         let lo = max 0 (trEntryIndex tr)

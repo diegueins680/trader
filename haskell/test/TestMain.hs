@@ -210,6 +210,7 @@ import Trader.Trading (
     EnsembleConfig (..),
     ExitReason (..),
     IntrabarFill (..),
+    OutcomeWeightConfig (..),
     PositionSide (..),
     Positioning (..),
     StepMeta (..),
@@ -235,7 +236,9 @@ import Trader.Trading (
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
     tradeOutcomeWeightFactor,
+    tradeOutcomeWeightFactorWithConfig,
     tradeOutcomeWeights,
+    tradeOutcomeWeightsWithConfig,
  )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -4412,6 +4415,22 @@ testTradeOutcomeWeightsSemantics = do
     assert
         "extreme trades cap at outcomeWeightCap"
         (tradeOutcomeWeightFactor (mkOutcomeTestTrade 0 1 (-0.5)) == Just outcomeWeightCap)
+    let tuned =
+            OutcomeWeightConfig
+                { owcWinScale = 5
+                , owcLossScale = 40
+                , owcCap = 1.6
+                }
+        tunedWeights = tradeOutcomeWeightsWithConfig tuned [win, loss] 10
+    assert
+        "custom win scale changes winning span weights"
+        (all (\t -> abs (tunedWeights !! t - 1.1) < 1e-9) [2 .. 4])
+    assert
+        "custom loss scale changes losing span weights"
+        (all (\t -> abs (tunedWeights !! t - 1.6) < 1e-9) [6, 7])
+    assert
+        "custom cap limits direct outcome factor"
+        (tradeOutcomeWeightFactorWithConfig tuned (mkOutcomeTestTrade 0 1 (-0.5)) == Just 1.6)
     assert
         "break-even trades carry no learning signal"
         (isNothing (tradeOutcomeWeightFactor (mkOutcomeTestTrade 0 1 0)))

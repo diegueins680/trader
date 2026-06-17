@@ -469,11 +469,13 @@ import Trader.Trading (
     EnsembleConfig (..),
     ExitReason (..),
     IntrabarFill (..),
+    OutcomeWeightConfig (..),
     PositionSide (..),
     Positioning (..),
     StepMeta (..),
     Trade (..),
     TradeEntrySource (..),
+    defaultOutcomeWeightConfig,
     emptyBacktestCostAttribution,
     exitReasonCode,
     exitReasonFromCode,
@@ -481,7 +483,7 @@ import Trader.Trading (
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
-    tradeOutcomeWeights,
+    tradeOutcomeWeightsWithConfig,
  )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -1005,6 +1007,9 @@ data ApiParams = ApiParams
     , apBotOnlineEpochs :: Maybe Int
     , apBotTrainBars :: Maybe Int
     , apBotMaxPoints :: Maybe Int
+    , apBotOutcomeWeightWinScale :: Maybe Double
+    , apBotOutcomeWeightLossScale :: Maybe Double
+    , apBotOutcomeWeightCap :: Maybe Double
     , apBotTrade :: Maybe Bool
     , apBotProtectionOrders :: Maybe Bool
     , apProtectionMinConfidence :: Maybe Double
@@ -5386,6 +5391,7 @@ data BotSettings = BotSettings
     , bsOnlineEpochs :: !Int
     , bsTrainBars :: !Int
     , bsMaxPoints :: !Int
+    , bsOutcomeWeightConfig :: !OutcomeWeightConfig
     , bsTradeEnabled :: !Bool
     , bsProtectionOrders :: !Bool
     , bsAdoptExistingPosition :: !Bool
@@ -6294,6 +6300,7 @@ defaultBotSettings args =
         , bsOnlineEpochs = defaultBotOnlineEpochs
         , bsTrainBars = defaultBotTrainBars
         , bsMaxPoints = defaultBotMaxPoints
+        , bsOutcomeWeightConfig = defaultOutcomeWeightConfig
         , bsTradeEnabled = True
         , bsProtectionOrders = False
         , bsAdoptExistingPosition = True
@@ -6304,11 +6311,20 @@ defaultBotSettingsFromEnv args = do
     onlineEpochs <- readBoundedIntEnv "TRADER_BOT_ONLINE_EPOCHS" 0 50 defaultBotOnlineEpochs
     trainBars <- readBoundedIntEnv "TRADER_BOT_TRAIN_BARS" 10 100000 defaultBotTrainBars
     maxPoints <- readBoundedIntEnv "TRADER_BOT_MAX_POINTS" 100 100000 defaultBotMaxPoints
+    outcomeWeightWinScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_WIN_SCALE" 0 1000 (owcWinScale defaultOutcomeWeightConfig)
+    outcomeWeightLossScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_LOSS_SCALE" 0 1000 (owcLossScale defaultOutcomeWeightConfig)
+    outcomeWeightCap <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_CAP" 1 100 (owcCap defaultOutcomeWeightConfig)
     pure
         (defaultBotSettings args)
             { bsOnlineEpochs = onlineEpochs
             , bsTrainBars = trainBars
             , bsMaxPoints = maxPoints
+            , bsOutcomeWeightConfig =
+                OutcomeWeightConfig
+                    { owcWinScale = outcomeWeightWinScale
+                    , owcLossScale = outcomeWeightLossScale
+                    , owcCap = outcomeWeightCap
+                    }
             }
 
 botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
@@ -6317,6 +6333,9 @@ botSettingsFromApi args p = do
         onlineEpochs = fromMaybe defaultApiBotOnlineEpochs (apBotOnlineEpochs p)
         trainBars = fromMaybe defaultBotTrainBars (apBotTrainBars p)
         maxPoints = fromMaybe defaultBotMaxPoints (apBotMaxPoints p)
+        outcomeWeightWinScale = fromMaybe (owcWinScale defaultOutcomeWeightConfig) (apBotOutcomeWeightWinScale p)
+        outcomeWeightLossScale = fromMaybe (owcLossScale defaultOutcomeWeightConfig) (apBotOutcomeWeightLossScale p)
+        outcomeWeightCap = fromMaybe (owcCap defaultOutcomeWeightConfig) (apBotOutcomeWeightCap p)
         tradeEnabled = fromMaybe True (apBotTrade p)
         protectionOrders = fromMaybe False (apBotProtectionOrders p)
         adoptExistingPosition = True
@@ -6325,6 +6344,9 @@ botSettingsFromApi args p = do
     ensure "botOnlineEpochs must be between 0 and 50" (onlineEpochs >= 0 && onlineEpochs <= 50)
     ensure "botTrainBars must be >= 10" (trainBars >= 10)
     ensure "botMaxPoints must be between 100 and 100000" (maxPoints >= 100 && maxPoints <= 100000)
+    ensure "botOutcomeWeightWinScale must be between 0 and 1000" (isFiniteDouble outcomeWeightWinScale && outcomeWeightWinScale >= 0 && outcomeWeightWinScale <= 1000)
+    ensure "botOutcomeWeightLossScale must be between 0 and 1000" (isFiniteDouble outcomeWeightLossScale && outcomeWeightLossScale >= 0 && outcomeWeightLossScale <= 1000)
+    ensure "botOutcomeWeightCap must be between 1 and 100" (isFiniteDouble outcomeWeightCap && outcomeWeightCap >= 1 && outcomeWeightCap <= 100)
 
     pure
         BotSettings
@@ -6332,6 +6354,12 @@ botSettingsFromApi args p = do
             , bsOnlineEpochs = onlineEpochs
             , bsTrainBars = trainBars
             , bsMaxPoints = maxPoints
+            , bsOutcomeWeightConfig =
+                OutcomeWeightConfig
+                    { owcWinScale = outcomeWeightWinScale
+                    , owcLossScale = outcomeWeightLossScale
+                    , owcCap = outcomeWeightCap
+                    }
             , bsTradeEnabled = tradeEnabled
             , bsProtectionOrders = protectionOrders
             , bsAdoptExistingPosition = adoptExistingPosition
@@ -6467,6 +6495,9 @@ botStatusJson st =
                     , "onlineEpochs" .= bsOnlineEpochs (botSettings st)
                     , "trainBars" .= bsTrainBars (botSettings st)
                     , "maxPoints" .= bsMaxPoints (botSettings st)
+                    , "outcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig (botSettings st))
+                    , "outcomeWeightLossScale" .= owcLossScale (bsOutcomeWeightConfig (botSettings st))
+                    , "outcomeWeightCap" .= owcCap (bsOutcomeWeightConfig (botSettings st))
                     , "tradeEnabled" .= bsTradeEnabled (botSettings st)
                     , "protectionOrders" .= bsProtectionOrders (botSettings st)
                     , "adoptExistingPosition" .= bsAdoptExistingPosition (botSettings st)
@@ -8342,6 +8373,9 @@ logBotStartRequestOutcome mOps mJournal tenantKey params outcome =
                             , "botOnlineEpochs" .= bsOnlineEpochs settings
                             , "botTrainBars" .= bsTrainBars settings
                             , "botMaxPoints" .= bsMaxPoints settings
+                            , "botOutcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig settings)
+                            , "botOutcomeWeightLossScale" .= owcLossScale (bsOutcomeWeightConfig settings)
+                            , "botOutcomeWeightCap" .= owcCap (bsOutcomeWeightConfig settings)
                             ]
                         )
                     )
@@ -12327,7 +12361,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 let obsAll' = obsAll ++ forwardSeries normState [priceNew]
                     trainBars = max (lookback + 2) (bsTrainBars settings)
                     obsTrain = takeLast trainBars obsAll'
-                    outcomeWeights = takeLast trainBars (tradeOutcomeWeights (botTrades st) (length obsAll'))
+                    outcomeWeights = takeLast trainBars (tradeOutcomeWeightsWithConfig (bsOutcomeWeightConfig settings) (botTrades st) (length obsAll'))
                     epochs = bsOnlineEpochs settings
                     cfg =
                         LSTMConfig
