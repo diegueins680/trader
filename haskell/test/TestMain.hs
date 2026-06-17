@@ -113,11 +113,14 @@ import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuan
 import Trader.Platform (Platform (..))
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
+    PredictionMarketFetchConfig (..),
     PredictionMarketMarket (..),
     PredictionMarketSignal (..),
+    defaultPredictionMarketFetchConfig,
     nearestPredictionMarketInterval,
     predictionMarketProbabilityForDir,
     selectPredictionMarketSignal,
+    selectPredictionMarketSignalWithConfig,
  )
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
@@ -1385,6 +1388,33 @@ testPredictionMarketHerdTtlRejectsInvalidValues = do
             Right args ->
                 argPredictionMarketHerdFreshTtlSec args == 30
                     && argPredictionMarketHerdStaleTtlSec args == 180
+            Left _ -> False
+        )
+    assert
+        "prediction-market-herd scoring rejects non-finite coefficients"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--prediction-market-herd-score-base", "NaN"] == Left "--prediction-market-herd-score-base must be finite")
+    assert
+        "prediction-market-herd scoring accepts custom coefficients"
+        ( case parseAndValidateCliArgs
+            [ "--data"
+            , "sample.csv"
+            , "--prediction-market-herd-score-base"
+            , "80"
+            , "--prediction-market-herd-interval-match-bonus"
+            , "12"
+            , "--prediction-market-herd-time-decay-bonus"
+            , "7"
+            , "--prediction-market-herd-past-end-penalty"
+            , "-3"
+            , "--prediction-market-herd-volume-score-weight"
+            , "2"
+            ] of
+            Right args ->
+                argPredictionMarketHerdScoreBase args == 80
+                    && argPredictionMarketHerdIntervalMatchBonus args == 12
+                    && argPredictionMarketHerdTimeDecayBonus args == 7
+                    && argPredictionMarketHerdPastEndPenalty args == (-3)
+                    && argPredictionMarketHerdVolumeScoreWeight args == 2
             Left _ -> False
         )
 
@@ -3130,6 +3160,15 @@ testPredictionMarketHerdSelection = do
                 , pmeVolume24hr = Just 4000
                 , pmeMarkets = [btcMarket]
                 }
+        btcHighVolumeMarket =
+            btcMarket
+                { pmmId = Just "btc-1h-high-volume"
+                , pmmSlug = Just "bitcoin-up-or-down-1h-high-volume"
+                , pmmQuestion = "Bitcoin Up or Down - 1 hour"
+                , pmmVolume = Just 1000000000
+                , pmmVolume24hr = Just 500000000
+                }
+        btcMixedEvent = btcEvent{pmeMarkets = [btcMarket, btcHighVolumeMarket]}
         mSignal = selectPredictionMarketSignal "BTCUSDT" "5m" [btcEvent]
     case mSignal of
         Nothing -> assert "BTC Polymarket herd signal should be selected" False
@@ -3148,6 +3187,17 @@ testPredictionMarketHerdSelection = do
             && nearestPredictionMarketInterval "2h" == ("4h", 14400)
             && nearestPredictionMarketInterval "12h" == ("1d", 86400)
         )
+    let volumeWeightedConfig =
+            defaultPredictionMarketFetchConfig
+                { pmfcIntervalMatchBonus = 5
+                , pmfcVolumeScoreWeight = 3
+                }
+    case selectPredictionMarketSignalWithConfig volumeWeightedConfig "BTCUSDT" "5m" [btcMixedEvent] of
+        Nothing -> assert "custom Polymarket herd score should still select a market" False
+        Just signal ->
+            assert
+                "custom Polymarket herd score weights can favor high-volume markets over interval matches"
+                (pmsMarketId signal == Just "btc-1h-high-volume")
 
 -- Regression for the restored public helper surface: fresh-entry gating keeps a
 -- single normalized non-negative edge sample, and malformed raw edges still

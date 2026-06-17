@@ -473,6 +473,11 @@ data Args = Args
     , argPredictionMarketHerdLimit :: Int
     , argPredictionMarketHerdFreshTtlSec :: Double
     , argPredictionMarketHerdStaleTtlSec :: Double
+    , argPredictionMarketHerdScoreBase :: Double
+    , argPredictionMarketHerdIntervalMatchBonus :: Double
+    , argPredictionMarketHerdTimeDecayBonus :: Double
+    , argPredictionMarketHerdPastEndPenalty :: Double
+    , argPredictionMarketHerdVolumeScoreWeight :: Double
     , argExecutionMakerFirst :: Bool
     , argExecutionMakerOffsetBps :: Double
     , argExecutionMakerTimeoutSec :: Double
@@ -1495,6 +1500,11 @@ opts = do
     argPredictionMarketHerdLimit <- option auto (long "prediction-market-herd-limit" <> value 50 <> showDefault <> help "Maximum Polymarket search events to inspect for herd evidence")
     argPredictionMarketHerdFreshTtlSec <- option auto (long "prediction-market-herd-fresh-ttl-sec" <> value (realToFrac (pmfcFreshTtl defaultPredictionMarketFetchConfig)) <> showDefault <> help "Seconds a cached Polymarket herd signal is considered fresh")
     argPredictionMarketHerdStaleTtlSec <- option auto (long "prediction-market-herd-stale-ttl-sec" <> value (realToFrac (pmfcStaleTtl defaultPredictionMarketFetchConfig)) <> showDefault <> help "Seconds a cached Polymarket herd signal may be used as stale fallback after refresh errors")
+    argPredictionMarketHerdScoreBase <- option auto (long "prediction-market-herd-score-base" <> value (pmfcScoreBase defaultPredictionMarketFetchConfig) <> showDefault <> help "Base score added to eligible Polymarket herd markets")
+    argPredictionMarketHerdIntervalMatchBonus <- option auto (long "prediction-market-herd-interval-match-bonus" <> value (pmfcIntervalMatchBonus defaultPredictionMarketFetchConfig) <> showDefault <> help "Score bonus when a Polymarket herd market matches the requested interval")
+    argPredictionMarketHerdTimeDecayBonus <- option auto (long "prediction-market-herd-time-decay-bonus" <> value (pmfcTimeDecayBonus defaultPredictionMarketFetchConfig) <> showDefault <> help "Score numerator for favoring nearer non-expired Polymarket herd markets")
+    argPredictionMarketHerdPastEndPenalty <- option auto (long "prediction-market-herd-past-end-penalty" <> value (pmfcPastEndPenalty defaultPredictionMarketFetchConfig) <> showDefault <> help "Score contribution for expired Polymarket herd markets")
+    argPredictionMarketHerdVolumeScoreWeight <- option auto (long "prediction-market-herd-volume-score-weight" <> value (pmfcVolumeScoreWeight defaultPredictionMarketFetchConfig) <> showDefault <> help "Multiplier applied to log-volume in Polymarket herd market scoring")
     argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
     argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
     argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")
@@ -1999,6 +2009,11 @@ validateArgs args0 = do
             , ("--prediction-market-herd-min-volume", argPredictionMarketHerdMinVolume args)
             , ("--prediction-market-herd-fresh-ttl-sec", argPredictionMarketHerdFreshTtlSec args)
             , ("--prediction-market-herd-stale-ttl-sec", argPredictionMarketHerdStaleTtlSec args)
+            , ("--prediction-market-herd-score-base", argPredictionMarketHerdScoreBase args)
+            , ("--prediction-market-herd-interval-match-bonus", argPredictionMarketHerdIntervalMatchBonus args)
+            , ("--prediction-market-herd-time-decay-bonus", argPredictionMarketHerdTimeDecayBonus args)
+            , ("--prediction-market-herd-past-end-penalty", argPredictionMarketHerdPastEndPenalty args)
+            , ("--prediction-market-herd-volume-score-weight", argPredictionMarketHerdVolumeScoreWeight args)
             , ("--kalman-z-min", argKalmanZMin args)
             , ("--kalman-z-max", argKalmanZMax args)
             , ("--kalman-min-std-floor", argKalmanMinStdFloor args)
@@ -2555,6 +2570,11 @@ validateArgs args0 = do
     ensure "--prediction-market-herd-fresh-ttl-sec must be > 0" (argPredictionMarketHerdFreshTtlSec args > 0)
     ensure "--prediction-market-herd-stale-ttl-sec must be > 0" (argPredictionMarketHerdStaleTtlSec args > 0)
     ensure "--prediction-market-herd-stale-ttl-sec must be >= --prediction-market-herd-fresh-ttl-sec" (argPredictionMarketHerdStaleTtlSec args >= argPredictionMarketHerdFreshTtlSec args)
+    ensureFinite "--prediction-market-herd-score-base" (argPredictionMarketHerdScoreBase args)
+    ensureFinite "--prediction-market-herd-interval-match-bonus" (argPredictionMarketHerdIntervalMatchBonus args)
+    ensureFinite "--prediction-market-herd-time-decay-bonus" (argPredictionMarketHerdTimeDecayBonus args)
+    ensureFinite "--prediction-market-herd-past-end-penalty" (argPredictionMarketHerdPastEndPenalty args)
+    ensureFinite "--prediction-market-herd-volume-score-weight" (argPredictionMarketHerdVolumeScoreWeight args)
     ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
     ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
     ensure "--rsi-period must be >= 1" (argRsiPeriod args >= 1)

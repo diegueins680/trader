@@ -11,6 +11,7 @@ module Trader.PredictionMarkets (
     nearestPredictionMarketInterval,
     predictionMarketProbabilityForDir,
     selectPredictionMarketSignal,
+    selectPredictionMarketSignalWithConfig,
 ) where
 
 import Control.Applicative ((<|>))
@@ -47,6 +48,11 @@ data PredictionMarketFetchConfig = PredictionMarketFetchConfig
     , pmfcMinVolume :: !Double
     , pmfcFreshTtl :: !NominalDiffTime
     , pmfcStaleTtl :: !NominalDiffTime
+    , pmfcScoreBase :: !Double
+    , pmfcIntervalMatchBonus :: !Double
+    , pmfcTimeDecayBonus :: !Double
+    , pmfcPastEndPenalty :: !Double
+    , pmfcVolumeScoreWeight :: !Double
     }
     deriving (Eq, Show)
 
@@ -58,6 +64,11 @@ defaultPredictionMarketFetchConfig =
         , pmfcMinVolume = 0
         , pmfcFreshTtl = 60
         , pmfcStaleTtl = 300
+        , pmfcScoreBase = 100
+        , pmfcIntervalMatchBonus = 30
+        , pmfcTimeDecayBonus = 20
+        , pmfcPastEndPenalty = -10
+        , pmfcVolumeScoreWeight = 1
         }
 
 data PredictionMarketEvent = PredictionMarketEvent
@@ -253,6 +264,12 @@ selectPredictionMarketSignal =
   where
     fixedNow = read "2026-01-01 00:00:00 UTC" :: UTCTime
 
+selectPredictionMarketSignalWithConfig :: PredictionMarketFetchConfig -> String -> String -> [PredictionMarketEvent] -> Maybe PredictionMarketSignal
+selectPredictionMarketSignalWithConfig =
+    selectPredictionMarketSignalAt fixedNow
+  where
+    fixedNow = read "2026-01-01 00:00:00 UTC" :: UTCTime
+
 selectPredictionMarketSignalAt :: UTCTime -> PredictionMarketFetchConfig -> String -> String -> [PredictionMarketEvent] -> Maybe PredictionMarketSignal
 selectPredictionMarketSignalAt now cfg symbol interval events =
     let candidates = concatMap (eventCandidates now cfg symbol interval) events
@@ -297,10 +314,10 @@ marketSignal now cfg symbol interval event market = do
                                 Nothing -> 0
                                 Just endTime ->
                                     let diffHours = realToFrac (diffUTCTime endTime now) / (3600 :: Double)
-                                     in if diffHours < 0 then -10 else 20 / (1 + diffHours)
-                        intervalScore = if matchesInterval then 30 else 0
-                        volumeScore = log (1 + max 0 volumeForFloor)
-                        score = 100 + intervalScore + timeScore + volumeScore
+                                     in if diffHours < 0 then pmfcPastEndPenalty cfg else pmfcTimeDecayBonus cfg / (1 + diffHours)
+                        intervalScore = if matchesInterval then pmfcIntervalMatchBonus cfg else 0
+                        volumeScore = pmfcVolumeScoreWeight cfg * log (1 + max 0 volumeForFloor)
+                        score = pmfcScoreBase cfg + intervalScore + timeScore + volumeScore
                         url = ("https://polymarket.com/event/" <>) <$> pmeSlug event
                      in Just
                             PredictionMarketSignal

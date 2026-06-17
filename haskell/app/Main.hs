@@ -1039,6 +1039,11 @@ data ApiParams = ApiParams
     , apPredictionMarketHerdLimit :: Maybe Int
     , apPredictionMarketHerdFreshTtlSec :: Maybe Double
     , apPredictionMarketHerdStaleTtlSec :: Maybe Double
+    , apPredictionMarketHerdScoreBase :: Maybe Double
+    , apPredictionMarketHerdIntervalMatchBonus :: Maybe Double
+    , apPredictionMarketHerdTimeDecayBonus :: Maybe Double
+    , apPredictionMarketHerdPastEndPenalty :: Maybe Double
+    , apPredictionMarketHerdVolumeScoreWeight :: Maybe Double
     , apTuneStressVolMult :: Maybe Double
     , apTuneStressShock :: Maybe Double
     , apTuneStressWeight :: Maybe Double
@@ -2869,6 +2874,11 @@ argsPublicJson args =
             , "predictionMarketHerdLimit" .= argPredictionMarketHerdLimit args
             , "predictionMarketHerdFreshTtlSec" .= argPredictionMarketHerdFreshTtlSec args
             , "predictionMarketHerdStaleTtlSec" .= argPredictionMarketHerdStaleTtlSec args
+            , "predictionMarketHerdScoreBase" .= argPredictionMarketHerdScoreBase args
+            , "predictionMarketHerdIntervalMatchBonus" .= argPredictionMarketHerdIntervalMatchBonus args
+            , "predictionMarketHerdTimeDecayBonus" .= argPredictionMarketHerdTimeDecayBonus args
+            , "predictionMarketHerdPastEndPenalty" .= argPredictionMarketHerdPastEndPenalty args
+            , "predictionMarketHerdVolumeScoreWeight" .= argPredictionMarketHerdVolumeScoreWeight args
             , "executionMakerFirst" .= argExecutionMakerFirst args
             , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
             , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
@@ -20598,6 +20608,11 @@ argsFromApi baseArgs p = do
                 , argPredictionMarketHerdLimit = pick (apPredictionMarketHerdLimit p) (argPredictionMarketHerdLimit baseArgs)
                 , argPredictionMarketHerdFreshTtlSec = pick (apPredictionMarketHerdFreshTtlSec p) (argPredictionMarketHerdFreshTtlSec baseArgs)
                 , argPredictionMarketHerdStaleTtlSec = pick (apPredictionMarketHerdStaleTtlSec p) (argPredictionMarketHerdStaleTtlSec baseArgs)
+                , argPredictionMarketHerdScoreBase = pick (apPredictionMarketHerdScoreBase p) (argPredictionMarketHerdScoreBase baseArgs)
+                , argPredictionMarketHerdIntervalMatchBonus = pick (apPredictionMarketHerdIntervalMatchBonus p) (argPredictionMarketHerdIntervalMatchBonus baseArgs)
+                , argPredictionMarketHerdTimeDecayBonus = pick (apPredictionMarketHerdTimeDecayBonus p) (argPredictionMarketHerdTimeDecayBonus baseArgs)
+                , argPredictionMarketHerdPastEndPenalty = pick (apPredictionMarketHerdPastEndPenalty p) (argPredictionMarketHerdPastEndPenalty baseArgs)
+                , argPredictionMarketHerdVolumeScoreWeight = pick (apPredictionMarketHerdVolumeScoreWeight p) (argPredictionMarketHerdVolumeScoreWeight baseArgs)
                 , argTuneStressVolMult = pick (apTuneStressVolMult p) (argTuneStressVolMult baseArgs)
                 , argTuneStressShock = pick (apTuneStressShock p) (argTuneStressShock baseArgs)
                 , argTuneStressWeight = pick (apTuneStressWeight p) (argTuneStressWeight baseArgs)
@@ -20628,6 +20643,11 @@ predictionMarketFetchConfigFromArgs args =
             , pmfcMinVolume = max 0 (argPredictionMarketHerdMinVolume args)
             , pmfcFreshTtl = realToFrac freshTtlSec
             , pmfcStaleTtl = realToFrac staleTtlSec
+            , pmfcScoreBase = argPredictionMarketHerdScoreBase args
+            , pmfcIntervalMatchBonus = argPredictionMarketHerdIntervalMatchBonus args
+            , pmfcTimeDecayBonus = argPredictionMarketHerdTimeDecayBonus args
+            , pmfcPastEndPenalty = argPredictionMarketHerdPastEndPenalty args
+            , pmfcVolumeScoreWeight = argPredictionMarketHerdVolumeScoreWeight args
             }
 
 predictionMarketEntryIntent :: LatestSignal -> Bool
