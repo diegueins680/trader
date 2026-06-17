@@ -1,12 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.Optimizer.Common (
+    AutoOptimizerScopeSelection (..),
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
+    autoOptimizerRequiredBarsForSweep,
     closeTimingReportFromBacktest,
     normalizeObjectiveCode,
     objectiveScore,
     objectiveScoreWithConfig,
+    selectAutoOptimizerScopes,
 ) where
 
 import Control.Applicative ((<|>))
@@ -21,7 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Text.Read (readMaybe)
 
-import Trader.Duration (positiveFiniteDuration)
+import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds, positiveFiniteDuration)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     ComboTrade (..),
@@ -42,6 +45,12 @@ import Trader.RoiScore (
 
 -- Keep baseline backtest helpers separate from the optimizer search engine so
 -- trader-hs does not need to compile optimizer internals on simple execution paths.
+
+data AutoOptimizerScopeSelection = AutoOptimizerScopeSelection
+    { aosScopes :: ![(String, String)]
+    , aosCappedScopes :: ![(String, String)]
+    }
+    deriving (Eq, Show)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
@@ -175,6 +184,78 @@ objectiveScoreWithConfig roiCfg0 metrics objective penaltyMaxDd penaltyTurnover 
 
 normalizeObjectiveCode :: String -> Either String String
 normalizeObjectiveCode raw = tuneObjectiveCode <$> parseTuneObjective raw
+
+autoOptimizerRequiredBarsForSweep :: Double -> Double -> Int -> Maybe Int
+autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio lookbackBars
+    | backtestRatio <= 0 || backtestRatio >= 1 = Nothing
+    | tuneRatio <= 0 || tuneRatio >= 1 = Nothing
+    | otherwise =
+        let minRequired0 = lookbackBars + 3
+            denom = max 1e-12 ((1 - backtestRatio) * (1 - tuneRatio))
+            minRequired1 = max minRequired0 (ceiling ((fromIntegral lookbackBars + 1) / denom) + 2)
+            minTrain = ceiling (2 / tuneRatio)
+            minRequired2 = max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - backtestRatio)) + 2)
+         in Just minRequired2
+
+selectAutoOptimizerScopes ::
+    Bool ->
+    Int ->
+    Double ->
+    Double ->
+    [String] ->
+    [String] ->
+    AutoOptimizerScopeSelection
+selectAutoOptimizerScopes autoCappedLookbacksEnabled maxPoints backtestRatio tuneRatio intervals lookbackWindows =
+    AutoOptimizerScopeSelection
+        { aosScopes = optimizerScopes
+        , aosCappedScopes =
+            [ (interval, lookbackWindow)
+            | (interval, lookbackWindow) <- optimizerScopes
+            , lookbackWindow `notElem` lookbackWindows
+            ]
+        }
+  where
+    scopeFeasible interval lookbackWindow =
+        case lookbackBarsFrom interval lookbackWindow of
+            Left _ -> False
+            Right lookbackBars ->
+                lookbackBars >= 2
+                    && maybe False (<= maxPoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio lookbackBars)
+
+    maxFeasibleLookbackBars =
+        let go lo hi best
+                | lo > hi = best
+                | otherwise =
+                    let mid = (lo + hi) `div` 2
+                     in if maybe False (<= maxPoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio mid)
+                            then go (mid + 1) hi (Just mid)
+                            else go lo (mid - 1) best
+         in go 2 maxPoints Nothing
+
+    renderLookbackSeconds totalSeconds
+        | totalSeconds `mod` 86400 == 0 = show (max 1 (totalSeconds `div` 86400)) ++ "d"
+        | totalSeconds `mod` 3600 == 0 = show (max 1 (totalSeconds `div` 3600)) ++ "h"
+        | totalSeconds `mod` 60 == 0 = show (max 1 (totalSeconds `div` 60)) ++ "m"
+        | otherwise = show (max 1 totalSeconds) ++ "s"
+
+    cappedLookbackWindowFor interval = do
+        if autoCappedLookbacksEnabled then Just () else Nothing
+        intervalSec <- parseIntervalSeconds interval
+        lookbackBars <- maxFeasibleLookbackBars
+        let lookbackWindow = renderLookbackSeconds (lookbackBars * intervalSec)
+        if scopeFeasible interval lookbackWindow then Just lookbackWindow else Nothing
+
+    scopesForInterval interval =
+        let configured =
+                [ (interval, lookbackWindow)
+                | lookbackWindow <- lookbackWindows
+                , scopeFeasible interval lookbackWindow
+                ]
+         in case configured of
+                [] -> maybe [] (\lookbackWindow -> [(interval, lookbackWindow)]) (cappedLookbackWindowFor interval)
+                _ -> configured
+
+    optimizerScopes = concatMap scopesForInterval intervals
 
 coerceFloatArray :: Value -> Maybe [Double]
 coerceFloatArray value =

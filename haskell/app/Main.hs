@@ -332,11 +332,14 @@ import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, i
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
+    aosCappedScopes,
+    aosScopes,
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     closeTimingReportFromBacktest,
     normalizeObjectiveCode,
     objectiveScoreWithConfig,
+    selectAutoOptimizerScopes,
  )
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Optimize (
@@ -11058,6 +11061,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     objectiveEnv <- lookupEnv "TRADER_OPTIMIZER_OBJECTIVE"
                                     lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
                                     lookbackWindowsEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOWS"
+                                    autoCappedLookbacksEnv <- lookupEnv "TRADER_OPTIMIZER_AUTO_CAPPED_LOOKBACKS"
                                     backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
                                     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
@@ -11274,6 +11278,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                     let parsed = splitEnvList raw
                                                      in if null parsed then [lookbackWindow] else parsed
                                                 Nothing -> [lookbackWindow]
+                                        autoCappedLookbacksEnabled = readEnvBool autoCappedLookbacksEnv True
                                         symbols =
                                             case symbolsEnv of
                                                 Just raw ->
@@ -11284,28 +11289,16 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             case intervalsEnv of
                                                 Just raw -> filter (isPlatformInterval PlatformBinance) (splitEnvList raw)
                                                 Nothing -> ["1h", "2h", "4h", "6h", "12h", "1d"]
-                                        requiredBarsForSweep lb
-                                            | backtestRatio <= 0 || backtestRatio >= 1 = Nothing
-                                            | tuneRatio <= 0 || tuneRatio >= 1 = Nothing
-                                            | otherwise =
-                                                let minRequired0 = lb + 3
-                                                    denom = max 1e-12 ((1 - backtestRatio) * (1 - tuneRatio))
-                                                    minRequired1 = max minRequired0 (ceiling ((fromIntegral lb + 1) / denom) + 2)
-                                                    minTrain = ceiling (2 / tuneRatio)
-                                                    minRequired2 = max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - backtestRatio)) + 2)
-                                                 in Just minRequired2
-                                        scopeFeasible interval lookbackWindow' =
-                                            case lookbackBarsFrom interval lookbackWindow' of
-                                                Left _ -> False
-                                                Right lb ->
-                                                    lb >= 2
-                                                        && maybe False (<= maxPoints) (requiredBarsForSweep lb)
-                                        optimizerScopes =
-                                            [ (interval, lookbackWindow')
-                                            | interval <- intervalsRaw
-                                            , lookbackWindow' <- lookbackWindows
-                                            , scopeFeasible interval lookbackWindow'
-                                            ]
+                                        scopeSelection =
+                                            selectAutoOptimizerScopes
+                                                autoCappedLookbacksEnabled
+                                                maxPoints
+                                                backtestRatio
+                                                tuneRatio
+                                                intervalsRaw
+                                                lookbackWindows
+                                        optimizerScopes = aosScopes scopeSelection
+                                        cappedLookbackScopes = aosCappedScopes scopeSelection
                                     if null symbols || null optimizerScopes
                                         then do
                                             now <- getTimestampMs
@@ -11317,17 +11310,20 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                     , "symbols" .= symbols
                                                     , "intervals" .= intervalsRaw
                                                     , "lookbackWindows" .= lookbackWindows
+                                                    , "autoCappedLookbacks" .= autoCappedLookbacksEnabled
+                                                    , "cappedLookbackScopes" .= cappedLookbackScopes
                                                     , "scopes" .= optimizerScopes
                                                     ]
                                                 )
                                         else do
                                             putStrLn
                                                 ( printf
-                                                    "Auto optimizer enabled: symbols=%d scopes=%d intervals=%d lookbackWindows=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
+                                                    "Auto optimizer enabled: symbols=%d scopes=%d intervals=%d lookbackWindows=%d cappedScopes=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
                                                     (length symbols)
                                                     (length optimizerScopes)
                                                     (length intervalsRaw)
                                                     (length lookbackWindows)
+                                                    (length cappedLookbackScopes)
                                                     everySec
                                                     trials
                                                     minRoundTrips

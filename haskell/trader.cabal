@@ -273,6 +273,7 @@ test-suite trader-tests
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OrderExecution
+                     , Trader.Optimizer.Common
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Merge
                      , Trader.Optimizer.Optimize

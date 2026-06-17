@@ -98,6 +98,7 @@ import Trader.MarketDataIntegrity (
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
+import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
@@ -446,6 +447,7 @@ main = do
     testOrderExecutionCorruptedInputInvariant
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
+    testAutoOptimizerCappedLookbackScopes
     testSweepThresholdMinRoundTripsFallback
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
@@ -5603,6 +5605,53 @@ testOptimizerActivityCountInvariant = do
     assert
         "activity-count helper stays non-negative, dominates both counters, and matches the RoiView projection"
         (all helperMatchesInvariant samples)
+
+testAutoOptimizerCappedLookbackScopes :: IO ()
+testAutoOptimizerCappedLookbackScopes = do
+    let maxPoints = 1000
+        backtestRatio = 0.2
+        tuneRatio = 0.25
+        lookbackWindows = ["7d", "14d", "30d"]
+        selection =
+            selectAutoOptimizerScopes
+                True
+                maxPoints
+                backtestRatio
+                tuneRatio
+                ["5m", "1h", "1d"]
+                lookbackWindows
+        disabledSelection =
+            selectAutoOptimizerScopes
+                False
+                maxPoints
+                backtestRatio
+                tuneRatio
+                ["5m"]
+                lookbackWindows
+        maxFeasibleBars = 597
+    assert
+        "auto optimizer split sizing admits 597 bars under the 1000-point cap"
+        (maybe False (<= maxPoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio maxFeasibleBars))
+    assert
+        "auto optimizer split sizing rejects one more bar under the same cap"
+        (maybe False (> maxPoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio (maxFeasibleBars + 1)))
+    assert
+        "auto optimizer derives one capped 5m scope while preserving feasible configured scopes"
+        ( aosScopes selection
+            == [ ("5m", "2985m")
+               , ("1h", "7d")
+               , ("1h", "14d")
+               , ("1d", "7d")
+               , ("1d", "14d")
+               , ("1d", "30d")
+               ]
+        )
+    assert
+        "auto optimizer reports only the derived windows as capped scopes"
+        (aosCappedScopes selection == [("5m", "2985m")])
+    assert
+        "disabling auto-capped lookbacks leaves the infeasible 5m scope excluded"
+        (null (aosScopes disabledSelection) && null (aosCappedScopes disabledSelection))
 
 -- Bounded executable obligations for the restored signal-gate facade now cover:
 -- the direct boundary witness, zero-fee specialization, negative-threshold and

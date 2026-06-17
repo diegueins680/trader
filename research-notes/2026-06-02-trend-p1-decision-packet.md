@@ -33,4 +33,4 @@ $BIN --data data/BTCUSDT-4h-trend-1076.csv --price-column close --method ta_best
 ## Notes
 - `--positioning long-only` was numerically identical to the baseline on this dataset.
 - The baseline captured about `4.8%` of the underlying move (`0.97 / 20.15`).
-- Raw parsed metrics snapshot: `research-notes/tmp-2026-06-02-trend-p1-metrics.json`
+- Carry-forward verification on 2026-06-17 reproduced the table from the current local `trader-hs` binary; the raw parsed metrics scratch file from the original checkpoint was not present.
