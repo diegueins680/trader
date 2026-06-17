@@ -66,6 +66,7 @@ import Trader.Formal.Risk (
     verifyFormalRisk,
  )
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
+import qualified Trader.Kalman3 as Kalman3
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps, evaluateLoss, fineTuneLSTM, fineTuneLSTMWeighted, inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
 import Trader.LiveGap (
@@ -330,6 +331,7 @@ main = do
     testKalmanDtRejectsInvalidValues
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
+    testKalman3RejectsMalformedMeasurements
     testKalmanPhysicsKnobsRejectInvalidValues
     testKalmanPhysicsMeasurementKnobsRejectInvalidValues
     testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues
@@ -1674,6 +1676,19 @@ testKalmanMeasurementVarRejectsInvalidValues = do
             Right args -> argKalmanMeasurementVar args == 1e-3
             Left _ -> False
         )
+
+testKalman3RejectsMalformedMeasurements :: IO ()
+testKalman3RejectsMalformedMeasurements = do
+    let k0 = Kalman3.constantAcceleration1D 1 1e-5 1e-3 100
+        kNan = Kalman3.update (0 / 0) k0
+        kInf = Kalman3.update (1 / 0) k0
+        kBadR = Kalman3.update 101 k0{Kalman3.kR = 0}
+        kGood = Kalman3.update 101 k0
+        Kalman3.Vec3 pos vel acc = Kalman3.kx kGood
+    assert "Kalman3 ignores NaN measurements" (kNan == k0)
+    assert "Kalman3 ignores infinite measurements" (kInf == k0)
+    assert "Kalman3 ignores invalid measurement variance" (kBadR == k0{Kalman3.kR = 0})
+    assert "Kalman3 still updates finite measurements" (kGood /= k0 && all finiteDouble [pos, vel, acc])
 
 testKalmanPhysicsKnobsRejectInvalidValues :: IO ()
 testKalmanPhysicsKnobsRejectInvalidValues = do

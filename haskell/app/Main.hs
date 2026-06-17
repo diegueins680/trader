@@ -1228,6 +1228,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrPCostAwareEdge :: !(Maybe Double)
     , arrTrendLookbackMin :: !(Maybe Int)
     , arrTrendLookbackMax :: !(Maybe Int)
+    , arrPLongShort :: !(Maybe Double)
     , arrPIntrabarTakeProfitFirst :: !(Maybe Double)
     , arrPTriLayer :: !(Maybe Double)
     , arrTriLayerFastMultMin :: !(Maybe Double)
@@ -11068,6 +11069,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     survivorParentAnnualizedReturnFloorEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_PARENT_ANNUALIZED_RETURN_FLOOR"
                                     survivorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_EDGE_WEIGHT"
                                     survivorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_RANK_BIAS"
+                                    pLongShortEnv <- lookupEnv "TRADER_OPTIMIZER_P_LONG_SHORT"
                                     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
                                     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
                                     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -11194,6 +11196,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 ++ maybeDoubleArg "--survivor-parent-annualized-return-floor" (readFiniteDoubleMaybe survivorParentAnnualizedReturnFloorEnv)
                                                 ++ maybeDoubleArg "--survivor-edge-weight" (fmap (max 0) (readFiniteDoubleMaybe survivorEdgeWeightEnv))
                                                 ++ maybeDoubleArg "--survivor-rank-bias" (fmap (max 0) (readFiniteDoubleMaybe survivorRankBiasEnv))
+                                        pLongShortArgs =
+                                            maybeDoubleArg "--p-long-short" (fmap clamp01 (readFiniteDoubleMaybe pLongShortEnv))
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -11411,12 +11415,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                 seed = fromIntegral (seedId `mod` 2000000000)
                                                                                 recoverySeed :: Int
                                                                                 recoverySeed = (seed + 7919) `mod` 2000000000
-                                                                                appendAdoption args =
+                                                                                appendPositioning args =
                                                                                     case adoptOverride of
-                                                                                        Nothing -> args
+                                                                                        Nothing -> args ++ pLongShortArgs
                                                                                         Just pLongShort -> args ++ ["--p-long-short", show pLongShort]
                                                                                 mkCliArgs outPath seedVal trialsVal timeoutVal minRoundTripsVal minExposureVal minSharpeVal minCalmarVal extraArgs =
-                                                                                    appendAdoption $
+                                                                                    appendPositioning $
                                                                                         [ "--data"
                                                                                         , csvPath
                                                                                         , "--price-column"
@@ -15830,6 +15834,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     survivorParentAnnualizedReturnFloorEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_PARENT_ANNUALIZED_RETURN_FLOOR"
     survivorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_EDGE_WEIGHT"
     survivorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_RANK_BIAS"
+    pLongShortEnv <- lookupEnv "TRADER_OPTIMIZER_P_LONG_SHORT"
     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -16139,6 +16144,8 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 trendLookbackArgs =
                     maybeIntArg "--trend-lookback-min" (fmap (max 0) (arrTrendLookbackMin req))
                         ++ maybeIntArg "--trend-lookback-max" (fmap (max 0) (arrTrendLookbackMax req))
+                positioningArgs =
+                    maybeDoubleArg "--p-long-short" (fmap clamp01 (arrPLongShort req <|> readFiniteDoubleMaybe pLongShortEnv))
                 intrabarArgs =
                     maybeDoubleArg "--p-intrabar-take-profit-first" (fmap clamp01 (arrPIntrabarTakeProfitFirst req))
                 triLayerArgs =
@@ -16556,6 +16563,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ edgeBufferArgs
                         ++ pCostAwareEdgeArgs
                         ++ trendLookbackArgs
+                        ++ positioningArgs
                         ++ adaptiveFilterArgs
                         ++ performanceGateArgs
                         ++ metaLabelArgs

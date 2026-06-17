@@ -88,17 +88,25 @@ predictMeasurement k = vecDot (kH k) (kx k)
 
 update :: Double -> Kalman3 -> Kalman3
 update z k =
-    let h = kH k
-        p = kP k
-        x = kx k
-        y = z - vecDot h x
-        phT = matVec p h
-        s = vecDot h phT + kR k
-        kGain = vecScale (1 / s) phT
-        x' = vecAdd x (vecScale y kGain)
-        a = matSub identity3 (outer kGain h)
-        p' = matAdd (matMul (matMul a p) (matTranspose a)) (matScale (kR k) (outer kGain kGain))
-     in k{kx = x', kP = p'}
+    if not (isFinite z) || not (isFinite (kR k)) || kR k <= 0
+        then k
+        else
+            let h = kH k
+                p = kP k
+                x = kx k
+                y = z - vecDot h x
+                phT = matVec p h
+                s = vecDot h phT + kR k
+             in if not (isFinite s) || s <= eps
+                    then k
+                    else
+                        let kGain = vecScale (1 / s) phT
+                            x' = vecAdd x (vecScale y kGain)
+                            a = matSub identity3 (outer kGain h)
+                            p' = matAdd (matMul (matMul a p) (matTranspose a)) (matScale (kR k) (outer kGain kGain))
+                         in if finiteVec3 x' && finiteMat3 p'
+                                then k{kx = x', kP = p'}
+                                else k
 
 step :: Double -> Kalman3 -> (Double, Kalman3)
 step z k =
@@ -212,3 +220,15 @@ forecastNextConstantAcceleration1D dt processVar measurementVar values =
                 kFinal = foldl' (\k z -> snd (step z k)) k0 xs
                 kPred = predict kFinal
              in predictMeasurement kPred
+
+eps :: Double
+eps = 1e-12
+
+finiteVec3 :: Vec3 -> Bool
+finiteVec3 (Vec3 a b c) = all isFinite [a, b, c]
+
+finiteMat3 :: Mat3 -> Bool
+finiteMat3 (Mat3 r1 r2 r3) = all finiteVec3 [r1, r2, r3]
+
+isFinite :: Double -> Bool
+isFinite x = not (isNaN x || isInfinite x)
