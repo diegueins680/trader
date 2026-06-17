@@ -1391,6 +1391,12 @@ scientificToDouble n =
     let d = toRealFloat n
      in if isInfinite d || isNaN d then Nothing else Just d
 
+finiteDoubleMaybe :: Maybe Double -> Maybe Double
+finiteDoubleMaybe raw =
+    case raw of
+        Just d | not (isInfinite d || isNaN d) -> Just d
+        _ -> Nothing
+
 extractWalkForwardSummary :: Maybe Value -> Maybe (KM.KeyMap Value)
 extractWalkForwardSummary raw = do
     v <- raw
@@ -1411,6 +1417,7 @@ data PriorTrial = PriorTrial
     { ptParams :: !(KM.KeyMap Value)
     , ptMetrics :: !(KM.KeyMap Value)
     , ptScore :: !Double
+    , ptProcessingRankScore :: !(Maybe Double)
     , ptCreatedAtMs :: !(Maybe Int)
     , ptEligible :: !Bool
     , ptSymbol :: !(Maybe String)
@@ -1469,11 +1476,14 @@ priorTrialFromObject :: KM.KeyMap Value -> Maybe PriorTrial
 priorTrialFromObject obj = do
     params <- objectField "params" obj
     let metrics = fromMaybe KM.empty (objectField "metrics" obj)
+        processing = objectField "processing" obj
         eligible = fromMaybe True (boolField "eligible" obj)
         score =
             fromMaybe
                 (metricFloat (Just metrics) "annualizedReturn" 0)
                 (doubleField ["score", "finalEquity"] obj)
+        processingRankScore =
+            processing >>= doubleField ["rankScore"]
         createdAtMs = intField ["createdAtMs"] obj
         symbol =
             normalizeSymbol
@@ -1488,6 +1498,7 @@ priorTrialFromObject obj = do
                 { ptParams = params
                 , ptMetrics = metrics
                 , ptScore = if isNaN score || isInfinite score then -(1 / 0) else score
+                , ptProcessingRankScore = finiteDoubleMaybe processingRankScore
                 , ptCreatedAtMs = createdAtMs
                 , ptEligible = eligible
                 , ptSymbol = symbol
@@ -1560,7 +1571,7 @@ priorTrialDiversityBucket trial =
 
 priorTrialRankScore :: OptimizerArgs -> Int -> PriorTrial -> Double
 priorTrialRankScore args nowMs trial =
-    let score =
+    let objectiveRankScore =
             if KM.null (ptMetrics trial)
                 then ptScore trial
                 else
@@ -1574,6 +1585,10 @@ priorTrialRankScore args nowMs trial =
                      in if isNaN objectiveScoreValue || isInfinite objectiveScoreValue
                             then ptScore trial
                             else objectiveScoreValue
+        score =
+            case ptProcessingRankScore trial of
+                Just rankScore -> max objectiveRankScore rankScore
+                Nothing -> objectiveRankScore
         edgeBoost = max 0 (oaPriorEdgeWeight args) * priorTrialEdgeScore (ptMetrics trial)
      in ageAdjustedPriorScore (oaPriorAgeHalfLifeDays args) nowMs (ptCreatedAtMs trial) (score + edgeBoost)
 
