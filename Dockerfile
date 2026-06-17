@@ -13,19 +13,14 @@ WORKDIR /opt/trader/haskell
 # Copy cabal files first for dependency caching; .build-commit is runtime metadata, not needed for build
 COPY haskell/trader.cabal .
 
-# Update and fetch dependencies in one layer; cabal update is cached separately
-RUN --mount=type=cache,target=/root/.cabal \
-  --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cabal update && cabal fetch --enable-tests --enable-benchmarks
-
-# Copy source code after cabal files (changes to source don't invalidate dependency fetch)
+# Copy source code before building
 COPY haskell/app app
 COPY haskell/test test
 
-# Build all binaries in parallel with single RUN to reduce layers; -j4 parallelizes across CPU cores
+# Update cabal index, fetch dependencies, and build all binaries in a single RUN to ensure package list is fresh
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cabal build -j4 --disable-optimization exe:trader-hs exe:optimize-equity exe:merge-top-combos
+  cabal update && cabal fetch --enable-tests --enable-benchmarks && cabal build -j4 --disable-optimization exe:trader-hs exe:optimize-equity exe:merge-top-combos
 
 # Extract binaries and strip in one layer
 RUN --mount=type=cache,target=/root/.cabal \
