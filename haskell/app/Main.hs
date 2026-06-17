@@ -1009,6 +1009,7 @@ data ApiParams = ApiParams
     , apBotOnlinePatience :: Maybe Int
     , apBotTrainBars :: Maybe Int
     , apBotMaxPoints :: Maybe Int
+    , apBotOptimizeTrainBarsCap :: Maybe Int
     , apBotOutcomeWeightWinScale :: Maybe Double
     , apBotOutcomeWeightLossScale :: Maybe Double
     , apBotOutcomeWeightCap :: Maybe Double
@@ -5395,6 +5396,7 @@ data BotSettings = BotSettings
     , bsOnlinePatience :: !Int
     , bsTrainBars :: !Int
     , bsMaxPoints :: !Int
+    , bsOptimizeTrainBarsCap :: !Int
     , bsOutcomeWeightConfig :: !OutcomeWeightConfig
     , bsTradeEnabled :: !Bool
     , bsProtectionOrders :: !Bool
@@ -6303,6 +6305,9 @@ defaultBotTrainBars = 800
 defaultBotMaxPoints :: Int
 defaultBotMaxPoints = 2000
 
+defaultBotOptimizeTrainBarsCap :: Int
+defaultBotOptimizeTrainBarsCap = 1000
+
 defaultBotSettings :: Args -> BotSettings
 defaultBotSettings args =
     BotSettings
@@ -6312,6 +6317,7 @@ defaultBotSettings args =
         , bsOnlinePatience = defaultBotOnlinePatience
         , bsTrainBars = defaultBotTrainBars
         , bsMaxPoints = defaultBotMaxPoints
+        , bsOptimizeTrainBarsCap = defaultBotOptimizeTrainBarsCap
         , bsOutcomeWeightConfig = defaultOutcomeWeightConfig
         , bsTradeEnabled = True
         , bsProtectionOrders = False
@@ -6325,6 +6331,7 @@ defaultBotSettingsFromEnv args = do
     onlinePatience <- readBoundedIntEnv "TRADER_BOT_ONLINE_PATIENCE" 0 50 defaultBotOnlinePatience
     trainBars <- readBoundedIntEnv "TRADER_BOT_TRAIN_BARS" 10 100000 defaultBotTrainBars
     maxPoints <- readBoundedIntEnv "TRADER_BOT_MAX_POINTS" 100 100000 defaultBotMaxPoints
+    optimizeTrainBarsCap <- readBoundedIntEnv "TRADER_BOT_OPTIMIZE_TRAIN_BARS_CAP" 10 100000 defaultBotOptimizeTrainBarsCap
     outcomeWeightWinScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_WIN_SCALE" 0 1000 (owcWinScale defaultOutcomeWeightConfig)
     outcomeWeightLossScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_LOSS_SCALE" 0 1000 (owcLossScale defaultOutcomeWeightConfig)
     outcomeWeightCap <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_CAP" 1 100 (owcCap defaultOutcomeWeightConfig)
@@ -6335,6 +6342,7 @@ defaultBotSettingsFromEnv args = do
             , bsOnlinePatience = onlinePatience
             , bsTrainBars = trainBars
             , bsMaxPoints = maxPoints
+            , bsOptimizeTrainBarsCap = optimizeTrainBarsCap
             , bsOutcomeWeightConfig =
                 OutcomeWeightConfig
                     { owcWinScale = outcomeWeightWinScale
@@ -6351,6 +6359,7 @@ botSettingsFromApi args p = do
         onlinePatience = fromMaybe defaultBotOnlinePatience (apBotOnlinePatience p)
         trainBars = fromMaybe defaultBotTrainBars (apBotTrainBars p)
         maxPoints = fromMaybe defaultBotMaxPoints (apBotMaxPoints p)
+        optimizeTrainBarsCap = fromMaybe defaultBotOptimizeTrainBarsCap (apBotOptimizeTrainBarsCap p)
         outcomeWeightWinScale = fromMaybe (owcWinScale defaultOutcomeWeightConfig) (apBotOutcomeWeightWinScale p)
         outcomeWeightLossScale = fromMaybe (owcLossScale defaultOutcomeWeightConfig) (apBotOutcomeWeightLossScale p)
         outcomeWeightCap = fromMaybe (owcCap defaultOutcomeWeightConfig) (apBotOutcomeWeightCap p)
@@ -6364,6 +6373,7 @@ botSettingsFromApi args p = do
     ensure "botOnlinePatience must be between 0 and 50" (onlinePatience >= 0 && onlinePatience <= 50)
     ensure "botTrainBars must be >= 10" (trainBars >= 10)
     ensure "botMaxPoints must be between 100 and 100000" (maxPoints >= 100 && maxPoints <= 100000)
+    ensure "botOptimizeTrainBarsCap must be between 10 and 100000" (optimizeTrainBarsCap >= 10 && optimizeTrainBarsCap <= 100000)
     ensure "botOutcomeWeightWinScale must be between 0 and 1000" (isFiniteDouble outcomeWeightWinScale && outcomeWeightWinScale >= 0 && outcomeWeightWinScale <= 1000)
     ensure "botOutcomeWeightLossScale must be between 0 and 1000" (isFiniteDouble outcomeWeightLossScale && outcomeWeightLossScale >= 0 && outcomeWeightLossScale <= 1000)
     ensure "botOutcomeWeightCap must be between 1 and 100" (isFiniteDouble outcomeWeightCap && outcomeWeightCap >= 1 && outcomeWeightCap <= 100)
@@ -6376,6 +6386,7 @@ botSettingsFromApi args p = do
             , bsOnlinePatience = onlinePatience
             , bsTrainBars = trainBars
             , bsMaxPoints = maxPoints
+            , bsOptimizeTrainBarsCap = optimizeTrainBarsCap
             , bsOutcomeWeightConfig =
                 OutcomeWeightConfig
                     { owcWinScale = outcomeWeightWinScale
@@ -6519,6 +6530,7 @@ botStatusJson st =
                     , "onlinePatience" .= bsOnlinePatience (botSettings st)
                     , "trainBars" .= bsTrainBars (botSettings st)
                     , "maxPoints" .= bsMaxPoints (botSettings st)
+                    , "optimizeTrainBarsCap" .= bsOptimizeTrainBarsCap (botSettings st)
                     , "outcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig (botSettings st))
                     , "outcomeWeightLossScale" .= owcLossScale (bsOutcomeWeightConfig (botSettings st))
                     , "outcomeWeightCap" .= owcCap (bsOutcomeWeightConfig (botSettings st))
@@ -8399,6 +8411,7 @@ logBotStartRequestOutcome mOps mJournal tenantKey params outcome =
                             , "botOnlinePatience" .= bsOnlinePatience settings
                             , "botTrainBars" .= bsTrainBars settings
                             , "botMaxPoints" .= bsMaxPoints settings
+                            , "botOptimizeTrainBarsCap" .= bsOptimizeTrainBarsCap settings
                             , "botOutcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig settings)
                             , "botOutcomeWeightLossScale" .= owcLossScale (bsOutcomeWeightConfig settings)
                             , "botOutcomeWeightCap" .= owcCap (bsOutcomeWeightConfig settings)
@@ -9729,7 +9742,9 @@ botOptimizeAfterOperation st = do
             if n < max 3 (lookback + 3)
                 then pure st
                 else do
-                    let win = min n (min 1000 (max (lookback + 3) (bsTrainBars settings)))
+                    let minWindow = lookback + 3
+                        trainWindowCap = max minWindow (bsOptimizeTrainBarsCap settings)
+                        win = min n (min trainWindowCap (max minWindow (bsTrainBars settings)))
                         start = n - win
                         prices = V.toList (V.drop start pricesV)
                         highs = V.toList (V.drop start (botHighs st))
