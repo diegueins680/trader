@@ -124,6 +124,8 @@ rsync -az --human-readable \
   --exclude '.venv/' \
   --exclude '.tmp/' \
   --exclude 'haskell/.tmp/' \
+  --include '*.env.example' \
+  --include '*.env.managed' \
   --exclude '.env' \
   --exclude '*.env' \
   --exclude 'tmp/' \
