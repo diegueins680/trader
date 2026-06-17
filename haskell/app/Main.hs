@@ -11284,10 +11284,22 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             case intervalsEnv of
                                                 Just raw -> filter (isPlatformInterval PlatformBinance) (splitEnvList raw)
                                                 Nothing -> ["1h", "2h", "4h", "6h", "12h", "1d"]
+                                        requiredBarsForSweep lb
+                                            | backtestRatio <= 0 || backtestRatio >= 1 = Nothing
+                                            | tuneRatio <= 0 || tuneRatio >= 1 = Nothing
+                                            | otherwise =
+                                                let minRequired0 = lb + 3
+                                                    denom = max 1e-12 ((1 - backtestRatio) * (1 - tuneRatio))
+                                                    minRequired1 = max minRequired0 (ceiling ((fromIntegral lb + 1) / denom) + 2)
+                                                    minTrain = ceiling (2 / tuneRatio)
+                                                    minRequired2 = max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - backtestRatio)) + 2)
+                                                 in Just minRequired2
                                         scopeFeasible interval lookbackWindow' =
                                             case lookbackBarsFrom interval lookbackWindow' of
                                                 Left _ -> False
-                                                Right lb -> lb >= 2 && lb + 3 <= maxPoints
+                                                Right lb ->
+                                                    lb >= 2
+                                                        && maybe False (<= maxPoints) (requiredBarsForSweep lb)
                                         optimizerScopes =
                                             [ (interval, lookbackWindow')
                                             | interval <- intervalsRaw

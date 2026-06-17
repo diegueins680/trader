@@ -1,5 +1,6 @@
 ## Unreleased
 - Trading/Fusion: harden the 3D Kalman measurement update used by `kalman_physics_error` so malformed OHLC measurements or invalid measurement variance leave the prior state unchanged instead of poisoning later predictions with `NaN`.
+- Trading/Optimizer: filter auto-optimizer interval/lookback scopes with the same sweep-threshold split bar requirement enforced by `optimize-equity`, avoiding failed launches on windows that cannot satisfy train/tune/backtest sizing under the configured max-points cap.
 - Trading/Optimizer: expose the long-short positioning sampling probability through API optimizer `pLongShort`, the advanced web optimizer form, server env `TRADER_OPTIMIZER_P_LONG_SHORT`, and top-5 wrapper `P_LONG_SHORT`, preserving the existing `--p-long-short` default of `0.2` while making the ROI tradeoff tunable per deployment.
 - Trading/Optimizer: expose cost-aware edge sampling probability to server-launched optimizer runs through `TRADER_OPTIMIZER_P_COST_AWARE_EDGE`, matching the existing `--p-cost-aware-edge`, API `pCostAwareEdge`, web form control, and top-5 wrapper `P_COST_AWARE_EDGE`.
 - Trading/Optimizer: expose the top-5 wrapper's forced `--bars-auto-prob 0` as `BARS_AUTO_PROB` so fixed-bar audit runs remain the default while research can tune how often optimizer trials use auto-sized history windows.
