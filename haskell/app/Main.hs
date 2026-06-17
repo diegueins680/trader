@@ -1125,6 +1125,14 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrSurvivorParentActivityFloor :: !(Maybe Int)
     , arrSurvivorParentAnnualizedReturnFloor :: !(Maybe Double)
     , arrSurvivorEdgeWeight :: !(Maybe Double)
+    , arrEdgeScoreAnnualizedReturnWeight :: !(Maybe Double)
+    , arrEdgeScoreSharpeWeight :: !(Maybe Double)
+    , arrEdgeScoreCalmarWeight :: !(Maybe Double)
+    , arrEdgeScoreProfitFactorWeight :: !(Maybe Double)
+    , arrEdgeScoreWalkForwardSharpeWeight :: !(Maybe Double)
+    , arrEdgeScoreActivityWeight :: !(Maybe Double)
+    , arrEdgeScoreCalmarCap :: !(Maybe Double)
+    , arrEdgeScoreActivityCap :: !(Maybe Int)
     , arrSurvivorRankBias :: !(Maybe Double)
     , arrPerturbScaleDouble :: !(Maybe Double)
     , arrPerturbScaleInt :: !(Maybe Int)
@@ -11099,6 +11107,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     maxOutputBytes <- optimizerOutputCapFromEnv
                                     exePath <- getExecutablePath
                                     priorArgs <- optimizerPriorArgsFromEnv (Just topJsonPath)
+                                    edgeScoreArgs <- optimizerEdgeScoreArgsFromEnv
                                     autoMethodWeights <- readAutoOptimizerBaseMethodWeights
                                     liveGapConfig <- readAutoOptimizerLiveGapConfig
 
@@ -11472,6 +11481,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                             ++ lstmAdamRangeArgs
                                                                                             ++ routerRegimeArgs
                                                                                             ++ survivorParentArgs
+                                                                                            ++ edgeScoreArgs
                                                                                             ++ priorArgs
                                                                                             ++ extraArgs
                                                                                             ++ crossExchangeArgs
@@ -15676,6 +15686,74 @@ readFiniteDoubleMaybe raw =
         Just n | isFiniteDouble n -> Just n
         _ -> Nothing
 
+data OptimizerEdgeScoreArgOverrides = OptimizerEdgeScoreArgOverrides
+    { oesaoAnnualizedReturnWeight :: !(Maybe Double)
+    , oesaoSharpeWeight :: !(Maybe Double)
+    , oesaoCalmarWeight :: !(Maybe Double)
+    , oesaoProfitFactorWeight :: !(Maybe Double)
+    , oesaoWalkForwardSharpeWeight :: !(Maybe Double)
+    , oesaoActivityWeight :: !(Maybe Double)
+    , oesaoCalmarCap :: !(Maybe Double)
+    , oesaoActivityCap :: !(Maybe Int)
+    }
+    deriving (Eq, Show)
+
+emptyOptimizerEdgeScoreArgOverrides :: OptimizerEdgeScoreArgOverrides
+emptyOptimizerEdgeScoreArgOverrides =
+    OptimizerEdgeScoreArgOverrides
+        { oesaoAnnualizedReturnWeight = Nothing
+        , oesaoSharpeWeight = Nothing
+        , oesaoCalmarWeight = Nothing
+        , oesaoProfitFactorWeight = Nothing
+        , oesaoWalkForwardSharpeWeight = Nothing
+        , oesaoActivityWeight = Nothing
+        , oesaoCalmarCap = Nothing
+        , oesaoActivityCap = Nothing
+        }
+
+optimizerEdgeScoreArgOverridesFromRequest :: ApiOptimizerRunRequest -> OptimizerEdgeScoreArgOverrides
+optimizerEdgeScoreArgOverridesFromRequest req =
+    OptimizerEdgeScoreArgOverrides
+        { oesaoAnnualizedReturnWeight = fmap (max 0) (arrEdgeScoreAnnualizedReturnWeight req)
+        , oesaoSharpeWeight = fmap (max 0) (arrEdgeScoreSharpeWeight req)
+        , oesaoCalmarWeight = fmap (max 0) (arrEdgeScoreCalmarWeight req)
+        , oesaoProfitFactorWeight = fmap (max 0) (arrEdgeScoreProfitFactorWeight req)
+        , oesaoWalkForwardSharpeWeight = fmap (max 0) (arrEdgeScoreWalkForwardSharpeWeight req)
+        , oesaoActivityWeight = fmap (max 0) (arrEdgeScoreActivityWeight req)
+        , oesaoCalmarCap = fmap (max 0) (arrEdgeScoreCalmarCap req)
+        , oesaoActivityCap = fmap (max 0) (arrEdgeScoreActivityCap req)
+        }
+
+optimizerEdgeScoreArgsWithOverrides :: OptimizerEdgeScoreArgOverrides -> IO [String]
+optimizerEdgeScoreArgsWithOverrides overrides = do
+    annualizedReturnWeightEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_ANNUALIZED_RETURN_WEIGHT"
+    sharpeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_SHARPE_WEIGHT"
+    calmarWeightEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_CALMAR_WEIGHT"
+    profitFactorWeightEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_PROFIT_FACTOR_WEIGHT"
+    walkForwardSharpeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_WALK_FORWARD_SHARPE_WEIGHT"
+    activityWeightEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_ACTIVITY_WEIGHT"
+    calmarCapEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_CALMAR_CAP"
+    activityCapEnv <- lookupEnv "TRADER_OPTIMIZER_EDGE_SCORE_ACTIVITY_CAP"
+    let nonNegativeDouble = fmap (max 0) . readFiniteDoubleMaybe
+        nonNegativeInt raw =
+            case raw >>= readMaybe of
+                Just n | n >= 0 -> Just n
+                _ -> Nothing
+        pickDouble override envValue = override <|> nonNegativeDouble envValue
+        pickInt override envValue = override <|> nonNegativeInt envValue
+    pure $
+        maybeDoubleArg "--edge-score-annualized-return-weight" (pickDouble (oesaoAnnualizedReturnWeight overrides) annualizedReturnWeightEnv)
+            ++ maybeDoubleArg "--edge-score-sharpe-weight" (pickDouble (oesaoSharpeWeight overrides) sharpeWeightEnv)
+            ++ maybeDoubleArg "--edge-score-calmar-weight" (pickDouble (oesaoCalmarWeight overrides) calmarWeightEnv)
+            ++ maybeDoubleArg "--edge-score-profit-factor-weight" (pickDouble (oesaoProfitFactorWeight overrides) profitFactorWeightEnv)
+            ++ maybeDoubleArg "--edge-score-walk-forward-sharpe-weight" (pickDouble (oesaoWalkForwardSharpeWeight overrides) walkForwardSharpeWeightEnv)
+            ++ maybeDoubleArg "--edge-score-activity-weight" (pickDouble (oesaoActivityWeight overrides) activityWeightEnv)
+            ++ maybeDoubleArg "--edge-score-calmar-cap" (pickDouble (oesaoCalmarCap overrides) calmarCapEnv)
+            ++ maybeIntArg "--edge-score-activity-cap" (pickInt (oesaoActivityCap overrides) activityCapEnv)
+
+optimizerEdgeScoreArgsFromEnv :: IO [String]
+optimizerEdgeScoreArgsFromEnv = optimizerEdgeScoreArgsWithOverrides emptyOptimizerEdgeScoreArgOverrides
+
 optimizerPriorArgsFromEnv :: Maybe FilePath -> IO [String]
 optimizerPriorArgsFromEnv mDefaultJson = do
     priorJsonEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_JSON"
@@ -15762,6 +15840,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 OptimizerSourceCsv -> Nothing
                 _ -> mPriorJson
     priorArgs <- optimizerPriorArgsFromEnv defaultPriorJson
+    edgeScoreArgs <- optimizerEdgeScoreArgsWithOverrides (optimizerEdgeScoreArgOverridesFromRequest req)
     let maxTrialsCap =
             case maxTrialsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
@@ -16614,6 +16693,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                             ++ epochArgs
                                             ++ hiddenArgs
                                             ++ ["--binary", exePath]
+                                            ++ edgeScoreArgs
                                             ++ priorArgs
                                             ++ boolArg "--disable-lstm-persistence" disableLstm
                                             ++ boolArg "--no-sweep-threshold" noSweep

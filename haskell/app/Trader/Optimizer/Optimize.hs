@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.Optimizer.Optimize (
+    OptimizerEdgeScoreConfig (..),
     OptimizerArgs (..),
     OptimizerRecordsSummary (..),
     TechnicalOptimizerRanges (..),
@@ -10,6 +11,7 @@ module Trader.Optimizer.Optimize (
     applyWalkForwardSummaryMetrics,
     closeTimingReportFromBacktest,
     applyQualityPreset,
+    defaultOptimizerEdgeScoreConfig,
     emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     normalizeObjectiveCode,
@@ -18,7 +20,10 @@ module Trader.Optimizer.Optimize (
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
     optimizerRecordsSummaryJson,
+    ageAdjustedPriorScore,
     priorTrialEdgeScore,
+    priorTrialEdgeScoreWithConfig,
+    priorAgeDecayMultiplier,
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
@@ -1589,13 +1594,45 @@ priorTrialRankScore args nowMs trial =
             case ptProcessingRankScore trial of
                 Just rankScore -> max objectiveRankScore rankScore
                 Nothing -> objectiveRankScore
-        edgeBoost = max 0 (oaPriorEdgeWeight args) * priorTrialEdgeScore (ptMetrics trial)
+        edgeBoost = max 0 (oaPriorEdgeWeight args) * priorTrialEdgeScoreWithConfig (oaEdgeScoreConfig args) (ptMetrics trial)
      in ageAdjustedPriorScore (oaPriorAgeHalfLifeDays args) nowMs (ptCreatedAtMs trial) (score + edgeBoost)
 
+data OptimizerEdgeScoreConfig = OptimizerEdgeScoreConfig
+    { oescAnnualizedReturnWeight :: !Double
+    , oescSharpeWeight :: !Double
+    , oescCalmarWeight :: !Double
+    , oescProfitFactorWeight :: !Double
+    , oescWalkForwardSharpeWeight :: !Double
+    , oescActivityWeight :: !Double
+    , oescCalmarCap :: !Double
+    , oescActivityCap :: !Int
+    }
+    deriving (Eq, Show)
+
+defaultOptimizerEdgeScoreConfig :: OptimizerEdgeScoreConfig
+defaultOptimizerEdgeScoreConfig =
+    OptimizerEdgeScoreConfig
+        { oescAnnualizedReturnWeight = 1.0
+        , oescSharpeWeight = 0.35
+        , oescCalmarWeight = 0.25
+        , oescProfitFactorWeight = 0.25
+        , oescWalkForwardSharpeWeight = 0.35
+        , oescActivityWeight = 0.15
+        , oescCalmarCap = 10
+        , oescActivityCap = 200
+        }
+
 priorTrialEdgeScore :: KM.KeyMap Value -> Double
-priorTrialEdgeScore metrics =
+priorTrialEdgeScore = priorTrialEdgeScoreWithConfig defaultOptimizerEdgeScoreConfig
+
+priorTrialEdgeScoreWithConfig :: OptimizerEdgeScoreConfig -> KM.KeyMap Value -> Double
+priorTrialEdgeScoreWithConfig config metrics =
     let metrics' = Just metrics
         positive x
+            | isNaN x || isInfinite x = 0
+            | x <= 0 = 0
+            | otherwise = x
+        weight x
             | isNaN x || isInfinite x = 0
             | x <= 0 = 0
             | otherwise = x
@@ -1609,19 +1646,19 @@ priorTrialEdgeScore metrics =
                 else annRet / max 1e-12 maxDd
         profitFactorTerm =
             case metricProfitFactor metrics' of
-                Just pf -> 0.25 * logPositive (pf - 1)
+                Just pf -> weight (oescProfitFactorWeight config) * logPositive (pf - 1)
                 Nothing -> 0
         walkForwardTerm =
             case valueObjectAt (Object metrics) "walkForwardSummary" of
-                Just wf -> 0.35 * positive (metricFloat (Just wf) "sharpeMean" 0)
+                Just wf -> weight (oescWalkForwardSharpeWeight config) * positive (metricFloat (Just wf) "sharpeMean" 0)
                 Nothing -> 0
         roundTrips = metricInt metrics' "roundTrips" 0
         tradeCount = metricInt metrics' "tradeCount" 0
         activityCount = max roundTrips tradeCount
-        activityTerm = 0.15 * logPositive (fromIntegral (min 200 (max 0 activityCount)) :: Double)
-     in logPositive annRet
-            + 0.35 * sharpe
-            + 0.25 * min 10 (positive calmar)
+        activityTerm = weight (oescActivityWeight config) * logPositive (fromIntegral (min (max 0 (oescActivityCap config)) (max 0 activityCount)) :: Double)
+     in weight (oescAnnualizedReturnWeight config) * logPositive annRet
+            + weight (oescSharpeWeight config) * sharpe
+            + weight (oescCalmarWeight config) * min (weight (oescCalmarCap config)) (positive calmar)
             + profitFactorTerm
             + walkForwardTerm
             + activityTerm
@@ -1637,23 +1674,26 @@ ageAdjustedPriorScore halfLifeDays nowMs mCreatedAtMs score
                 else score / max 1e-9 decay
 
 priorAgeDecayMultiplier :: Double -> Int -> Maybe Int -> Double
-priorAgeDecayMultiplier halfLifeDays nowMs mCreatedAtMs =
-    case mCreatedAtMs of
-        Nothing -> 1
-        Just createdAtMs ->
-            let ageDays =
-                    max 0 $
-                        fromIntegral (max 0 (nowMs - createdAtMs))
-                            / (1000 * 60 * 60 * 24 :: Double)
-             in 0.5 ** (ageDays / halfLifeDays)
+priorAgeDecayMultiplier halfLifeDays nowMs mCreatedAtMs
+    | halfLifeDays <= 0 = 1
+    | isNaN halfLifeDays || isInfinite halfLifeDays = 1
+    | otherwise =
+        case mCreatedAtMs of
+            Nothing -> 0.25
+            Just createdAtMs ->
+                let ageDays =
+                        max 0 $
+                            fromIntegral (max 0 (nowMs - createdAtMs))
+                                / (1000 * 60 * 60 * 24 :: Double)
+                 in 0.5 ** (ageDays / halfLifeDays)
 
-priorTrialDistributionSummary :: [PriorTrial] -> String
-priorTrialDistributionSummary trials =
+priorTrialDistributionSummary :: OptimizerEdgeScoreConfig -> [PriorTrial] -> String
+priorTrialDistributionSummary edgeScoreConfig trials =
     let methodSummary = countSummary (fromMaybe "unknown" . ptMethod) trials
         intervalSummary = countSummary (fromMaybe "unknown" . ptInterval) trials
         wfCount = length (filter priorTrialHasWalkForwardSummary trials)
         createdAtCount = length (filter (isJust . ptCreatedAtMs) trials)
-        edgeScores = map (priorTrialEdgeScore . ptMetrics) trials
+        edgeScores = map (priorTrialEdgeScoreWithConfig edgeScoreConfig . ptMetrics) trials
         edgeAvg =
             if null edgeScores
                 then 0
@@ -2406,6 +2446,7 @@ data OptimizerArgs = OptimizerArgs
     , oaSurvivorParentActivityFloor :: !Int
     , oaSurvivorParentAnnualizedReturnFloor :: !Double
     , oaSurvivorEdgeWeight :: !Double
+    , oaEdgeScoreConfig :: !OptimizerEdgeScoreConfig
     , oaSurvivorRankBias :: !Double
     , oaPerturbScaleDouble :: !Double
     , oaPerturbScaleInt :: !Int
@@ -5912,6 +5953,7 @@ runOptimizer args0 = do
                                                                         survivorParentAnnualizedReturnFloor =
                                                                             let raw = oaSurvivorParentAnnualizedReturnFloor args
                                                                              in if isNaN raw || isInfinite raw then 1 else raw
+                                                                        edgeScoreConfig = oaEdgeScoreConfig args
                                                                         survivorEdgeWeight =
                                                                             let raw = oaSurvivorEdgeWeight args
                                                                              in if isNaN raw || isInfinite raw then 0 else max 0 raw
@@ -5951,7 +5993,7 @@ runOptimizer args0 = do
                                                                                 ++ show (length priorTrialsRaw)
                                                                                 ++ " rows from "
                                                                                 ++ oaPriorJson args
-                                                                                ++ priorTrialDistributionSummary priorTrials
+                                                                                ++ priorTrialDistributionSummary edgeScoreConfig priorTrials
                                                                             )
                                                                     outHandle <-
                                                                         if null (trim (oaOutput args))
@@ -6447,7 +6489,7 @@ runOptimizer args0 = do
                                                                                 }
                                                                         eliteCapacity = max 1 survivorCount
                                                                         eliteScore tr =
-                                                                            let edgeScore = maybe 0 priorTrialEdgeScore (trMetrics tr)
+                                                                            let edgeScore = maybe 0 (priorTrialEdgeScoreWithConfig edgeScoreConfig) (trMetrics tr)
                                                                              in fromMaybe (-1e18) (trScore tr) + survivorEdgeWeight * edgeScore
                                                                         eligibleElite tr = trEligible tr && isJust (trScore tr)
                                                                         trimElitePool =

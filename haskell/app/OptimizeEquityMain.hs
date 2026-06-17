@@ -13,7 +13,9 @@ import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultL
 import Trader.Optimization (TuneObjective (..), defaultMaxThresholdCandidates, tuneObjectiveCode)
 import Trader.Optimizer.Optimize (
     OptimizerArgs (..),
+    OptimizerEdgeScoreConfig (..),
     TechnicalOptimizerRanges (..),
+    defaultOptimizerEdgeScoreConfig,
     normalizeObjectiveCode,
     optimizerOptionPresent,
     runOptimizer,
@@ -80,6 +82,7 @@ optimizerArgsParser =
         <*> option auto (long "survivor-parent-activity-floor" <> value 5 <> metavar "INT")
         <*> option auto (long "survivor-parent-annualized-return-floor" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "survivor-edge-weight" <> value 0.10 <> metavar "FLOAT")
+        <*> edgeScoreConfigParser
         <*> option auto (long "survivor-rank-bias" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-double" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-int" <> value 2 <> metavar "INT")
@@ -678,6 +681,26 @@ roiScoreIntOption :: String -> (RoiScoreConfig -> Int) -> Parser Int
 roiScoreIntOption name field =
     option auto (long name <> value (field defaultRoiScoreConfig) <> metavar "INT")
 
+edgeScoreConfigParser :: Parser OptimizerEdgeScoreConfig
+edgeScoreConfigParser =
+    OptimizerEdgeScoreConfig
+        <$> edgeScoreDoubleOption "edge-score-annualized-return-weight" oescAnnualizedReturnWeight
+        <*> edgeScoreDoubleOption "edge-score-sharpe-weight" oescSharpeWeight
+        <*> edgeScoreDoubleOption "edge-score-calmar-weight" oescCalmarWeight
+        <*> edgeScoreDoubleOption "edge-score-profit-factor-weight" oescProfitFactorWeight
+        <*> edgeScoreDoubleOption "edge-score-walk-forward-sharpe-weight" oescWalkForwardSharpeWeight
+        <*> edgeScoreDoubleOption "edge-score-activity-weight" oescActivityWeight
+        <*> edgeScoreDoubleOption "edge-score-calmar-cap" oescCalmarCap
+        <*> edgeScoreIntOption "edge-score-activity-cap" oescActivityCap
+
+edgeScoreDoubleOption :: String -> (OptimizerEdgeScoreConfig -> Double) -> Parser Double
+edgeScoreDoubleOption name field =
+    option auto (long name <> value (field defaultOptimizerEdgeScoreConfig) <> metavar "FLOAT")
+
+edgeScoreIntOption :: String -> (OptimizerEdgeScoreConfig -> Int) -> Parser Int
+edgeScoreIntOption name field =
+    option auto (long name <> value (field defaultOptimizerEdgeScoreConfig) <> metavar "INT")
+
 intRangeOption :: String -> Int -> Int -> Parser (Int, Int)
 intRangeOption name lo hi =
     (,)
@@ -732,6 +755,7 @@ validateArgs args = do
         Left "--survivor-parent-annualized-return-floor must be finite."
     when (oaSurvivorEdgeWeight args < 0 || not (finiteDouble (oaSurvivorEdgeWeight args))) $
         Left "--survivor-edge-weight must be a finite value >= 0."
+    validateEdgeScoreConfig (oaEdgeScoreConfig args)
     when (oaSurvivorRankBias args < 0 || not (finiteDouble (oaSurvivorRankBias args))) $
         Left "--survivor-rank-bias must be a finite value >= 0."
     when (oaPerturbScaleDouble args < 0) $
@@ -1081,6 +1105,22 @@ validateArgs args = do
     when (oaKellyLiteCapMin args < 0 || oaKellyLiteCapMax args < 0) $
         Left "--kelly-lite-cap-min/max must be >= 0."
     pure args'
+
+validateEdgeScoreConfig :: OptimizerEdgeScoreConfig -> Either String ()
+validateEdgeScoreConfig config = do
+    finiteNonNegative "--edge-score-annualized-return-weight" (oescAnnualizedReturnWeight config)
+    finiteNonNegative "--edge-score-sharpe-weight" (oescSharpeWeight config)
+    finiteNonNegative "--edge-score-calmar-weight" (oescCalmarWeight config)
+    finiteNonNegative "--edge-score-profit-factor-weight" (oescProfitFactorWeight config)
+    finiteNonNegative "--edge-score-walk-forward-sharpe-weight" (oescWalkForwardSharpeWeight config)
+    finiteNonNegative "--edge-score-activity-weight" (oescActivityWeight config)
+    finiteNonNegative "--edge-score-calmar-cap" (oescCalmarCap config)
+    when (oescActivityCap config < 0) $
+        Left "--edge-score-activity-cap must be >= 0."
+  where
+    finiteNonNegative name value =
+        when (value < 0 || not (finiteDouble value)) $
+            Left (name ++ " must be a finite value >= 0.")
 
 validateTechnicalOptimizerRanges :: TechnicalOptimizerRanges -> Either String ()
 validateTechnicalOptimizerRanges ranges = do

@@ -99,13 +99,18 @@ import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
+    OptimizerEdgeScoreConfig (..),
     OptimizerRecordsSummary (..),
     applyWalkForwardSummaryMetrics,
+    ageAdjustedPriorScore,
+    defaultOptimizerEdgeScoreConfig,
     emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
+    priorAgeDecayMultiplier,
     priorTrialEdgeScore,
+    priorTrialEdgeScoreWithConfig,
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
@@ -440,6 +445,8 @@ main = do
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
     testOptimizerPriorEdgeScoreRegression
+    testOptimizerPriorAgeDecayMissingTimestampRegression
+    testOptimizerPriorAgeAdjustedScoreRegression
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
     testOptimizerRecordsRetryDiscoveryForWalkForwardFilters
@@ -6227,12 +6234,60 @@ testOptimizerPriorEdgeScoreRegression = do
                 , "maxDrawdown" Aeson..= (-0.3 :: Double)
                 , "profitFactor" Aeson..= (-5.0 :: Double)
                 ]
+        zeroWeightConfig =
+            defaultOptimizerEdgeScoreConfig
+                { oescAnnualizedReturnWeight = 0
+                , oescSharpeWeight = 0
+                , oescCalmarWeight = 0
+                , oescProfitFactorWeight = 0
+                , oescWalkForwardSharpeWeight = 0
+                , oescActivityWeight = 0
+                }
     assert
         "optimizer prior edge score favors stronger positive edge evidence"
         (priorTrialEdgeScore strongEdge > priorTrialEdgeScore weakEdge && priorTrialEdgeScore weakEdge > 0)
     assert
         "optimizer prior edge score ignores malformed or negative edge evidence"
         (priorTrialEdgeScore malformed == 0)
+    assert
+        "default optimizer edge-score config preserves prior edge scoring"
+        (priorTrialEdgeScoreWithConfig defaultOptimizerEdgeScoreConfig strongEdge == priorTrialEdgeScore strongEdge)
+    assert
+        "zero edge-score weights remove the prior edge boost"
+        (priorTrialEdgeScoreWithConfig zeroWeightConfig strongEdge == 0)
+
+testOptimizerPriorAgeDecayMissingTimestampRegression :: IO ()
+testOptimizerPriorAgeDecayMissingTimestampRegression = do
+    let dayMs = 86400000 :: Int
+        nowMs = 90 * dayMs
+        createdOneHalfLifeAgo = nowMs - 45 * dayMs
+        closeTo expected actual = abs (actual - expected) <= 1e-12
+    assert
+        "disabled prior age decay remains neutral for missing timestamps"
+        (priorAgeDecayMultiplier 0 nowMs Nothing == 1)
+    assert
+        "missing prior timestamps are treated as stale when age decay is enabled"
+        (closeTo 0.25 (priorAgeDecayMultiplier 45 nowMs Nothing))
+    assert
+        "one half-life old prior timestamp decays to 0.5"
+        (closeTo 0.5 (priorAgeDecayMultiplier 45 nowMs (Just createdOneHalfLifeAgo)))
+    assert
+        "future prior timestamps do not receive an age penalty"
+        (priorAgeDecayMultiplier 45 nowMs (Just (nowMs + dayMs)) == 1)
+
+testOptimizerPriorAgeAdjustedScoreRegression :: IO ()
+testOptimizerPriorAgeAdjustedScoreRegression = do
+    let closeTo expected actual = abs (actual - expected) <= 1e-12
+        nowMs = 90 * 86400000
+    assert
+        "disabled prior age adjustment leaves positive scores unchanged"
+        (ageAdjustedPriorScore 0 nowMs Nothing 12 == 12)
+    assert
+        "missing prior timestamps discount positive scores by two half-lives"
+        (closeTo 3 (ageAdjustedPriorScore 45 nowMs Nothing 12))
+    assert
+        "missing prior timestamps amplify negative scores by two half-lives"
+        (closeTo (-48) (ageAdjustedPriorScore 45 nowMs Nothing (-12)))
 
 testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
 testOptimizerQualityThresholdArgvExplicitRegression = do
