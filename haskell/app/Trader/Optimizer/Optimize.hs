@@ -2391,6 +2391,7 @@ data OptimizerArgs = OptimizerArgs
     , oaSurvivorParentActivityFloor :: !Int
     , oaSurvivorParentAnnualizedReturnFloor :: !Double
     , oaSurvivorEdgeWeight :: !Double
+    , oaSurvivorRankBias :: !Double
     , oaPerturbScaleDouble :: !Double
     , oaPerturbScaleInt :: !Int
     , oaEarlyStopNoImprove :: !Int
@@ -5899,6 +5900,9 @@ runOptimizer args0 = do
                                                                         survivorEdgeWeight =
                                                                             let raw = oaSurvivorEdgeWeight args
                                                                              in if isNaN raw || isInfinite raw then 0 else max 0 raw
+                                                                        survivorRankBias =
+                                                                            let raw = oaSurvivorRankBias args
+                                                                             in if isNaN raw || isInfinite raw then 0 else max 0 raw
                                                                         perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
                                                                         perturbScaleInt = max 0 (oaPerturbScaleInt args)
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
@@ -6251,7 +6255,7 @@ runOptimizer args0 = do
                                                                                                 Just base ->
                                                                                                     case mParents of
                                                                                                         Just parents@(_ : _ : _) ->
-                                                                                                            case pickParentPair parents rng of
+                                                                                                            case pickParentPair survivorRankBias parents rng of
                                                                                                                 Just ((p1, p2), rng1) ->
                                                                                                                     let crossover = crossoverTrialParams p1 p2 rng1
                                                                                                                         child = fst crossover
@@ -6464,14 +6468,17 @@ runOptimizer args0 = do
                                                                                 (idx, rng) : rest -> do
                                                                                     let survivorParams = eliteBaseParams elitePool
                                                                                         gaParentPool = gaParentPoolFrom elitePool
-                                                                                        baseParam =
+                                                                                        (baseParam, trialRng) =
                                                                                             case survivorParams of
-                                                                                                [] -> Nothing
+                                                                                                [] -> (Nothing, rng)
                                                                                                 _ ->
-                                                                                                    let ix = survivorsIx `mod` length survivorParams
-                                                                                                     in listToMaybe (drop ix survivorParams)
+                                                                                                    if survivorRankBias <= 0
+                                                                                                        then
+                                                                                                            let ix = survivorsIx `mod` length survivorParams
+                                                                                                             in (listToMaybe (drop ix survivorParams), rng)
+                                                                                                        else rankBiasedChoice survivorParams survivorRankBias rng
                                                                                         prevScore = bestScore best
-                                                                                    (best', recs', tr) <- runTrialWith idx rng Nothing baseParam gaParentPool best recs
+                                                                                    (best', recs', tr) <- runTrialWith idx trialRng Nothing baseParam gaParentPool best recs
                                                                                     let survivorsIx' = survivorsIx + 1
                                                                                         bestScore' = bestScore best'
                                                                                         stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
@@ -7136,15 +7143,42 @@ pickValue a b rng =
     let (r, rng1) = nextDouble rng
      in (if r < 0.5 then a else b, rng1)
 
-pickParentPair :: [TrialParams] -> Rng -> Maybe ((TrialParams, TrialParams), Rng)
-pickParentPair parents rng0 =
+rankBiasedIndex :: Int -> Double -> Rng -> (Int, Rng)
+rankBiasedIndex n bias rng0
+    | n <= 1 = (0, rng0)
+    | bias <= 0 || isNaN bias || isInfinite bias = nextIntRange 0 (n - 1) rng0
+    | otherwise =
+        let ranks = [1 .. n]
+            weights = map (\rank -> 1 / (fromIntegral rank ** bias)) ranks
+            total = sum weights
+         in if total <= 0
+                then nextIntRange 0 (n - 1) rng0
+                else
+                    let (r, rng1) = nextDouble rng0
+                        target = r * total
+                        pick ix acc (w : rest) =
+                            let acc' = acc + w
+                             in if target <= acc' then ix else pick (ix + 1) acc' rest
+                        pick ix _ [] = min (n - 1) ix
+                     in (pick 0 0 weights, rng1)
+
+rankBiasedChoice :: [a] -> Double -> Rng -> (Maybe a, Rng)
+rankBiasedChoice values bias rng =
+    case values of
+        [] -> (Nothing, rng)
+        first : _ ->
+            let (ix, rng1) = rankBiasedIndex (length values) bias rng
+             in (listToMaybe (drop ix values) <|> Just first, rng1)
+
+pickParentPair :: Double -> [TrialParams] -> Rng -> Maybe ((TrialParams, TrialParams), Rng)
+pickParentPair rankBias parents rng0 =
     case parents of
         [] -> Nothing
         p0 : rest ->
             let n = length parents
                 p1 = fromMaybe p0 (listToMaybe rest)
-                (i, rng1) = nextIntRange 0 (n - 1) rng0
-                (j, rng2) = nextIntRange 0 (n - 1) rng1
+                (i, rng1) = rankBiasedIndex n rankBias rng0
+                (j, rng2) = rankBiasedIndex n rankBias rng1
                 j' = if j == i then (j + 1) `mod` n else j
                 pi' = fromMaybe p0 (listToMaybe (drop i parents))
                 pj' = fromMaybe p1 (listToMaybe (drop j' parents))

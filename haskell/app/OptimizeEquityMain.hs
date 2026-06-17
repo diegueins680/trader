@@ -80,6 +80,7 @@ optimizerArgsParser =
         <*> option auto (long "survivor-parent-activity-floor" <> value 5 <> metavar "INT")
         <*> option auto (long "survivor-parent-annualized-return-floor" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "survivor-edge-weight" <> value 0.10 <> metavar "FLOAT")
+        <*> option auto (long "survivor-rank-bias" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-double" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-int" <> value 2 <> metavar "INT")
         <*> option auto (long "early-stop-no-improve" <> value 0 <> metavar "INT")
@@ -731,6 +732,8 @@ validateArgs args = do
         Left "--survivor-parent-annualized-return-floor must be finite."
     when (oaSurvivorEdgeWeight args < 0 || not (finiteDouble (oaSurvivorEdgeWeight args))) $
         Left "--survivor-edge-weight must be a finite value >= 0."
+    when (oaSurvivorRankBias args < 0 || not (finiteDouble (oaSurvivorRankBias args))) $
+        Left "--survivor-rank-bias must be a finite value >= 0."
     when (oaPerturbScaleDouble args < 0) $
         Left "--perturb-scale-double must be >= 0."
     when (oaPerturbScaleInt args < 0) $

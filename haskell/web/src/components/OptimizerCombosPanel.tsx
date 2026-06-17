@@ -1143,7 +1143,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
           </div>
-          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerSeedTrials">
                 Seed trials
@@ -1188,6 +1188,21 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 value={optimizerRunForm.survivorFraction}
                 onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorFraction: e.target.value }))}
                 placeholder="0.5"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerSurvivorRankBias">
+                Survivor rank bias
+              </label>
+              <input
+                id="optimizerSurvivorRankBias"
+                className="input"
+                type="number"
+                min={0}
+                step="0.1"
+                value={optimizerRunForm.survivorRankBias}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorRankBias: e.target.value }))}
+                placeholder="1.5"
               />
             </div>
           </div>
