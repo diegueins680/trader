@@ -4,6 +4,7 @@ module Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
     OptimizerArgs (..),
     OptimizerRecordsSummary (..),
+    PriorTrial (..),
     TechnicalOptimizerRanges (..),
     TechnicalTrialParams (..),
     appliedCloseTimingMaxHoldBars,
@@ -25,6 +26,7 @@ module Trader.Optimizer.Optimize (
     defaultPriorMissingAgeMultiplier,
     priorTrialEdgeScore,
     priorTrialEdgeScoreWithConfig,
+    priorTrialsFromValue,
     priorAgeDecayMultiplier,
     priorAgeDecayMultiplierWithMissingMultiplier,
     qualityPresetIntervalFields,
@@ -1492,7 +1494,9 @@ priorTrialFromObject obj = do
                 (doubleField ["score", "finalEquity"] obj)
         processingRankScore =
             processing >>= doubleField ["rankScore"]
-        createdAtMs = intField ["createdAtMs"] obj
+        createdAtMs =
+            intField ["createdAtMs", "backtestRefreshedAtMs"] obj
+                <|> intField ["createdAtMs", "backtestRefreshedAtMs"] metrics
         symbol =
             normalizeSymbol
                 ( stringField ["binanceSymbol", "symbol", "binance_symbol"] params
@@ -1767,14 +1771,8 @@ priorTrialMeetsEvidence args symbol intervals trial =
             case metricProfitFactor metrics of
                 Nothing -> True
                 Just pf -> pf >= max 0 (oaMinProfitFactor args)
-        symbolOk =
-            case symbol of
-                Nothing -> True
-                Just sym -> maybe True (== sym) (ptSymbol trial)
-        intervalOk =
-            case ptInterval trial of
-                Nothing -> True
-                Just interval -> interval `elem` intervals
+        _symbolHint = symbol
+        _intervalHints = intervals
         minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
         walkForwardOk =
@@ -1789,8 +1787,12 @@ priorTrialMeetsEvidence args symbol intervals trial =
                      in (minWfSharpeMean <= 0 || wfSharpeMean >= minWfSharpeMean)
                             && (maxWfSharpeStd <= 0 || wfSharpeStd <= maxWfSharpeStd)
      in ptEligible trial
-            && symbolOk
-            && intervalOk
+            -- Prior rows are transfer-learning hints, not deployable
+            -- candidates. Do not require them to match the current
+            -- symbol/interval exactly; 'applyPriorOverlay' keeps the active
+            -- run's symbol data and clamps prior intervals to the allowed set.
+            -- Exact-scope matching still happens later in 'priorPoolForBase'
+            -- when matching priors exist.
             && (oaMinRoundTrips args <= 0 || activityCount >= oaMinRoundTrips args)
             && (oaMinWinRate args <= 0 || winRate >= oaMinWinRate args)
             && profitFactorOk
@@ -7824,9 +7826,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 { tpBars = bars'
                 , tpBlendWeight = clamp blendWeight' 0 1
                 , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
-                , tpBaseOpenThreshold = openThreshold'
-                , tpBaseCloseThreshold = closeThreshold'
-                , tpMinEdge = minEdge'
+                , tpBaseOpenThreshold = max 0 openThreshold'
+                , tpBaseCloseThreshold = max 0 closeThreshold'
+                , tpMinEdge = max venueMinEdgeFloor minEdge'
                 , tpMinSignalToNoise = minSn'
                 , tpSnrSizeWeight = clamp snrSizeWeight' 0 1
                 , tpThresholdFactorAlpha = thresholdFactorAlpha'
@@ -8075,6 +8077,8 @@ applyPriorOverlay allowedIntervals prior base =
             case doubleField ["minEdge"] params of
                 Just v -> Just (max venueMinEdgeFloor v)
                 Nothing -> Nothing
+        priorThresholdBoundedBy sampledThreshold =
+            min (max 0 sampledThreshold) . max 0
         overlaid =
             base
                 { tpInterval = interval'
@@ -8083,8 +8087,16 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpRouterScorePnlWeight = fromMaybe (tpRouterScorePnlWeight base) (doubleField ["routerScorePnlWeight"] params)
                 , tpPositioning = fromMaybe (tpPositioning base) (stringField ["positioning"] params)
                 , tpNormalization = fromMaybe (tpNormalization base) (stringField ["normalization"] params)
-                , tpBaseOpenThreshold = fromMaybe (tpBaseOpenThreshold base) (doubleField ["baseOpenThreshold", "openThreshold"] params)
-                , tpBaseCloseThreshold = fromMaybe (tpBaseCloseThreshold base) (doubleField ["baseCloseThreshold", "closeThreshold"] params)
+                , tpBaseOpenThreshold =
+                    maybe
+                        (tpBaseOpenThreshold base)
+                        (priorThresholdBoundedBy (tpBaseOpenThreshold base))
+                        (doubleField ["baseOpenThreshold", "openThreshold"] params)
+                , tpBaseCloseThreshold =
+                    maybe
+                        (tpBaseCloseThreshold base)
+                        (priorThresholdBoundedBy (tpBaseCloseThreshold base))
+                        (doubleField ["baseCloseThreshold", "closeThreshold"] params)
                 , tpMinHoldBars = fromMaybe (tpMinHoldBars base) (intField ["minHoldBars"] params)
                 , tpCooldownBars = fromMaybe (tpCooldownBars base) (intField ["cooldownBars"] params)
                 , tpMaxHoldBars = fromMaybe (tpMaxHoldBars base) (optionalIntField ["maxHoldBars"] params)
@@ -8222,7 +8234,11 @@ applyTechnicalPriorOverlay :: KM.KeyMap Value -> TechnicalTrialParams -> Technic
 applyTechnicalPriorOverlay params base =
     normalizeTechnicalTrialParams
         base
-            { ttpTaEntryOpenThreshold = fromMaybe (ttpTaEntryOpenThreshold base) (doubleField ["taEntryOpenThreshold"] params)
+            { ttpTaEntryOpenThreshold =
+                maybe
+                    (ttpTaEntryOpenThreshold base)
+                    (min (max 0 (ttpTaEntryOpenThreshold base)) . max 0)
+                    (doubleField ["taEntryOpenThreshold"] params)
             , ttpTaTrendAdxThreshold = fromMaybe (ttpTaTrendAdxThreshold base) (doubleField ["taTrendAdxThreshold"] params)
             , ttpTaTrendStopAtrMult = fromMaybe (ttpTaTrendStopAtrMult base) (doubleField ["taTrendStopAtrMult"] params)
             , ttpTaTrendTakeProfitAtrMult = fromMaybe (ttpTaTrendTakeProfitAtrMult base) (doubleField ["taTrendTakeProfitAtrMult"] params)

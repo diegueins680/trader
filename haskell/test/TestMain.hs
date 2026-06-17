@@ -103,6 +103,7 @@ import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
     OptimizerRecordsSummary (..),
+    PriorTrial (..),
     ageAdjustedPriorScore,
     ageAdjustedPriorScoreWithMissingMultiplier,
     applyWalkForwardSummaryMetrics,
@@ -116,6 +117,7 @@ import Trader.Optimizer.Optimize (
     priorAgeDecayMultiplierWithMissingMultiplier,
     priorTrialEdgeScore,
     priorTrialEdgeScoreWithConfig,
+    priorTrialsFromValue,
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
@@ -454,6 +456,7 @@ main = do
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
     testOptimizerPriorEdgeScoreRegression
+    testOptimizerPriorParserCarriesFreshEvidenceRegression
     testOptimizerPriorAgeDecayMissingTimestampRegression
     testOptimizerPriorAgeAdjustedScoreRegression
     testOptimizerQualityThresholdArgvExplicitRegression
@@ -6346,6 +6349,40 @@ testOptimizerPriorEdgeScoreRegression = do
     assert
         "zero edge-score weights remove the prior edge boost"
         (priorTrialEdgeScoreWithConfig zeroWeightConfig strongEdge == 0)
+
+testOptimizerPriorParserCarriesFreshEvidenceRegression :: IO ()
+testOptimizerPriorParserCarriesFreshEvidenceRegression = do
+    let refreshedAt = 1781709486839 :: Int
+        payload =
+            Aeson.object
+                [ "combos"
+                    Aeson..= [ Aeson.object
+                                [ "params"
+                                    Aeson..= Aeson.object
+                                        [ "binanceSymbol" Aeson..= ("XRPUSDT" :: String)
+                                        , "interval" Aeson..= ("1h" :: String)
+                                        , "method" Aeson..= ("10" :: String)
+                                        ]
+                                , "metrics"
+                                    Aeson..= Aeson.object
+                                        [ "roundTrips" Aeson..= (22 :: Int)
+                                        , "tradeCount" Aeson..= (44 :: Int)
+                                        , "annualizedReturn" Aeson..= (0.8 :: Double)
+                                        , "walkForwardSummary" Aeson..= Aeson.object ["sharpeMean" Aeson..= (0.9 :: Double)]
+                                        ]
+                                , "backtestRefreshedAtMs" Aeson..= refreshedAt
+                                ]
+                             ]
+                ]
+        trials = priorTrialsFromValue payload
+    case trials of
+        [trial] -> do
+            assert "prior parser keeps symbol hints from top-combo params" (ptSymbol trial == Just "XRPUSDT")
+            assert "prior parser keeps interval hints from top-combo params" (ptInterval trial == Just "1h")
+            assert "prior parser keeps method hints from top-combo params" (ptMethod trial == Just "10")
+            assert "prior parser treats refresh stamps as usable age evidence" (ptCreatedAtMs trial == Just refreshedAt)
+            assert "prior parser keeps metrics for edge scoring" (priorTrialEdgeScore (ptMetrics trial) > 0)
+        _ -> assert "prior parser reads compact top-combo payloads as trials" False
 
 testOptimizerPriorAgeDecayMissingTimestampRegression :: IO ()
 testOptimizerPriorAgeDecayMissingTimestampRegression = do

@@ -1,0 +1,48 @@
+{$TRADER_SITE_ADDRESS:http://localhost}, 127.0.0.1:80 {
+  encode zstd gzip
+  root * /srv/trader-web
+
+  route {
+    @stateSync path /state/sync
+    handle @stateSync {
+      reverse_proxy api:8080 {
+        health_uri /health
+        health_interval 30s
+        health_timeout 5s
+      }
+    }
+
+    basic_auth {
+      {$TRADER_UI_BASIC_AUTH_USER:trader} {$TRADER_UI_BASIC_AUTH_HASH}
+    }
+
+    @trading path /api/trade /api/trade/* /api/bot/start /api/bot/stop /trade /trade/* /bot/start /bot/stop
+    respond @trading "trading workloads run on the trading server" 403
+
+    handle_path /api/* {
+      reverse_proxy api:8080 {
+        header_up Authorization "Bearer {$TRADER_API_TOKEN}"
+        header_up X-API-Key "{$TRADER_API_TOKEN}"
+        health_uri /health
+        health_interval 30s
+        health_timeout 5s
+      }
+    }
+
+    @api path /health /cache /cache/* /signal /signal/* /backtest /backtest/* /bot/* /binance/* /optimizer/* /ops /ops/* /state/* /request-progress/* /metrics
+    handle @api {
+      reverse_proxy api:8080 {
+        header_up Authorization "Bearer {$TRADER_API_TOKEN}"
+        header_up X-API-Key "{$TRADER_API_TOKEN}"
+        health_uri /health
+        health_interval 30s
+        health_timeout 5s
+      }
+    }
+
+    handle {
+      try_files {path} /index.html
+      file_server
+    }
+  }
+}
