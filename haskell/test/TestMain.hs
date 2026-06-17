@@ -4474,7 +4474,7 @@ testLiveComboFreshnessRequiresRecentBacktestEvidence = do
     let day = 86400000 :: Int64
         maxAge = 14 * day
         now = 30 * day
-        combo fields = Aeson.object fields
+        combo = Aeson.object
         freshByCreated = combo ["createdAtMs" .= (now - maxAge)]
         staleByCreated = combo ["createdAtMs" .= (now - maxAge - 1)]
         freshByRefresh =

@@ -8210,13 +8210,12 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                                         then do
                                                             deletePositionOrigin store tenantKey baseArgs sym
                                                             pure (baseArgs, Nothing)
-                                                        else
-                                                            case applyTopComboForStartWithUuid baseArgs combo of
-                                                                Left _ -> pure (baseArgs, Nothing)
-                                                                Right (argsApplied0, mUuid) ->
-                                                                    case validateApiComputeLimits limits argsApplied0 of
-                                                                        Left _ -> pure (baseArgs, Nothing)
-                                                                        Right argsApplied -> pure (argsApplied, mUuid)
+                                                        else case applyTopComboForStartWithUuid baseArgs combo of
+                                                            Left _ -> pure (baseArgs, Nothing)
+                                                            Right (argsApplied0, mUuid) ->
+                                                                case validateApiComputeLimits limits argsApplied0 of
+                                                                    Left _ -> pure (baseArgs, Nothing)
+                                                                    Right argsApplied -> pure (argsApplied, mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -12950,13 +12949,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                     else (latest2{lsAction = action}, prevPos, Nothing)
                 Nothing -> (latest2, desiredPosWanted2, mExitReason2)
 
-        (latest2c, desiredPosWanted2c, mExitReason2c) =
-            if comboFreshForLive
-                then (latest2b, desiredPosWanted2b, mExitReason2b)
-                else
-                    if prevPos == 0
-                        then (latest2b{lsChosenDir = Nothing, lsAction = "HOLD_STALE_COMBO"}, 0, Nothing)
-                        else (latest2b{lsChosenDir = Just (negate prevPos), lsAction = "EXIT_STALE_COMBO"}, 0, Just "STALE_COMBO")
+        (latest2c, desiredPosWanted2c, mExitReason2c)
+            | comboFreshForLive = (latest2b, desiredPosWanted2b, mExitReason2b)
+            | prevPos == 0 = (latest2b{lsChosenDir = Nothing, lsAction = "HOLD_STALE_COMBO"}, 0, Nothing)
+            | otherwise = (latest2b{lsChosenDir = Just (negate prevPos), lsAction = "EXIT_STALE_COMBO"}, 0, Just "STALE_COMBO")
 
         (latest, desiredPosWanted, mExitReason) =
             if prevPos == 0 && desiredPosWanted2c /= 0 && cooldownBlocked
@@ -17405,7 +17401,7 @@ persistTopCombosToDb conn export =
                         metricsObj =
                             maybe
                                 id
-                                (\ts -> KM.insert (AK.fromString "backtestRefreshedAtMs") (toJSON ts))
+                                (KM.insert (AK.fromString "backtestRefreshedAtMs") . toJSON)
                                 (tcBacktestRefreshedAtMs combo)
                                 (fromMaybe KM.empty (tcMetrics combo))
                         metricsJson =
