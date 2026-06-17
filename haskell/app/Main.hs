@@ -340,6 +340,7 @@ import Trader.Optimizer.Common (
  )
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Optimize (
+    defaultPriorMissingAgeMultiplier,
     optimizerRecordsShouldRetryDiscovery,
     optimizerRecordsSummaryJson,
     readOptimizerRecordsSummary,
@@ -15766,6 +15767,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
     priorPerturbScaleDoubleEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_DOUBLE"
     priorPerturbScaleIntEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_INT"
     priorAgeHalfLifeDaysEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_AGE_HALF_LIFE_DAYS"
+    priorMissingAgeMultiplierEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MISSING_AGE_MULTIPLIER"
     priorDiversityMaxPerBucketEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_DIVERSITY_MAX_PER_BUCKET"
     priorSeedCountEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_SEED_COUNT"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
@@ -15778,6 +15780,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
         priorPerturbScaleDouble = readNonNegativeDoubleMaybe priorPerturbScaleDoubleEnv 0.05
         priorPerturbScaleInt = readNonNegativeIntMaybe priorPerturbScaleIntEnv 1
         priorAgeHalfLifeDays = readNonNegativeDoubleMaybe priorAgeHalfLifeDaysEnv 45.0
+        priorMissingAgeMultiplier = clamp01 (readNonNegativeDoubleMaybe priorMissingAgeMultiplierEnv defaultPriorMissingAgeMultiplier)
         priorDiversityMaxPerBucket = readNonNegativeIntMaybe priorDiversityMaxPerBucketEnv 8
         priorSeedCount = readNonNegativeIntMaybe priorSeedCountEnv 3
      in pure $
@@ -15804,6 +15807,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorPerturbScaleInt
                     , "--prior-age-half-life-days"
                     , show priorAgeHalfLifeDays
+                    , "--prior-missing-age-multiplier"
+                    , show priorMissingAgeMultiplier
                     , "--prior-diversity-max-per-bucket"
                     , show priorDiversityMaxPerBucket
                     , "--prior-seed-count"

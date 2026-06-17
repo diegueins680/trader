@@ -101,14 +101,17 @@ import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
     OptimizerRecordsSummary (..),
-    applyWalkForwardSummaryMetrics,
     ageAdjustedPriorScore,
+    ageAdjustedPriorScoreWithMissingMultiplier,
+    applyWalkForwardSummaryMetrics,
     defaultOptimizerEdgeScoreConfig,
+    defaultPriorMissingAgeMultiplier,
     emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
     priorAgeDecayMultiplier,
+    priorAgeDecayMultiplierWithMissingMultiplier,
     priorTrialEdgeScore,
     priorTrialEdgeScoreWithConfig,
     qualityPresetBudget,
@@ -6267,7 +6270,10 @@ testOptimizerPriorAgeDecayMissingTimestampRegression = do
         (priorAgeDecayMultiplier 0 nowMs Nothing == 1)
     assert
         "missing prior timestamps are treated as stale when age decay is enabled"
-        (closeTo 0.25 (priorAgeDecayMultiplier 45 nowMs Nothing))
+        (closeTo defaultPriorMissingAgeMultiplier (priorAgeDecayMultiplier 45 nowMs Nothing))
+    assert
+        "missing prior timestamp multiplier is configurable"
+        (closeTo 0.4 (priorAgeDecayMultiplierWithMissingMultiplier 0.4 45 nowMs Nothing))
     assert
         "one half-life old prior timestamp decays to 0.5"
         (closeTo 0.5 (priorAgeDecayMultiplier 45 nowMs (Just createdOneHalfLifeAgo)))
@@ -6288,6 +6294,12 @@ testOptimizerPriorAgeAdjustedScoreRegression = do
     assert
         "missing prior timestamps amplify negative scores by two half-lives"
         (closeTo (-48) (ageAdjustedPriorScore 45 nowMs Nothing (-12)))
+    assert
+        "custom missing prior timestamp multiplier discounts positive scores"
+        (closeTo 6 (ageAdjustedPriorScoreWithMissingMultiplier 0.5 45 nowMs Nothing 12))
+    assert
+        "custom missing prior timestamp multiplier amplifies negative scores"
+        (closeTo (-24) (ageAdjustedPriorScoreWithMissingMultiplier 0.5 45 nowMs Nothing (-12)))
 
 testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
 testOptimizerQualityThresholdArgvExplicitRegression = do

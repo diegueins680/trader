@@ -16,6 +16,7 @@ import Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
     TechnicalOptimizerRanges (..),
     defaultOptimizerEdgeScoreConfig,
+    defaultPriorMissingAgeMultiplier,
     normalizeObjectiveCode,
     optimizerOptionPresent,
     runOptimizer,
@@ -104,6 +105,7 @@ optimizerArgsParser =
         <*> option auto (long "prior-perturb-scale-double" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "prior-perturb-scale-int" <> value 1 <> metavar "INT")
         <*> option auto (long "prior-age-half-life-days" <> value 45.0 <> metavar "FLOAT")
+        <*> option auto (long "prior-missing-age-multiplier" <> value defaultPriorMissingAgeMultiplier <> metavar "FLOAT")
         <*> option auto (long "prior-diversity-max-per-bucket" <> value 8 <> metavar "INT")
         <*> option auto (long "prior-seed-count" <> value 3 <> metavar "INT")
         <*> switch (long "quality")
@@ -782,6 +784,8 @@ validateArgs args = do
         Left "--prior-perturb-scale-int must be >= 0."
     when (oaPriorAgeHalfLifeDays args < 0) $
         Left "--prior-age-half-life-days must be >= 0."
+    when (oaPriorMissingAgeMultiplier args < 0 || oaPriorMissingAgeMultiplier args > 1 || not (finiteDouble (oaPriorMissingAgeMultiplier args))) $
+        Left "--prior-missing-age-multiplier must be a finite value between 0 and 1."
     when (oaPriorDiversityMaxPerBucket args < 0) $
         Left "--prior-diversity-max-per-bucket must be >= 0."
     when (oaPriorSeedCount args < 0) $

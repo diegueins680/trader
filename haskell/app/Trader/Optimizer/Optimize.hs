@@ -21,9 +21,12 @@ module Trader.Optimizer.Optimize (
     optimizerRecordsShouldRetryDiscovery,
     optimizerRecordsSummaryJson,
     ageAdjustedPriorScore,
+    ageAdjustedPriorScoreWithMissingMultiplier,
+    defaultPriorMissingAgeMultiplier,
     priorTrialEdgeScore,
     priorTrialEdgeScoreWithConfig,
     priorAgeDecayMultiplier,
+    priorAgeDecayMultiplierWithMissingMultiplier,
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
@@ -1595,7 +1598,12 @@ priorTrialRankScore args nowMs trial =
                 Just rankScore -> max objectiveRankScore rankScore
                 Nothing -> objectiveRankScore
         edgeBoost = max 0 (oaPriorEdgeWeight args) * priorTrialEdgeScoreWithConfig (oaEdgeScoreConfig args) (ptMetrics trial)
-     in ageAdjustedPriorScore (oaPriorAgeHalfLifeDays args) nowMs (ptCreatedAtMs trial) (score + edgeBoost)
+     in ageAdjustedPriorScoreWithMissingMultiplier
+            (oaPriorMissingAgeMultiplier args)
+            (oaPriorAgeHalfLifeDays args)
+            nowMs
+            (ptCreatedAtMs trial)
+            (score + edgeBoost)
 
 data OptimizerEdgeScoreConfig = OptimizerEdgeScoreConfig
     { oescAnnualizedReturnWeight :: !Double
@@ -1621,6 +1629,9 @@ defaultOptimizerEdgeScoreConfig =
         , oescCalmarCap = 10
         , oescActivityCap = 200
         }
+
+defaultPriorMissingAgeMultiplier :: Double
+defaultPriorMissingAgeMultiplier = 0.25
 
 priorTrialEdgeScore :: KM.KeyMap Value -> Double
 priorTrialEdgeScore = priorTrialEdgeScoreWithConfig defaultOptimizerEdgeScoreConfig
@@ -1664,28 +1675,40 @@ priorTrialEdgeScoreWithConfig config metrics =
             + activityTerm
 
 ageAdjustedPriorScore :: Double -> Int -> Maybe Int -> Double -> Double
-ageAdjustedPriorScore halfLifeDays nowMs mCreatedAtMs score
+ageAdjustedPriorScore = ageAdjustedPriorScoreWithMissingMultiplier defaultPriorMissingAgeMultiplier
+
+ageAdjustedPriorScoreWithMissingMultiplier :: Double -> Double -> Int -> Maybe Int -> Double -> Double
+ageAdjustedPriorScoreWithMissingMultiplier missingAgeMultiplier halfLifeDays nowMs mCreatedAtMs score
     | halfLifeDays <= 0 = score
     | isNaN halfLifeDays || isInfinite halfLifeDays = score
     | otherwise =
-        let decay = priorAgeDecayMultiplier halfLifeDays nowMs mCreatedAtMs
+        let decay = priorAgeDecayMultiplierWithMissingMultiplier missingAgeMultiplier halfLifeDays nowMs mCreatedAtMs
          in if score >= 0
                 then score * decay
                 else score / max 1e-9 decay
 
 priorAgeDecayMultiplier :: Double -> Int -> Maybe Int -> Double
-priorAgeDecayMultiplier halfLifeDays nowMs mCreatedAtMs
+priorAgeDecayMultiplier = priorAgeDecayMultiplierWithMissingMultiplier defaultPriorMissingAgeMultiplier
+
+priorAgeDecayMultiplierWithMissingMultiplier :: Double -> Double -> Int -> Maybe Int -> Double
+priorAgeDecayMultiplierWithMissingMultiplier missingAgeMultiplier halfLifeDays nowMs mCreatedAtMs
     | halfLifeDays <= 0 = 1
     | isNaN halfLifeDays || isInfinite halfLifeDays = 1
     | otherwise =
         case mCreatedAtMs of
-            Nothing -> 0.25
+            Nothing -> safeMissingAgeMultiplier missingAgeMultiplier
             Just createdAtMs ->
                 let ageDays =
                         max 0 $
                             fromIntegral (max 0 (nowMs - createdAtMs))
                                 / (1000 * 60 * 60 * 24 :: Double)
                  in 0.5 ** (ageDays / halfLifeDays)
+  where
+    safeMissingAgeMultiplier x
+        | isNaN x || isInfinite x = defaultPriorMissingAgeMultiplier
+        | x < 0 = 0
+        | x > 1 = 1
+        | otherwise = x
 
 priorTrialDistributionSummary :: OptimizerEdgeScoreConfig -> [PriorTrial] -> String
 priorTrialDistributionSummary edgeScoreConfig trials =
@@ -2468,6 +2491,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorPerturbScaleDouble :: !Double
     , oaPriorPerturbScaleInt :: !Int
     , oaPriorAgeHalfLifeDays :: !Double
+    , oaPriorMissingAgeMultiplier :: !Double
     , oaPriorDiversityMaxPerBucket :: !Int
     , oaPriorSeedCount :: !Int
     , oaQuality :: !Bool
@@ -5969,6 +5993,7 @@ runOptimizer args0 = do
                                                                         priorPerturbScaleDouble = max 0 (oaPriorPerturbScaleDouble args)
                                                                         priorPerturbScaleInt = max 0 (oaPriorPerturbScaleInt args)
                                                                         priorAgeHalfLifeDays = max 0 (oaPriorAgeHalfLifeDays args)
+                                                                        priorMissingAgeMultiplier = clamp (oaPriorMissingAgeMultiplier args) 0 1
                                                                         priorDiversityMaxPerBucket = max 0 (oaPriorDiversityMaxPerBucket args)
                                                                         priorSeedCount = max 0 (oaPriorSeedCount args)
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
@@ -5983,7 +6008,17 @@ runOptimizer args0 = do
                                                                         maxTurnover = max 0 (oaMaxTurnover args)
                                                                         minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
                                                                         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
-                                                                        priorTrials = selectOptimizerPriorTrials args{oaPriorAgeHalfLifeDays = priorAgeHalfLifeDays, oaPriorDiversityMaxPerBucket = priorDiversityMaxPerBucket} priorNowMs symbolFinal intervals priorTrialsRaw
+                                                                        priorTrials =
+                                                                            selectOptimizerPriorTrials
+                                                                                args
+                                                                                    { oaPriorAgeHalfLifeDays = priorAgeHalfLifeDays
+                                                                                    , oaPriorMissingAgeMultiplier = priorMissingAgeMultiplier
+                                                                                    , oaPriorDiversityMaxPerBucket = priorDiversityMaxPerBucket
+                                                                                    }
+                                                                                priorNowMs
+                                                                                symbolFinal
+                                                                                intervals
+                                                                                priorTrialsRaw
                                                                     when (priorSampleProb > 0 && not (null (trim (oaPriorJson args)))) $
                                                                         hPutStrLn
                                                                             stderr
