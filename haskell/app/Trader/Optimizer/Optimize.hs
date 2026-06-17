@@ -1638,6 +1638,12 @@ priorTrialDistributionSummary trials =
         intervalSummary = countSummary (fromMaybe "unknown" . ptInterval) trials
         wfCount = length (filter priorTrialHasWalkForwardSummary trials)
         createdAtCount = length (filter (isJust . ptCreatedAtMs) trials)
+        edgeScores = map (priorTrialEdgeScore . ptMetrics) trials
+        edgeAvg =
+            if null edgeScores
+                then 0
+                else sum edgeScores / fromIntegral (length edgeScores)
+        edgeMax = maximum (0 : edgeScores)
      in " methods="
             ++ methodSummary
             ++ " intervals="
@@ -1650,6 +1656,10 @@ priorTrialDistributionSummary trials =
             ++ show createdAtCount
             ++ "/"
             ++ show (length trials)
+            ++ " edgeAvg="
+            ++ printf "%.3f" edgeAvg
+            ++ " edgeMax="
+            ++ printf "%.3f" edgeMax
 
 countSummary :: (PriorTrial -> String) -> [PriorTrial] -> String
 countSummary pick trials =
