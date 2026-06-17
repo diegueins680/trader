@@ -298,6 +298,7 @@ main = do
     testMaxPositionSizeRejectsZeroAndNegative
     testInitialBalanceRejectsZeroOrNegative
     testMinPositionSizeRejectsOutOfRangeValues
+    testPredictionMarketHerdTtlRejectsInvalidValues
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
     testMaxOrderQuoteRejectsAbsurdValue
@@ -1345,6 +1346,42 @@ testMinPositionSizeRejectsOutOfRangeValues = do
         "min-position-size accepts 0.5 (valid boundary)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "0.5"] of
             Right args -> argMinPositionSize args == 0.5
+            Left _ -> False
+        )
+
+testPredictionMarketHerdTtlRejectsInvalidValues :: IO ()
+testPredictionMarketHerdTtlRejectsInvalidValues = do
+    assert
+        "prediction-market-herd-fresh-ttl-sec rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--prediction-market-herd-fresh-ttl-sec", "0"] == Left "--prediction-market-herd-fresh-ttl-sec must be > 0")
+    assert
+        "prediction-market-herd-stale-ttl-sec rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--prediction-market-herd-stale-ttl-sec", "0"] == Left "--prediction-market-herd-stale-ttl-sec must be > 0")
+    assert
+        "prediction-market-herd-stale-ttl-sec must cover the fresh TTL"
+        ( parseAndValidateCliArgs
+            [ "--data"
+            , "sample.csv"
+            , "--prediction-market-herd-fresh-ttl-sec"
+            , "120"
+            , "--prediction-market-herd-stale-ttl-sec"
+            , "60"
+            ]
+            == Left "--prediction-market-herd-stale-ttl-sec must be >= --prediction-market-herd-fresh-ttl-sec"
+        )
+    assert
+        "prediction-market-herd TTLs accept custom values"
+        ( case parseAndValidateCliArgs
+            [ "--data"
+            , "sample.csv"
+            , "--prediction-market-herd-fresh-ttl-sec"
+            , "30"
+            , "--prediction-market-herd-stale-ttl-sec"
+            , "180"
+            ] of
+            Right args ->
+                argPredictionMarketHerdFreshTtlSec args == 30
+                    && argPredictionMarketHerdStaleTtlSec args == 180
             Left _ -> False
         )
 

@@ -1029,6 +1029,8 @@ data ApiParams = ApiParams
     , apPredictionMarketHerdMaxBoost :: Maybe Double
     , apPredictionMarketHerdMinVolume :: Maybe Double
     , apPredictionMarketHerdLimit :: Maybe Int
+    , apPredictionMarketHerdFreshTtlSec :: Maybe Double
+    , apPredictionMarketHerdStaleTtlSec :: Maybe Double
     , apTuneStressVolMult :: Maybe Double
     , apTuneStressShock :: Maybe Double
     , apTuneStressWeight :: Maybe Double
@@ -2857,6 +2859,8 @@ argsPublicJson args =
             , "predictionMarketHerdMaxBoost" .= argPredictionMarketHerdMaxBoost args
             , "predictionMarketHerdMinVolume" .= argPredictionMarketHerdMinVolume args
             , "predictionMarketHerdLimit" .= argPredictionMarketHerdLimit args
+            , "predictionMarketHerdFreshTtlSec" .= argPredictionMarketHerdFreshTtlSec args
+            , "predictionMarketHerdStaleTtlSec" .= argPredictionMarketHerdStaleTtlSec args
             , "executionMakerFirst" .= argExecutionMakerFirst args
             , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
             , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
@@ -14144,6 +14148,8 @@ argsCacheJsonSignal args =
             , "predictionMarketHerdMaxBoost" .= argPredictionMarketHerdMaxBoost args
             , "predictionMarketHerdMinVolume" .= argPredictionMarketHerdMinVolume args
             , "predictionMarketHerdLimit" .= argPredictionMarketHerdLimit args
+            , "predictionMarketHerdFreshTtlSec" .= argPredictionMarketHerdFreshTtlSec args
+            , "predictionMarketHerdStaleTtlSec" .= argPredictionMarketHerdStaleTtlSec args
             , "executionMakerFirst" .= argExecutionMakerFirst args
             , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
             , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
@@ -20503,6 +20509,8 @@ argsFromApi baseArgs p = do
                 , argPredictionMarketHerdMaxBoost = pick (apPredictionMarketHerdMaxBoost p) (argPredictionMarketHerdMaxBoost baseArgs)
                 , argPredictionMarketHerdMinVolume = pick (apPredictionMarketHerdMinVolume p) (argPredictionMarketHerdMinVolume baseArgs)
                 , argPredictionMarketHerdLimit = pick (apPredictionMarketHerdLimit p) (argPredictionMarketHerdLimit baseArgs)
+                , argPredictionMarketHerdFreshTtlSec = pick (apPredictionMarketHerdFreshTtlSec p) (argPredictionMarketHerdFreshTtlSec baseArgs)
+                , argPredictionMarketHerdStaleTtlSec = pick (apPredictionMarketHerdStaleTtlSec p) (argPredictionMarketHerdStaleTtlSec baseArgs)
                 , argTuneStressVolMult = pick (apTuneStressVolMult p) (argTuneStressVolMult baseArgs)
                 , argTuneStressShock = pick (apTuneStressShock p) (argTuneStressShock baseArgs)
                 , argTuneStressWeight = pick (apTuneStressWeight p) (argTuneStressWeight baseArgs)
@@ -20526,10 +20534,14 @@ dirLabel d =
 
 predictionMarketFetchConfigFromArgs :: Args -> PredictionMarketFetchConfig
 predictionMarketFetchConfigFromArgs args =
-    defaultPredictionMarketFetchConfig
-        { pmfcLimit = max 1 (argPredictionMarketHerdLimit args)
-        , pmfcMinVolume = max 0 (argPredictionMarketHerdMinVolume args)
-        }
+    let freshTtlSec = max 1e-12 (argPredictionMarketHerdFreshTtlSec args)
+        staleTtlSec = max freshTtlSec (argPredictionMarketHerdStaleTtlSec args)
+     in defaultPredictionMarketFetchConfig
+            { pmfcLimit = max 1 (argPredictionMarketHerdLimit args)
+            , pmfcMinVolume = max 0 (argPredictionMarketHerdMinVolume args)
+            , pmfcFreshTtl = realToFrac freshTtlSec
+            , pmfcStaleTtl = realToFrac staleTtlSec
+            }
 
 predictionMarketEntryIntent :: LatestSignal -> Bool
 predictionMarketEntryIntent sig =

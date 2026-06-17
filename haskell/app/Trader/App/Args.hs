@@ -48,6 +48,7 @@ import Trader.Platform (
     platformIntervalsCsv,
     platformSupportsTrading,
  )
+import Trader.PredictionMarkets (PredictionMarketFetchConfig (..), defaultPredictionMarketFetchConfig)
 import Trader.Predictors.DecisionTree (
     defaultDecisionTreeMaxDepth,
     defaultDecisionTreeMinLeafSize,
@@ -470,6 +471,8 @@ data Args = Args
     , argPredictionMarketHerdMaxBoost :: Double
     , argPredictionMarketHerdMinVolume :: Double
     , argPredictionMarketHerdLimit :: Int
+    , argPredictionMarketHerdFreshTtlSec :: Double
+    , argPredictionMarketHerdStaleTtlSec :: Double
     , argExecutionMakerFirst :: Bool
     , argExecutionMakerOffsetBps :: Double
     , argExecutionMakerTimeoutSec :: Double
@@ -1490,6 +1493,8 @@ opts = do
     argPredictionMarketHerdMaxBoost <- option auto (long "prediction-market-herd-max-boost" <> value 0.25 <> showDefault <> help "Maximum fractional entry-size boost from same-side Polymarket herd evidence")
     argPredictionMarketHerdMinVolume <- option auto (long "prediction-market-herd-min-volume" <> value 0 <> showDefault <> help "Minimum Polymarket market volume required for herd evidence")
     argPredictionMarketHerdLimit <- option auto (long "prediction-market-herd-limit" <> value 50 <> showDefault <> help "Maximum Polymarket search events to inspect for herd evidence")
+    argPredictionMarketHerdFreshTtlSec <- option auto (long "prediction-market-herd-fresh-ttl-sec" <> value (realToFrac (pmfcFreshTtl defaultPredictionMarketFetchConfig)) <> showDefault <> help "Seconds a cached Polymarket herd signal is considered fresh")
+    argPredictionMarketHerdStaleTtlSec <- option auto (long "prediction-market-herd-stale-ttl-sec" <> value (realToFrac (pmfcStaleTtl defaultPredictionMarketFetchConfig)) <> showDefault <> help "Seconds a cached Polymarket herd signal may be used as stale fallback after refresh errors")
     argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
     argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
     argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")
@@ -1992,6 +1997,8 @@ validateArgs args0 = do
             , ("--prediction-market-herd-min-probability", argPredictionMarketHerdMinProbability args)
             , ("--prediction-market-herd-max-boost", argPredictionMarketHerdMaxBoost args)
             , ("--prediction-market-herd-min-volume", argPredictionMarketHerdMinVolume args)
+            , ("--prediction-market-herd-fresh-ttl-sec", argPredictionMarketHerdFreshTtlSec args)
+            , ("--prediction-market-herd-stale-ttl-sec", argPredictionMarketHerdStaleTtlSec args)
             , ("--kalman-z-min", argKalmanZMin args)
             , ("--kalman-z-max", argKalmanZMax args)
             , ("--kalman-min-std-floor", argKalmanMinStdFloor args)
@@ -2545,6 +2552,9 @@ validateArgs args0 = do
     ensure "--prediction-market-herd-max-boost must be >= 0" (argPredictionMarketHerdMaxBoost args >= 0)
     ensure "--prediction-market-herd-min-volume must be >= 0" (argPredictionMarketHerdMinVolume args >= 0)
     ensure "--prediction-market-herd-limit must be >= 1" (argPredictionMarketHerdLimit args >= 1)
+    ensure "--prediction-market-herd-fresh-ttl-sec must be > 0" (argPredictionMarketHerdFreshTtlSec args > 0)
+    ensure "--prediction-market-herd-stale-ttl-sec must be > 0" (argPredictionMarketHerdStaleTtlSec args > 0)
+    ensure "--prediction-market-herd-stale-ttl-sec must be >= --prediction-market-herd-fresh-ttl-sec" (argPredictionMarketHerdStaleTtlSec args >= argPredictionMarketHerdFreshTtlSec args)
     ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
     ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
     ensure "--rsi-period must be >= 1" (argRsiPeriod args >= 1)
