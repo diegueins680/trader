@@ -2390,6 +2390,7 @@ data OptimizerArgs = OptimizerArgs
     , oaSurvivorFraction :: !Double
     , oaSurvivorParentActivityFloor :: !Int
     , oaSurvivorParentAnnualizedReturnFloor :: !Double
+    , oaSurvivorEdgeWeight :: !Double
     , oaPerturbScaleDouble :: !Double
     , oaPerturbScaleInt :: !Int
     , oaEarlyStopNoImprove :: !Int
@@ -5895,6 +5896,9 @@ runOptimizer args0 = do
                                                                         survivorParentAnnualizedReturnFloor =
                                                                             let raw = oaSurvivorParentAnnualizedReturnFloor args
                                                                              in if isNaN raw || isInfinite raw then 1 else raw
+                                                                        survivorEdgeWeight =
+                                                                            let raw = oaSurvivorEdgeWeight args
+                                                                             in if isNaN raw || isInfinite raw then 0 else max 0 raw
                                                                         perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
                                                                         perturbScaleInt = max 0 (oaPerturbScaleInt args)
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
@@ -6423,7 +6427,9 @@ runOptimizer args0 = do
                                                                                 , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
                                                                                 }
                                                                         eliteCapacity = max 1 survivorCount
-                                                                        eliteScore tr = fromMaybe (-1e18) (trScore tr)
+                                                                        eliteScore tr =
+                                                                            let edgeScore = maybe 0 priorTrialEdgeScore (trMetrics tr)
+                                                                             in fromMaybe (-1e18) (trScore tr) + survivorEdgeWeight * edgeScore
                                                                         eligibleElite tr = trEligible tr && isJust (trScore tr)
                                                                         trimElitePool =
                                                                             take eliteCapacity

@@ -757,6 +757,7 @@ export type OptimizerRunRequest = {
   survivorFraction?: number;
   survivorParentActivityFloor?: number;
   survivorParentAnnualizedReturnFloor?: number;
+  survivorEdgeWeight?: number;
   perturbScaleDouble?: number;
   perturbScaleInt?: number;
   earlyStopNoImprove?: number;

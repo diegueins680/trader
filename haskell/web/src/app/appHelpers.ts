@@ -1311,6 +1311,7 @@ const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = [
   "backtestRatio",
   "tuneRatio",
   "survivorParentAnnualizedReturnFloor",
+  "survivorEdgeWeight",
   "routerRegimeMinFractionMin",
   "routerRegimeMinFractionMax",
 ] as const;
@@ -1624,6 +1625,7 @@ export type OptimizerRunForm = {
   survivorFraction: string;
   survivorParentActivityFloor: string;
   survivorParentAnnualizedReturnFloor: string;
+  survivorEdgeWeight: string;
   perturbScaleDouble: string;
   perturbScaleInt: string;
   earlyStopNoImprove: string;
@@ -1983,6 +1985,7 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
     survivorFraction: "0.5",
     survivorParentActivityFloor: "5",
     survivorParentAnnualizedReturnFloor: "1.0",
+    survivorEdgeWeight: "0.10",
     perturbScaleDouble: "0.2",
     perturbScaleInt: "4",
   };
@@ -2093,6 +2096,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     survivorFraction: "",
     survivorParentActivityFloor: "",
     survivorParentAnnualizedReturnFloor: "",
+    survivorEdgeWeight: "",
     perturbScaleDouble: "",
     perturbScaleInt: "",
     earlyStopNoImprove: "",
@@ -2255,6 +2259,8 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (survivorParentActivityFloor != null) req.survivorParentActivityFloor = survivorParentActivityFloor;
   const survivorParentAnnualizedReturnFloor = parseOptionalNumber(form.survivorParentAnnualizedReturnFloor);
   if (survivorParentAnnualizedReturnFloor != null) req.survivorParentAnnualizedReturnFloor = survivorParentAnnualizedReturnFloor;
+  const survivorEdgeWeight = parseOptionalNumber(form.survivorEdgeWeight);
+  if (survivorEdgeWeight != null) req.survivorEdgeWeight = survivorEdgeWeight;
   const perturbScaleDouble = parseOptionalNumber(form.perturbScaleDouble);
   if (perturbScaleDouble != null) req.perturbScaleDouble = perturbScaleDouble;
   const perturbScaleInt = parseOptionalInt(form.perturbScaleInt);

@@ -1120,6 +1120,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrSurvivorFraction :: !(Maybe Double)
     , arrSurvivorParentActivityFloor :: !(Maybe Int)
     , arrSurvivorParentAnnualizedReturnFloor :: !(Maybe Double)
+    , arrSurvivorEdgeWeight :: !(Maybe Double)
     , arrPerturbScaleDouble :: !(Maybe Double)
     , arrPerturbScaleInt :: !(Maybe Int)
     , arrEarlyStopNoImprove :: !(Maybe Int)
@@ -11051,6 +11052,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     kalmanInnovationInflationMaxEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_INNOVATION_INFLATION_MAX"
                                     survivorParentActivityFloorEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_PARENT_ACTIVITY_FLOOR"
                                     survivorParentAnnualizedReturnFloorEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_PARENT_ANNUALIZED_RETURN_FLOOR"
+                                    survivorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_EDGE_WEIGHT"
                                     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
                                     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
                                     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -11174,6 +11176,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         survivorParentArgs =
                                             maybeIntArg "--survivor-parent-activity-floor" (readNonNegativeIntArg survivorParentActivityFloorEnv)
                                                 ++ maybeDoubleArg "--survivor-parent-annualized-return-floor" (readFiniteDoubleMaybe survivorParentAnnualizedReturnFloorEnv)
+                                                ++ maybeDoubleArg "--survivor-edge-weight" (fmap (max 0) (readFiniteDoubleMaybe survivorEdgeWeightEnv))
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -15712,6 +15715,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     kalmanInnovationInflationMaxEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_INNOVATION_INFLATION_MAX"
     survivorParentActivityFloorEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_PARENT_ACTIVITY_FLOOR"
     survivorParentAnnualizedReturnFloorEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_PARENT_ANNUALIZED_RETURN_FLOOR"
+    survivorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_SURVIVOR_EDGE_WEIGHT"
     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -15950,6 +15954,9 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ maybeDoubleArg
                             "--survivor-parent-annualized-return-floor"
                             (arrSurvivorParentAnnualizedReturnFloor req <|> readFiniteDoubleMaybe survivorParentAnnualizedReturnFloorEnv)
+                        ++ maybeDoubleArg
+                            "--survivor-edge-weight"
+                            (fmap (max 0) (arrSurvivorEdgeWeight req) <|> fmap (max 0) (readFiniteDoubleMaybe survivorEdgeWeightEnv))
                 perturbScaleDoubleArgs = maybeDoubleArg "--perturb-scale-double" (fmap (max 0) (arrPerturbScaleDouble req))
                 perturbScaleIntArgs = maybeIntArg "--perturb-scale-int" (fmap (max 0) (arrPerturbScaleInt req))
                 earlyStopArgs = maybeIntArg "--early-stop-no-improve" (fmap (max 0) (arrEarlyStopNoImprove req))

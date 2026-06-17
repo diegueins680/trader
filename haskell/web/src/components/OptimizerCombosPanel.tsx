@@ -1191,7 +1191,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
           </div>
-          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerSurvivorParentActivityFloor">
                 Parent activity floor
@@ -1219,6 +1219,21 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 value={optimizerRunForm.survivorParentAnnualizedReturnFloor}
                 onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorParentAnnualizedReturnFloor: e.target.value }))}
                 placeholder="1.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerSurvivorEdgeWeight">
+                Survivor edge weight
+              </label>
+              <input
+                id="optimizerSurvivorEdgeWeight"
+                className="input"
+                type="number"
+                min={0}
+                step="0.01"
+                value={optimizerRunForm.survivorEdgeWeight}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorEdgeWeight: e.target.value }))}
+                placeholder="0.10"
               />
             </div>
           </div>
