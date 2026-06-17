@@ -15649,6 +15649,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
     priorSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_SAMPLE_PROB"
     priorMethodSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_METHOD_SAMPLE_PROB"
     priorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_RANK_BIAS"
+    priorEdgeWeightEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_EDGE_WEIGHT"
     priorTopFractionEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_TOP_FRACTION"
     priorMinSamplesEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MIN_SAMPLES"
     priorPerturbScaleDoubleEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_DOUBLE"
@@ -15660,6 +15661,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
         priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
         priorRankBias = max 1 (readNonNegativeDoubleMaybe priorRankBiasEnv 2.0)
+        priorEdgeWeight = readNonNegativeDoubleMaybe priorEdgeWeightEnv 0.15
         priorTopFraction = clamp01 (readNonNegativeDoubleMaybe priorTopFractionEnv 0.5)
         priorMinSamples = readNonNegativeIntMaybe priorMinSamplesEnv 3
         priorPerturbScaleDouble = readNonNegativeDoubleMaybe priorPerturbScaleDoubleEnv 0.05
@@ -15679,6 +15681,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorMethodSampleProb
                     , "--prior-rank-bias"
                     , show priorRankBias
+                    , "--prior-edge-weight"
+                    , show priorEdgeWeight
                     , "--prior-top-fraction"
                     , show priorTopFraction
                     , "--prior-min-samples"

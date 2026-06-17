@@ -93,6 +93,7 @@ optimizerArgsParser =
         <*> option auto (long "prior-sample-prob" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "prior-method-sample-prob" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "prior-rank-bias" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "prior-edge-weight" <> value 0.15 <> metavar "FLOAT")
         <*> option auto (long "prior-top-fraction" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "prior-min-samples" <> value 1 <> metavar "INT")
         <*> option auto (long "prior-perturb-scale-double" <> value 0.05 <> metavar "FLOAT")
@@ -739,6 +740,8 @@ validateArgs args = do
         Left "--prior-method-sample-prob must be between 0 and 1."
     when (oaPriorRankBias args < 1) $
         Left "--prior-rank-bias must be >= 1."
+    when (oaPriorEdgeWeight args < 0 || not (finiteDouble (oaPriorEdgeWeight args))) $
+        Left "--prior-edge-weight must be a finite value >= 0."
     when (oaPriorTopFraction args < 0 || oaPriorTopFraction args > 1) $
         Left "--prior-top-fraction must be between 0 and 1."
     when (oaPriorMinSamples args < 0) $

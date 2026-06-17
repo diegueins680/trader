@@ -105,6 +105,7 @@ import Trader.Optimizer.Optimize (
     kellyLiteExposureContractReason,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
+    priorTrialEdgeScore,
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
@@ -432,6 +433,7 @@ main = do
     testSweepThresholdMinRoundTripsFallback
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
+    testOptimizerPriorEdgeScoreRegression
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
     testOptimizerRecordsRetryDiscoveryForWalkForwardFilters
@@ -6073,6 +6075,46 @@ testOptimizerQualityBudgetRegression = do
     assert
         "quality preset preserves explicit method weights above the quality floor"
         (qualityPresetWeightFloor 1.0 (2.0 :: Double) == 2.0)
+
+testOptimizerPriorEdgeScoreRegression :: IO ()
+testOptimizerPriorEdgeScoreRegression = do
+    let objectMap fields =
+            case Aeson.object fields of
+                Aeson.Object obj -> obj
+                _ -> KM.empty
+        weakEdge =
+            objectMap
+                [ "annualizedReturn" Aeson..= (0.12 :: Double)
+                , "sharpe" Aeson..= (0.7 :: Double)
+                , "maxDrawdown" Aeson..= (0.25 :: Double)
+                , "profitFactor" Aeson..= (1.1 :: Double)
+                , "roundTrips" Aeson..= (20 :: Int)
+                ]
+        strongEdge =
+            objectMap
+                [ "annualizedReturn" Aeson..= (1.2 :: Double)
+                , "sharpe" Aeson..= (2.8 :: Double)
+                , "maxDrawdown" Aeson..= (0.18 :: Double)
+                , "profitFactor" Aeson..= (2.4 :: Double)
+                , "roundTrips" Aeson..= (64 :: Int)
+                , "walkForwardSummary"
+                    Aeson..= Aeson.object
+                        [ "sharpeMean" Aeson..= (1.6 :: Double)
+                        ]
+                ]
+        malformed =
+            objectMap
+                [ "annualizedReturn" Aeson..= (-1.0 :: Double)
+                , "sharpe" Aeson..= (-2.0 :: Double)
+                , "maxDrawdown" Aeson..= (-0.3 :: Double)
+                , "profitFactor" Aeson..= (-5.0 :: Double)
+                ]
+    assert
+        "optimizer prior edge score favors stronger positive edge evidence"
+        (priorTrialEdgeScore strongEdge > priorTrialEdgeScore weakEdge && priorTrialEdgeScore weakEdge > 0)
+    assert
+        "optimizer prior edge score ignores malformed or negative edge evidence"
+        (priorTrialEdgeScore malformed == 0)
 
 testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
 testOptimizerQualityThresholdArgvExplicitRegression = do

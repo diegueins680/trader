@@ -18,6 +18,7 @@ module Trader.Optimizer.Optimize (
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
     optimizerRecordsSummaryJson,
+    priorTrialEdgeScore,
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
@@ -1573,7 +1574,42 @@ priorTrialRankScore args nowMs trial =
                      in if isNaN objectiveScoreValue || isInfinite objectiveScoreValue
                             then ptScore trial
                             else objectiveScoreValue
-     in ageAdjustedPriorScore (oaPriorAgeHalfLifeDays args) nowMs (ptCreatedAtMs trial) score
+        edgeBoost = max 0 (oaPriorEdgeWeight args) * priorTrialEdgeScore (ptMetrics trial)
+     in ageAdjustedPriorScore (oaPriorAgeHalfLifeDays args) nowMs (ptCreatedAtMs trial) (score + edgeBoost)
+
+priorTrialEdgeScore :: KM.KeyMap Value -> Double
+priorTrialEdgeScore metrics =
+    let metrics' = Just metrics
+        positive x
+            | isNaN x || isInfinite x = 0
+            | x <= 0 = 0
+            | otherwise = x
+        logPositive x = log (1 + positive x)
+        annRet = positive (metricFloat metrics' "annualizedReturn" 0)
+        sharpe = positive (metricFloat metrics' "sharpe" 0)
+        maxDd = positive (metricFloat metrics' "maxDrawdown" 0)
+        calmar =
+            if maxDd <= 0
+                then annRet
+                else annRet / max 1e-12 maxDd
+        profitFactorTerm =
+            case metricProfitFactor metrics' of
+                Just pf -> 0.25 * logPositive (pf - 1)
+                Nothing -> 0
+        walkForwardTerm =
+            case valueObjectAt (Object metrics) "walkForwardSummary" of
+                Just wf -> 0.35 * positive (metricFloat (Just wf) "sharpeMean" 0)
+                Nothing -> 0
+        roundTrips = metricInt metrics' "roundTrips" 0
+        tradeCount = metricInt metrics' "tradeCount" 0
+        activityCount = max roundTrips tradeCount
+        activityTerm = 0.15 * logPositive (fromIntegral (min 200 (max 0 activityCount)) :: Double)
+     in logPositive annRet
+            + 0.35 * sharpe
+            + 0.25 * min 10 (positive calmar)
+            + profitFactorTerm
+            + walkForwardTerm
+            + activityTerm
 
 ageAdjustedPriorScore :: Double -> Int -> Maybe Int -> Double -> Double
 ageAdjustedPriorScore halfLifeDays nowMs mCreatedAtMs score
@@ -2358,6 +2394,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorSampleProb :: !Double
     , oaPriorMethodSampleProb :: !Double
     , oaPriorRankBias :: !Double
+    , oaPriorEdgeWeight :: !Double
     , oaPriorTopFraction :: !Double
     , oaPriorMinSamples :: !Int
     , oaPriorPerturbScaleDouble :: !Double
