@@ -6271,24 +6271,48 @@ defaultBotPollSeconds args =
             let half = max 1 (sec `div` 2)
              in clampInt 5 60 half
 
+defaultBotOnlineEpochs :: Int
+defaultBotOnlineEpochs = 3
+
+defaultApiBotOnlineEpochs :: Int
+defaultApiBotOnlineEpochs = 1
+
+defaultBotTrainBars :: Int
+defaultBotTrainBars = 800
+
+defaultBotMaxPoints :: Int
+defaultBotMaxPoints = 2000
+
 defaultBotSettings :: Args -> BotSettings
 defaultBotSettings args =
     BotSettings
         { bsPollSeconds = defaultBotPollSeconds args
-        , bsOnlineEpochs = 3
-        , bsTrainBars = 800
-        , bsMaxPoints = 2000
+        , bsOnlineEpochs = defaultBotOnlineEpochs
+        , bsTrainBars = defaultBotTrainBars
+        , bsMaxPoints = defaultBotMaxPoints
         , bsTradeEnabled = True
         , bsProtectionOrders = False
         , bsAdoptExistingPosition = True
         }
 
+defaultBotSettingsFromEnv :: Args -> IO BotSettings
+defaultBotSettingsFromEnv args = do
+    onlineEpochs <- readBoundedIntEnv "TRADER_BOT_ONLINE_EPOCHS" 0 50 defaultBotOnlineEpochs
+    trainBars <- readBoundedIntEnv "TRADER_BOT_TRAIN_BARS" 10 100000 defaultBotTrainBars
+    maxPoints <- readBoundedIntEnv "TRADER_BOT_MAX_POINTS" 100 100000 defaultBotMaxPoints
+    pure
+        (defaultBotSettings args)
+            { bsOnlineEpochs = onlineEpochs
+            , bsTrainBars = trainBars
+            , bsMaxPoints = maxPoints
+            }
+
 botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
 botSettingsFromApi args p = do
     let poll = fromMaybe (defaultBotPollSeconds args) (apBotPollSeconds p)
-        onlineEpochs = fromMaybe 1 (apBotOnlineEpochs p)
-        trainBars = fromMaybe 800 (apBotTrainBars p)
-        maxPoints = fromMaybe 2000 (apBotMaxPoints p)
+        onlineEpochs = fromMaybe defaultApiBotOnlineEpochs (apBotOnlineEpochs p)
+        trainBars = fromMaybe defaultBotTrainBars (apBotTrainBars p)
+        maxPoints = fromMaybe defaultBotMaxPoints (apBotMaxPoints p)
         tradeEnabled = fromMaybe True (apBotTrade p)
         protectionOrders = fromMaybe False (apBotProtectionOrders p)
         adoptExistingPosition = True
@@ -8658,7 +8682,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                     Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
                     Nothing -> do
                         let argsBase = baseArgs{argTradeOnly = True}
-                            settings = defaultBotSettings argsBase
+                        settings <- defaultBotSettingsFromEnv argsBase
                         disabledSymbols <- botDisabledSymbolsFromEnv
                         maxBots <- botAutoStartMaxBotsFromEnv
                         maxStartsPerCycle <- botAutoStartMaxStartsPerCycleFromEnv
