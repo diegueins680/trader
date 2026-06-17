@@ -135,6 +135,18 @@ export type ApiParams = {
   tuneStressVolMult?: number;
   tuneStressShock?: number;
   tuneStressWeight?: number;
+  predictionMarketHerd?: boolean;
+  predictionMarketHerdMinProbability?: number;
+  predictionMarketHerdMaxBoost?: number;
+  predictionMarketHerdMinVolume?: number;
+  predictionMarketHerdLimit?: number;
+  predictionMarketHerdFreshTtlSec?: number;
+  predictionMarketHerdStaleTtlSec?: number;
+  predictionMarketHerdScoreBase?: number;
+  predictionMarketHerdIntervalMatchBonus?: number;
+  predictionMarketHerdTimeDecayBonus?: number;
+  predictionMarketHerdPastEndPenalty?: number;
+  predictionMarketHerdVolumeScoreWeight?: number;
 
   // Confidence / gating (Kalman sensors + HMM/intervals)
   kalmanZMin?: number;

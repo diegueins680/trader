@@ -22,7 +22,7 @@ import Data.Aeson.Types (Object, Parser)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum)
-import Data.List (maximumBy)
+import Data.List (intercalate, maximumBy)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Ord (comparing)
 import Data.Scientific (toRealFloat)
@@ -221,7 +221,20 @@ fetchPolymarketHerdSignal cfg symbol interval =
         pure (selectPredictionMarketSignalAt now cfg symbol interval events)
   where
     (label, seconds) = nearestPredictionMarketInterval interval
-    cacheKey = symbol ++ ":" ++ interval ++ ":" ++ label ++ ":" ++ show (pmfcLimit cfg) ++ ":" ++ show (pmfcMinVolume cfg)
+    cacheKey =
+        intercalate
+            ":"
+            [ symbol
+            , interval
+            , label
+            , show (pmfcLimit cfg)
+            , show (pmfcMinVolume cfg)
+            , show (pmfcScoreBase cfg)
+            , show (pmfcIntervalMatchBonus cfg)
+            , show (pmfcTimeDecayBonus cfg)
+            , show (pmfcPastEndPenalty cfg)
+            , show (pmfcVolumeScoreWeight cfg)
+            ]
     searchQuery = predictionMarketSearchQuery symbol label seconds
 
 fetchSearchEvents :: PredictionMarketFetchConfig -> String -> IO [PredictionMarketEvent]
