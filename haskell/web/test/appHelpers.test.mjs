@@ -166,6 +166,28 @@ test("buildOptimizerRunRequest normalizes known integer extra overrides before m
   assert.equal(typeof request.survivorParentActivityFloor, "number");
 });
 
+test("buildOptimizerRunRequest emits long-short positioning probability from form and extras", () => {
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    pLongShort: "0.35",
+  };
+  const request = buildOptimizerRunRequest(form, null);
+
+  assert.equal(request.pLongShort, 0.35);
+  assert.equal(typeof request.pLongShort, "number");
+
+  const extraRequest = buildOptimizerRunRequest(
+    {
+      ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+      pLongShort: "",
+    },
+    { pLongShort: "0.8" },
+  );
+
+  assert.equal(extraRequest.pLongShort, 0.8);
+  assert.equal(typeof extraRequest.pLongShort, "number");
+});
+
 test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite numeric extra overrides while enforcing source compatibility", () => {
   const form = {
     ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),

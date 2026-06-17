@@ -1679,7 +1679,24 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               </div>
             </div>
           </div>
-          <div className="row" style={{ marginTop: 10 }}>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerPLongShort">
+                Long-short probability
+              </label>
+              <input
+                id="optimizerPLongShort"
+                className="input"
+                type="number"
+                step="0.01"
+                min={0}
+                max={1}
+                value={optimizerRunForm.pLongShort}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, pLongShort: e.target.value }))}
+                placeholder="0.2"
+              />
+              <div className="hint">Probability of sampling long-short positioning.</div>
+            </div>
             <div className="field">
               <label className="label" htmlFor="optimizerCostAwareEdge">
                 Cost-aware edge prob

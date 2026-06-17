@@ -1313,6 +1313,7 @@ const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = [
   "survivorParentAnnualizedReturnFloor",
   "survivorEdgeWeight",
   "survivorRankBias",
+  "pLongShort",
   "routerRegimeMinFractionMin",
   "routerRegimeMinFractionMax",
 ] as const;
@@ -1628,6 +1629,7 @@ export type OptimizerRunForm = {
   survivorParentAnnualizedReturnFloor: string;
   survivorEdgeWeight: string;
   survivorRankBias: string;
+  pLongShort: string;
   perturbScaleDouble: string;
   perturbScaleInt: string;
   earlyStopNoImprove: string;
@@ -2101,6 +2103,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     survivorParentAnnualizedReturnFloor: "",
     survivorEdgeWeight: "",
     survivorRankBias: "",
+    pLongShort: "",
     perturbScaleDouble: "",
     perturbScaleInt: "",
     earlyStopNoImprove: "",
@@ -2267,6 +2270,8 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (survivorEdgeWeight != null) req.survivorEdgeWeight = survivorEdgeWeight;
   const survivorRankBias = parseOptionalNumber(form.survivorRankBias);
   if (survivorRankBias != null) req.survivorRankBias = survivorRankBias;
+  const pLongShort = parseOptionalNumber(form.pLongShort);
+  if (pLongShort != null) req.pLongShort = pLongShort;
   const perturbScaleDouble = parseOptionalNumber(form.perturbScaleDouble);
   if (perturbScaleDouble != null) req.perturbScaleDouble = perturbScaleDouble;
   const perturbScaleInt = parseOptionalInt(form.perturbScaleInt);
