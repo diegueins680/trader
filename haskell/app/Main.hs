@@ -1005,6 +1005,8 @@ data ApiParams = ApiParams
     , apDexAutoApprove :: Maybe Bool
     , apBotPollSeconds :: Maybe Int
     , apBotOnlineEpochs :: Maybe Int
+    , apBotOnlineValRatio :: Maybe Double
+    , apBotOnlinePatience :: Maybe Int
     , apBotTrainBars :: Maybe Int
     , apBotMaxPoints :: Maybe Int
     , apBotOutcomeWeightWinScale :: Maybe Double
@@ -5389,6 +5391,8 @@ persistPositionOriginMaybe mOps tenantKey args sym posSign mComboUuid mOrderId a
 data BotSettings = BotSettings
     { bsPollSeconds :: !Int
     , bsOnlineEpochs :: !Int
+    , bsOnlineValRatio :: !Double
+    , bsOnlinePatience :: !Int
     , bsTrainBars :: !Int
     , bsMaxPoints :: !Int
     , bsOutcomeWeightConfig :: !OutcomeWeightConfig
@@ -6287,6 +6291,12 @@ defaultBotOnlineEpochs = 3
 defaultApiBotOnlineEpochs :: Int
 defaultApiBotOnlineEpochs = 1
 
+defaultBotOnlineValRatio :: Double
+defaultBotOnlineValRatio = 0
+
+defaultBotOnlinePatience :: Int
+defaultBotOnlinePatience = 0
+
 defaultBotTrainBars :: Int
 defaultBotTrainBars = 800
 
@@ -6298,6 +6308,8 @@ defaultBotSettings args =
     BotSettings
         { bsPollSeconds = defaultBotPollSeconds args
         , bsOnlineEpochs = defaultBotOnlineEpochs
+        , bsOnlineValRatio = defaultBotOnlineValRatio
+        , bsOnlinePatience = defaultBotOnlinePatience
         , bsTrainBars = defaultBotTrainBars
         , bsMaxPoints = defaultBotMaxPoints
         , bsOutcomeWeightConfig = defaultOutcomeWeightConfig
@@ -6309,6 +6321,8 @@ defaultBotSettings args =
 defaultBotSettingsFromEnv :: Args -> IO BotSettings
 defaultBotSettingsFromEnv args = do
     onlineEpochs <- readBoundedIntEnv "TRADER_BOT_ONLINE_EPOCHS" 0 50 defaultBotOnlineEpochs
+    onlineValRatio <- readBoundedDoubleEnv "TRADER_BOT_ONLINE_VAL_RATIO" 0 0.95 defaultBotOnlineValRatio
+    onlinePatience <- readBoundedIntEnv "TRADER_BOT_ONLINE_PATIENCE" 0 50 defaultBotOnlinePatience
     trainBars <- readBoundedIntEnv "TRADER_BOT_TRAIN_BARS" 10 100000 defaultBotTrainBars
     maxPoints <- readBoundedIntEnv "TRADER_BOT_MAX_POINTS" 100 100000 defaultBotMaxPoints
     outcomeWeightWinScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_WIN_SCALE" 0 1000 (owcWinScale defaultOutcomeWeightConfig)
@@ -6317,6 +6331,8 @@ defaultBotSettingsFromEnv args = do
     pure
         (defaultBotSettings args)
             { bsOnlineEpochs = onlineEpochs
+            , bsOnlineValRatio = onlineValRatio
+            , bsOnlinePatience = onlinePatience
             , bsTrainBars = trainBars
             , bsMaxPoints = maxPoints
             , bsOutcomeWeightConfig =
@@ -6331,6 +6347,8 @@ botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
 botSettingsFromApi args p = do
     let poll = fromMaybe (defaultBotPollSeconds args) (apBotPollSeconds p)
         onlineEpochs = fromMaybe defaultApiBotOnlineEpochs (apBotOnlineEpochs p)
+        onlineValRatio = fromMaybe defaultBotOnlineValRatio (apBotOnlineValRatio p)
+        onlinePatience = fromMaybe defaultBotOnlinePatience (apBotOnlinePatience p)
         trainBars = fromMaybe defaultBotTrainBars (apBotTrainBars p)
         maxPoints = fromMaybe defaultBotMaxPoints (apBotMaxPoints p)
         outcomeWeightWinScale = fromMaybe (owcWinScale defaultOutcomeWeightConfig) (apBotOutcomeWeightWinScale p)
@@ -6342,6 +6360,8 @@ botSettingsFromApi args p = do
 
     ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
     ensure "botOnlineEpochs must be between 0 and 50" (onlineEpochs >= 0 && onlineEpochs <= 50)
+    ensure "botOnlineValRatio must be between 0 and 0.95" (isFiniteDouble onlineValRatio && onlineValRatio >= 0 && onlineValRatio <= 0.95)
+    ensure "botOnlinePatience must be between 0 and 50" (onlinePatience >= 0 && onlinePatience <= 50)
     ensure "botTrainBars must be >= 10" (trainBars >= 10)
     ensure "botMaxPoints must be between 100 and 100000" (maxPoints >= 100 && maxPoints <= 100000)
     ensure "botOutcomeWeightWinScale must be between 0 and 1000" (isFiniteDouble outcomeWeightWinScale && outcomeWeightWinScale >= 0 && outcomeWeightWinScale <= 1000)
@@ -6352,6 +6372,8 @@ botSettingsFromApi args p = do
         BotSettings
             { bsPollSeconds = poll
             , bsOnlineEpochs = onlineEpochs
+            , bsOnlineValRatio = onlineValRatio
+            , bsOnlinePatience = onlinePatience
             , bsTrainBars = trainBars
             , bsMaxPoints = maxPoints
             , bsOutcomeWeightConfig =
@@ -6493,6 +6515,8 @@ botStatusJson st =
                 .= object
                     [ "pollSeconds" .= bsPollSeconds (botSettings st)
                     , "onlineEpochs" .= bsOnlineEpochs (botSettings st)
+                    , "onlineValRatio" .= bsOnlineValRatio (botSettings st)
+                    , "onlinePatience" .= bsOnlinePatience (botSettings st)
                     , "trainBars" .= bsTrainBars (botSettings st)
                     , "maxPoints" .= bsMaxPoints (botSettings st)
                     , "outcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig (botSettings st))
@@ -8371,6 +8395,8 @@ logBotStartRequestOutcome mOps mJournal tenantKey params outcome =
                             , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
                             , "botPollSeconds" .= bsPollSeconds settings
                             , "botOnlineEpochs" .= bsOnlineEpochs settings
+                            , "botOnlineValRatio" .= bsOnlineValRatio settings
+                            , "botOnlinePatience" .= bsOnlinePatience settings
                             , "botTrainBars" .= bsTrainBars settings
                             , "botMaxPoints" .= bsMaxPoints settings
                             , "botOutcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig settings)
@@ -12372,8 +12398,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             , lcAdamBeta1 = argLstmAdamBeta1 args
                             , lcAdamBeta2 = argLstmAdamBeta2 args
                             , lcAdamEps = argLstmAdamEps args
-                            , lcValRatio = 0
-                            , lcPatience = 0
+                            , lcValRatio = bsOnlineValRatio settings
+                            , lcPatience = bsOnlinePatience settings
                             , lcGradClip = argGradClip args
                             , lcSeed = argSeed args
                             }
