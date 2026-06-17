@@ -11501,12 +11501,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                             ++ priorArgs
                                                                                             ++ extraArgs
                                                                                             ++ crossExchangeArgs
-                                                                                discoveryRecoveryArgs =
-                                                                                    [ "--epochs-max"
-                                                                                    , show epochsMax
-                                                                                    , "--hidden-size-max"
-                                                                                    , show hiddenSizeMax
-                                                                                    , "--open-threshold-min"
+                                                                                activitySearchArgs =
+                                                                                    [ "--open-threshold-min"
                                                                                     , show discoveryRecoveryOpenThresholdMin
                                                                                     , "--open-threshold-max"
                                                                                     , show discoveryRecoveryOpenThresholdMax
@@ -11548,17 +11544,21 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "--p-confirm-quantiles"
                                                                                     , "0.0"
                                                                                     ]
+                                                                                discoveryRecoveryArgs =
+                                                                                    [ "--epochs-max"
+                                                                                    , show epochsMax
+                                                                                    , "--hidden-size-max"
+                                                                                    , show hiddenSizeMax
+                                                                                    ]
+                                                                                        ++ activitySearchArgs
                                                                                         ++ liveGapWeightArgs
                                                                                 primaryMethodArgs =
                                                                                     [ "--epochs-max"
                                                                                     , show epochsMax
                                                                                     , "--hidden-size-max"
                                                                                     , show hiddenSizeMax
-                                                                                    , "--p-confirm-conformal"
-                                                                                    , "0.0"
-                                                                                    , "--p-confirm-quantiles"
-                                                                                    , "0.0"
                                                                                     ]
+                                                                                        ++ activitySearchArgs
                                                                                         ++ liveGapWeightArgs
                                                                                 cliArgs = mkCliArgs recordsPath seed trials timeoutSec minRoundTrips minExposure minSharpe minCalmar primaryMethodArgs
                                                                                 recoveryCliArgs =
