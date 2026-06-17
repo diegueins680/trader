@@ -8128,8 +8128,16 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpPeriodsPerYear = fromMaybe (tpPeriodsPerYear base) (optionalDoubleField ["periodsPerYear"] params)
                 , tpKalmanMarketTopN = fromMaybe (tpKalmanMarketTopN base) (intField ["kalmanMarketTopN"] params)
                 , tpSensorVarianceEwmaAlpha = fromMaybe (tpSensorVarianceEwmaAlpha base) (doubleField ["sensorVarianceEwmaAlpha"] params)
-                , tpEpochs = fromMaybe (tpEpochs base) (intField ["epochs"] params)
-                , tpHiddenSize = fromMaybe (tpHiddenSize base) (intField ["hiddenSize"] params)
+                , tpEpochs =
+                    maybe
+                        (tpEpochs base)
+                        (clampInt 1 (max 1 (tpEpochs base)))
+                        (intField ["epochs"] params)
+                , tpHiddenSize =
+                    maybe
+                        (tpHiddenSize base)
+                        (clampInt 1 (max 1 (tpHiddenSize base)))
+                        (intField ["hiddenSize"] params)
                 , tpLearningRate = fromMaybe (tpLearningRate base) (doubleField ["learningRate"] params)
                 , tpLstmAdamBeta1 = fromMaybe (tpLstmAdamBeta1 base) (doubleField ["lstmAdamBeta1"] params)
                 , tpLstmAdamBeta2 = fromMaybe (tpLstmAdamBeta2 base) (doubleField ["lstmAdamBeta2"] params)
