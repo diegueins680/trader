@@ -60,6 +60,10 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
+import Trader.Formal.CloseTiming (
+    liveMaxPnlCloseTimingEvidenceHoldBars,
+    liveMaxPnlCloseTimingMaxHoldBars,
+ )
 import Trader.Formal.Execution (
     ExecutionVerificationReport (..),
     verifyFormalExecution,
@@ -383,6 +387,7 @@ main = do
     testPerfLookbackRejectsNegativeValue
     testCapitalPreservationReport
     testPortfolioCapitalPreservationReport
+    testLiveMaxPnlCloseTimingRecommendation
     testLossStreakMaxRejectsNegativeValue
     testLossStreakCooldownBarsRejectsNegativeValue
     testVolScaleMaxRejectsInvalidValues
@@ -2582,6 +2587,26 @@ testPortfolioCapitalPreservationReport = do
             && pcprNewestClosedAtMs timestampedReport == Just 1120000
             && pcprOpenUntilMs timestampedReport == Just (1120000 + defaultPortfolioCapitalPreservationCooldownMs)
         )
+
+testLiveMaxPnlCloseTimingRecommendation :: IO ()
+testLiveMaxPnlCloseTimingRecommendation = do
+    assert
+        "live max-PNL close timing waits for the positive-lift support floor"
+        (liveMaxPnlCloseTimingMaxHoldBars (Just 12) [2, 4] == Just 12)
+    assert
+        "live max-PNL close timing learns the q75 max-PNL age with enough evidence"
+        (liveMaxPnlCloseTimingEvidenceHoldBars [2, 4, 6, 8] == Just 6)
+    assert
+        "live max-PNL close timing can create a max-hold horizon when none exists"
+        (liveMaxPnlCloseTimingMaxHoldBars Nothing [2, 4, 6, 8] == Just 6)
+    assert
+        "live max-PNL close timing can shorten but not widen an existing cap"
+        ( liveMaxPnlCloseTimingMaxHoldBars (Just 10) [2, 4, 6, 8] == Just 6
+            && liveMaxPnlCloseTimingMaxHoldBars (Just 5) [8, 10, 12, 14] == Just 5
+        )
+    assert
+        "live max-PNL close timing ignores invalid zero or negative ages"
+        (liveMaxPnlCloseTimingEvidenceHoldBars [0, -1, 3, 5, 7] == Just 5)
 
 testLossStreakMaxRejectsNegativeValue :: IO ()
 testLossStreakMaxRejectsNegativeValue = do
@@ -6268,6 +6293,7 @@ testTradingPublicSurfaceRegression = do
             && tradeEntrySourceCode signalSource == "signal"
             && tradeEntrySourceCode postDirectionSource == "post_direction_gates"
             && exitReasonFromCode "eod" == Just ExitEod
+            && exitReasonFromCode "max_pnl_timing" == Just (ExitOther "MAX_PNL_TIMING")
             && isNothing (exitReasonFromCode "unknown")
             && tradingSurfaceReachable
         )

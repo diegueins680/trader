@@ -14,6 +14,8 @@ module Trader.Formal.CloseTiming (
     closeTimingDecision,
     closeTimingRecommendationAccepted,
     closeTimingRecommendationHasRetuneEvidence,
+    liveMaxPnlCloseTimingEvidenceHoldBars,
+    liveMaxPnlCloseTimingMaxHoldBars,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
     optimalCloseObservation,
@@ -339,6 +341,29 @@ minimumCloseTimingSamples = 5
 
 minimumPositiveLiftSupportSamples :: Int
 minimumPositiveLiftSupportSamples = 3
+
+{- | Runtime close-timing evidence from live trades. The input is the
+combo-local position age, in bars, at which each positively lifted trade hit
+its maximum favorable PNL before closing. Runtime use is intentionally
+conservative: require the existing positive-lift support floor, use the 75th
+percentile so a single early spike does not dominate, and never widen an
+existing max-hold cap without the offline backtest retune guard.
+-}
+liveMaxPnlCloseTimingEvidenceHoldBars :: [Int] -> Maybe Int
+liveMaxPnlCloseTimingEvidenceHoldBars maxPnlHoldingPeriods =
+    let cleaned = sort [n | n <- maxPnlHoldingPeriods, n > 0]
+     in if length cleaned < minimumPositiveLiftSupportSamples
+            then Nothing
+            else percentileInt 0.75 cleaned
+
+liveMaxPnlCloseTimingMaxHoldBars :: Maybe Int -> [Int] -> Maybe Int
+liveMaxPnlCloseTimingMaxHoldBars currentMaxHoldBars maxPnlHoldingPeriods =
+    case liveMaxPnlCloseTimingEvidenceHoldBars maxPnlHoldingPeriods of
+        Nothing -> currentMaxHoldBars
+        Just learned ->
+            case currentMaxHoldBars of
+                Nothing -> Just learned
+                Just current -> Just (min current learned)
 
 closeTimingRecommendationDeadbandBars :: Int
 closeTimingRecommendationDeadbandBars = 1

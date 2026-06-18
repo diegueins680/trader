@@ -295,7 +295,11 @@ import Trader.Duration (
     timeWindowCode,
     timeWindowContains,
  )
-import Trader.Formal.CloseTiming (ComboCloseTimingReport)
+import Trader.Formal.CloseTiming (
+    ComboCloseTimingReport,
+    liveMaxPnlCloseTimingEvidenceHoldBars,
+    liveMaxPnlCloseTimingMaxHoldBars,
+ )
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), initKalman1, measurementVarianceWithResidualFloor, stepMultiWithConfig)
 import Trader.KalmanPhysics (KalmanPhysicsConfig (..), OhlcvBar (..), predictKalmanPhysicsErrorWithConfig)
@@ -5189,9 +5193,25 @@ botOpenTradeJson trade =
         , "entryPrice" .= botOpenEntryPrice trade
         , "entrySource" .= tradeEntrySourceCode (botOpenEntrySource trade)
         , "trail" .= botOpenTrail trade
+        , "bestPnlReturn" .= finiteMaybe (Just (botOpenBestPnlReturn trade))
+        , "bestPnlHoldingPeriods" .= botOpenBestPnlHoldingPeriods trade
+        , "bestPnlAtMs" .= botOpenBestPnlAtMs trade
         , "size" .= botOpenSize trade
         , "partialTaken" .= botOpenPartialTaken trade
         , "side" .= positionSideLabel (botOpenSide trade)
+        ]
+
+botCloseTimingSampleJson :: BotCloseTimingSample -> Aeson.Value
+botCloseTimingSampleJson sample =
+    object
+        [ "comboUuid" .= bctsComboUuid sample
+        , "openedAtMs" .= bctsOpenedAtMs sample
+        , "closedAtMs" .= bctsClosedAtMs sample
+        , "maxPnlAtMs" .= bctsMaxPnlAtMs sample
+        , "observedHoldingPeriods" .= bctsObservedHoldingPeriods sample
+        , "maxPnlHoldingPeriods" .= bctsMaxPnlHoldingPeriods sample
+        , "return" .= finiteMaybe (Just (bctsReturn sample))
+        , "maxPnlReturn" .= finiteMaybe (Just (bctsMaxPnlReturn sample))
         ]
 
 botOpenTradeComboUuidMaybe :: Maybe BotOpenTrade -> Maybe Text
@@ -5201,6 +5221,97 @@ botOpenTradeComboUuidMaybe mTrade =
 activeBotComboUuid :: BotState -> Maybe Text
 activeBotComboUuid st =
     activeComboUuid (botOpenTradeComboUuidMaybe (botOpenTrade st)) (botComboUuid st)
+
+botCloseTimingSampleMemoryLimit :: Int
+botCloseTimingSampleMemoryLimit = 500
+
+trimBotCloseTimingSamples :: [BotCloseTimingSample] -> [BotCloseTimingSample]
+trimBotCloseTimingSamples =
+    takeLast botCloseTimingSampleMemoryLimit
+
+botCloseTimingSamplesForCombo :: Text -> [BotState] -> [BotCloseTimingSample]
+botCloseTimingSamplesForCombo comboUuid states =
+    [ sample
+    | st <- states
+    , sample <- botCloseTimingSamples st
+    , bctsComboUuid sample == comboUuid
+    , bctsMaxPnlHoldingPeriods sample > 0
+    , isFiniteDouble (bctsReturn sample)
+    , isFiniteDouble (bctsMaxPnlReturn sample)
+    , bctsMaxPnlReturn sample > bctsReturn sample
+    ]
+
+comboLiveMaxPnlHoldingPeriods :: Text -> [BotState] -> [Int]
+comboLiveMaxPnlHoldingPeriods comboUuid =
+    map bctsMaxPnlHoldingPeriods . botCloseTimingSamplesForCombo comboUuid
+
+comboLiveMaxPnlCloseTimingEvidenceHoldBars :: Text -> [BotState] -> Maybe Int
+comboLiveMaxPnlCloseTimingEvidenceHoldBars comboUuid states =
+    liveMaxPnlCloseTimingEvidenceHoldBars (comboLiveMaxPnlHoldingPeriods comboUuid states)
+
+comboLiveMaxPnlCloseTimingMaxHoldBars :: Text -> Maybe Int -> [BotState] -> Maybe Int
+comboLiveMaxPnlCloseTimingMaxHoldBars comboUuid currentMaxHoldBars states =
+    liveMaxPnlCloseTimingMaxHoldBars currentMaxHoldBars (comboLiveMaxPnlHoldingPeriods comboUuid states)
+
+botOpenTradeOpenedAtMaybe :: V.Vector Int64 -> BotOpenTrade -> Maybe Int64
+botOpenTradeOpenedAtMaybe openTimes trade =
+    let idx = botOpenEntryIndex trade
+     in if idx >= 0 && idx < V.length openTimes
+            then Just (openTimes V.! idx)
+            else Nothing
+
+botOpenTradeBestPnlCandidate :: Double -> Double -> BotOpenTrade -> Maybe Double
+botOpenTradeBestPnlCandidate barHigh barLow trade =
+    let entryPx = botOpenEntryPrice trade
+     in case botOpenSide trade of
+            SideLong
+                | entryPx > 0
+                , barHigh > 0
+                , isFiniteDouble entryPx
+                , isFiniteDouble barHigh ->
+                    Just (barHigh / entryPx - 1)
+            SideShort
+                | entryPx > 0
+                , barLow > 0
+                , isFiniteDouble entryPx
+                , isFiniteDouble barLow ->
+                    Just (entryPx / barLow - 1)
+            _ -> Nothing
+
+updateBotOpenTradeBestPnl :: Int64 -> Double -> Double -> Int -> BotOpenTrade -> BotOpenTrade
+updateBotOpenTradeBestPnl openTimeNew barHigh barLow holdingPeriods trade =
+    case botOpenTradeBestPnlCandidate barHigh barLow trade of
+        Just candidate
+            | candidate > botOpenBestPnlReturn trade ->
+                trade
+                    { botOpenBestPnlReturn = candidate
+                    , botOpenBestPnlHoldingPeriods = max 0 holdingPeriods
+                    , botOpenBestPnlAtMs = Just openTimeNew
+                    }
+        _ -> trade
+
+botCloseTimingSampleFromOpenTrade :: V.Vector Int64 -> Int64 -> Double -> BotOpenTrade -> Maybe BotCloseTimingSample
+botCloseTimingSampleFromOpenTrade openTimes closedAtMs exitReturn trade = do
+    comboUuid <- botOpenComboUuid trade
+    let maxPnlHold = botOpenBestPnlHoldingPeriods trade
+        maxPnlReturn = botOpenBestPnlReturn trade
+    if maxPnlHold <= 0
+        || not (isFiniteDouble exitReturn)
+        || not (isFiniteDouble maxPnlReturn)
+        || maxPnlReturn <= exitReturn
+        then Nothing
+        else
+            Just
+                BotCloseTimingSample
+                    { bctsComboUuid = comboUuid
+                    , bctsOpenedAtMs = botOpenTradeOpenedAtMaybe openTimes trade
+                    , bctsClosedAtMs = Just closedAtMs
+                    , bctsMaxPnlAtMs = botOpenBestPnlAtMs trade
+                    , bctsObservedHoldingPeriods = max 0 (botOpenHoldingPeriods trade)
+                    , bctsMaxPnlHoldingPeriods = maxPnlHold
+                    , bctsReturn = exitReturn
+                    , bctsMaxPnlReturn = maxPnlReturn
+                    }
 
 positionSideLabel :: PositionSide -> Text
 positionSideLabel side =
@@ -5618,8 +5729,23 @@ data BotOpenTrade = BotOpenTrade
     , botOpenEntrySource :: !TradeEntrySource
     , botOpenSize :: !Double
     , botOpenTrail :: !Double
+    , botOpenBestPnlReturn :: !Double
+    , botOpenBestPnlHoldingPeriods :: !Int
+    , botOpenBestPnlAtMs :: !(Maybe Int64)
     , botOpenSide :: !PositionSide
     , botOpenPartialTaken :: !Bool
+    }
+    deriving (Eq, Show)
+
+data BotCloseTimingSample = BotCloseTimingSample
+    { bctsComboUuid :: !Text
+    , bctsOpenedAtMs :: !(Maybe Int64)
+    , bctsClosedAtMs :: !(Maybe Int64)
+    , bctsMaxPnlAtMs :: !(Maybe Int64)
+    , bctsObservedHoldingPeriods :: !Int
+    , bctsMaxPnlHoldingPeriods :: !Int
+    , bctsReturn :: !Double
+    , bctsMaxPnlReturn :: !Double
     }
     deriving (Eq, Show)
 
@@ -5665,6 +5791,7 @@ data BotState = BotState
     , botOrders :: ![BotOrderEvent]
     , botRestoredSlippages :: ![Double] -- fill-slippage observations restored from the previous session's snapshot
     , botTrades :: ![Trade]
+    , botCloseTimingSamples :: ![BotCloseTimingSample]
     , botPerfStats :: !BotPerfStats
     , botAdjustments :: !BotAdjustments
     , botLossStreak :: !Int
@@ -6607,6 +6734,27 @@ botStatusJson st =
                 (botStateDrawdown st)
                 (botLossStreak st)
                 (botTrades st)
+        mActiveComboUuid = activeBotComboUuid st
+        closeTimingSamplesForActiveCombo =
+            case mActiveComboUuid of
+                Nothing -> []
+                Just comboUuid -> botCloseTimingSamplesForCombo comboUuid [st]
+        closeTimingEvidenceMaxHoldBars =
+            case mActiveComboUuid of
+                Nothing -> Nothing
+                Just comboUuid -> comboLiveMaxPnlCloseTimingEvidenceHoldBars comboUuid [st]
+        closeTimingEffectiveMaxHoldBars =
+            case mActiveComboUuid of
+                Nothing -> argMaxHoldBars argsBase
+                Just comboUuid -> comboLiveMaxPnlCloseTimingMaxHoldBars comboUuid (argMaxHoldBars argsBase) [st]
+        closeTimingJson =
+            object
+                [ "comboUuid" .= mActiveComboUuid
+                , "sampleCount" .= length closeTimingSamplesForActiveCombo
+                , "baseMaxHoldBars" .= argMaxHoldBars argsBase
+                , "liveEvidenceMaxHoldBars" .= closeTimingEvidenceMaxHoldBars
+                , "effectiveMaxHoldBars" .= closeTimingEffectiveMaxHoldBars
+                ]
         perfJson =
             object
                 [ "mode" .= perfGateModeLabel perfMode
@@ -6620,6 +6768,7 @@ botStatusJson st =
                 , "lossStreak" .= botLossStreak st
                 , "gateReason" .= perfGateReason argsBase perfGate
                 , "capitalPreservation" .= capitalPreservationJson capitalPreservation
+                , "closeTiming" .= closeTimingJson
                 , "all"
                     .= object
                         [ "lookback" .= bpsLookback perfAll
@@ -6752,6 +6901,7 @@ botStatusJson st =
             , "operations" .= botOps st
             , "orders" .= botOrders st
             , "trades" .= map tradeToJson (botTrades st)
+            , "closeTimingSamples" .= map botCloseTimingSampleJson (botCloseTimingSamples st)
             , "openTrade" .= fmap botOpenTradeJson (botOpenTrade st)
             , "performance" .= perfJson
             , "adaptive" .= adaptiveJson
@@ -7224,6 +7374,37 @@ tradeFromSnapshotValue =
                     , trFeeCost = 0.0
                     }
 
+closeTimingSampleFromSnapshotValue :: Aeson.Value -> Maybe BotCloseTimingSample
+closeTimingSampleFromSnapshotValue =
+    AT.parseMaybe $
+        Aeson.withObject "BotCloseTimingSample" $ \o -> do
+            comboUuid <- o Aeson..: "comboUuid"
+            openedAtMs <- o Aeson..:? "openedAtMs"
+            closedAtMs <- o Aeson..:? "closedAtMs"
+            maxPnlAtMs <- o Aeson..:? "maxPnlAtMs"
+            observedHoldingPeriods <- fromMaybe 0 <$> (o Aeson..:? "observedHoldingPeriods")
+            maxPnlHoldingPeriods <- fromMaybe 0 <$> (o Aeson..:? "maxPnlHoldingPeriods")
+            tradeReturn <- fromMaybe 0 <$> (o Aeson..:? "return")
+            maxPnlReturn <- fromMaybe 0 <$> (o Aeson..:? "maxPnlReturn")
+            if T.null (T.strip comboUuid)
+                || observedHoldingPeriods <= 0
+                || maxPnlHoldingPeriods <= 0
+                || not (isFiniteDouble tradeReturn)
+                || not (isFiniteDouble maxPnlReturn)
+                then fail "invalid close timing sample"
+                else
+                    pure
+                        BotCloseTimingSample
+                            { bctsComboUuid = comboUuid
+                            , bctsOpenedAtMs = openedAtMs
+                            , bctsClosedAtMs = closedAtMs
+                            , bctsMaxPnlAtMs = maxPnlAtMs
+                            , bctsObservedHoldingPeriods = observedHoldingPeriods
+                            , bctsMaxPnlHoldingPeriods = maxPnlHoldingPeriods
+                            , bctsReturn = tradeReturn
+                            , bctsMaxPnlReturn = maxPnlReturn
+                            }
+
 reindexRestoredTrades :: [Trade] -> [Trade]
 reindexRestoredTrades trades =
     snd (mapAccumL reindex 0 trades)
@@ -7273,6 +7454,24 @@ restoreTradeMemoryFromSnapshotMaybe mDir tenantKey args sym = do
                                     Just (Aeson.Array tradesV) ->
                                         let parsed = mapMaybe tradeFromSnapshotValue (V.toList tradesV)
                                          in reindexRestoredTrades (takeLast (restoredTradeMemoryLimit args) parsed)
+                                    _ -> []
+                            _ -> []
+    pure restored
+
+restoreCloseTimingSamplesFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> IO [BotCloseTimingSample]
+restoreCloseTimingSamplesFromSnapshotMaybe mDir tenantKey args sym = do
+    mSnap <- readBotStatusSnapshotMaybe mDir tenantKey sym
+    let restored =
+            case mSnap of
+                Nothing -> []
+                Just snap ->
+                    if not (botSnapshotMatchesTradeMemoryContext args sym (bssStatus snap))
+                        then []
+                        else case bssStatus snap of
+                            Aeson.Object o ->
+                                case KM.lookup "closeTimingSamples" o of
+                                    Just (Aeson.Array samplesV) ->
+                                        trimBotCloseTimingSamples (mapMaybe closeTimingSampleFromSnapshotValue (V.toList samplesV))
                                     _ -> []
                             _ -> []
     pure restored
@@ -9406,6 +9605,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                     else pure pos
             else pure 0
     restoredTrades <- restoreTradeMemoryFromSnapshotMaybe mBotStateDir tenantKey args sym
+    restoredCloseTimingSamples <- restoreCloseTimingSamplesFromSnapshotMaybe mBotStateDir tenantKey args sym
     restoredSlippages <- restoreSlippageObservationsFromSnapshotMaybe mBotStateDir tenantKey args sym
     unless (null restoredSlippages) $
         putStrLn
@@ -9796,6 +9996,9 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                     , botOpenEntrySource = entrySource
                                     , botOpenSize = openSize
                                     , botOpenTrail = px
+                                    , botOpenBestPnlReturn = 0
+                                    , botOpenBestPnlHoldingPeriods = 0
+                                    , botOpenBestPnlAtMs = Just lastOt
                                     , botOpenSide = SideLong
                                     , botOpenPartialTaken = False
                                     }
@@ -9815,6 +10018,9 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                     , botOpenEntrySource = entrySource
                                     , botOpenSize = openSize
                                     , botOpenTrail = px
+                                    , botOpenBestPnlReturn = 0
+                                    , botOpenBestPnlHoldingPeriods = 0
+                                    , botOpenBestPnlAtMs = Just lastOt
                                     , botOpenSide = SideShort
                                     , botOpenPartialTaken = False
                                     }
@@ -9913,6 +10119,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 , botOrders = orders2
                 , botRestoredSlippages = restoredSlippages
                 , botTrades = restoredTrades
+                , botCloseTimingSamples = restoredCloseTimingSamples
                 , botPerfStats = restoredPerfStats
                 , botAdjustments = restoredAdjustments
                 , botLossStreak = restoredLossStreak
@@ -12483,6 +12690,17 @@ reconcileBotPositionWithExchange mJournal now st k = do
                                                             }
                                                        ]
                                             Nothing -> botTrades st
+                                    closedCloseTimingSamples =
+                                        case botOpenTrade st of
+                                            Just ot ->
+                                                maybeToList
+                                                    ( botCloseTimingSampleFromOpenTrade
+                                                        (botOpenTimes st)
+                                                        (kOpenTime k)
+                                                        (lastEq / max 1e-12 (botOpenEntryEquity ot) - 1)
+                                                        ot
+                                                    )
+                                            Nothing -> []
                                 stAfterClose <-
                                     if localPos /= 0
                                         then do
@@ -12492,6 +12710,8 @@ reconcileBotPositionWithExchange mJournal now st k = do
                                                     { botPositions = setLastPos 0
                                                     , botOpenTrade = Nothing
                                                     , botTrades = closedTrades
+                                                    , botCloseTimingSamples =
+                                                        trimBotCloseTimingSamples (botCloseTimingSamples st ++ closedCloseTimingSamples)
                                                     }
                                         else pure st
                                 stFinal <-
@@ -12512,6 +12732,9 @@ reconcileBotPositionWithExchange mJournal now st k = do
                                                         , botOpenEntrySource = TradeEntryAdopted
                                                         , botOpenSize = fromMaybe 1 mSize
                                                         , botOpenTrail = if entryPx > 0 then entryPx else lastPrice
+                                                        , botOpenBestPnlReturn = 0
+                                                        , botOpenBestPnlHoldingPeriods = 0
+                                                        , botOpenBestPnlAtMs = Just (botLastOpenTime stAfterClose)
                                                         , botOpenSide = side
                                                         , botOpenPartialTaken = False
                                                         }
@@ -12620,15 +12843,17 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                      in if prevPos /= expectedPos
                             then Nothing
                             else
-                                let trail1 =
+                                let holdingPeriods1 = botOpenHoldingPeriods ot + 1
+                                    trail1 =
                                         case side of
                                             SideLong -> max (botOpenTrail ot) barHigh
                                             SideShort -> min (botOpenTrail ot) barLow
-                                 in Just
+                                    ot1 =
                                         ot
-                                            { botOpenHoldingPeriods = botOpenHoldingPeriods ot + 1
+                                            { botOpenHoldingPeriods = holdingPeriods1
                                             , botOpenTrail = trail1
                                             }
+                                 in Just (updateBotOpenTradeBestPnl openTimeNew barHigh barLow holdingPeriods1 ot1)
         dayMs = 86400000 :: Int64
         dayKeyNew = openTimeNew `div` dayMs
         (dayKey1, dayStartEq1, dayTrades1) =
@@ -12995,6 +13220,25 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             case argMaxHoldBars args of
                 Just v | v > 0 -> Just v
                 _ -> Nothing
+        statesForCloseTiming =
+            if any (\s -> botTenantKey s == botTenantKey st && botSymbol s == botSymbol st) allStates
+                then allStates
+                else st : allStates
+        closeTimingComboUuid = botOpenTradeComboUuidMaybe openTrade1 <|> botComboUuid st
+        liveMaxPnlEvidenceHoldBars =
+            closeTimingComboUuid >>= \comboUuid ->
+                comboLiveMaxPnlCloseTimingEvidenceHoldBars comboUuid statesForCloseTiming
+        maxHoldBarsForDecision =
+            case closeTimingComboUuid of
+                Nothing -> maxHoldBars
+                Just comboUuid -> comboLiveMaxPnlCloseTimingMaxHoldBars comboUuid maxHoldBars statesForCloseTiming
+        maxPnlTimingCapActive =
+            case liveMaxPnlEvidenceHoldBars of
+                Nothing -> False
+                Just learned ->
+                    case maxHoldBars of
+                        Nothing -> maxHoldBarsForDecision == Just learned
+                        Just current -> learned < current && maxHoldBarsForDecision == Just learned
         cooldownBars = max 0 (argCooldownBars args)
         cooldownLeft0 = max 0 (botCooldownLeft st)
         cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
@@ -13072,17 +13316,21 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 else (latest0b, desiredPosWanted0b, mExitReason0b)
 
         holdTooLong =
-            case maxHoldBars of
+            case maxHoldBarsForDecision of
                 Nothing -> False
                 Just lim -> prevPos /= 0 && holdBars >= lim && desiredPosWanted1 == prevPos
 
         maxHoldExit = holdTooLong
+        maxHoldExitReason =
+            if maxPnlTimingCapActive
+                then "MAX_PNL_TIMING"
+                else "MAX_HOLD"
 
         (latest2, desiredPosWanted2, mExitReason2) =
             if holdTooLong
                 then
                     let closeDir = if prevPos > 0 then Just (-1) else Just 1
-                     in (latest1{lsChosenDir = closeDir, lsAction = "EXIT_MAX_HOLD"}, 0, Just "MAX_HOLD")
+                     in (latest1{lsChosenDir = closeDir, lsAction = "EXIT_" ++ maxHoldExitReason}, 0, Just maxHoldExitReason)
                 else (latest1, desiredPosWanted1, mExitReason1)
 
         noTradeActive =
@@ -13230,6 +13478,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botOpenEntrySource = TradeEntrySignal
                 , botOpenSize = size
                 , botOpenTrail = pxEntry
+                , botOpenBestPnlReturn = 0
+                , botOpenBestPnlHoldingPeriods = 0
+                , botOpenBestPnlAtMs = Just openTimeNew
                 , botOpenSide = side
                 , botOpenPartialTaken = False
                 }
@@ -13248,6 +13499,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , trEntryIp = botOpenEntryIp ot
                 , trExitIp = botTradeOriginIp st
                 }
+        closeTimingSamplesAfterClose exitEq ot =
+            let exitReturn = exitEq / max 1e-12 (botOpenEntryEquity ot) - 1
+             in trimBotCloseTimingSamples
+                    ( botCloseTimingSamples st
+                        ++ maybeToList (botCloseTimingSampleFromOpenTrade openTimesV openTimeNew exitReturn ot)
+                    )
         sideFromPos p = if p >= 0 then SideLong else SideShort
         targetQtyForSwitch =
             case (prevPos, desiredPosWanted) of
@@ -13276,7 +13533,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                 Just lim | errors >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
                                 _ -> (Nothing, Nothing)
 
-    (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
+    (ops', orders', trades', closeTimingSamples', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
         if partialExitWanted
             then do
                 oPartial <- placeBotCloseIfEnabled args settings latestFinal (botEnv st) (botSymbol st)
@@ -13311,6 +13568,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                     | newPos /= 0 ->
                                         (Just (openTradeFor (sideFromPos newPos) (fromMaybe priceNew (avgFillPriceFromOrder oPartial)) eqAfterFee remainingSize), botTrades st)
                                 _ -> (openTrade1, botTrades st)
+                    closeTimingSamplesNew =
+                        if not appliedPartial
+                            then botCloseTimingSamples st
+                            else case (posAfterPartial, openTrade1) of
+                                (0, Just ot) -> closeTimingSamplesAfterClose eqAfterFee ot
+                                _ -> botCloseTimingSamples st
                     errors0 = botConsecutiveOrderErrors st
                     errors1 =
                         if tradeEnabled
@@ -13366,6 +13629,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         else botOps st
                     , ordersNew
                     , tradesNew
+                    , closeTimingSamplesNew
                     , openTradeNew
                     , Just oPartial
                     , posAfterPartial
@@ -13382,6 +13646,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             ( botOps st
                             , botOrders st
                             , botTrades st
+                            , botCloseTimingSamples st
                             , openTrade1
                             , Nothing
                             , prevPos
@@ -13441,6 +13706,15 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                         (-1, 1, Just ot) -> (Just (openTradeFor SideLong entryPx eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
                                         (_, p, _) | p /= 0 -> (Just (openTradeFor (sideFromPos p) entryPx eqAfterFee sizeNew), botTrades st)
                                         _ -> (openTrade1, botTrades st)
+                            closeTimingSamplesNew =
+                                if not appliedExecution
+                                    then botCloseTimingSamples st
+                                    else case (prevPos, posNew, openTrade1) of
+                                        (1, 0, Just ot) -> closeTimingSamplesAfterClose eqAfterFee ot
+                                        (-1, 0, Just ot) -> closeTimingSamplesAfterClose eqAfterFee ot
+                                        (1, -1, Just ot) -> closeTimingSamplesAfterClose eqAfterFee ot
+                                        (-1, 1, Just ot) -> closeTimingSamplesAfterClose eqAfterFee ot
+                                        _ -> botCloseTimingSamples st
                             errors0 = botConsecutiveOrderErrors st
                             errors1 =
                                 if tradeEnabled
@@ -13500,7 +13774,20 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         when (appliedExecution && prevPos /= 0 && posNew == 0) $
                             emitLiveTradeNdjson (argTradeLog args) liveSym "CLOSE" priceNew eqAfterFee
 
-                        pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
+                        pure
+                            ( opsNew
+                            , ordersNew
+                            , tradesNew
+                            , closeTimingSamplesNew
+                            , openTradeNew
+                            , Just o
+                            , posNew
+                            , eqAfterFee
+                            , switchedApplied1
+                            , errors1
+                            , haltReason3
+                            , haltedAt3
+                            )
 
     case (botHaltReason st, haltReason2) of
         (Nothing, Just r) -> do
@@ -13640,6 +13927,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         , botStartIndex st + dropCount
                         )
 
+        closeTimingSamples2 = trimBotCloseTimingSamples closeTimingSamples'
+
         mLstmCtx2 =
             case mLstmCtx1 of
                 Nothing -> Nothing
@@ -13671,6 +13960,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botOps = ops2
                 , botOrders = orders2
                 , botTrades = trades2
+                , botCloseTimingSamples = closeTimingSamples2
                 , botPerfStats = perfStatsNext
                 , botAdjustments = adjustmentsNext
                 , botLossStreak = lossStreakNext

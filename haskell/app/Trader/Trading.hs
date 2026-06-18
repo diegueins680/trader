@@ -390,6 +390,7 @@ exitReasonFromCode code
     | normalized == "LIQUIDATION" = Just ExitLiquidation
     | normalized == "EOD" = Just ExitEod
     | normalized == "STALE_COMBO" = Just (ExitOther "STALE_COMBO")
+    | normalized == "MAX_PNL_TIMING" = Just (ExitOther "MAX_PNL_TIMING")
     | otherwise = Nothing
   where
     normalized = map toUpper code
