@@ -1723,6 +1723,7 @@ export type OptimizerRunForm = {
   methodWeightGeoBlend: string;
   methodWeightRegimeSwitch: string;
   methodWeightBanditRouter: string;
+  methodWeightCrossSectionalMomentum: string;
   blendWeightMin: string;
   blendWeightMax: string;
   disableLstmPersistence: boolean;
@@ -2197,6 +2198,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightGeoBlend: "",
     methodWeightRegimeSwitch: "",
     methodWeightBanditRouter: "",
+    methodWeightCrossSectionalMomentum: "",
     blendWeightMin: "",
     blendWeightMax: "",
     disableLstmPersistence: false,
@@ -2460,6 +2462,8 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightRegimeSwitch != null) req.methodWeightRegimeSwitch = methodWeightRegimeSwitch;
   const methodWeightBanditRouter = parseOptionalNumber(form.methodWeightBanditRouter);
   if (methodWeightBanditRouter != null) req.methodWeightBanditRouter = methodWeightBanditRouter;
+  const methodWeightCrossSectionalMomentum = parseOptionalNumber(form.methodWeightCrossSectionalMomentum);
+  if (methodWeightCrossSectionalMomentum != null) req.methodWeightCrossSectionalMomentum = methodWeightCrossSectionalMomentum;
   const blendWeightMin = parseOptionalNumber(form.blendWeightMin);
   if (blendWeightMin != null) req.blendWeightMin = blendWeightMin;
   const blendWeightMax = parseOptionalNumber(form.blendWeightMax);

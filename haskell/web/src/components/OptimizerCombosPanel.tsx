@@ -2299,6 +2299,23 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightCrossSectionalMomentum">
+                Cross-sectional momentum method weight
+              </label>
+              <input
+                id="optimizerMethodWeightCrossSectionalMomentum"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightCrossSectionalMomentum}
+                onChange={(e) =>
+                  setOptimizerRunForm((prev) => ({ ...prev, methodWeightCrossSectionalMomentum: e.target.value }))
+                }
+                placeholder="0.0"
+              />
+            </div>
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr" }}>
             <div className="field">

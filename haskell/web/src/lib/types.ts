@@ -843,6 +843,7 @@ export type OptimizerRunRequest = {
   methodWeightGeoBlend?: number;
   methodWeightRegimeSwitch?: number;
   methodWeightBanditRouter?: number;
+  methodWeightCrossSectionalMomentum?: number;
   blendWeightMin?: number;
   blendWeightMax?: number;
   routerRegimeMinBarsMin?: number;

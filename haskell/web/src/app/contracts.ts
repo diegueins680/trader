@@ -62,6 +62,7 @@ export const METHOD_IDS = [
   "regime_switch",
   "router",
   "bandit_router",
+  "cross_sectional_momentum",
   "kalman_physics_error",
 ] as const;
 

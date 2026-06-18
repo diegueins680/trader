@@ -213,6 +213,13 @@ export const METHOD_UI_META = [
     tip: "bandit_router adds an exploration bonus so under-sampled models can still be selected when promising.",
   },
   {
+    id: "cross_sectional_momentum",
+    optionTitle: "Cross-sectional momentum",
+    label: "Cross-sectional momentum",
+    configHint: "uses residual momentum adjusted by funding, basis, and flow.",
+    tip: "cross_sectional_momentum uses market-residual momentum, then adjusts edge by funding, basis, taker flow, and open-interest context.",
+  },
+  {
     id: "10",
     optionTitle: "Kalman only",
     label: "Kalman only",

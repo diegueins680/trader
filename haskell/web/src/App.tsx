@@ -1988,6 +1988,8 @@ export function App() {
       "regime_switch",
       "router",
       "bandit_router",
+      "cross_sectional_momentum",
+      "kalman_physics_error",
     ];
     const methodList = methodOrder.filter((method) => methods.has(method));
     const marketOrder: ComboMarketValue[] = [...PLATFORMS, "csv", "unknown"];
@@ -8020,6 +8022,10 @@ export function App() {
         edgeSource = `bandit_router (kal ${kalEdge != null ? fmtPct(kalEdge, 3) : "n/a"}, lstm ${
           lstmEdge != null ? fmtPct(lstmEdge, 3) : "n/a"
         }, blend ${blendEdge != null ? fmtPct(blendEdge, 3) : "n/a"})`;
+        break;
+      case "cross_sectional_momentum":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "cross_sectional_momentum";
         break;
       default:
         edgeForMethod = null;
