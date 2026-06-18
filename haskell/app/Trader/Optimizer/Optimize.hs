@@ -2955,6 +2955,19 @@ roiScoreConfigFromOptimizerArgs args =
             , rscLowExposurePenaltyGapScale = oaRoiScoreLowExposureGapPenalty args
             }
 
+optimizerChildTuneMaxThresholdCandidates :: OptimizerArgs -> Int
+optimizerChildTuneMaxThresholdCandidates args
+    | explicitOpenCap || explicitCloseCap = 0
+    | otherwise = requested
+  where
+    requested = max 0 (oaTuneMaxThresholdCandidates args)
+    explicitOpenCap =
+        oaOpenThresholdMaxExplicit args
+            && oaOpenThresholdMax args < signalEntryOpenThresholdFeasibilityCap
+    explicitCloseCap =
+        oaCloseThresholdMaxExplicit args
+            && oaCloseThresholdMax args < signalEntryOpenThresholdFeasibilityCap
+
 applyQualityPreset :: OptimizerArgs -> OptimizerArgs
 applyQualityPreset args =
     let objective = map toLower (trim (oaObjective args))
@@ -6910,7 +6923,7 @@ buildBaseArgs args csvCols = do
                            , "--tune-penalty-turnover"
                            , printf "%.6f" (max 0 (oaTunePenaltyTurnover args))
                            , "--tune-max-threshold-candidates"
-                           , show (max 0 (oaTuneMaxThresholdCandidates args))
+                           , show (optimizerChildTuneMaxThresholdCandidates args)
                            , "--seed"
                            , show (oaSeed args)
                            ]
