@@ -19,6 +19,7 @@ function mkTrade({
   qty,
   time,
   originIp,
+  executorIp,
   originInstance,
   realizedPnl = 0,
 }) {
@@ -34,6 +35,7 @@ function mkTrade({
     positionSide,
     realizedPnl,
     originIp,
+    executorIp,
     originInstance,
   };
 }
@@ -42,8 +44,8 @@ test("buildBinanceTradeIpMap propagates close meta back onto the opening trade",
   const t0 = 1_000;
   const t1 = 2_000;
   const trades = [
-    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 10, time: t0, originIp: "1.2.3.4", originInstance: "laptop" }),
-    mkTrade({ tradeId: 2, orderId: 102, side: "SELL", qty: 10, time: t1, originIp: "5.6.7.8", originInstance: "fly", realizedPnl: 1 }),
+    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 10, time: t0, executorIp: "1.2.3.4", originInstance: "laptop" }),
+    mkTrade({ tradeId: 2, orderId: 102, side: "SELL", qty: 10, time: t1, executorIp: "5.6.7.8", originInstance: "fly", realizedPnl: 1 }),
   ];
 
   const meta = buildBinanceTradeIpMap(trades);
@@ -73,9 +75,9 @@ test("buildBinanceTradeIpMap waits until a lot is fully closed before backfillin
   const t1 = 2_000;
   const t2 = 3_000;
   const trades = [
-    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 10, time: t0, originIp: "1.1.1.1" }),
-    mkTrade({ tradeId: 2, orderId: 102, side: "SELL", qty: 6, time: t1, originIp: "2.2.2.2", realizedPnl: 1 }),
-    mkTrade({ tradeId: 3, orderId: 103, side: "SELL", qty: 4, time: t2, originIp: "3.3.3.3", realizedPnl: 1 }),
+    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 10, time: t0, executorIp: "1.1.1.1" }),
+    mkTrade({ tradeId: 2, orderId: 102, side: "SELL", qty: 6, time: t1, executorIp: "2.2.2.2", realizedPnl: 1 }),
+    mkTrade({ tradeId: 3, orderId: 103, side: "SELL", qty: 4, time: t2, executorIp: "3.3.3.3", realizedPnl: 1 }),
   ];
 
   const meta = buildBinanceTradeIpMap(trades);
@@ -96,9 +98,9 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
   const t1 = 1_500;
   const t2 = 2_000;
   const trades = [
-    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 5, time: t0, originIp: "1.1.1.1", originInstance: "fly" }),
-    mkTrade({ tradeId: 2, orderId: 102, side: "BUY", qty: 5, time: t1, originIp: "4.4.4.4", originInstance: "hetzner" }),
-    mkTrade({ tradeId: 3, orderId: 103, side: "SELL", qty: 10, time: t2, originIp: "9.9.9.9", originInstance: "laptop", realizedPnl: 1 }),
+    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 5, time: t0, executorIp: "1.1.1.1", originInstance: "fly" }),
+    mkTrade({ tradeId: 2, orderId: 102, side: "BUY", qty: 5, time: t1, executorIp: "4.4.4.4", originInstance: "hetzner" }),
+    mkTrade({ tradeId: 3, orderId: 103, side: "SELL", qty: 10, time: t2, executorIp: "9.9.9.9", originInstance: "laptop", realizedPnl: 1 }),
   ];
 
   const meta = buildBinanceTradeIpMap(trades);
@@ -129,6 +131,24 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
     exitInstance: "laptop",
     entryTime: t0,
     exitTime: t2,
+  });
+});
+
+test("buildBinanceTradeIpMap ignores requester origin IP when executor IP is absent", () => {
+  const trades = [
+    mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 1, time: 1_000, originIp: "192.0.2.10", originInstance: "hetzner" }),
+    mkTrade({ tradeId: 2, orderId: 102, side: "SELL", qty: 1, time: 2_000, originIp: "192.0.2.10", originInstance: "hetzner", realizedPnl: -1 }),
+  ];
+
+  const meta = buildBinanceTradeIpMap(trades);
+
+  assert.deepEqual(meta.get(binanceTradeKey(trades[0])), {
+    entryIp: null,
+    exitIp: null,
+    entryInstance: "hetzner",
+    exitInstance: "hetzner",
+    entryTime: 1_000,
+    exitTime: 2_000,
   });
 });
 

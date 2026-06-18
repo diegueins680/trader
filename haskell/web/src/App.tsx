@@ -4577,15 +4577,15 @@ export function App() {
     if (trades.length === 0) return trades;
     const withIps = trades.map((trade) => {
       const ipMeta = binanceTradesIpMap.get(binanceTradeKey(trade));
-      const ownOriginIp = typeof trade.originIp === "string" && trade.originIp.trim() ? trade.originIp.trim() : null;
+      const ownExecutorIp = typeof trade.executorIp === "string" && trade.executorIp.trim() ? trade.executorIp.trim() : null;
       const ownOriginInstance =
         typeof trade.originInstance === "string" && trade.originInstance.trim() ? trade.originInstance.trim() : null;
       const tradeTime = Number.isFinite(trade.time) ? trade.time : null;
       const likelyClose = isLikelyBinanceCloseFill(trade);
       return {
         ...trade,
-        entryIp: ipMeta?.entryIp ?? ownOriginIp,
-        exitIp: ipMeta?.exitIp ?? (likelyClose ? ownOriginIp : null),
+        entryIp: ipMeta?.entryIp ?? ownExecutorIp,
+        exitIp: ipMeta?.exitIp ?? (likelyClose ? ownExecutorIp : null),
         entryInstance: ipMeta?.entryInstance ?? ownOriginInstance,
         exitInstance: ipMeta?.exitInstance ?? (likelyClose ? ownOriginInstance : null),
         entryTime: ipMeta?.entryTime ?? tradeTime,

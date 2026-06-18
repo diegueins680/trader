@@ -691,7 +691,7 @@ export function BinanceTradesPanel({
 		                                <th>Pos</th>
 		                                <th>Open Instance</th>
 		                                <th>Close Instance</th>
-		                                <th>Origin IP</th>
+		                                <th>Open IP</th>
 		                                <th>Close IP</th>
 	                                <th>PNL</th>
 	                                <th>Max PNL</th>
@@ -785,7 +785,7 @@ export function BinanceTradesPanel({
 		                                <th>Pos</th>
 		                                <th>Open Instance</th>
 		                                <th>Close Instance</th>
-		                                <th>Origin IP</th>
+		                                <th>Open IP</th>
 		                                <th>Close IP</th>
 	                                <th>PNL</th>
 	                                <th>Max PNL</th>
@@ -896,7 +896,7 @@ export function BinanceTradesPanel({
 		                <th>Pos</th>
 		                <th>Open Instance</th>
 		                <th>Close Instance</th>
-		                <th>Origin IP</th>
+		                <th>Open IP</th>
 		                <th>Close IP</th>
 	                <th>Commission</th>
 	                <th>PNL</th>

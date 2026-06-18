@@ -1272,6 +1272,7 @@ mkBinanceTrade tradeId symbol side positionSide price qty timeMs =
         , btPositionSide = positionSide
         , btRealizedPnl = Nothing
         , btOriginIp = Nothing
+        , btExecutorIp = Nothing
         , btOriginInstance = Nothing
         , btMaxPnl = Nothing
         , btMaxPnlCloseTime = Nothing

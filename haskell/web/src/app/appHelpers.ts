@@ -688,7 +688,7 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
 
     const symbolKey = normalizeSymbolKey(trade.symbol);
     const posSide = normalizePositionSide(trade.positionSide) ?? "BOTH";
-    const orderIp = normalizeTradeIp(trade.originIp);
+    const orderIp = normalizeTradeIp(trade.executorIp);
     const orderInstance = normalizeTradeInstance(trade.originInstance);
     let entryIp: string | null = null;
     let exitIp: string | null = null;

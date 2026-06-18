@@ -2510,6 +2510,7 @@ data OpsStore = OpsStore
     , osCommitId :: !(Maybe Int64)
     , osPersistenceConfig :: !OpsPersistenceConfig
     , osServerIdentity :: !ServerIdentity
+    , osServerEgressIp :: !(Maybe Text)
     }
 
 tryAny :: IO a -> IO (Either SomeException a)
@@ -3816,9 +3817,23 @@ newOpsStoreFromEnv = do
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
                             symbolCache <- newIORef HM.empty
-                            Just
-                                . OpsStore lock url connRef latestRef platformCache symbolCache mCommitId persistenceConfig
-                                <$> serverIdentityFromEnv
+                            serverIdentity <- serverIdentityFromEnv
+                            mServerEgressIp <- normalizeMaybeText . fmap T.pack <$> resolveBinanceEgressIp
+                            pure
+                                ( Just
+                                    OpsStore
+                                        { osLock = lock
+                                        , osDbUrl = url
+                                        , osConn = connRef
+                                        , osLatestId = latestRef
+                                        , osPlatformCache = platformCache
+                                        , osSymbolCache = symbolCache
+                                        , osCommitId = mCommitId
+                                        , osPersistenceConfig = persistenceConfig
+                                        , osServerIdentity = serverIdentity
+                                        , osServerEgressIp = mServerEgressIp
+                                        }
+                                )
 
 opsPersistenceConfigFromEnv :: IO OpsPersistenceConfig
 opsPersistenceConfigFromEnv = do
@@ -4331,6 +4346,19 @@ updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
                     )
                     (nextFinalEq, nextAnnualized, metricsJson, now, comboUuid)
 
+opsResultWithExecutorIp :: OpsStore -> Maybe Aeson.Value -> Maybe Aeson.Value
+opsResultWithExecutorIp store mResult =
+    attach <$> mResult
+  where
+    attach value =
+        case (osServerEgressIp store, value) of
+            (Just ip, Aeson.Object obj) ->
+                let key = AK.fromString "executorIp"
+                 in if KM.member key obj
+                        then value
+                        else Aeson.Object (KM.insert key (Aeson.String ip) obj)
+            _ -> value
+
 opsAppend ::
     OpsStore ->
     Maybe TenantKey ->
@@ -4346,11 +4374,12 @@ opsAppend ::
 opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId = do
     now <- getTimestampMs
     let mTenantKey' = normalizeMaybeText mTenantKey
+        mResult' = opsResultWithExecutorIp store mResult
         mPlatformRaw =
             firstJust
                 [ inferPlatformFromJson mArgs
                 , inferPlatformFromJson mParams
-                , inferPlatformFromJson mResult
+                , inferPlatformFromJson mResult'
                 , inferPlatformFromKind kind
                 ]
         mPlatform = normalizeMaybeText (normalizePlatformText <$> mPlatformRaw)
@@ -4358,10 +4387,10 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
             firstJust
                 [ inferMarketFromJson mArgs
                 , inferMarketFromJson mParams
-                , inferMarketFromJson mResult
+                , inferMarketFromJson mResult'
                 ]
         mMarket = normalizeMaybeText (normalizeMarketText <$> mMarketRaw)
-        mSymbolRaw = firstJust [mSymbol, inferSymbolFromJson mArgs, inferSymbolFromJson mParams, inferSymbolFromJson mResult]
+        mSymbolRaw = firstJust [mSymbol, inferSymbolFromJson mArgs, inferSymbolFromJson mParams, inferSymbolFromJson mResult']
         mSymbolTrim = normalizeMaybeText mSymbolRaw
         mSymbolSanitized = mSymbolTrim >>= sanitizeSymbolForPlatformText mPlatform
         mSymbol' = mSymbolSanitized <|> mSymbolTrim
@@ -4369,7 +4398,7 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
         mComboUuid' = mComboUuid >>= uuidFromText
         paramsJson = encodeJsonTextMaybe mParams
         argsJson = encodeJsonTextMaybe mArgs
-        resultJson = encodeJsonTextMaybe mResult
+        resultJson = encodeJsonTextMaybe mResult'
         mCommitId = osCommitId store
         serverIdentity = osServerIdentity store
         mServerId = normalizeMaybeText (siServerId serverIdentity)
@@ -4422,7 +4451,7 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
                 , poOrderId = mOrderId'
                 , poParams = mParams
                 , poArgs = mArgs
-                , poResult = mResult
+                , poResult = mResult'
                 , poEquity = mEquity
                 , poServerId = mServerId
                 , poServerRole = mServerRole
@@ -4804,6 +4833,21 @@ extractOriginIpFromOp mVal =
                 , jsonLookupPathText [AK.fromString "event", AK.fromString "order", AK.fromString "originIp"] v
                 ]
 
+extractExecutorIpFromOp :: Maybe Aeson.Value -> Maybe Text
+extractExecutorIpFromOp mVal =
+    case mVal of
+        Nothing -> Nothing
+        Just v ->
+            listToMaybe . catMaybes $
+                [ jsonLookupPathText [AK.fromString "executorIp"] v
+                , jsonLookupPathText [AK.fromString "serverEgressIp"] v
+                , jsonLookupPathText [AK.fromString "egressIp"] v
+                , jsonLookupPathText [AK.fromString "server", AK.fromString "egressIp"] v
+                , jsonLookupPathText [AK.fromString "event", AK.fromString "executorIp"] v
+                , jsonLookupPathText [AK.fromString "order", AK.fromString "executorIp"] v
+                , jsonLookupPathText [AK.fromString "event", AK.fromString "order", AK.fromString "executorIp"] v
+                ]
+
 extractServerFieldFromOp :: Text -> Maybe Aeson.Value -> Maybe Text
 extractServerFieldFromOp fieldName mVal =
     case mVal of
@@ -4830,6 +4874,9 @@ extractOrderIdFromOp row =
 
 originIpFromRow :: OpsOrderOriginRow -> Maybe Text
 originIpFromRow row = extractOriginIpFromOp (oorResult row) <|> extractOriginIpFromOp (oorParams row)
+
+executorIpFromRow :: OpsOrderOriginRow -> Maybe Text
+executorIpFromRow row = extractExecutorIpFromOp (oorResult row) <|> extractExecutorIpFromOp (oorParams row)
 
 serverIdFromRow :: OpsOrderOriginRow -> Maybe Text
 serverIdFromRow row =
@@ -4875,6 +4922,7 @@ instanceLabelFromRow row =
 
 data OrderAttribution = OrderAttribution
     { oaOriginIp :: !(Maybe Text)
+    , oaExecutorIp :: !(Maybe Text)
     , oaOriginInstance :: !(Maybe Text)
     }
     deriving (Eq, Show)
@@ -4883,6 +4931,7 @@ orderAttributionFromRow :: OpsOrderOriginRow -> OrderAttribution
 orderAttributionFromRow row =
     OrderAttribution
         { oaOriginIp = originIpFromRow row
+        , oaExecutorIp = executorIpFromRow row
         , oaOriginInstance = instanceLabelFromRow row
         }
 
@@ -4892,7 +4941,10 @@ rowScore tenantKey row attr =
             case normalizeMaybeText (oorTenantKey row) of
                 Just t | t == tenantKey -> 1
                 _ -> 0
-        attributionRank = if isJust (oaOriginIp attr) || isJust (oaOriginInstance attr) then 1 else 0
+        attributionRank =
+            if isJust (oaExecutorIp attr) || isJust (oaOriginIp attr) || isJust (oaOriginInstance attr)
+                then 1
+                else 0
         kindRank =
             if oorKind row == "trade.order"
                 then 1
@@ -4962,7 +5014,7 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                     HM.fromList
                         [ (oid, attr)
                         | (oid, (_score, attr)) <- HM.toList attributionMapScored
-                        , isJust (oaOriginIp attr) || isJust (oaOriginInstance attr)
+                        , isJust (oaExecutorIp attr) || isJust (oaOriginIp attr) || isJust (oaOriginInstance attr)
                         ]
                 attachAttribution trade =
                     case btOrderId trade of
@@ -4973,6 +5025,7 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                                 Just attr ->
                                     trade
                                         { btOriginIp = btOriginIp trade <|> oaOriginIp attr
+                                        , btExecutorIp = btExecutorIp trade <|> oaExecutorIp attr
                                         , btOriginInstance = btOriginInstance trade <|> oaOriginInstance attr
                                         }
             pure (map attachAttribution trades)

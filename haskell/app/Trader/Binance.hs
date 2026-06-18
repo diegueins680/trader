@@ -194,6 +194,7 @@ data BinanceTrade = BinanceTrade
     , btPositionSide :: !(Maybe String)
     , btRealizedPnl :: !(Maybe Double)
     , btOriginIp :: !(Maybe Text)
+    , btExecutorIp :: !(Maybe Text)
     , btOriginInstance :: !(Maybe Text)
     , btMaxPnl :: !(Maybe Double)
     , btMaxPnlCloseTime :: !(Maybe Int64)
@@ -224,6 +225,7 @@ instance FromJSON BinanceTrade where
         positionSide <- o AT..:? "positionSide"
         realizedPnl <- parseMaybeDoubleField o "realizedPnl"
         originIp <- o AT..:? "originIp"
+        executorIp <- o AT..:? "executorIp"
         originInstance <- o AT..:? "originInstance"
         maxPnl <- parseMaybeDoubleField o "maxPnl"
         maxPnlCloseTime <- o AT..:? "maxPnlCloseTime"
@@ -262,6 +264,7 @@ instance FromJSON BinanceTrade where
                 , btPositionSide = positionSide
                 , btRealizedPnl = realizedPnl
                 , btOriginIp = originIp
+                , btExecutorIp = executorIp
                 , btOriginInstance = originInstance
                 , btMaxPnl = maxPnl
                 , btMaxPnlCloseTime = maxPnlCloseTime
@@ -290,6 +293,7 @@ instance ToJSON BinanceTrade where
             , "positionSide" .= btPositionSide t
             , "realizedPnl" .= btRealizedPnl t
             , "originIp" .= btOriginIp t
+            , "executorIp" .= btExecutorIp t
             , "originInstance" .= btOriginInstance t
             , "maxPnl" .= btMaxPnl t
             , "maxPnlCloseTime" .= btMaxPnlCloseTime t
