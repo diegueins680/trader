@@ -128,6 +128,7 @@ import Trader.Optimizer.Optimize (
     defaultPriorMissingAgeMultiplier,
     emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
+    normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
     priorAgeDecayMultiplier,
@@ -269,6 +270,7 @@ import Trader.Trading (
     outcomeWeightCap,
     outcomeWeightLossScale,
     outcomeWeightWinScale,
+    positionSizeScaleHardFailMultiplier,
     roundTripFeeFloor,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
@@ -477,6 +479,7 @@ main = do
     testAutoOptimizerCappedLookbackScopes
     testSweepThresholdMinRoundTripsFallback
     testOptimizerPublicSurfaceRegression
+    testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
     testOptimizerPriorEdgeScoreRegression
     testOptimizerPriorParserCarriesFreshEvidenceRegression
@@ -6460,6 +6463,25 @@ testOptimizerPublicSurfaceRegression = do
             && ecOpenPrices foldCfg == openPrices0
             && isNothing (ecMetaMask foldCfg)
         )
+
+testOptimizerRiskPerTradeNormalization :: IO ()
+testOptimizerRiskPerTradeNormalization = do
+    let stopLoss = 0.005
+        cappedRisk = positionSizeScaleHardFailMultiplier * stopLoss
+    assert
+        "optimizer keeps fixed-stop risk sizing when it stays under the simulator size-scale hard cap"
+        (normalizeOptimizerRiskPerTrade (Just 0.02) Nothing (Just 0.01) == Just 0.01)
+    assertNear
+        "optimizer caps fixed-stop risk sizing at the simulator size-scale hard cap"
+        cappedRisk
+        (fromMaybe 0 (normalizeOptimizerRiskPerTrade (Just stopLoss) Nothing (Just 0.02)))
+        1e-12
+    assert
+        "optimizer drops risk sizing without any stop-loss bound"
+        (isNothing (normalizeOptimizerRiskPerTrade Nothing Nothing (Just 0.01)))
+    assert
+        "optimizer drops risk sizing for volatility stops because the realized stop fraction is data-dependent"
+        (isNothing (normalizeOptimizerRiskPerTrade (Just 0.02) (Just 1.5) (Just 0.01)))
 
 testOptimizerQualityBudgetRegression :: IO ()
 testOptimizerQualityBudgetRegression = do

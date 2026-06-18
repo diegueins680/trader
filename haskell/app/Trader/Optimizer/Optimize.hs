@@ -16,6 +16,7 @@ module Trader.Optimizer.Optimize (
     emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     normalizeObjectiveCode,
+    normalizeOptimizerRiskPerTrade,
     normalizeOptionalPositiveFraction,
     objectiveScore,
     optimizerOptionPresent,
@@ -138,6 +139,7 @@ import Trader.RoiScore (
  )
 import Trader.SignalGates (signalEntryOpenThresholdFeasibilityCap, signalEntryOpenThresholdFeasible)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
+import Trader.Trading (positionSizeScaleHardFailMultiplier)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
@@ -184,6 +186,18 @@ normalizeOptionalPositive raw =
             | isNaN x || isInfinite x -> Nothing
             | x <= 0 -> Nothing
             | otherwise -> Just x
+
+normalizeOptimizerRiskPerTrade :: Maybe Double -> Maybe Double -> Maybe Double -> Maybe Double
+normalizeOptimizerRiskPerTrade rawStopLoss rawStopLossVolMult rawRisk =
+    let stopLoss = normalizeOptionalPositiveFraction rawStopLoss
+        stopLossVolMult = normalizeOptionalPositive rawStopLossVolMult
+        risk = normalizeOptionalPositiveFraction rawRisk
+     in case (stopLoss, stopLossVolMult, risk) of
+            (_, Just _, _) -> Nothing
+            (Just sl, Nothing, Just r) ->
+                let maxRisk = min 0.999999 (positionSizeScaleHardFailMultiplier * sl)
+                 in if maxRisk <= 0 then Nothing else Just (min r maxRisk)
+            _ -> Nothing
 
 normalizeOptionalUnitInterval :: Maybe Double -> Maybe Double
 normalizeOptionalUnitInterval raw =
@@ -468,11 +482,7 @@ normalizeTrialParams p =
         lstmAdamEps' = normalizeLstmAdamEps defaultLstmAdamEps (tpLstmAdamEps p)
         stopLoss' = normalizeOptionalPositiveFraction (tpStopLoss p)
         stopLossVolMult' = normalizeOptionalPositive (tpStopLossVolMult p)
-        riskPerTradeRaw = normalizeOptionalPositiveFraction (tpRiskPerTrade p)
-        riskPerTrade' =
-            if isJust stopLoss' || isJust stopLossVolMult'
-                then riskPerTradeRaw
-                else Nothing
+        riskPerTrade' = normalizeOptimizerRiskPerTrade stopLoss' stopLossVolMult' (tpRiskPerTrade p)
      in p
             { tpBlendWeight = clamp (tpBlendWeight p) 0 1
             , tpRouterScorePnlWeight = clamp (tpRouterScorePnlWeight p) 0 1
