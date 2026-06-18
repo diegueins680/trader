@@ -2527,6 +2527,8 @@ data OptimizerArgs = OptimizerArgs
     , oaMinSharpe :: !Double
     , oaMinWfSharpeMean :: !Double
     , oaMaxWfSharpeStd :: !Double
+    , oaSearchMaxWfSharpeStd :: !Double
+    , oaWfSharpeStdScorePenalty :: !Double
     , oaTuneObjective :: !String
     , oaTunePenaltyMaxDrawdown :: !Double
     , oaTunePenaltyTurnover :: !Double
@@ -2996,6 +2998,10 @@ applyQualityPreset args =
                 if oaMaxWfSharpeStd args <= 0
                     then 1.0
                     else min 1.0 (oaMaxWfSharpeStd args)
+            , oaSearchMaxWfSharpeStd =
+                if oaSearchMaxWfSharpeStd args <= 0
+                    then 1.0
+                    else max 1.0 (oaSearchMaxWfSharpeStd args)
             , oaMinSignalToNoiseMin = maxIf (oaMinSignalToNoiseMin args) 0.2
             , oaMinSignalToNoiseMax = maxIf (oaMinSignalToNoiseMax args) 1.0
             , oaEpochsMax = qualityPresetBudget 50 (oaEpochsMax args) (oaQualityMaxEpochs args)
@@ -3367,6 +3373,7 @@ data TrialResult = TrialResult
     , trCloseThreshold :: !(Maybe Double)
     , trStdoutJson :: !(Maybe Value)
     , trEligible :: !Bool
+    , trSearchEligible :: !Bool
     , trFilterReason :: !(Maybe String)
     , trObjective :: !String
     , trScore :: !(Maybe Double)
@@ -3913,6 +3920,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                     , trCloseThreshold = Nothing
                     , trStdoutJson = Nothing
                     , trEligible = False
+                    , trSearchEligible = False
                     , trFilterReason = Nothing
                     , trObjective = "final-equity"
                     , trScore = Nothing
@@ -3940,6 +3948,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                             , trCloseThreshold = Nothing
                             , trStdoutJson = Nothing
                             , trEligible = False
+                            , trSearchEligible = False
                             , trFilterReason = Nothing
                             , trObjective = "final-equity"
                             , trScore = Nothing
@@ -3960,6 +3969,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                                     , trCloseThreshold = Nothing
                                     , trStdoutJson = Nothing
                                     , trEligible = False
+                                    , trSearchEligible = False
                                     , trFilterReason = Nothing
                                     , trObjective = "final-equity"
                                     , trScore = Nothing
@@ -3980,6 +3990,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                                             , trCloseThreshold = Nothing
                                             , trStdoutJson = Just outVal
                                             , trEligible = False
+                                            , trSearchEligible = False
                                             , trFilterReason = Nothing
                                             , trObjective = "final-equity"
                                             , trScore = Nothing
@@ -3998,6 +4009,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                                             , trCloseThreshold = closeThr
                                             , trStdoutJson = Just outVal
                                             , trEligible = False
+                                            , trSearchEligible = False
                                             , trFilterReason = Nothing
                                             , trObjective = "final-equity"
                                             , trScore = Nothing
@@ -4332,6 +4344,7 @@ trialToRecord tr symbolLabel =
         baseFields =
             [ "ok" .= trOk tr
             , "eligible" .= trEligible tr
+            , "searchEligible" .= trSearchEligible tr
             , "objective" .= trObjective tr
             , "score" .= trScore tr
             , "filterReason" .= trFilterReason tr
@@ -6048,6 +6061,12 @@ runOptimizer args0 = do
                                                                         maxTurnover = max 0 (oaMaxTurnover args)
                                                                         minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
                                                                         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
+                                                                        searchMaxWfSharpeStd =
+                                                                            let raw = max 0 (oaSearchMaxWfSharpeStd args)
+                                                                             in if raw <= 0
+                                                                                    then maxWfSharpeStd
+                                                                                    else max maxWfSharpeStd raw
+                                                                        wfSharpeStdScorePenalty = max 0 (oaWfSharpeStdScorePenalty args)
                                                                         priorTrials =
                                                                             selectOptimizerPriorTrials
                                                                                 args
@@ -6542,12 +6561,42 @@ runOptimizer args0 = do
                                                                                                                                                                                                                                         )
                                                                                                                                                                                                                                     )
                                                                                         _ -> (False, Nothing, Nothing)
+                                                                                mSearchWfSharpeStd =
+                                                                                    case extractWalkForwardSummary (trStdoutJson tr0) of
+                                                                                        Nothing -> Nothing
+                                                                                        Just wfSummary -> Just (metricFloat (Just wfSummary) "sharpeStd" 0)
+                                                                                strictWfSharpeStdFiltered =
+                                                                                    maybe False ("wfSharpeStd>" `isPrefixOf`) filterReason
+                                                                                searchWfSharpeStdOk =
+                                                                                    maybe
+                                                                                        False
+                                                                                        (\std -> searchMaxWfSharpeStd <= 0 || std <= searchMaxWfSharpeStd)
+                                                                                        mSearchWfSharpeStd
+                                                                                searchEligible =
+                                                                                    eligible
+                                                                                        || (strictWfSharpeStdFiltered && searchWfSharpeStdOk)
+                                                                                searchScore =
+                                                                                    case (score, searchEligible, trMetrics tr0, mSearchWfSharpeStd) of
+                                                                                        (Just sc, _, _, _) -> Just sc
+                                                                                        (Nothing, True, Just metrics, Just wfStd) ->
+                                                                                            let baseScore =
+                                                                                                    objectiveScoreWithConfig
+                                                                                                        roiScoreConfig
+                                                                                                        metrics
+                                                                                                        objective
+                                                                                                        (oaPenaltyMaxDrawdown args)
+                                                                                                        (oaPenaltyTurnover args)
+                                                                                                strictCap = max 0 maxWfSharpeStd
+                                                                                                excess = if strictCap > 0 then max 0 (wfStd - strictCap) else 0
+                                                                                             in Just (baseScore - wfSharpeStdScorePenalty * excess)
+                                                                                        _ -> Nothing
                                                                                 tr =
                                                                                     tr0
                                                                                         { trEligible = eligible
+                                                                                        , trSearchEligible = searchEligible
                                                                                         , trFilterReason = filterReason
                                                                                         , trObjective = objective
-                                                                                        , trScore = score
+                                                                                        , trScore = searchScore
                                                                                         , trOrigin = origin
                                                                                         }
                                                                             case outHandle of
@@ -6563,7 +6612,7 @@ runOptimizer args0 = do
                                                                                     hPutStrLn h ""
                                                                                     hFlush h
                                                                             let best' =
-                                                                                    case (trEligible tr, trScore tr, best) of
+                                                                                    case (trSearchEligible tr, trScore tr, best) of
                                                                                         (True, Just sc, Nothing) -> Just tr
                                                                                         (True, Just sc, Just b) ->
                                                                                             let bScore = fromMaybe (-1e18) (trScore b)
@@ -6585,7 +6634,7 @@ runOptimizer args0 = do
                                                                             sortOn
                                                                                 (Data.Ord.Down . fromMaybe (-1e18) . trScore)
                                                                                 (filter (isJust . trScore) seedResults)
-                                                                        survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
+                                                                        survivorsRaw = take survivorCount (filter trSearchEligible scored ++ scored)
                                                                         techniqueSummarySeed =
                                                                             techniqueSummaryBase
                                                                                 { otsAppliedSobolSeeding = seedTrials > 0
@@ -6595,7 +6644,7 @@ runOptimizer args0 = do
                                                                         eliteScore tr =
                                                                             let edgeScore = maybe 0 (priorTrialEdgeScoreWithConfig edgeScoreConfig) (trMetrics tr)
                                                                              in fromMaybe (-1e18) (trScore tr) + survivorEdgeWeight * edgeScore
-                                                                        eligibleElite tr = trEligible tr && isJust (trScore tr)
+                                                                        eligibleElite tr = trSearchEligible tr && isJust (trScore tr)
                                                                         trimElitePool =
                                                                             take eliteCapacity
                                                                                 . sortOn (Data.Ord.Down . eliteScore)
@@ -6938,6 +6987,7 @@ printTrialStatus i trials tr = do
     let status :: String
         status
             | trEligible tr = "OK"
+            | trSearchEligible tr = "SEARCH"
             | trOk tr = "SKIP"
             | otherwise = "FAIL"
         eq :: String
@@ -7008,6 +7058,7 @@ printBest tr = do
     case trScore tr of
         Just sc -> putStrLn ("  objective:   " ++ trObjective tr ++ " (score=" ++ printf "%.8f" sc ++ ")")
         Nothing -> pure ()
+    putStrLn ("  promotion:   " ++ if trEligible tr then "eligible" else "search-only")
     putStrLn ("  finalEquity: " ++ printf "%.8f" (fromMaybe 0 (trFinalEquity tr)) ++ "x")
     case tpPlatform p of
         Just platform -> putStrLn ("  platform:    " ++ platform)

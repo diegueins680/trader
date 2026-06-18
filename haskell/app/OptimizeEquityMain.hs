@@ -139,6 +139,8 @@ optimizerArgsParser =
         <*> option auto (long "min-sharpe" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "min-wf-sharpe-mean" <> value 0.8 <> metavar "FLOAT")
         <*> option auto (long "max-wf-sharpe-std" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "search-max-wf-sharpe-std" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "wf-sharpe-std-score-penalty" <> value 0.05 <> metavar "FLOAT")
         <*> strOption (long "tune-objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
@@ -790,6 +792,10 @@ validateArgs args = do
         Left "--prior-diversity-max-per-bucket must be >= 0."
     when (oaPriorSeedCount args < 0) $
         Left "--prior-seed-count must be >= 0."
+    when (oaSearchMaxWfSharpeStd args < 0 || not (finiteDouble (oaSearchMaxWfSharpeStd args))) $
+        Left "--search-max-wf-sharpe-std must be a finite value >= 0."
+    when (oaWfSharpeStdScorePenalty args < 0 || not (finiteDouble (oaWfSharpeStdScorePenalty args))) $
+        Left "--wf-sharpe-std-score-penalty must be a finite value >= 0."
     when (oaTuneMaxThresholdCandidates args < 0) $
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $

@@ -11155,6 +11155,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     minCalmarEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_CALMAR"
                                     minWfSharpeMeanEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_WF_SHARPE_MEAN"
                                     maxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_WF_SHARPE_STD"
+                                    searchMaxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_SEARCH_MAX_WF_SHARPE_STD"
+                                    wfSharpeStdScorePenaltyEnv <- lookupEnv "TRADER_OPTIMIZER_WF_SHARPE_STD_SCORE_PENALTY"
                                     discoveryRecoveryEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_ENABLED"
                                     discoveryRecoveryTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS"
                                     discoveryRecoveryTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TIMEOUT_SEC"
@@ -11284,6 +11286,15 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         -- by more than ~1.5 across folds are overfit to a single regime
                                         -- and should not enter the live fleet.
                                         maxWfSharpeStd = readNonNegativeDouble maxWfSharpeStdEnv 1.5
+                                        searchMaxWfSharpeStd :: Double
+                                        -- Search may use a looser instability cap for survivor/prior
+                                        -- exploration; records still require maxWfSharpeStd to be
+                                        -- eligible for promotion.
+                                        searchMaxWfSharpeStd =
+                                            let raw = readNonNegativeDouble searchMaxWfSharpeStdEnv maxWfSharpeStd
+                                             in if raw <= 0 then maxWfSharpeStd else max maxWfSharpeStd raw
+                                        wfSharpeStdScorePenalty :: Double
+                                        wfSharpeStdScorePenalty = readNonNegativeDouble wfSharpeStdScorePenaltyEnv 0.05
                                         epochsMax :: Int
                                         epochsMax = max 1 (readNonNegativeInt epochsMaxEnv 2)
                                         hiddenSizeMax :: Int
@@ -11551,6 +11562,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , show minWfSharpeMean
                                                                                         , "--max-wf-sharpe-std"
                                                                                         , show maxWfSharpeStd
+                                                                                        , "--search-max-wf-sharpe-std"
+                                                                                        , show searchMaxWfSharpeStd
+                                                                                        , "--wf-sharpe-std-score-penalty"
+                                                                                        , show wfSharpeStdScorePenalty
                                                                                         , "--binary"
                                                                                         , exePath
                                                                                         , "--disable-lstm-persistence"
@@ -11711,6 +11726,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                 , "recordsSummary" .= optimizerRecordsSummaryJson primarySummary
                                                                                                 , "minRoundTrips" .= discoveryRecoveryMinRoundTrips
                                                                                                 , "minExposure" .= discoveryRecoveryMinExposure
+                                                                                                , "maxWfSharpeStd" .= maxWfSharpeStd
+                                                                                                , "searchMaxWfSharpeStd" .= searchMaxWfSharpeStd
+                                                                                                , "wfSharpeStdScorePenalty" .= wfSharpeStdScorePenalty
                                                                                                 , "trials" .= discoveryRecoveryTrials
                                                                                                 , "timeoutSec" .= discoveryRecoveryTimeoutSec
                                                                                                 ]
