@@ -13704,7 +13704,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             let argsAdjusted = applyBotAdjustments adjustmentsNext args
                 outcomeWeight = tradeOutcomeWeightFactorWithConfig (bsOutcomeWeightConfig settings) tr
                 outcomeWeightLabel :: String
-                outcomeWeightLabel = maybe "none" (\w -> printf "%.3f" w) outcomeWeight
+                outcomeWeightLabel = maybe "none" (printf "%.3f") outcomeWeight
                 immediateOutcomeLstmUpdate =
                     isJust mLstmCtx2
                         && isJust mLstmCtx3
