@@ -324,6 +324,7 @@ main = do
     testBinanceTradeMaxPnlLongUsesHigh
     testBinanceTradeMaxPnlShortUsesLow
     testBinanceTradeMaxPnlLeavesUnpairedCloseBlank
+    testBinanceTradeMaxPnlFallsBackToFillPricesWithoutKlines
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
     testFeeFixedRejectsAbsurdlyHighValue
@@ -1326,6 +1327,15 @@ testBinanceTradeMaxPnlLeavesUnpairedCloseBlank = do
     let closeOnly = (mkBinanceTrade 10 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
         enriched = attachBinanceTradeMaxPnl (Map.fromList [("BTCUSDT", [mkKline 60000 103 104 102 103])]) [closeOnly]
     assert "unpaired close fill does not invent max-PNL without a visible opening lot" (isNothing (btMaxPnl (head enriched)))
+
+testBinanceTradeMaxPnlFallsBackToFillPricesWithoutKlines :: IO ()
+testBinanceTradeMaxPnlFallsBackToFillPricesWithoutKlines = do
+    let openTrade = mkBinanceTrade 1 "BTCUSDT" "BUY" (Just "BOTH") 100 2 0
+        closeTrade = (mkBinanceTrade 2 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
+        enriched = attachBinanceTradeMaxPnl Map.empty [openTrade, closeTrade]
+    assert "paired opening fill falls back to the actual exit PNL when candles are unavailable" (btMaxPnl (head enriched) == Just 6)
+    assert "paired opening fill falls back to the actual exit time when candles are unavailable" (btMaxPnlCloseTime (head enriched) == Just 60000)
+    assert "paired close fill also falls back to the actual exit PNL when candles are unavailable" (btMaxPnl (enriched !! 1) == Just 6)
 
 testFeeRejectsNegativeValue :: IO ()
 testFeeRejectsNegativeValue =

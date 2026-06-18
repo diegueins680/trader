@@ -304,18 +304,18 @@ closeTarget closeKey sym exitPrice exitTime lots =
                                 }
 
 scoreTarget :: M.Map String [Kline] -> PnlTarget -> Maybe BinanceTradeMaxPnl
-scoreTarget klineMap target = do
-    klines <- M.lookup (ptSymbol target) klineMap
-    let candidates =
+scoreTarget klineMap target =
+    let klines = M.findWithDefault [] (ptSymbol target) klineMap
+        candidates =
             entryCandidates target
                 ++ actualExitCandidates target
                 ++ mapMaybe (klineCandidate target) klines
         scored = mapMaybe (scoreCandidate target) candidates
-    case scored of
-        [] -> Nothing
-        best : rest ->
-            let (bestTime, bestPnl) = foldl' chooseBetterScore best rest
-             in Just (BinanceTradeMaxPnl bestPnl bestTime)
+     in case scored of
+            [] -> Nothing
+            best : rest ->
+                let (bestTime, bestPnl) = foldl' chooseBetterScore best rest
+                 in Just (BinanceTradeMaxPnl bestPnl bestTime)
 
 entryCandidates :: PnlTarget -> [(Int64, Double)]
 entryCandidates target =
