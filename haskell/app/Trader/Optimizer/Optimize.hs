@@ -2812,6 +2812,14 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightRegimeSwitch :: !Double
     , oaMethodWeightBanditRouter :: !Double
     , oaMethodWeightCrossSectionalMomentum :: !Double
+    , oaMethodWeightOnlineNeural :: !Double
+    , oaMethodWeightTaTrend :: !Double
+    , oaMethodWeightTaReversion :: !Double
+    , oaMethodWeightTaBreakout :: !Double
+    , oaMethodWeightTaBest :: !Double
+    , oaMethodWeightTaRegimeSwitch :: !Double
+    , oaMethodWeightSmaCross :: !Double
+    , oaMethodWeightSmaCrossRegime :: !Double
     , oaBlendWeightMin :: !Double
     , oaBlendWeightMax :: !Double
     , oaRouterScorePnlWeightMin :: !Double
@@ -4543,7 +4551,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter, methodWCrossSectionalMomentum)
+    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter, methodWCrossSectionalMomentum, methodWOnlineNeural, methodWTaTrend, methodWTaReversion, methodWTaBreakout, methodWTaBest, methodWTaRegimeSwitch, methodWSmaCross, methodWSmaCrossRegime)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -4689,6 +4697,14 @@ sampleParams
                 , ("regime_switch", methodWRegimeSwitch)
                 , ("bandit_router", methodWBanditRouter)
                 , ("cross_sectional_momentum", methodWCrossSectionalMomentum)
+                , ("online_nn", methodWOnlineNeural)
+                , ("ta_trend", methodWTaTrend)
+                , ("ta_reversion", methodWTaReversion)
+                , ("ta_breakout", methodWTaBreakout)
+                , ("ta_best", methodWTaBest)
+                , ("ta_regime_switch", methodWTaRegimeSwitch)
+                , ("sma_cross", methodWSmaCross)
+                , ("sma_cross_regime", methodWSmaCrossRegime)
                 ]
             (method, rng4) = chooseWeighted methods rng3
             (blendWeight, rng5) =
@@ -5929,6 +5945,14 @@ runOptimizer args0 = do
                                                             , oaMethodWeightRegimeSwitch args
                                                             , oaMethodWeightBanditRouter args
                                                             , oaMethodWeightCrossSectionalMomentum args
+                                                            , oaMethodWeightOnlineNeural args
+                                                            , oaMethodWeightTaTrend args
+                                                            , oaMethodWeightTaReversion args
+                                                            , oaMethodWeightTaBreakout args
+                                                            , oaMethodWeightTaBest args
+                                                            , oaMethodWeightTaRegimeSwitch args
+                                                            , oaMethodWeightSmaCross args
+                                                            , oaMethodWeightSmaCrossRegime args
                                                             )
                                                         blendWeightRange =
                                                             let lo = clamp (oaBlendWeightMin args) 0 1
