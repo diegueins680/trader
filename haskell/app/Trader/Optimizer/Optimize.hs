@@ -2811,6 +2811,7 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightGeoBlend :: !Double
     , oaMethodWeightRegimeSwitch :: !Double
     , oaMethodWeightBanditRouter :: !Double
+    , oaMethodWeightCrossSectionalMomentum :: !Double
     , oaBlendWeightMin :: !Double
     , oaBlendWeightMax :: !Double
     , oaRouterScorePnlWeightMin :: !Double
@@ -3049,6 +3050,7 @@ applyQualityPreset args =
             , oaWalkForwardEmbargoBarsMax = maxIf (oaWalkForwardEmbargoBarsMax args) 3
             , oaMethodWeightRegimeSwitch = qualityPresetWeightFloor 1.0 (oaMethodWeightRegimeSwitch args)
             , oaMethodWeightBanditRouter = maxIf (oaMethodWeightBanditRouter args) 0.0
+            , oaMethodWeightCrossSectionalMomentum = qualityPresetWeightFloor 1.0 (oaMethodWeightCrossSectionalMomentum args)
             , oaPConfidenceSizing = maxIf (oaPConfidenceSizing args) 0.85
             , oaPDisableRiskPerTrade = minIf (oaPDisableRiskPerTrade args) 0.3
             , oaStopVolMultMin = maxIf (oaStopVolMultMin args) 0.8
@@ -4541,7 +4543,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter, methodWCrossSectionalMomentum)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -4686,6 +4688,7 @@ sampleParams
                 , ("geo_blend", methodWGeoBlend)
                 , ("regime_switch", methodWRegimeSwitch)
                 , ("bandit_router", methodWBanditRouter)
+                , ("cross_sectional_momentum", methodWCrossSectionalMomentum)
                 ]
             (method, rng4) = chooseWeighted methods rng3
             (blendWeight, rng5) =
@@ -5925,6 +5928,7 @@ runOptimizer args0 = do
                                                             , oaMethodWeightGeoBlend args
                                                             , oaMethodWeightRegimeSwitch args
                                                             , oaMethodWeightBanditRouter args
+                                                            , oaMethodWeightCrossSectionalMomentum args
                                                             )
                                                         blendWeightRange =
                                                             let lo = clamp (oaBlendWeightMin args) 0 1

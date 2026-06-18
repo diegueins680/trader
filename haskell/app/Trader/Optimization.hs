@@ -1876,6 +1876,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodTaRegimeSwitch -> 1
                 MethodKalmanOnly -> 1
                 MethodKalmanPhysicsError -> 1
+                MethodCrossSectionalMomentum -> 1
                 MethodLstmOnly -> 0
         eval m =
             case sweepThresholdWithHLWith cfg m baseCfg closes highs lows kalPred lstmPred mMeta of
@@ -2199,6 +2200,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodTaRegimeSwitch -> (kalV, kalV)
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodKalmanPhysicsError -> (kalV, kalV)
+                MethodCrossSectionalMomentum -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
         validationError
@@ -2688,6 +2690,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodCrossSectionalMomentum
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: xsmomPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodLstmOnly
                     | V.length lstmV < stepCount ->
                         Just
@@ -2781,6 +2792,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodTaRegimeSwitch -> [kalV]
                 MethodKalmanOnly -> [kalV]
                 MethodKalmanPhysicsError -> [kalV]
+                MethodCrossSectionalMomentum -> [kalV]
                 MethodLstmOnly -> [lstmV]
         epsilonFor v =
             let rel = abs v * 1e-9

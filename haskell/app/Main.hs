@@ -276,6 +276,11 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
+import Trader.CrossSectionalMomentum (
+    CrossSectionalMomentumSignal (..),
+    crossSectionalMomentumPredictionAt,
+    crossSectionalMomentumPredictionsRange,
+ )
 import Trader.Dex (
     DexEnv (..),
     DexSwapResult (..),
@@ -1385,6 +1390,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightGeoBlend :: !(Maybe Double)
     , arrMethodWeightRegimeSwitch :: !(Maybe Double)
     , arrMethodWeightBanditRouter :: !(Maybe Double)
+    , arrMethodWeightCrossSectionalMomentum :: !(Maybe Double)
     , arrBlendWeightMin :: !(Maybe Double)
     , arrBlendWeightMax :: !(Maybe Double)
     , arrRouterScorePnlWeightMin :: !(Maybe Double)
@@ -9743,6 +9749,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
     mLstmCtx <-
         case methodForCtx of
             MethodKalmanOnly -> pure Nothing
+            MethodCrossSectionalMomentum -> pure Nothing
             m | methodIsTechnicalAnalysis m -> pure Nothing
             _ -> do
                 let normState = fitNorm (argNormalization args) closes
@@ -9767,6 +9774,15 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
     (mKalmanCtx, kalPred0) <-
         case methodForCtx of
             MethodLstmOnly -> pure (Nothing, V.replicate n nan)
+            MethodCrossSectionalMomentum ->
+                let xsmomPred =
+                        crossSectionalMomentumPredictionsRange
+                            lookback
+                            Nothing
+                            featureInputs
+                            0
+                            n
+                 in pure (Nothing, xsmomPred)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, V.replicate n nan)
             _ -> do
                 let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback Nothing featureInputs
@@ -9820,13 +9836,17 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
             if methodIsTechnicalAnalysis method
                 then Nothing
                 else
-                    Just
-                        PredHistory
-                            { phKalman = kalPred0
-                            , phLstm = lstmPred0
-                            , phMeta = Nothing
-                            , phLstmHealth = Nothing
-                            }
+                    let lstmHistoryPred =
+                            if method == MethodCrossSectionalMomentum
+                                then kalPred0
+                                else lstmPred0
+                     in Just
+                            PredHistory
+                                { phKalman = kalPred0
+                                , phLstm = lstmHistoryPred
+                                , phMeta = Nothing
+                                , phLstmHealth = Nothing
+                                }
 
     latest0Base <-
         case computeLatestSignal
@@ -10559,6 +10579,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodGeoBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodRegimeSwitch -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodBanditRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodCrossSectionalMomentum -> True
         hasRequiredWindow =
             case method of
                 MethodKalmanOnly -> n >= 1
@@ -11433,6 +11454,7 @@ autoOptimizerBaseMethodWeightDefaults =
     , AutoOptimizerMethodWeight "--method-weight-edge-pick" "edge_pick" "TRADER_OPTIMIZER_METHOD_WEIGHT_EDGE_PICK" 0.0
     , AutoOptimizerMethodWeight "--method-weight-regime-switch" "regime_switch" "TRADER_OPTIMIZER_METHOD_WEIGHT_REGIME_SWITCH" 0.0
     , AutoOptimizerMethodWeight "--method-weight-bandit-router" "bandit_router" "TRADER_OPTIMIZER_METHOD_WEIGHT_BANDIT_ROUTER" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-cross-sectional-momentum" "cross_sectional_momentum" "TRADER_OPTIMIZER_METHOD_WEIGHT_CROSS_SECTIONAL_MOMENTUM" 1.5
     ]
 
 readAutoOptimizerBaseMethodWeights :: IO [AutoOptimizerMethodWeight]
@@ -17006,6 +17028,8 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeDoubleArg "--method-weight-regime-switch" (fmap (max 0) (arrMethodWeightRegimeSwitch req))
                 methodWeightBanditRouterArgs =
                     maybeDoubleArg "--method-weight-bandit-router" (fmap (max 0) (arrMethodWeightBanditRouter req))
+                methodWeightCrossSectionalMomentumArgs =
+                    maybeDoubleArg "--method-weight-cross-sectional-momentum" (fmap (max 0) (arrMethodWeightCrossSectionalMomentum req))
                 blendWeightArgs =
                     maybeDoubleArg "--blend-weight-min" (fmap clamp01 (arrBlendWeightMin req))
                         ++ maybeDoubleArg "--blend-weight-max" (fmap clamp01 (arrBlendWeightMax req))
@@ -17278,6 +17302,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ methodWeightGeoBlendArgs
                         ++ methodWeightRegimeSwitchArgs
                         ++ methodWeightBanditRouterArgs
+                        ++ methodWeightCrossSectionalMomentumArgs
                         ++ blendWeightArgs
                         ++ routerScorePnlWeightArgs
                         ++ routerRegimeArgs
@@ -21778,6 +21803,7 @@ placeDexOrderForSignal args sig = do
                 MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
                 MethodRouter -> "No order: Router neutral (score/threshold)."
                 MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
+                MethodCrossSectionalMomentum -> "No order: Cross-sectional momentum neutral (residual edge below threshold)."
                 MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
                 MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
                 MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
@@ -24530,6 +24556,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodSmaCrossRegime -> (kalPred0, kalPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodKalmanPhysicsError -> (kalPred0, kalPred0)
+                        MethodCrossSectionalMomentum -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
                         MethodRouter -> (routerPred, routerPred)
                         MethodBanditRouter -> (routerPred, routerPred)
@@ -24804,6 +24831,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
             MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
+            MethodCrossSectionalMomentum -> "No order: Cross-sectional momentum neutral (residual edge below threshold)."
             MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
             MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
             MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
@@ -25782,6 +25810,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
             MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
+            MethodCrossSectionalMomentum -> "No order: Cross-sectional momentum neutral (residual edge below threshold)."
             MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
             MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
             MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
@@ -26658,6 +26687,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodRegimeSwitch -> "Backtest (regime-switched Kalman/LSTM) complete."
                     MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
                     MethodBanditRouter -> "Backtest (bandit router: Kalman/LSTM/blend) complete."
+                    MethodCrossSectionalMomentum -> "Backtest (funding-adjusted cross-sectional momentum) complete."
                     MethodTaTrend -> "Backtest (technical-analysis trend method) complete."
                     MethodTaReversion -> "Backtest (technical-analysis reversion method) complete."
                     MethodTaBreakout -> "Backtest (technical-analysis breakout method) complete."
@@ -26780,6 +26810,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
     (mLstmCtx, mLstmPredHistory, mLstmHealth) <-
         case method of
             MethodKalmanOnly -> pure (Nothing, Nothing, Nothing)
+            MethodCrossSectionalMomentum -> pure (Nothing, Nothing, Nothing)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ -> do
                 let normState = fitNorm (argNormalization args) prices
@@ -26818,6 +26849,19 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
     (mKalmanCtx, mKalPredHistory, mMetaHistory) <-
         case method of
             MethodLstmOnly -> pure (Nothing, Nothing, Nothing)
+            MethodCrossSectionalMomentum ->
+                let xsmomHistory =
+                        if needsHistory
+                            then
+                                Just $
+                                    crossSectionalMomentumPredictionsRange
+                                        lookback
+                                        mMarketModel
+                                        featureInputs
+                                        0
+                                        stepCount
+                            else Nothing
+                 in pure (Nothing, xsmomHistory, Nothing)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ | needsHistory -> do
                 let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel featureInputs
@@ -27375,6 +27419,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         | i <- [0 .. stepCount - 1]
                         ]
                 pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing, Nothing)
+            MethodCrossSectionalMomentum -> do
+                let xsmomPred =
+                        V.toList $
+                            crossSectionalMomentumPredictionsRange
+                                lookback
+                                mMarketModel
+                                allFeatureInputs
+                                predStart
+                                stepCount
+                pure (Nothing, Nothing, xsmomPred, xsmomPred, Nothing, Nothing, Nothing)
             m | methodIsTechnicalAnalysis m -> do
                 let taPred =
                         technicalPredictionsForBacktest
@@ -29111,6 +29165,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method bandit_router requires both Kalman and LSTM contexts."
+            MethodCrossSectionalMomentum -> Right compute
             MethodTaTrend -> Right compute
             MethodTaReversion -> Right compute
             MethodTaBreakout -> Right compute
@@ -30242,6 +30297,28 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 if methodIsTechnicalAnalysis method && isNothing taCandidate
                     then Just "TA_NEUTRAL"
                     else Nothing
+            xsmomSignal = crossSectionalMomentumPredictionAt lookback mMarketModel featureInputs t
+            xsmomNext = csmPrediction <$> xsmomSignal
+            xsmomDirRaw = xsmomNext >>= directionPrice openThrAdj
+            xsmomCloseDirRaw = xsmomNext >>= directionPrice closeThrAdj
+            xsmomConfidence = csmConfidence <$> xsmomSignal
+            xsmomPosSize =
+                let rawSize =
+                        case xsmomDirRaw of
+                            Nothing -> 0
+                            Just _ ->
+                                if argConfidenceSizing args
+                                    then fromMaybe 0 xsmomConfidence
+                                    else 1
+                    sizeUsed =
+                        if argConfidenceSizing args && rawSize < argMinPositionSize args
+                            then 0
+                            else rawSize
+                 in Just sizeUsed
+            xsmomGateReason =
+                if method == MethodCrossSectionalMomentum && isNothing xsmomDirRaw
+                    then Just "XSMOM_NEUTRAL"
+                    else Nothing
             sizingNext =
                 case method of
                     MethodBoth -> mLstmNext
@@ -30276,6 +30353,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchNext
                     MethodRouter -> routerNext
                     MethodBanditRouter -> routerNext
+                    MethodCrossSectionalMomentum -> xsmomNext
                     MethodTaTrend -> taNext
                     MethodTaReversion -> taNext
                     MethodTaBreakout -> taNext
@@ -30320,6 +30398,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             edgeGeoBlend = geoBlendNext >>= edgeFromPred
             edgeRegimeSwitch = regimeSwitchNext >>= edgeFromPred
             edgeRouter = routerNext >>= edgeFromPred
+            edgeXsmom = xsmomNext >>= edgeFromPred
             edgeTa = taNext >>= edgeFromPred
             edgeForMethod =
                 case method of
@@ -30358,6 +30437,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> edgeRegimeSwitch
                     MethodRouter -> edgeRouter
                     MethodBanditRouter -> edgeRouter
+                    MethodCrossSectionalMomentum -> edgeXsmom
                     MethodTaTrend -> edgeTa
                     MethodTaReversion -> edgeTa
                     MethodTaBreakout -> edgeTa
@@ -31073,6 +31153,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodLstmOnly -> Nothing
                     MethodRouter -> routerConfidence
                     MethodBanditRouter -> routerConfidence
+                    MethodCrossSectionalMomentum -> xsmomConfidence
                     MethodTaTrend -> taConfidence
                     MethodTaReversion -> taConfidence
                     MethodTaBreakout -> taConfidence
@@ -31169,6 +31250,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchCloseDirGated
                     MethodRouter -> routerCloseDirGated
                     MethodBanditRouter -> routerCloseDirGated
+                    MethodCrossSectionalMomentum -> xsmomCloseDirRaw
                     MethodTaTrend -> taCloseDirRaw
                     MethodTaReversion -> taCloseDirRaw
                     MethodTaBreakout -> taCloseDirRaw
@@ -31215,6 +31297,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
+                    MethodCrossSectionalMomentum -> xsmomDirRaw
                     MethodTaTrend -> taDirRaw
                     MethodTaReversion -> taDirRaw
                     MethodTaBreakout -> taDirRaw
@@ -31641,6 +31724,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (regime_switch neutral)"
+                        MethodCrossSectionalMomentum ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (cross_sectional_momentum neutral)"
                         MethodTaTrend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -31752,6 +31843,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodRegimeSwitch -> regimeSwitchPosSize
                         MethodRouter -> routerPosSize
                         MethodBanditRouter -> routerPosSize
+                        MethodCrossSectionalMomentum -> xsmomPosSize
                         MethodTaTrend -> taPosSize
                         MethodTaReversion -> taPosSize
                         MethodTaBreakout -> taPosSize
@@ -31791,6 +31883,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchGateReason
                     MethodRouter -> mRouterReason <|> routerGateReason
                     MethodBanditRouter -> mRouterReason <|> routerGateReason
+                    MethodCrossSectionalMomentum -> xsmomGateReason
                     MethodTaTrend -> taGateReason
                     MethodTaReversion -> taGateReason
                     MethodTaBreakout -> taGateReason
@@ -32893,6 +32986,7 @@ printMetrics method initialBalance m = do
                 MethodRegimeSwitch -> "Signal rate (Regime switch)"
                 MethodRouter -> "Signal rate (Router)"
                 MethodBanditRouter -> "Signal rate (Bandit router)"
+                MethodCrossSectionalMomentum -> "Signal rate (Cross-sectional momentum)"
                 MethodTaTrend -> "Signal rate (TA trend)"
                 MethodTaReversion -> "Signal rate (TA reversion)"
                 MethodTaBreakout -> "Signal rate (TA breakout)"

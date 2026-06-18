@@ -23,6 +23,7 @@ executable trader-hs
                      , Trader.ComboTracking
                      , Trader.Config
                      , Trader.CostCalibration
+                     , Trader.CrossSectionalMomentum
                      , Trader.LiveGap
                      , Trader.Cors
                      , Trader.Dex

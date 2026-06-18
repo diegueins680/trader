@@ -402,6 +402,7 @@ optimizerArgsParser =
         <*> option auto (long "method-weight-geo-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-regime-switch" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-bandit-router" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-cross-sectional-momentum" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "blend-weight-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "blend-weight-max" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "router-score-pnl-weight-min" <> value 0.25 <> metavar "FLOAT")
