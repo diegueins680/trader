@@ -1874,6 +1874,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodTaBreakout -> 1
                 MethodTaBest -> 1
                 MethodTaRegimeSwitch -> 1
+                MethodSmaCross -> 1
+                MethodSmaCrossRegime -> 1
                 MethodKalmanOnly -> 1
                 MethodKalmanPhysicsError -> 1
                 MethodCrossSectionalMomentum -> 1
@@ -2199,6 +2201,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodTaBreakout -> (kalV, kalV)
                 MethodTaBest -> (kalV, kalV)
                 MethodTaRegimeSwitch -> (kalV, kalV)
+                MethodSmaCross -> (kalV, kalV)
+                MethodSmaCrossRegime -> (kalV, kalV)
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodKalmanPhysicsError -> (kalV, kalV)
                 MethodCrossSectionalMomentum -> (kalV, kalV)
@@ -2764,6 +2768,24 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodSmaCross
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: taPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodSmaCrossRegime
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: taPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
 
         predSources =
             case method of
@@ -2801,6 +2823,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodTaBreakout -> [kalV]
                 MethodTaBest -> [kalV]
                 MethodTaRegimeSwitch -> [kalV]
+                MethodSmaCross -> [kalV]
+                MethodSmaCrossRegime -> [kalV]
                 MethodKalmanOnly -> [kalV]
                 MethodKalmanPhysicsError -> [kalV]
                 MethodCrossSectionalMomentum -> [kalV]
