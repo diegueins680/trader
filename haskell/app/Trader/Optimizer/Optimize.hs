@@ -3317,6 +3317,31 @@ data TrialParams = TrialParams
     }
     deriving (Eq, Show)
 
+data PriorOverlayBounds = PriorOverlayBounds
+    { pobBarsRange :: !(Int, Int)
+    , pobOpenThresholdRange :: !(Double, Double)
+    , pobCloseThresholdRange :: !(Double, Double)
+    , pobMinHoldBarsRange :: !(Int, Int)
+    , pobCooldownBarsRange :: !(Int, Int)
+    , pobMaxHoldBarsRange :: !(Int, Int)
+    , pobMinEdgeRange :: !(Double, Double)
+    , pobMinSignalToNoiseRange :: !(Double, Double)
+    , pobSnrSizeWeightRange :: !(Double, Double)
+    , pobEdgeBufferRange :: !(Double, Double)
+    , pobTrendLookbackRange :: !(Int, Int)
+    , pobEpochsRange :: !(Int, Int)
+    , pobHiddenSizeRange :: !(Int, Int)
+    , pobLearningRateRange :: !(Double, Double)
+    , pobLstmAdamBeta1Range :: !(Double, Double)
+    , pobLstmAdamBeta2Range :: !(Double, Double)
+    , pobLstmAdamEpsRange :: !(Double, Double)
+    , pobValRatioRange :: !(Double, Double)
+    , pobPatienceRange :: !(Int, Int)
+    , pobWalkForwardFoldsRange :: !(Int, Int)
+    , pobWalkForwardEmbargoBarsRange :: !(Int, Int)
+    }
+    deriving (Eq, Show)
+
 data TrialResult = TrialResult
     { trOk :: !Bool
     , trReason :: !(Maybe String)
@@ -6309,13 +6334,36 @@ runOptimizer args0 = do
                                                                                 kellyLiteFractionRange
                                                                                 kellyLiteFloorRange
                                                                                 kellyLiteCapRange
+                                                                        priorOverlayBounds =
+                                                                            PriorOverlayBounds
+                                                                                { pobBarsRange = (barsMin, barsMax)
+                                                                                , pobOpenThresholdRange = (openThresholdMin, openThresholdMax)
+                                                                                , pobCloseThresholdRange = (closeThresholdMin, closeThresholdMax)
+                                                                                , pobMinHoldBarsRange = (minHoldMin, minHoldMax)
+                                                                                , pobCooldownBarsRange = (cooldownMin, cooldownMax)
+                                                                                , pobMaxHoldBarsRange = (maxHoldMin, maxHoldMax)
+                                                                                , pobMinEdgeRange = (minEdgeMin, minEdgeMax)
+                                                                                , pobMinSignalToNoiseRange = (minSnMin, minSnMax)
+                                                                                , pobSnrSizeWeightRange = snrSizeWeightRange
+                                                                                , pobEdgeBufferRange = (edgeBufferMin, edgeBufferMax)
+                                                                                , pobTrendLookbackRange = (trendLookbackMin, trendLookbackMax)
+                                                                                , pobEpochsRange = (epochsMin, epochsMax)
+                                                                                , pobHiddenSizeRange = (hiddenMin, hiddenMax)
+                                                                                , pobLearningRateRange = (lrMin, lrMax)
+                                                                                , pobLstmAdamBeta1Range = lstmAdamBeta1Range
+                                                                                , pobLstmAdamBeta2Range = lstmAdamBeta2Range
+                                                                                , pobLstmAdamEpsRange = lstmAdamEpsRange'
+                                                                                , pobValRatioRange = (valMin, valMax)
+                                                                                , pobPatienceRange = (0, patienceMax)
+                                                                                , pobWalkForwardFoldsRange = (walkForwardFoldsMin, walkForwardFoldsMax)
+                                                                                , pobWalkForwardEmbargoBarsRange = walkForwardEmbargoBarsRange
+                                                                                }
                                                                         sampleParamsMaybePrior rng =
                                                                             let (baseParams, rng') = sampleParamsWithRng rng
                                                                              in samplePriorParams
                                                                                     priorSampleProb
                                                                                     intervals
-                                                                                    barsMin
-                                                                                    barsMax
+                                                                                    priorOverlayBounds
                                                                                     priorPerturbScaleDouble
                                                                                     priorPerturbScaleInt
                                                                                     priorMethodSampleProb
@@ -6326,17 +6374,10 @@ runOptimizer args0 = do
                                                                         samplePriorSeedParams prior rng =
                                                                             let (baseParams, _) = sampleParamsWithRng rng
                                                                                 overlaid =
-                                                                                    applyPriorMethodIfEnabled True prior $
-                                                                                        applyPriorOverlay intervals prior baseParams
-                                                                             in normalizeTrialParams
-                                                                                    overlaid
-                                                                                        { tpBars =
-                                                                                            clampBarsForPlatform
-                                                                                                (tpPlatform overlaid)
-                                                                                                barsMin
-                                                                                                barsMax
-                                                                                                (tpBars overlaid)
-                                                                                        }
+                                                                                    clampPriorParamsToBounds priorOverlayBounds $
+                                                                                        applyPriorMethodIfEnabled True prior $
+                                                                                            applyPriorOverlay intervals priorOverlayBounds prior baseParams
+                                                                             in normalizeTrialParams overlaid
                                                                         runTrialWith idx rng mPriorSeed mBase mParents best recordsRev = do
                                                                             let (params, origin) =
                                                                                     case mPriorSeed of
@@ -7695,6 +7736,121 @@ clampBarsForPlatform platform barsMin barsMax value =
         lo' = min lo hi
      in clampInt value lo' hi
 
+clampPriorIntRange :: (Int, Int) -> Int -> Int
+clampPriorIntRange range value =
+    let (lo, hi0) = orderedPair range
+        hi = max lo hi0
+     in clampInt value lo hi
+
+clampPriorMaybeIntRange :: (Int, Int) -> Maybe Int -> Maybe Int
+clampPriorMaybeIntRange range raw =
+    let (lo, hi0) = orderedPair range
+        hi = max lo hi0
+     in if hi <= 0
+            then Nothing
+            else fmap (\value -> clampInt value lo hi) raw
+
+clampPriorDoubleRange :: (Double, Double) -> Double -> Double
+clampPriorDoubleRange range value =
+    let (lo, hi0) = orderedPair range
+        hi = max lo hi0
+     in clamp value lo hi
+
+clampPriorMinEdgeRange :: (Double, Double) -> Double -> Double
+clampPriorMinEdgeRange range value =
+    let (lo0, hi0) = orderedPair range
+        lo = max venueMinEdgeFloor lo0
+        hi = max lo (max venueMinEdgeFloor hi0)
+     in clamp (max venueMinEdgeFloor value) lo hi
+
+clampPriorParamsToBounds :: PriorOverlayBounds -> TrialParams -> TrialParams
+clampPriorParamsToBounds bounds params =
+    let (barsMin, barsMax) = pobBarsRange bounds
+     in normalizeTrialParams
+            params
+                { tpBars = clampBarsForPlatform (tpPlatform params) barsMin barsMax (tpBars params)
+                , tpBaseOpenThreshold =
+                    clampPriorDoubleRange
+                        (pobOpenThresholdRange bounds)
+                        (tpBaseOpenThreshold params)
+                , tpBaseCloseThreshold =
+                    clampPriorDoubleRange
+                        (pobCloseThresholdRange bounds)
+                        (tpBaseCloseThreshold params)
+                , tpMinHoldBars =
+                    clampPriorIntRange
+                        (pobMinHoldBarsRange bounds)
+                        (tpMinHoldBars params)
+                , tpCooldownBars =
+                    clampPriorIntRange
+                        (pobCooldownBarsRange bounds)
+                        (tpCooldownBars params)
+                , tpMaxHoldBars =
+                    clampPriorMaybeIntRange
+                        (pobMaxHoldBarsRange bounds)
+                        (tpMaxHoldBars params)
+                , tpMinEdge =
+                    clampPriorMinEdgeRange
+                        (pobMinEdgeRange bounds)
+                        (tpMinEdge params)
+                , tpMinSignalToNoise =
+                    clampPriorDoubleRange
+                        (pobMinSignalToNoiseRange bounds)
+                        (tpMinSignalToNoise params)
+                , tpSnrSizeWeight =
+                    clampPriorDoubleRange
+                        (pobSnrSizeWeightRange bounds)
+                        (tpSnrSizeWeight params)
+                , tpEdgeBuffer =
+                    clampPriorDoubleRange
+                        (pobEdgeBufferRange bounds)
+                        (tpEdgeBuffer params)
+                , tpTrendLookback =
+                    clampPriorIntRange
+                        (pobTrendLookbackRange bounds)
+                        (tpTrendLookback params)
+                , tpEpochs =
+                    clampPriorIntRange
+                        (pobEpochsRange bounds)
+                        (tpEpochs params)
+                , tpHiddenSize =
+                    clampPriorIntRange
+                        (pobHiddenSizeRange bounds)
+                        (tpHiddenSize params)
+                , tpLearningRate =
+                    clampPriorDoubleRange
+                        (pobLearningRateRange bounds)
+                        (tpLearningRate params)
+                , tpLstmAdamBeta1 =
+                    clampPriorDoubleRange
+                        (pobLstmAdamBeta1Range bounds)
+                        (tpLstmAdamBeta1 params)
+                , tpLstmAdamBeta2 =
+                    clampPriorDoubleRange
+                        (pobLstmAdamBeta2Range bounds)
+                        (tpLstmAdamBeta2 params)
+                , tpLstmAdamEps =
+                    clampPriorDoubleRange
+                        (pobLstmAdamEpsRange bounds)
+                        (tpLstmAdamEps params)
+                , tpValRatio =
+                    clampPriorDoubleRange
+                        (pobValRatioRange bounds)
+                        (tpValRatio params)
+                , tpPatience =
+                    clampPriorIntRange
+                        (pobPatienceRange bounds)
+                        (tpPatience params)
+                , tpWalkForwardFolds =
+                    clampPriorIntRange
+                        (pobWalkForwardFoldsRange bounds)
+                        (tpWalkForwardFolds params)
+                , tpWalkForwardEmbargoBars =
+                    clampPriorIntRange
+                        (pobWalkForwardEmbargoBarsRange bounds)
+                        (tpWalkForwardEmbargoBars params)
+                }
+
 perturbTrialParams :: Int -> Int -> Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
 perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
     let (barsRaw, rng1) = perturbInt (tpBars p) scaleInt rng0
@@ -7953,8 +8109,7 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
 samplePriorParams ::
     Double ->
     [String] ->
-    Int ->
-    Int ->
+    PriorOverlayBounds ->
     Double ->
     Int ->
     Double ->
@@ -7963,7 +8118,7 @@ samplePriorParams ::
     TrialParams ->
     Rng ->
     (TrialParams, Rng, Maybe String)
-samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priorMethodProb priorRankBias priors base rng0
+samplePriorParams priorProb allowedIntervals priorBounds scaleDouble scaleInt priorMethodProb priorRankBias priors base rng0
     | null priors = (base, rng0, Nothing)
     | priorProb <= 0 = (base, rng0, Nothing)
     | otherwise =
@@ -7985,9 +8140,12 @@ samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleIn
                                         Nothing -> (base, rng2, Nothing)
                                         Just prior ->
                                             let overlaid =
-                                                    applyPriorMethodIfEnabled usePriorMethod prior $
-                                                        applyPriorOverlay allowedIntervals prior base
-                                                (params, rng3) = perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+                                                    clampPriorParamsToBounds priorBounds $
+                                                        applyPriorMethodIfEnabled usePriorMethod prior $
+                                                            applyPriorOverlay allowedIntervals priorBounds prior base
+                                                (barsMin, barsMax) = pobBarsRange priorBounds
+                                                (params0, rng3) = perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+                                                params = clampPriorParamsToBounds priorBounds params0
                                                 origin =
                                                     if usePriorMethod
                                                         then "prior-method-sample"
@@ -8066,8 +8224,8 @@ applyPriorMethodIfEnabled usePriorMethod prior params =
         then maybe params (\method -> params{tpMethod = method}) (priorMethodCode prior)
         else params
 
-applyPriorOverlay :: [String] -> PriorTrial -> TrialParams -> TrialParams
-applyPriorOverlay allowedIntervals prior base =
+applyPriorOverlay :: [String] -> PriorOverlayBounds -> PriorTrial -> TrialParams -> TrialParams
+applyPriorOverlay allowedIntervals priorBounds prior base =
     let params = ptParams prior
         interval' =
             case stringField ["interval"] params of
@@ -8077,8 +8235,8 @@ applyPriorOverlay allowedIntervals prior base =
             case doubleField ["minEdge"] params of
                 Just v -> Just (max venueMinEdgeFloor v)
                 Nothing -> Nothing
-        priorThresholdBoundedBy sampledThreshold =
-            min (max 0 sampledThreshold) . max 0
+        priorThresholdBoundedBy activeRange =
+            clampPriorDoubleRange activeRange . max 0
         overlaid =
             base
                 { tpInterval = interval'
@@ -8090,12 +8248,12 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpBaseOpenThreshold =
                     maybe
                         (tpBaseOpenThreshold base)
-                        (priorThresholdBoundedBy (tpBaseOpenThreshold base))
+                        (priorThresholdBoundedBy (pobOpenThresholdRange priorBounds))
                         (doubleField ["baseOpenThreshold", "openThreshold"] params)
                 , tpBaseCloseThreshold =
                     maybe
                         (tpBaseCloseThreshold base)
-                        (priorThresholdBoundedBy (tpBaseCloseThreshold base))
+                        (priorThresholdBoundedBy (pobCloseThresholdRange priorBounds))
                         (doubleField ["baseCloseThreshold", "closeThreshold"] params)
                 , tpMinHoldBars = fromMaybe (tpMinHoldBars base) (intField ["minHoldBars"] params)
                 , tpCooldownBars = fromMaybe (tpCooldownBars base) (intField ["cooldownBars"] params)
