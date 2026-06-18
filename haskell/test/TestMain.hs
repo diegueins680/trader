@@ -1302,7 +1302,7 @@ testBinanceTradeMaxPnlLeavesUnpairedCloseBlank :: IO ()
 testBinanceTradeMaxPnlLeavesUnpairedCloseBlank = do
     let closeOnly = (mkBinanceTrade 10 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
         enriched = attachBinanceTradeMaxPnl (Map.fromList [("BTCUSDT", [mkKline 60000 103 104 102 103])]) [closeOnly]
-    assert "unpaired close fill does not invent max-PNL without a visible opening lot" (btMaxPnl (head enriched) == Nothing)
+    assert "unpaired close fill does not invent max-PNL without a visible opening lot" (isNothing (btMaxPnl (head enriched)))
 
 testFeeRejectsNegativeValue :: IO ()
 testFeeRejectsNegativeValue =
