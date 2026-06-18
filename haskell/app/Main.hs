@@ -402,6 +402,13 @@ import Trader.Predictors (
     updateHMM,
  )
 import Trader.Predictors.Features (FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs)
+import Trader.Predictors.OnlineNeural (
+    OnlineNeuralConfig,
+    OnlineNeuralSignal (..),
+    defaultOnlineNeuralConfig,
+    onlineNeuralPredictionAt,
+    onlineNeuralPredictionsRange,
+ )
 import Trader.Predictors.Types (
     predictorCode,
     predictorEnabled,
@@ -557,6 +564,15 @@ predictorTrainingConfigFromArgs args =
         , ptcTransformerMaxExamples = argPredictorTransformerMaxExamples args
         , ptcHmmIterations = argPredictorHmmIterations args
         }
+
+onlineNeuralConfigFromArgs :: Args -> Int -> OnlineNeuralConfig
+onlineNeuralConfigFromArgs args lookback =
+    defaultOnlineNeuralConfig
+        lookback
+        (argHiddenSize args)
+        (argLr args)
+        (argEpochs args)
+        (argSeed args)
 
 volConfGateConfigFromArgs :: Args -> VolConfGateConfig
 volConfGateConfigFromArgs args =
@@ -1363,6 +1379,9 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrPConfidenceSizing :: !(Maybe Double)
     , arrKalmanMarketTopNMin :: !(Maybe Int)
     , arrKalmanMarketTopNMax :: !(Maybe Int)
+    , arrMethodWeight11 :: !(Maybe Double)
+    , arrMethodWeight10 :: !(Maybe Double)
+    , arrMethodWeight01 :: !(Maybe Double)
     , arrMethodWeightBlend :: !(Maybe Double)
     , arrMethodWeightConfBlend :: !(Maybe Double)
     , arrMethodWeightConfPick :: !(Maybe Double)
@@ -5842,6 +5861,7 @@ data BotState = BotState
     , botLows :: !(V.Vector Double)
     , botVolumes :: !(V.Vector Double)
     , botOpenTimes :: !(V.Vector Int64)
+    , botCoinbaseCloses :: !(Maybe (V.Vector Double))
     , botKalmanPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
     , botLstmPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
     , botEquityCurve :: !(V.Vector Double)
@@ -6245,12 +6265,13 @@ waitForBotStartStability ctrl tenantKey maxWaitSeconds nextSym = do
 
 botFeatureInputs :: BotState -> FeatureInputs
 botFeatureInputs st =
-    mkFeatureInputs
-        (botPrices st)
-        (Just (botOpens st))
-        (Just (botHighs st))
-        (Just (botLows st))
-        (Just (botVolumes st))
+    withCoinbaseInputs (botCoinbaseCloses st) $
+        mkFeatureInputs
+            (botPrices st)
+            (Just (botOpens st))
+            (Just (botHighs st))
+            (Just (botLows st))
+            (Just (botVolumes st))
 
 newBotController :: IO BotController
 newBotController = BotController <$> newMVar HM.empty
@@ -9707,9 +9728,11 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         highsV = V.fromList highs
         lowsV = V.fromList lows
         volumesV = V.fromList volumes
-        featureInputs = mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
+        featureInputs0 = mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
         openV = V.fromList openTimes
         n = V.length pricesV
+    mCoinbaseCloses0 <- buildCrossExchangeCoinbase args pricesV (Just openTimes)
+    let featureInputs = withCoinbaseInputs mCoinbaseCloses0 featureInputs0
 
     let method = runtimeMethod (argMethod args)
         methodForCtx =
@@ -9750,6 +9773,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         case methodForCtx of
             MethodKalmanOnly -> pure Nothing
             MethodCrossSectionalMomentum -> pure Nothing
+            MethodOnlineNeural -> pure Nothing
             m | methodIsTechnicalAnalysis m -> pure Nothing
             _ -> do
                 let normState = fitNorm (argNormalization args) closes
@@ -9783,6 +9807,15 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                             0
                             n
                  in pure (Nothing, xsmomPred)
+            MethodOnlineNeural ->
+                let onlinePred =
+                        onlineNeuralPredictionsRange
+                            (onlineNeuralConfigFromArgs args lookback)
+                            Nothing
+                            featureInputs
+                            0
+                            n
+                 in pure (Nothing, onlinePred)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, V.replicate n nan)
             _ -> do
                 let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback Nothing featureInputs
@@ -9821,7 +9854,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
 
     let lstmPred0 =
             case mLstmCtx of
-                Nothing -> V.replicate n nan
+                Nothing ->
+                    if method == MethodCrossSectionalMomentum || method == MethodOnlineNeural
+                        then kalPred0
+                        else V.replicate n nan
                 Just (normState, obsAll, lstmModel) ->
                     V.generate n $ \t ->
                         if t < lookback - 1
@@ -9837,7 +9873,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 then Nothing
                 else
                     let lstmHistoryPred =
-                            if method == MethodCrossSectionalMomentum
+                            if method == MethodCrossSectionalMomentum || method == MethodOnlineNeural
                                 then kalPred0
                                 else lstmPred0
                      in Just
@@ -10109,9 +10145,9 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
         dropCount = max 0 (V.length pricesV - maxPoints)
 
-        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
+        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openV2, mCoinbaseCloses2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
             if dropCount <= 0
-                then (pricesV, opensV, highsV, lowsV, volumesV, openV, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
+                then (pricesV, opensV, highsV, lowsV, volumesV, openV, mCoinbaseCloses0, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
                 else
                     let openTradeShifted =
                             case openTrade of
@@ -10138,6 +10174,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                         , V.drop dropCount lowsV
                         , V.drop dropCount volumesV
                         , V.drop dropCount openV
+                        , V.drop dropCount <$> mCoinbaseCloses0
                         , V.drop dropCount kalPred0
                         , V.drop dropCount lstmPred0
                         , V.drop dropCount eq1
@@ -10184,6 +10221,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 , botLows = lowsV2
                 , botVolumes = volumesV2
                 , botOpenTimes = openV2
+                , botCoinbaseCloses = mCoinbaseCloses2
                 , botKalmanPredNext = kalPred2
                 , botLstmPredNext = lstmPred2
                 , botEquityCurve = eq2
@@ -10580,6 +10618,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodRegimeSwitch -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodBanditRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodCrossSectionalMomentum -> True
+                MethodOnlineNeural -> True
         hasRequiredWindow =
             case method of
                 MethodKalmanOnly -> n >= 1
@@ -12986,7 +13025,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         lowsV = V.snoc (botLows st) (kLow k)
         volumesV = V.snoc (botVolumes st) (kVolume k)
         openTimesV = V.snoc (botOpenTimes st) openTimeNew
-        featureInputs = mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
+    mCoinbaseCloses1 <- buildCrossExchangeCoinbase args pricesV (Just (V.toList openTimesV))
+    let featureInputs =
+            withCoinbaseInputs mCoinbaseCloses1 $
+                mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
 
     -- Update Kalman/HMM/sensor variance with the realized return on the last step.
     mKalmanCtx1 <-
@@ -13040,8 +13082,15 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
     latest0Raw <- applyPredictionMarketHerdMaybe argsSignal (Just (botSymbol st)) latest0Base
 
     let nan = 0 / 0 :: Double
-        kalPred1 = V.snoc (botKalmanPredNext st) (fromMaybe nan (lsKalmanNext latest0Raw))
-        lstmPred1 = V.snoc (botLstmPredNext st) (fromMaybe nan (lsLstmNext latest0Raw))
+        methodRuntime = runtimeMethod (argMethod argsSignal)
+        methodPredNext = fromMaybe nan (lsSizingNext latest0Raw)
+        (kalPredNext, lstmPredNext) =
+            case methodRuntime of
+                MethodCrossSectionalMomentum -> (methodPredNext, methodPredNext)
+                MethodOnlineNeural -> (methodPredNext, methodPredNext)
+                _ -> (fromMaybe nan (lsKalmanNext latest0Raw), fromMaybe nan (lsLstmNext latest0Raw))
+        kalPred1 = V.snoc (botKalmanPredNext st) kalPredNext
+        lstmPred1 = V.snoc (botLstmPredNext st) lstmPredNext
 
         -- Stateful decision:
         -- - Entry uses the open-threshold signal.
@@ -13959,9 +14008,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
         dropCount = max 0 (V.length pricesV - maxPoints)
 
-        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
+        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openTimesV2, mCoinbaseCloses2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
             if dropCount <= 0
-                then (pricesV, opensV, highsV, lowsV, volumesV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
+                then (pricesV, opensV, highsV, lowsV, volumesV, openTimesV, mCoinbaseCloses1, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
                 else
                     let shiftTrade tr =
                             tr{trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount}
@@ -13991,6 +14040,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         , V.drop dropCount lowsV
                         , V.drop dropCount volumesV
                         , V.drop dropCount openTimesV
+                        , V.drop dropCount <$> mCoinbaseCloses1
                         , V.drop dropCount kalPred1
                         , V.drop dropCount lstmPred1
                         , V.drop dropCount eqV1
@@ -14028,6 +14078,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botLows = lowsV2
                 , botVolumes = volumesV2
                 , botOpenTimes = openTimesV2
+                , botCoinbaseCloses = mCoinbaseCloses2
                 , botKalmanPredNext = kalPred2
                 , botLstmPredNext = lstmPred2
                 , botEquityCurve = eqV2
@@ -14231,7 +14282,13 @@ runRestApi :: Args -> Maybe Webhook -> IO ()
 runRestApi cliArgs mWebhook = do
     -- REST requests should default to mainnet unless callers explicitly set binanceTestnet=true.
     -- This keeps production-safe defaults even if the process was started with --binance-testnet.
-    let baseArgs = cliArgs{argBinanceTestnet = False}
+    crossExchangeEnv <- lookupEnv "TRADER_CROSS_EXCHANGE_COINBASE"
+    let crossExchangeCoinbase = argCrossExchangeCoinbase cliArgs || readEnvBool crossExchangeEnv False
+        baseArgs =
+            cliArgs
+                { argBinanceTestnet = False
+                , argCrossExchangeCoinbase = crossExchangeCoinbase
+                }
     mCommit <- getBuildCommit
     let buildInfo = BuildInfo traderVersion mCommit
     apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
@@ -16530,10 +16587,22 @@ prepareOptimizerArgs outputPath mPriorJson req = do
             case maxTimeoutEnv >>= readMaybe of
                 Just n | n >= 1 -> n
                 _ -> 1200
-        maxBarsCap =
+        configuredMaxBarsCap =
             case maxBarsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
                 _ -> 1500
+        maxBarsCap =
+            case source of
+                OptimizerSourceCsv -> configuredMaxBarsCap
+                -- Exchange-backed trader-hs runs currently validate --bars
+                -- at 1000. Clamp the API optimizer search envelope to that
+                -- execution cap so random samples do not waste budget on
+                -- impossible trial records.
+                _ -> min configuredMaxBarsCap 1000
+        exchangeBarsCapSuffix =
+            case source of
+                OptimizerSourceCsv -> ""
+                _ -> " (exchange execution cap)"
     let sourcePlatform = optimizerSourcePlatform source
         platformsRaw = fmap trim (arrPlatforms req)
         platformsResult =
@@ -16974,6 +17043,12 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 kalmanMarketTopNArgs =
                     maybeIntArg "--kalman-market-top-n-min" (fmap (max 0) (arrKalmanMarketTopNMin req))
                         ++ maybeIntArg "--kalman-market-top-n-max" (fmap (max 0) (arrKalmanMarketTopNMax req))
+                methodWeight11Args =
+                    maybeDoubleArg "--method-weight-11" (fmap (max 0) (arrMethodWeight11 req))
+                methodWeight10Args =
+                    maybeDoubleArg "--method-weight-10" (fmap (max 0) (arrMethodWeight10 req))
+                methodWeight01Args =
+                    maybeDoubleArg "--method-weight-01" (fmap (max 0) (arrMethodWeight01 req))
                 methodWeightBlendArgs =
                     maybeDoubleArg "--method-weight-blend" (fmap (max 0) (arrMethodWeightBlend req))
                 methodWeightConfBlendArgs =
@@ -17275,6 +17350,9 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ confirmArgs
                         ++ confidenceSizingArgs
                         ++ protectionMinConfidenceArgs
+                        ++ methodWeight11Args
+                        ++ methodWeight10Args
+                        ++ methodWeight01Args
                         ++ methodWeightBlendArgs
                         ++ methodWeightConfBlendArgs
                         ++ methodWeightConfPickArgs
@@ -17338,6 +17416,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                 Just
                                     ( "barsMin exceeds TRADER_OPTIMIZER_MAX_BARS="
                                         ++ show maxBarsCap
+                                        ++ exchangeBarsCapSuffix
                                         ++ "."
                                     )
                             | Just mx <- barsMaxRaw
@@ -17345,6 +17424,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                 Just
                                     ( "barsMax exceeds TRADER_OPTIMIZER_MAX_BARS="
                                         ++ show maxBarsCap
+                                        ++ exchangeBarsCapSuffix
                                         ++ "."
                                     )
                             | (interval, lb) : _ <- lookbackBarsOver ->
@@ -17355,6 +17435,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                         ++ interval
                                         ++ ", exceeding TRADER_OPTIMIZER_MAX_BARS="
                                         ++ show maxBarsCap
+                                        ++ exchangeBarsCapSuffix
                                         ++ "."
                                     )
                             | otherwise -> Nothing
@@ -21804,6 +21885,7 @@ placeDexOrderForSignal args sig = do
                 MethodRouter -> "No order: Router neutral (score/threshold)."
                 MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
                 MethodCrossSectionalMomentum -> "No order: Cross-sectional momentum neutral (residual edge below threshold)."
+                MethodOnlineNeural -> "No order: Online neural network neutral (edge below threshold)."
                 MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
                 MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
                 MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
@@ -24557,6 +24639,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodKalmanPhysicsError -> (kalPred0, kalPred0)
                         MethodCrossSectionalMomentum -> (kalPred0, kalPred0)
+                        MethodOnlineNeural -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
                         MethodRouter -> (routerPred, routerPred)
                         MethodBanditRouter -> (routerPred, routerPred)
@@ -24832,6 +24915,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodRouter -> "No order: Router neutral (score/threshold)."
             MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
             MethodCrossSectionalMomentum -> "No order: Cross-sectional momentum neutral (residual edge below threshold)."
+            MethodOnlineNeural -> "No order: Online neural network neutral (edge below threshold)."
             MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
             MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
             MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
@@ -25811,6 +25895,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodRouter -> "No order: Router neutral (score/threshold)."
             MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
             MethodCrossSectionalMomentum -> "No order: Cross-sectional momentum neutral (residual edge below threshold)."
+            MethodOnlineNeural -> "No order: Online neural network neutral (edge below threshold)."
             MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
             MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
             MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
@@ -26688,6 +26773,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
                     MethodBanditRouter -> "Backtest (bandit router: Kalman/LSTM/blend) complete."
                     MethodCrossSectionalMomentum -> "Backtest (funding-adjusted cross-sectional momentum) complete."
+                    MethodOnlineNeural -> "Backtest (online neural network) complete."
                     MethodTaTrend -> "Backtest (technical-analysis trend method) complete."
                     MethodTaReversion -> "Backtest (technical-analysis reversion method) complete."
                     MethodTaBreakout -> "Backtest (technical-analysis breakout method) complete."
@@ -26768,9 +26854,9 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         (throwIO (userError "Cannot use --optimize-operations with --trade-only (optimization requires a backtest split)."))
 
     let prices = psClose series
-        featureInputs = featureInputsFromSeries series
+        featureInputs0 = featureInputsFromSeries series
         method = runtimeMethod (argMethod args)
-        pricesV = fiClose featureInputs
+        pricesV = fiClose featureInputs0
         n = V.length pricesV
         stepCount = max 0 (n - 1)
         needsHistory = argThresholdFactorEnabled args || method == MethodRouter || method == MethodBanditRouter
@@ -26790,6 +26876,8 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                 )
             )
         )
+    mCoinbaseCloses <- buildCrossExchangeCoinbase args pricesV (psOpenTimes series)
+    let featureInputs = withCoinbaseInputs mCoinbaseCloses featureInputs0
 
     mMarketModel <-
         case (method, mBinanceEnv, argBinanceSymbol args) of
@@ -26797,9 +26885,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym)
                 | platformSupportsMarketContext (argPlatform args) -> do
-                    -- Live trade-only path stays Binance-only (cross-exchange Coinbase
-                    -- enrichment is research/backtest scoped for now).
-                    r <- try (buildMarketModel args env sym n pricesV Nothing) :: IO (Either SomeException (Maybe MarketModel))
+                    r <- try (buildMarketModel args env sym n pricesV mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
                     case r of
                         Right model -> pure model
                         Left ex -> do
@@ -26811,6 +26897,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         case method of
             MethodKalmanOnly -> pure (Nothing, Nothing, Nothing)
             MethodCrossSectionalMomentum -> pure (Nothing, Nothing, Nothing)
+            MethodOnlineNeural -> pure (Nothing, Nothing, Nothing)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ -> do
                 let normState = fitNorm (argNormalization args) prices
@@ -26862,6 +26949,19 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                                         stepCount
                             else Nothing
                  in pure (Nothing, xsmomHistory, Nothing)
+            MethodOnlineNeural ->
+                let onlineHistory =
+                        if needsHistory
+                            then
+                                Just $
+                                    onlineNeuralPredictionsRange
+                                        (onlineNeuralConfigFromArgs args lookback)
+                                        mMarketModel
+                                        featureInputs
+                                        0
+                                        stepCount
+                            else Nothing
+                 in pure (Nothing, onlineHistory, Nothing)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ | needsHistory -> do
                 let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel featureInputs
@@ -27429,6 +27529,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                                 predStart
                                 stepCount
                 pure (Nothing, Nothing, xsmomPred, xsmomPred, Nothing, Nothing, Nothing)
+            MethodOnlineNeural -> do
+                let onlinePred =
+                        V.toList $
+                            onlineNeuralPredictionsRange
+                                (onlineNeuralConfigFromArgs args lookback)
+                                mMarketModel
+                                allFeatureInputs
+                                predStart
+                                stepCount
+                pure (Nothing, Nothing, onlinePred, onlinePred, Nothing, Nothing, Nothing)
             m | methodIsTechnicalAnalysis m -> do
                 let taPred =
                         technicalPredictionsForBacktest
@@ -29166,6 +29276,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method bandit_router requires both Kalman and LSTM contexts."
             MethodCrossSectionalMomentum -> Right compute
+            MethodOnlineNeural -> Right compute
             MethodTaTrend -> Right compute
             MethodTaReversion -> Right compute
             MethodTaBreakout -> Right compute
@@ -30319,6 +30430,28 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 if method == MethodCrossSectionalMomentum && isNothing xsmomDirRaw
                     then Just "XSMOM_NEUTRAL"
                     else Nothing
+            onlineSignal = onlineNeuralPredictionAt (onlineNeuralConfigFromArgs args lookback) mMarketModel featureInputs t
+            onlineNext = onsPrediction <$> onlineSignal
+            onlineDirRaw = onlineNext >>= directionPrice openThrAdj
+            onlineCloseDirRaw = onlineNext >>= directionPrice closeThrAdj
+            onlineConfidence = onsConfidence <$> onlineSignal
+            onlinePosSize =
+                let rawSize =
+                        case onlineDirRaw of
+                            Nothing -> 0
+                            Just _ ->
+                                if argConfidenceSizing args
+                                    then fromMaybe 0 onlineConfidence
+                                    else 1
+                    sizeUsed =
+                        if argConfidenceSizing args && rawSize < argMinPositionSize args
+                            then 0
+                            else rawSize
+                 in Just sizeUsed
+            onlineGateReason =
+                if method == MethodOnlineNeural && isNothing onlineDirRaw
+                    then Just "ONLINE_NN_NEUTRAL"
+                    else Nothing
             sizingNext =
                 case method of
                     MethodBoth -> mLstmNext
@@ -30354,6 +30487,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRouter -> routerNext
                     MethodBanditRouter -> routerNext
                     MethodCrossSectionalMomentum -> xsmomNext
+                    MethodOnlineNeural -> onlineNext
                     MethodTaTrend -> taNext
                     MethodTaReversion -> taNext
                     MethodTaBreakout -> taNext
@@ -30399,6 +30533,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             edgeRegimeSwitch = regimeSwitchNext >>= edgeFromPred
             edgeRouter = routerNext >>= edgeFromPred
             edgeXsmom = xsmomNext >>= edgeFromPred
+            edgeOnline = onlineNext >>= edgeFromPred
             edgeTa = taNext >>= edgeFromPred
             edgeForMethod =
                 case method of
@@ -30438,6 +30573,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRouter -> edgeRouter
                     MethodBanditRouter -> edgeRouter
                     MethodCrossSectionalMomentum -> edgeXsmom
+                    MethodOnlineNeural -> edgeOnline
                     MethodTaTrend -> edgeTa
                     MethodTaReversion -> edgeTa
                     MethodTaBreakout -> edgeTa
@@ -31154,6 +31290,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRouter -> routerConfidence
                     MethodBanditRouter -> routerConfidence
                     MethodCrossSectionalMomentum -> xsmomConfidence
+                    MethodOnlineNeural -> onlineConfidence
                     MethodTaTrend -> taConfidence
                     MethodTaReversion -> taConfidence
                     MethodTaBreakout -> taConfidence
@@ -31251,6 +31388,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRouter -> routerCloseDirGated
                     MethodBanditRouter -> routerCloseDirGated
                     MethodCrossSectionalMomentum -> xsmomCloseDirRaw
+                    MethodOnlineNeural -> onlineCloseDirRaw
                     MethodTaTrend -> taCloseDirRaw
                     MethodTaReversion -> taCloseDirRaw
                     MethodTaBreakout -> taCloseDirRaw
@@ -31298,6 +31436,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
                     MethodCrossSectionalMomentum -> xsmomDirRaw
+                    MethodOnlineNeural -> onlineDirRaw
                     MethodTaTrend -> taDirRaw
                     MethodTaReversion -> taDirRaw
                     MethodTaBreakout -> taDirRaw
@@ -31732,6 +31871,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (cross_sectional_momentum neutral)"
+                        MethodOnlineNeural ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (online_nn neutral)"
                         MethodTaTrend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -31844,6 +31991,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodRouter -> routerPosSize
                         MethodBanditRouter -> routerPosSize
                         MethodCrossSectionalMomentum -> xsmomPosSize
+                        MethodOnlineNeural -> onlinePosSize
                         MethodTaTrend -> taPosSize
                         MethodTaReversion -> taPosSize
                         MethodTaBreakout -> taPosSize
@@ -31884,6 +32032,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRouter -> mRouterReason <|> routerGateReason
                     MethodBanditRouter -> mRouterReason <|> routerGateReason
                     MethodCrossSectionalMomentum -> xsmomGateReason
+                    MethodOnlineNeural -> onlineGateReason
                     MethodTaTrend -> taGateReason
                     MethodTaReversion -> taGateReason
                     MethodTaBreakout -> taGateReason
@@ -32598,12 +32747,12 @@ computeBacktestFromArgsFreshBinanceWithLimits limits mOps args =
             computeBacktestFromSeries args series (Just env)
         _ -> computeBacktestFromArgsWithLimits limits mOps args
 
-{- | Fetch same-asset Coinbase closes aligned to a Binance backtest bar grid, for
+{- | Fetch same-asset Coinbase closes aligned to a Binance bar grid, for
 cross-exchange LSTM/Kalman enrichment. Fully fail-open: returns 'Nothing' (and
-the backtest proceeds Binance-only) when the flag is off, the platform is not
+the caller proceeds Binance-only) when the flag is off, the platform is not
 Binance, the symbol\/interval has no Coinbase mapping, the open-time grid is
 missing, or the Coinbase fetch fails. The returned vector has the same length as
-@pricesV@. Research/backtest use only — never wired into the live trade path.
+@pricesV@.
 -}
 buildCrossExchangeCoinbase :: Args -> V.Vector Double -> Maybe [Int64] -> IO (Maybe (V.Vector Double))
 buildCrossExchangeCoinbase args pricesV mOpenTimes
@@ -32987,6 +33136,7 @@ printMetrics method initialBalance m = do
                 MethodRouter -> "Signal rate (Router)"
                 MethodBanditRouter -> "Signal rate (Bandit router)"
                 MethodCrossSectionalMomentum -> "Signal rate (Cross-sectional momentum)"
+                MethodOnlineNeural -> "Signal rate (Online NN)"
                 MethodTaTrend -> "Signal rate (TA trend)"
                 MethodTaReversion -> "Signal rate (TA reversion)"
                 MethodTaBreakout -> "Signal rate (TA breakout)"

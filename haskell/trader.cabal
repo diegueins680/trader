@@ -71,6 +71,7 @@ executable trader-hs
                      , Trader.Predictors.Quantile
                      , Trader.Predictors.Conformal
                      , Trader.Predictors.HMM
+                     , Trader.Predictors.OnlineNeural
                      , Trader.Platform
                      , Trader.PredictionMarkets
                      , Trader.SensorVariance
@@ -296,6 +297,7 @@ test-suite trader-tests
                      , Trader.Predictors.Quantile
                      , Trader.Predictors.Conformal
                      , Trader.Predictors.HMM
+                     , Trader.Predictors.OnlineNeural
                      , Trader.Platform
                      , Trader.PredictionMarkets
                      , Trader.SensorVariance
@@ -306,6 +308,7 @@ test-suite trader-tests
                      , Trader.Test.AutoStartBackoff
                      , Trader.Test.BinanceProbe
                      , Trader.Test.Cors
+                     , Trader.Test.OnlineNeural
                      , Trader.ThresholdCalibration
                      , Trader.TopComboScoring
                      , Trader.TopCombosStore

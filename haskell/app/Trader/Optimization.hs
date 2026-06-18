@@ -1877,6 +1877,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodKalmanOnly -> 1
                 MethodKalmanPhysicsError -> 1
                 MethodCrossSectionalMomentum -> 1
+                MethodOnlineNeural -> 1
                 MethodLstmOnly -> 0
         eval m =
             case sweepThresholdWithHLWith cfg m baseCfg closes highs lows kalPred lstmPred mMeta of
@@ -2201,6 +2202,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodKalmanPhysicsError -> (kalV, kalV)
                 MethodCrossSectionalMomentum -> (kalV, kalV)
+                MethodOnlineNeural -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
         validationError
@@ -2699,6 +2701,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodOnlineNeural
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: onlineNnPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodLstmOnly
                     | V.length lstmV < stepCount ->
                         Just
@@ -2793,6 +2804,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodKalmanOnly -> [kalV]
                 MethodKalmanPhysicsError -> [kalV]
                 MethodCrossSectionalMomentum -> [kalV]
+                MethodOnlineNeural -> [kalV]
                 MethodLstmOnly -> [lstmV]
         epsilonFor v =
             let rel = abs v * 1e-9

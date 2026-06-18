@@ -14,6 +14,7 @@ primary_region = "fra"
   TRADER_BOT_AUTOSTART_MAX_BOTS = "22"
   TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "5"
   TRADER_BOT_START_MAX_SYMBOLS = "1"
+  TRADER_CROSS_EXCHANGE_COINBASE = "true"
   # Trading-only node: optimization/backtesting runs on trader-hs-research (and
   # Hetzner research). This node pulls the best combos from the Tigris bus and
   # applies them to the live bots. See fly.research.toml + deploy/COMBOS_SYNC.md.

@@ -61,6 +61,7 @@ data Method
     | MethodRouter
     | MethodBanditRouter
     | MethodCrossSectionalMomentum
+    | MethodOnlineNeural
     | MethodTaTrend
     | MethodTaReversion
     | MethodTaBreakout
@@ -106,6 +107,7 @@ methodCode m =
         MethodRouter -> "router"
         MethodBanditRouter -> "bandit_router"
         MethodCrossSectionalMomentum -> "cross_sectional_momentum"
+        MethodOnlineNeural -> "online_nn"
         MethodTaTrend -> "ta_trend"
         MethodTaReversion -> "ta_reversion"
         MethodTaBreakout -> "ta_breakout"
@@ -333,6 +335,18 @@ parseMethod raw =
         "relmom" -> Right MethodCrossSectionalMomentum
         "funding_momentum" -> Right MethodCrossSectionalMomentum
         "funding-momentum" -> Right MethodCrossSectionalMomentum
+        "online_nn" -> Right MethodOnlineNeural
+        "online-nn" -> Right MethodOnlineNeural
+        "onlinenn" -> Right MethodOnlineNeural
+        "online_neural" -> Right MethodOnlineNeural
+        "online-neural" -> Right MethodOnlineNeural
+        "onlineneural" -> Right MethodOnlineNeural
+        "online_mlp" -> Right MethodOnlineNeural
+        "online-mlp" -> Right MethodOnlineNeural
+        "onlinemlp" -> Right MethodOnlineNeural
+        "deep_online" -> Right MethodOnlineNeural
+        "deep-online" -> Right MethodOnlineNeural
+        "deeponline" -> Right MethodOnlineNeural
         "ta_trend" -> Right MethodTaTrend
         "ta-trend" -> Right MethodTaTrend
         "tatrend" -> Right MethodTaTrend
@@ -379,7 +393,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, cross_sectional_momentum|xsmom, ta_trend, ta_reversion, ta_breakout, ta_best, ta_regime_switch, sma_cross)"
+                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, cross_sectional_momentum|xsmom, online_nn, ta_trend, ta_reversion, ta_breakout, ta_best, ta_regime_switch, sma_cross)"
                 )
 
 runtimeMethod :: Method -> Method
@@ -406,6 +420,7 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)
         MethodCrossSectionalMomentum -> (kalPred, kalPred)
+        MethodOnlineNeural -> (kalPred, kalPred)
         _ -> (blended, blended)
   where
     w = clamp01 blendWeight

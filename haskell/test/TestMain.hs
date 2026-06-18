@@ -200,6 +200,7 @@ import Trader.SignalGates (
  )
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
+import Trader.Test.OnlineNeural (runOnlineNeuralTests)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.ThresholdCalibration (
     CalibrationMethod (..),
@@ -525,6 +526,7 @@ main = do
     testQuantileSanitizesMalformedInputs
     testTCNSanitizesMalformedInputs
     testHMMSanitizesMalformedInputs
+    runOnlineNeuralTests
     runTechnicalAnalysisTests
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
