@@ -176,6 +176,15 @@ normalizeOptionalPositiveFraction raw =
             | x <= 0 -> Nothing
             | otherwise -> Just (min x 0.999999)
 
+normalizeOptionalPositive :: Maybe Double -> Maybe Double
+normalizeOptionalPositive raw =
+    case raw of
+        Nothing -> Nothing
+        Just x
+            | isNaN x || isInfinite x -> Nothing
+            | x <= 0 -> Nothing
+            | otherwise -> Just x
+
 normalizeOptionalUnitInterval :: Maybe Double -> Maybe Double
 normalizeOptionalUnitInterval raw =
     case raw of
@@ -457,6 +466,13 @@ normalizeTrialParams p =
         lstmAdamBeta1' = normalizeLstmAdamBeta defaultLstmAdamBeta1 (tpLstmAdamBeta1 p)
         lstmAdamBeta2' = normalizeLstmAdamBeta defaultLstmAdamBeta2 (tpLstmAdamBeta2 p)
         lstmAdamEps' = normalizeLstmAdamEps defaultLstmAdamEps (tpLstmAdamEps p)
+        stopLoss' = normalizeOptionalPositiveFraction (tpStopLoss p)
+        stopLossVolMult' = normalizeOptionalPositive (tpStopLossVolMult p)
+        riskPerTradeRaw = normalizeOptionalPositiveFraction (tpRiskPerTrade p)
+        riskPerTrade' =
+            if isJust stopLoss' || isJust stopLossVolMult'
+                then riskPerTradeRaw
+                else Nothing
      in p
             { tpBlendWeight = clamp (tpBlendWeight p) 0 1
             , tpRouterScorePnlWeight = clamp (tpRouterScorePnlWeight p) 0 1
@@ -472,10 +488,13 @@ normalizeTrialParams p =
             , tpLstmAdamEps = lstmAdamEps'
             , tpLstmConfidenceSoft = lstmConfidenceSoft'
             , tpLstmConfidenceHard = lstmConfidenceHard'
-            , tpStopLoss = normalizeOptionalPositiveFraction (tpStopLoss p)
+            , tpStopLoss = stopLoss'
             , tpTakeProfit = normalizeOptionalPositiveFraction (tpTakeProfit p)
             , tpTrailingStop = normalizeOptionalPositiveFraction (tpTrailingStop p)
-            , tpRiskPerTrade = normalizeOptionalPositiveFraction (tpRiskPerTrade p)
+            , tpStopLossVolMult = stopLossVolMult'
+            , tpTakeProfitVolMult = normalizeOptionalPositive (tpTakeProfitVolMult p)
+            , tpTrailingStopVolMult = normalizeOptionalPositive (tpTrailingStopVolMult p)
+            , tpRiskPerTrade = riskPerTrade'
             , tpMaxDrawdown = normalizeOptionalPositiveFraction (tpMaxDrawdown p)
             , tpMaxDailyLoss = normalizeOptionalPositiveFraction (tpMaxDailyLoss p)
             , tpMaxWeeklyLoss = normalizeOptionalPositiveFraction (tpMaxWeeklyLoss p)
