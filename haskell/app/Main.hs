@@ -1363,6 +1363,9 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrPConfidenceSizing :: !(Maybe Double)
     , arrKalmanMarketTopNMin :: !(Maybe Int)
     , arrKalmanMarketTopNMax :: !(Maybe Int)
+    , arrMethodWeight11 :: !(Maybe Double)
+    , arrMethodWeight10 :: !(Maybe Double)
+    , arrMethodWeight01 :: !(Maybe Double)
     , arrMethodWeightBlend :: !(Maybe Double)
     , arrMethodWeightConfBlend :: !(Maybe Double)
     , arrMethodWeightConfPick :: !(Maybe Double)
@@ -16530,10 +16533,22 @@ prepareOptimizerArgs outputPath mPriorJson req = do
             case maxTimeoutEnv >>= readMaybe of
                 Just n | n >= 1 -> n
                 _ -> 1200
-        maxBarsCap =
+        configuredMaxBarsCap =
             case maxBarsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
                 _ -> 1500
+        maxBarsCap =
+            case source of
+                OptimizerSourceCsv -> configuredMaxBarsCap
+                -- Exchange-backed trader-hs runs currently validate --bars
+                -- at 1000. Clamp the API optimizer search envelope to that
+                -- execution cap so random samples do not waste budget on
+                -- impossible trial records.
+                _ -> min configuredMaxBarsCap 1000
+        exchangeBarsCapSuffix =
+            case source of
+                OptimizerSourceCsv -> ""
+                _ -> " (exchange execution cap)"
     let sourcePlatform = optimizerSourcePlatform source
         platformsRaw = fmap trim (arrPlatforms req)
         platformsResult =
@@ -16974,6 +16989,12 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 kalmanMarketTopNArgs =
                     maybeIntArg "--kalman-market-top-n-min" (fmap (max 0) (arrKalmanMarketTopNMin req))
                         ++ maybeIntArg "--kalman-market-top-n-max" (fmap (max 0) (arrKalmanMarketTopNMax req))
+                methodWeight11Args =
+                    maybeDoubleArg "--method-weight-11" (fmap (max 0) (arrMethodWeight11 req))
+                methodWeight10Args =
+                    maybeDoubleArg "--method-weight-10" (fmap (max 0) (arrMethodWeight10 req))
+                methodWeight01Args =
+                    maybeDoubleArg "--method-weight-01" (fmap (max 0) (arrMethodWeight01 req))
                 methodWeightBlendArgs =
                     maybeDoubleArg "--method-weight-blend" (fmap (max 0) (arrMethodWeightBlend req))
                 methodWeightConfBlendArgs =
@@ -17275,6 +17296,9 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ confirmArgs
                         ++ confidenceSizingArgs
                         ++ protectionMinConfidenceArgs
+                        ++ methodWeight11Args
+                        ++ methodWeight10Args
+                        ++ methodWeight01Args
                         ++ methodWeightBlendArgs
                         ++ methodWeightConfBlendArgs
                         ++ methodWeightConfPickArgs
@@ -17338,6 +17362,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                 Just
                                     ( "barsMin exceeds TRADER_OPTIMIZER_MAX_BARS="
                                         ++ show maxBarsCap
+                                        ++ exchangeBarsCapSuffix
                                         ++ "."
                                     )
                             | Just mx <- barsMaxRaw
@@ -17345,6 +17370,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                 Just
                                     ( "barsMax exceeds TRADER_OPTIMIZER_MAX_BARS="
                                         ++ show maxBarsCap
+                                        ++ exchangeBarsCapSuffix
                                         ++ "."
                                     )
                             | (interval, lb) : _ <- lookbackBarsOver ->
@@ -17355,6 +17381,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                         ++ interval
                                         ++ ", exceeding TRADER_OPTIMIZER_MAX_BARS="
                                         ++ show maxBarsCap
+                                        ++ exchangeBarsCapSuffix
                                         ++ "."
                                     )
                             | otherwise -> Nothing

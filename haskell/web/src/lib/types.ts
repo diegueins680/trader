@@ -816,6 +816,9 @@ export type OptimizerRunRequest = {
   tpMax?: number;
   trailMin?: number;
   trailMax?: number;
+  methodWeight11?: number;
+  methodWeight10?: number;
+  methodWeight01?: number;
   methodWeightBlend?: number;
   methodWeightConfBlend?: number;
   methodWeightConfPick?: number;
