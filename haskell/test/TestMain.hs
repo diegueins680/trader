@@ -449,6 +449,7 @@ main = do
     testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
     testTradeOutcomeWeightsSemantics
+    testTradeOutcomeWeightsIncludeNewClose
     testWeightedFineTuneUnitWeightsEquivalence
     testWeightedFineTunePunishesLossRegion
     testObservedSlippageFractionSemantics
@@ -4825,6 +4826,24 @@ testTradeOutcomeWeightsSemantics = do
         "trade spans clamp to the series bounds"
         (last (tradeOutcomeWeights [mkOutcomeTestTrade 8 20 (-0.02)] 10) > 1)
     assert "empty series yields no weights" (null (tradeOutcomeWeights [win] 0))
+
+{- | The live bot appends a newly closed trade before the immediate
+post-close LSTM update. Pin the pure weight semantics that make that close
+visible to the next fine-tune instead of waiting for another bar.
+-}
+testTradeOutcomeWeightsIncludeNewClose :: IO ()
+testTradeOutcomeWeightsIncludeNewClose = do
+    let priorWin = mkOutcomeTestTrade 2 4 0.01
+        newLoss = mkOutcomeTestTrade 8 9 (-0.02)
+        before = tradeOutcomeWeights [priorWin] 12
+        after = tradeOutcomeWeights [priorWin, newLoss] 12
+        expectedLossWeight = 1 + outcomeWeightLossScale * 0.02
+    assert "test setup: weights align with the series" (length before == 12 && length after == 12)
+    assert "the not-yet-appended close span is unit-weighted" (all (\t -> before !! t == 1.0) [8, 9])
+    assert
+        "appending the newly closed loss immediately weights its full span"
+        (all (\t -> abs (after !! t - expectedLossWeight) < 1e-9) [8, 9])
+    assert "prior winning span remains available to the same fine-tune" (all (\t -> after !! t == before !! t) [2 .. 4])
 
 {- | The weighted fine-tune with default weights must be exactly the plain
 fine-tune, so enabling outcome weighting cannot perturb bots with no

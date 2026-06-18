@@ -499,6 +499,7 @@ import Trader.Trading (
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
+    tradeOutcomeWeightFactorWithConfig,
     tradeOutcomeWeightsWithConfig,
  )
 import Trader.VolConfGate (
@@ -10361,6 +10362,37 @@ rebuildLstmCtx args lookback pricesV =
                 (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
                 pure (Right (normState, obsAll, lstmModel))
 
+fineTuneBotLstmWithClosedTrades :: Args -> BotSettings -> Int -> [Trade] -> LstmCtx -> IO LstmCtx
+fineTuneBotLstmWithClosedTrades args settings lookback trades (normState, obsAll, lstmModel0) = do
+    let trainBars = max (lookback + 2) (bsTrainBars settings)
+        obsTrain = takeLast trainBars obsAll
+        outcomeWeights =
+            takeLast
+                trainBars
+                (tradeOutcomeWeightsWithConfig (bsOutcomeWeightConfig settings) trades (length obsAll))
+        epochs = bsOnlineEpochs settings
+        cfg =
+            LSTMConfig
+                { lcLookback = lookback
+                , lcHiddenSize = argHiddenSize args
+                , lcEpochs = epochs
+                , lcLearningRate = argLr args
+                , lcAdamBeta1 = argLstmAdamBeta1 args
+                , lcAdamBeta2 = argLstmAdamBeta2 args
+                , lcAdamEps = argLstmAdamEps args
+                , lcValRatio = bsOnlineValRatio settings
+                , lcPatience = bsOnlinePatience settings
+                , lcGradClip = argGradClip args
+                , lcSeed = argSeed args
+                }
+        (lstmModel1, _) =
+            if epochs <= 0
+                then (lstmModel0, [])
+                else fineTuneLSTMWeighted cfg lstmModel0 obsTrain outcomeWeights
+    mPath <- lstmWeightsPath args lookback
+    savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
+    pure (normState, obsAll, lstmModel1)
+
 rebuildKalmanCtx :: Args -> Int -> FeatureInputs -> Either String KalmanCtx
 rebuildKalmanCtx args lookback featureInputs =
     let pricesV = fiClose featureInputs
@@ -12682,31 +12714,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             Nothing -> pure Nothing
             Just (normState, obsAll, lstmModel0) -> do
                 let obsAll' = obsAll ++ forwardSeries normState [priceNew]
-                    trainBars = max (lookback + 2) (bsTrainBars settings)
-                    obsTrain = takeLast trainBars obsAll'
-                    outcomeWeights = takeLast trainBars (tradeOutcomeWeightsWithConfig (bsOutcomeWeightConfig settings) (botTrades st) (length obsAll'))
-                    epochs = bsOnlineEpochs settings
-                    cfg =
-                        LSTMConfig
-                            { lcLookback = lookback
-                            , lcHiddenSize = argHiddenSize args
-                            , lcEpochs = epochs
-                            , lcLearningRate = argLr args
-                            , lcAdamBeta1 = argLstmAdamBeta1 args
-                            , lcAdamBeta2 = argLstmAdamBeta2 args
-                            , lcAdamEps = argLstmAdamEps args
-                            , lcValRatio = bsOnlineValRatio settings
-                            , lcPatience = bsOnlinePatience settings
-                            , lcGradClip = argGradClip args
-                            , lcSeed = argSeed args
-                            }
-                    (lstmModel1, _) =
-                        if epochs <= 0
-                            then (lstmModel0, [])
-                            else fineTuneLSTMWeighted cfg lstmModel0 obsTrain outcomeWeights
-                mPath <- lstmWeightsPath args lookback
-                savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
-                pure (Just (normState, obsAll', lstmModel1))
+                Just <$> fineTuneBotLstmWithClosedTrades args settings lookback (botTrades st) (normState, obsAll', lstmModel0)
 
     allStates <- botGetStates ctrl (botTenantKey st)
     comboFreshForLive <- botCurrentComboFreshForLive (tcbcOps topCombosCtx) (tcbcStore topCombosCtx) now st
@@ -13642,6 +13650,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         decisionTrace1 =
             buildBotDecisionTrace settings prevPos desiredPosWanted posFinal latestFinal mOrder haltReason2
 
+    mLstmCtx3 <-
+        case (mNewTrade, mLstmCtx2) of
+            (Just _, Just lstmCtx) ->
+                Just <$> fineTuneBotLstmWithClosedTrades args settings lookback trades2 lstmCtx
+            _ -> pure mLstmCtx2
+
     let st1 =
             st
                 { botPrices = pricesV2
@@ -13674,7 +13688,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botWeekStartEquity = weekStartEq1
                 , botDayTrades = dayTradesFinal
                 , botConsecutiveOrderErrors = orderErrors1
-                , botLstmCtx = mLstmCtx2
+                , botLstmCtx = mLstmCtx3
                 , botKalmanCtx = mKalmanCtx1
                 , botLastOpenTime = openTimeNew
                 , botStartIndex = startIndex2
@@ -13688,6 +13702,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         Nothing -> pure ()
         Just tr -> do
             let argsAdjusted = applyBotAdjustments adjustmentsNext args
+                outcomeWeight = tradeOutcomeWeightFactorWithConfig (bsOutcomeWeightConfig settings) tr
+                outcomeWeightLabel :: String
+                outcomeWeightLabel = maybe "none" (\w -> printf "%.3f" w) outcomeWeight
+                immediateOutcomeLstmUpdate =
+                    isJust mLstmCtx2
+                        && isJust mLstmCtx3
+                        && bsOnlineEpochs settings > 0
+                immediateOutcomeLstmUpdateLabel :: String
+                immediateOutcomeLstmUpdateLabel =
+                    if immediateOutcomeLstmUpdate
+                        then "yes"
+                        else "no"
                 pfLabel :: String
                 pfLabel =
                     case bpsProfitFactor perfStatsNext of
@@ -13695,7 +13721,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         Just pf -> printf "%.3f" pf
                 msg =
                     printf
-                        "bot.adjust symbol=%s return=%.4f winRate=%.2f pf=%s edgeBuffer=%.6f minSNR=%.3f kalmanZMin=%.3f trendLookback=%d lossStreak=%d"
+                        "bot.adjust symbol=%s return=%.4f winRate=%.2f pf=%s edgeBuffer=%.6f minSNR=%.3f kalmanZMin=%.3f trendLookback=%d lossStreak=%d outcomeWeight=%s lstmOutcomeUpdate=%s"
                         (botSymbol stOut)
                         (trReturn tr)
                         (bpsWinRate perfStatsNext)
@@ -13705,6 +13731,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         (argKalmanZMin argsAdjusted)
                         (argTrendLookback argsAdjusted)
                         lossStreakNext
+                        outcomeWeightLabel
+                        immediateOutcomeLstmUpdateLabel
             putStrLn msg
             journalWriteMaybe
                 mJournal
@@ -13738,6 +13766,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             , "kalmanZMinAdd" .= baKalmanZMinAdd adjustmentsNext
                             , "trendLookbackAdd" .= baTrendLookbackAdd adjustmentsNext
                             ]
+                    , "learning"
+                        .= object
+                            [ "lstmImmediateOutcomeUpdate" .= immediateOutcomeLstmUpdate
+                            , "onlineEpochs" .= bsOnlineEpochs settings
+                            , "outcomeWeight" .= outcomeWeight
+                            ]
                     ]
                 )
             opsAppendMaybe
@@ -13766,6 +13800,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                 , "minSignalToNoise" .= argMinSignalToNoise argsAdjusted
                                 , "kalmanZMin" .= argKalmanZMin argsAdjusted
                                 , "trendLookback" .= argTrendLookback argsAdjusted
+                                ]
+                        , "learning"
+                            .= object
+                                [ "lstmImmediateOutcomeUpdate" .= immediateOutcomeLstmUpdate
+                                , "onlineEpochs" .= bsOnlineEpochs settings
+                                , "outcomeWeight" .= outcomeWeight
                                 ]
                         ]
                     )
