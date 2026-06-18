@@ -28,6 +28,7 @@ module Trader.Binance (
     binanceFuturesTestnetBaseUrl,
     newBinanceEnv,
     fetchKlines,
+    fetchKlinesBetween,
     fetchKlinesRaw,
     fetchCloses,
     fetchSymbolFilters,
@@ -194,6 +195,8 @@ data BinanceTrade = BinanceTrade
     , btRealizedPnl :: !(Maybe Double)
     , btOriginIp :: !(Maybe Text)
     , btOriginInstance :: !(Maybe Text)
+    , btMaxPnl :: !(Maybe Double)
+    , btMaxPnlCloseTime :: !(Maybe Int64)
     }
     deriving (Eq, Show)
 
@@ -222,6 +225,8 @@ instance FromJSON BinanceTrade where
         realizedPnl <- parseMaybeDoubleField o "realizedPnl"
         originIp <- o AT..:? "originIp"
         originInstance <- o AT..:? "originInstance"
+        maxPnl <- parseMaybeDoubleField o "maxPnl"
+        maxPnlCloseTime <- o AT..:? "maxPnlCloseTime"
         let isBuyer = isBuyerRaw <|> buyerRaw
             isMaker = isMakerRaw <|> makerRaw
             sideDerived =
@@ -258,6 +263,8 @@ instance FromJSON BinanceTrade where
                 , btRealizedPnl = realizedPnl
                 , btOriginIp = originIp
                 , btOriginInstance = originInstance
+                , btMaxPnl = maxPnl
+                , btMaxPnlCloseTime = maxPnlCloseTime
                 }
 
 instance FromJSON BinanceServerTime where
@@ -284,6 +291,8 @@ instance ToJSON BinanceTrade where
             , "realizedPnl" .= btRealizedPnl t
             , "originIp" .= btOriginIp t
             , "originInstance" .= btOriginInstance t
+            , "maxPnl" .= btMaxPnl t
+            , "maxPnlCloseTime" .= btMaxPnlCloseTime t
             ]
 
 binanceBaseUrl :: String
@@ -848,6 +857,73 @@ fetchKlinesRaw env symbol interval limit = do
     case normalizeClosedKlines interval now raw of
         Left err -> throwIO (userError err)
         Right closed -> pure (takeLastKlines wanted closed)
+
+fetchKlinesBetween :: BinanceEnv -> String -> String -> Int64 -> Int64 -> IO [Kline]
+fetchKlinesBetween env symbol interval startTime endTime = do
+    let startSafe = max 0 startTime
+        endSafe = max startSafe endTime
+        key =
+            beBaseUrl env
+                ++ ":"
+                ++ show (beMarket env)
+                ++ ":"
+                ++ map toUpperAscii symbol
+                ++ ":"
+                ++ interval
+                ++ ":"
+                ++ show startSafe
+                ++ ":"
+                ++ show endSafe
+    fetchWithCache binanceKlinesCache binanceKlinesFreshTtl binanceKlinesStaleTtl key $
+        fetchKlinesBetweenRaw env symbol interval startSafe endSafe
+
+fetchKlinesBetweenRaw :: BinanceEnv -> String -> String -> Int64 -> Int64 -> IO [Kline]
+fetchKlinesBetweenRaw env symbol interval startTime endTime = do
+    intervalMs <-
+        case parseIntervalSeconds interval of
+            Just sec | sec > 0 -> pure (fromIntegral sec * 1000)
+            _ -> throwIO (userError ("Invalid kline interval: " ++ show interval))
+    let maxPerRequest = 1000
+        path =
+            case beMarket env of
+                MarketSpot -> "/api/v3/klines"
+                MarketMargin -> "/api/v3/klines"
+                MarketFutures -> "/fapi/v1/klines"
+        symbolKey = BS.pack (map toUpperAscii symbol)
+        fetchBatch batchStart = do
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let qs =
+                    [ ("symbol", symbolKey)
+                    , ("interval", BS.pack interval)
+                    , ("limit", BS.pack (show maxPerRequest))
+                    , ("startTime", BS.pack (show batchStart))
+                    , ("endTime", BS.pack (show endTime))
+                    ]
+                req = req0{method = "GET", queryString = renderSimpleQuery True qs}
+            resp <- binanceHttp env "klines/range" req
+            ensure2xx "klines/range" resp
+            case eitherDecode (responseBody resp) of
+                Left e -> throwIO (userError ("Failed to decode klines: " ++ e))
+                Right ks -> pure ks
+        go batchStart acc
+            | batchStart > endTime = pure acc
+            | otherwise = do
+                ks <- fetchBatch batchStart
+                case sortOn kOpenTime ks of
+                    [] -> pure acc
+                    ksSorted -> do
+                        let acc' = acc ++ ksSorted
+                            batchCount = length ksSorted
+                            lastOpenTime = kOpenTime (last ksSorted)
+                            nextStart = lastOpenTime + intervalMs
+                        if batchCount < maxPerRequest || nextStart <= batchStart || nextStart > endTime
+                            then pure acc'
+                            else go nextStart acc'
+    raw <- go startTime []
+    now <- getTimestampMs
+    case normalizeClosedKlines interval now raw of
+        Left err -> throwIO (userError err)
+        Right closed -> pure [k | k <- closed, kOpenTime k >= startTime, kOpenTime k <= endTime]
 
 normalizeClosedKlines :: String -> Int64 -> [Kline] -> Either String [Kline]
 normalizeClosedKlines interval now ks = do

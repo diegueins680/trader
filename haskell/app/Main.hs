@@ -192,6 +192,7 @@ import Trader.Binance (
     fetchFuturesPositionAmt,
     fetchFuturesPositionRisks,
     fetchKlines,
+    fetchKlinesBetween,
     fetchKlinesRaw,
     fetchOpenOrders,
     fetchOrderByClientId,
@@ -210,6 +211,7 @@ import Trader.Binance (
     signQuery,
  )
 import Trader.BinanceIntervals (binanceIntervals)
+import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotStartSemantics (
     AdoptionEvidenceConfig (..),
     BacktestVerdict (..),
@@ -1686,6 +1688,7 @@ data ApiBinanceTradesRequest = ApiBinanceTradesRequest
     , abrTenantKey :: !(Maybe String)
     , abrSymbol :: !(Maybe String)
     , abrSymbols :: !(Maybe [String])
+    , abrInterval :: !(Maybe String)
     , abrLimit :: !(Maybe Int)
     , abrStartTimeMs :: !(Maybe Int64)
     , abrEndTimeMs :: !(Maybe Int64)
@@ -1699,6 +1702,7 @@ instance FromJSON ApiBinanceTradesRequest where
 data ApiBinanceTradesResponse = ApiBinanceTradesResponse
     { abtrMarket :: !String
     , abtrTestnet :: !Bool
+    , abtrInterval :: !String
     , abtrSymbols :: ![String]
     , abtrAllSymbols :: !Bool
     , abtrTrades :: ![BinanceTrade]
@@ -4975,6 +4979,21 @@ newBinanceEnvWithOps :: Maybe OpsStore -> BinanceMarket -> String -> Maybe BS.By
 newBinanceEnvWithOps mOps market baseUrl apiKey apiSecret =
     let mTenantKey = tenantKeyFromBinanceKeys (BS.unpack <$> apiKey) (BS.unpack <$> apiSecret)
      in attachBinanceLogger mOps mTenantKey <$> newBinanceEnv market baseUrl apiKey apiSecret
+
+attachBinanceTradeMaxPnlFromKlines :: BinanceEnv -> String -> [BinanceTrade] -> IO [BinanceTrade]
+attachBinanceTradeMaxPnlFromKlines env interval trades = do
+    let ranges = binanceTradeMaxPnlKlineRanges trades
+    if M.null ranges
+        then pure trades
+        else do
+            klinePairs <-
+                forM (M.toList ranges) $ \(sym, (startTime, endTime)) -> do
+                    r <- try (fetchKlinesBetween env sym interval startTime endTime) :: IO (Either SomeException [Kline])
+                    pure $
+                        case r of
+                            Left _ -> Nothing
+                            Right ks -> Just (sym, ks)
+            pure (attachBinanceTradeMaxPnl (M.fromList (catMaybes klinePairs)) trades)
 
 defaultBotStatusLogIntervalMs :: Int64
 defaultBotStatusLogIntervalMs = 5 * 60 * 1000
@@ -19962,6 +19981,7 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                 symbols = filter (not . null) (dedupeStable (map normalizeSymbol symbolsRaw))
                                                 allSymbols = null symbols
                                                 limit = abrLimit params
+                                                interval = fromMaybe (argInterval baseArgs) (abrInterval params)
                                                 startTime = abrStartTimeMs params
                                                 endTime = abrEndTimeMs params
                                                 fromId = abrFromId params
@@ -19983,14 +20003,16 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                                 (Just store, Just tenantKey) ->
                                                                     attachBinanceTradeOriginIps store tenantKey tradesSorted
                                                                 _ -> pure tradesSorted
+                                                        tradesWithMaxPnl <- attachBinanceTradeMaxPnlFromKlines env interval tradesWithIps
                                                         now <- getTimestampMs
                                                         pure
                                                             ApiBinanceTradesResponse
                                                                 { abtrMarket = marketCode market
                                                                 , abtrTestnet = testnet
+                                                                , abtrInterval = interval
                                                                 , abtrSymbols = symbols
                                                                 , abtrAllSymbols = allSymbols
-                                                                , abtrTrades = tradesWithIps
+                                                                , abtrTrades = tradesWithMaxPnl
                                                                 , abtrFetchedAtMs = now
                                                                 }
                                                     case result of

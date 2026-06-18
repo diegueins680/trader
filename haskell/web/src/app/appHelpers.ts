@@ -460,6 +460,8 @@ export type BinancePnlRow = {
   exitIp: string | null;
   entryInstance: string | null;
   exitInstance: string | null;
+  maxPnl: number | null;
+  maxPnlCloseTime: number | null;
 };
 
 export type BinancePnlAnalysis = {
@@ -1017,6 +1019,9 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
     const commissionAsset = trade.commissionAsset ?? null;
     const entryTime = typeof trade.entryTime === "number" && Number.isFinite(trade.entryTime) ? trade.entryTime : null;
     const exitTime = typeof trade.exitTime === "number" && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
+    const maxPnl = typeof trade.maxPnl === "number" && Number.isFinite(trade.maxPnl) ? trade.maxPnl : null;
+    const maxPnlCloseTime =
+      typeof trade.maxPnlCloseTime === "number" && Number.isFinite(trade.maxPnlCloseTime) ? trade.maxPnlCloseTime : null;
     if (typeof commission === "number" && Number.isFinite(commission)) {
       const assetKey = commissionAsset ?? "unknown";
       const existing = commissionByAsset.get(assetKey);
@@ -1047,6 +1052,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
       exitIp: trade.exitIp ?? null,
       entryInstance: trade.entryInstance ?? null,
       exitInstance: trade.exitInstance ?? null,
+      maxPnl,
+      maxPnlCloseTime,
     });
   }
 

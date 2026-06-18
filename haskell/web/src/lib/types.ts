@@ -291,6 +291,8 @@ export type BinanceTrade = {
   exitInstance?: string | null;
   entryTime?: number | null;
   exitTime?: number | null;
+  maxPnl?: number | null;
+  maxPnlCloseTime?: number | null;
 };
 
 export type BinancePosition = {
@@ -353,6 +355,7 @@ export type ApiBinanceTradesRequest = {
   tenantKey?: string;
   symbol?: string;
   symbols?: string[];
+  interval?: string;
   limit?: number;
   startTimeMs?: number;
   endTimeMs?: number;
@@ -362,6 +365,7 @@ export type ApiBinanceTradesRequest = {
 export type ApiBinanceTradesResponse = {
   market: Market;
   testnet: boolean;
+  interval?: string;
   symbols: string[];
   allSymbols: boolean;
   trades: BinanceTrade[];

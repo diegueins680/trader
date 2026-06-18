@@ -26,7 +26,8 @@ import System.Directory (removeFile)
 import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
-import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
+import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
+import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
@@ -302,6 +303,9 @@ main = do
     testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity
     testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig
     testFuturesPositionRiskLeverageSaneCap
+    testBinanceTradeMaxPnlLongUsesHigh
+    testBinanceTradeMaxPnlShortUsesLow
+    testBinanceTradeMaxPnlLeavesUnpairedCloseBlank
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
     testFeeFixedRejectsAbsurdlyHighValue
@@ -1227,6 +1231,78 @@ testFuturesPositionRiskLeverageSaneCap = do
     assert "futuresPositionRiskLeverageSane rejects 151x" (not (futuresPositionRiskLeverageSane tooHigh))
     assert "futuresPositionRiskLeverageSane rejects 0x" (not (futuresPositionRiskLeverageSane zero))
     assert "futuresPositionRiskLeverageSane rejects NaN" (not (futuresPositionRiskLeverageSane nan))
+
+mkBinanceTrade :: Int64 -> String -> String -> Maybe String -> Double -> Double -> Int64 -> BinanceTrade
+mkBinanceTrade tradeId symbol side positionSide price qty timeMs =
+    BinanceTrade
+        { btSymbol = symbol
+        , btTradeId = tradeId
+        , btOrderId = Nothing
+        , btPrice = price
+        , btQty = qty
+        , btQuoteQty = price * qty
+        , btCommission = Nothing
+        , btCommissionAsset = Nothing
+        , btTime = timeMs
+        , btIsBuyer = Just (side == "BUY")
+        , btIsMaker = Nothing
+        , btSide = Just side
+        , btPositionSide = positionSide
+        , btRealizedPnl = Nothing
+        , btOriginIp = Nothing
+        , btOriginInstance = Nothing
+        , btMaxPnl = Nothing
+        , btMaxPnlCloseTime = Nothing
+        }
+
+mkKline :: Int64 -> Double -> Double -> Double -> Double -> Kline
+mkKline openTime open high low close =
+    Kline
+        { kOpenTime = openTime
+        , kCloseTime = Just (openTime + 59999)
+        , kOpen = open
+        , kHigh = high
+        , kLow = low
+        , kClose = close
+        , kVolume = 1
+        }
+
+testBinanceTradeMaxPnlLongUsesHigh :: IO ()
+testBinanceTradeMaxPnlLongUsesHigh = do
+    let openTrade = mkBinanceTrade 1 "BTCUSDT" "BUY" (Just "BOTH") 100 2 0
+        closeTrade = (mkBinanceTrade 2 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
+        klines =
+            [ mkKline 0 100 101 99 100
+            , mkKline 60000 103 105 102 103
+            , mkKline 120000 104 107 103 106
+            , mkKline 180000 106 120 105 118
+            ]
+        ranges = binanceTradeMaxPnlKlineRanges [openTrade, closeTrade]
+        enriched = attachBinanceTradeMaxPnl (Map.fromList [("BTCUSDT", klines)]) [openTrade, closeTrade]
+    assert "long max-PNL kline range extends to entry + 2x duration" (Map.lookup "BTCUSDT" ranges == Just (0, 120000))
+    assert "long opening fill stores best high-water PNL" (btMaxPnl (head enriched) == Just 14)
+    assert "long opening fill stores best close time" (btMaxPnlCloseTime (head enriched) == Just 120000)
+    assert "long close fill also exposes the paired best PNL" (btMaxPnl (enriched !! 1) == Just 14)
+
+testBinanceTradeMaxPnlShortUsesLow :: IO ()
+testBinanceTradeMaxPnlShortUsesLow = do
+    let openTrade = mkBinanceTrade 1 "ETHUSDT" "SELL" (Just "SHORT") 100 3 0
+        closeTrade = (mkBinanceTrade 2 "ETHUSDT" "BUY" (Just "SHORT") 98 3 60000){btRealizedPnl = Just 6}
+        klines =
+            [ mkKline 0 100 101 99 100
+            , mkKline 60000 98 99 95 96
+            , mkKline 120000 96 97 94 95
+            ]
+        enriched = attachBinanceTradeMaxPnl (Map.fromList [("ETHUSDT", klines)]) [openTrade, closeTrade]
+    assert "short opening fill scores against candle lows" (btMaxPnl (head enriched) == Just 18)
+    assert "short opening fill stores the lowest-candle time" (btMaxPnlCloseTime (head enriched) == Just 120000)
+    assert "short close fill also exposes the paired best PNL" (btMaxPnl (enriched !! 1) == Just 18)
+
+testBinanceTradeMaxPnlLeavesUnpairedCloseBlank :: IO ()
+testBinanceTradeMaxPnlLeavesUnpairedCloseBlank = do
+    let closeOnly = (mkBinanceTrade 10 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
+        enriched = attachBinanceTradeMaxPnl (Map.fromList [("BTCUSDT", [mkKline 60000 103 104 102 103])]) [closeOnly]
+    assert "unpaired close fill does not invent max-PNL without a visible opening lot" (btMaxPnl (head enriched) == Nothing)
 
 testFeeRejectsNegativeValue :: IO ()
 testFeeRejectsNegativeValue =

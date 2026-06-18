@@ -6358,6 +6358,7 @@ export function App() {
       const params: ApiBinanceTradesRequest = {
         market: form.market,
         binanceTestnet: form.binanceTestnet,
+        interval: form.interval.trim(),
         ...(binanceTradesSymbols.length === 1 ? { symbol: binanceTradesSymbols[0] } : {}),
         ...(binanceTradesSymbols.length > 1 ? { symbols: binanceTradesSymbols } : {}),
         ...(binanceTradesLimitSafe > 0 ? { limit: binanceTradesLimitSafe } : {}),
@@ -6388,6 +6389,7 @@ export function App() {
     binanceTradesStartMs,
     binanceTradesSymbols,
     form.binanceTestnet,
+    form.interval,
     form.market,
     withBinanceKeys,
   ]);
@@ -6427,6 +6429,7 @@ export function App() {
       const coversSymbols = (resp: ApiBinanceTradesResponse | null) => {
         if (!resp) return false;
         if (resp.market !== form.market || resp.testnet !== form.binanceTestnet) return false;
+        if ((resp.interval ?? "") !== form.interval.trim()) return false;
         if (resp.allSymbols) return true;
         const respSet = new Set(resp.symbols.map((sym) => normalizeSymbolKey(sym)));
         for (const sym of symbolSet) {
@@ -6453,6 +6456,7 @@ export function App() {
         const params: ApiBinanceTradesRequest = {
           market: form.market,
           binanceTestnet: form.binanceTestnet,
+          interval: form.interval.trim(),
           ...(symbols.length === 1 ? { symbol: symbols[0] } : { symbols }),
           limit: BINANCE_POSITIONS_OPEN_TIME_LIMIT,
         };
@@ -6491,6 +6495,7 @@ export function App() {
       binancePositionTradesUi.response,
       binanceTradesUi.response,
       form.binanceTestnet,
+      form.interval,
       form.market,
       form.positionsOpenTimeCacheSec,
       withBinanceKeys,

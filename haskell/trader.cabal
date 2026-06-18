@@ -9,6 +9,7 @@ executable trader-hs
   hs-source-dirs:      app
   main-is:             Main.hs
   other-modules:       Trader.Binance
+                     , Trader.BinanceTradeAnalysis
                      , Trader.Api.Routes
                      , Trader.App.AutoStartBackoff
                      , Trader.App.BinanceProbe
@@ -235,6 +236,7 @@ test-suite trader-tests
   hs-source-dirs:      test, app
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
+                     , Trader.BinanceTradeAnalysis
                      , Trader.Api.Routes
                      , Trader.App.AutoStartBackoff
                      , Trader.App.BinanceProbe

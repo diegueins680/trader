@@ -227,6 +227,9 @@ export function BinanceTradesPanel({
       "qty",
       "quoteQty",
       "realizedPnl",
+      "maxPnl",
+      "maxPnlCloseTimeMs",
+      "maxPnlCloseTimeIso",
       "commission",
       "commissionAsset",
       "positionSide",
@@ -244,6 +247,8 @@ export function BinanceTradesPanel({
       const entryTimeIso = formatIsoUtc(entryTimeMs);
       const exitTimeMs = trade.exitTime ?? null;
       const exitTimeIso = formatIsoUtc(exitTimeMs);
+      const maxPnlCloseTimeMs = trade.maxPnlCloseTime ?? null;
+      const maxPnlCloseTimeIso = formatIsoUtc(maxPnlCloseTimeMs);
       const side = binanceTradeSideLabel(trade);
       return [
         timeMs ?? "",
@@ -258,6 +263,9 @@ export function BinanceTradesPanel({
         trade.qty ?? "",
         trade.quoteQty ?? "",
         trade.realizedPnl ?? "",
+        trade.maxPnl ?? "",
+        maxPnlCloseTimeMs ?? "",
+        maxPnlCloseTimeIso,
         trade.commission ?? "",
         trade.commissionAsset ?? "",
         trade.positionSide ?? "",
@@ -432,6 +440,7 @@ export function BinanceTradesPanel({
     <div className="pillRow" style={{ marginTop: 12, marginBottom: 10 }}>
       <span className="badge">{marketLabel(binanceTradesUi.response.market)}</span>
       <span className="badge">{binanceTradesUi.response.testnet ? "TESTNET" : "LIVE"}</span>
+      {binanceTradesUi.response.interval ? <span className="badge">{binanceTradesUi.response.interval} max P&amp;L</span> : null}
       <span className="badge">{binanceTradesTotalCount} trades</span>
       {binanceTradesFilterActive ? <span className="badge">filtered {binanceTradesFilteredCount}</span> : null}
       <span className="badge">
@@ -685,6 +694,8 @@ export function BinanceTradesPanel({
 		                                <th>Origin IP</th>
 		                                <th>Close IP</th>
 	                                <th>PNL</th>
+	                                <th>Max PNL</th>
+	                                <th>Max Close</th>
 	                                <th>Commission</th>
 	                                <th>Order</th>
 	                              </tr>
@@ -699,6 +710,12 @@ export function BinanceTradesPanel({
 	                                      : "badge";
 	                                const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
 	                                const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
+	                                const maxPnlTxt =
+	                                  row.maxPnl != null && Number.isFinite(row.maxPnl) ? fmtMoney(row.maxPnl, 4) : "—";
+	                                const maxPnlCloseTxt =
+	                                  row.maxPnlCloseTime != null && Number.isFinite(row.maxPnlCloseTime)
+	                                    ? fmtTimeMsWithMs(row.maxPnlCloseTime)
+	                                    : "—";
 	                                const commissionTxt =
 	                                  row.commission != null && Number.isFinite(row.commission)
 	                                    ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
@@ -729,6 +746,10 @@ export function BinanceTradesPanel({
 	                                    <td>
 	                                      <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
 	                                    </td>
+	                                    <td>
+	                                      <span className={pnlBadgeClass(row.maxPnl)}>{maxPnlTxt}</span>
+	                                    </td>
+	                                    <td className="tdMono">{maxPnlCloseTxt}</td>
 	                                    <td className="tdMono">{commissionTxt}</td>
 	                                    <td className="tdMono">{row.orderId ?? "—"}</td>
 	                                  </tr>
@@ -767,6 +788,8 @@ export function BinanceTradesPanel({
 		                                <th>Origin IP</th>
 		                                <th>Close IP</th>
 	                                <th>PNL</th>
+	                                <th>Max PNL</th>
+	                                <th>Max Close</th>
 	                                <th>Commission</th>
 	                                <th>Order</th>
 	                              </tr>
@@ -781,6 +804,12 @@ export function BinanceTradesPanel({
 	                                      : "badge";
 	                                const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
 	                                const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
+	                                const maxPnlTxt =
+	                                  row.maxPnl != null && Number.isFinite(row.maxPnl) ? fmtMoney(row.maxPnl, 4) : "—";
+	                                const maxPnlCloseTxt =
+	                                  row.maxPnlCloseTime != null && Number.isFinite(row.maxPnlCloseTime)
+	                                    ? fmtTimeMsWithMs(row.maxPnlCloseTime)
+	                                    : "—";
 	                                const commissionTxt =
 	                                  row.commission != null && Number.isFinite(row.commission)
 	                                    ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
@@ -811,6 +840,10 @@ export function BinanceTradesPanel({
 	                                    <td>
 	                                      <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
 	                                    </td>
+	                                    <td>
+	                                      <span className={pnlBadgeClass(row.maxPnl)}>{maxPnlTxt}</span>
+	                                    </td>
+	                                    <td className="tdMono">{maxPnlCloseTxt}</td>
 	                                    <td className="tdMono">{commissionTxt}</td>
 	                                    <td className="tdMono">{row.orderId ?? "—"}</td>
 	                                  </tr>
@@ -867,6 +900,8 @@ export function BinanceTradesPanel({
 		                <th>Close IP</th>
 	                <th>Commission</th>
 	                <th>PNL</th>
+	                <th>Max PNL</th>
+	                <th>Max Close</th>
 	                <th>Order</th>
 	              </tr>
 	            </thead>
@@ -881,6 +916,12 @@ export function BinanceTradesPanel({
 	                    : "—";
 	                const pnlTxt =
 	                  trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
+	                const maxPnlTxt =
+	                  trade.maxPnl != null && Number.isFinite(trade.maxPnl) ? fmtMoney(trade.maxPnl, 4) : "—";
+	                const maxPnlCloseTxt =
+	                  trade.maxPnlCloseTime != null && Number.isFinite(trade.maxPnlCloseTime)
+	                    ? fmtTimeMsWithMs(trade.maxPnlCloseTime)
+	                    : "—";
 	                const openedAt =
 	                  trade.entryTime != null && Number.isFinite(trade.entryTime)
 	                    ? trade.entryTime
@@ -914,6 +955,10 @@ export function BinanceTradesPanel({
 		                    <td className="tdMono">{exitIpTxt}</td>
 	                    <td className="tdMono">{commissionTxt}</td>
 	                    <td className="tdMono">{pnlTxt}</td>
+	                    <td>
+	                      <span className={pnlBadgeClass(trade.maxPnl)}>{maxPnlTxt}</span>
+	                    </td>
+	                    <td className="tdMono">{maxPnlCloseTxt}</td>
 	                    <td className="tdMono">{trade.orderId ?? "—"}</td>
 	                  </tr>
 	                );
