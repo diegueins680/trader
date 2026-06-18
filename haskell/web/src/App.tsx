@@ -1989,6 +1989,12 @@ export function App() {
       "router",
       "bandit_router",
       "cross_sectional_momentum",
+      "online_nn",
+      "ta_trend",
+      "ta_reversion",
+      "ta_breakout",
+      "ta_best",
+      "ta_regime_switch",
       "kalman_physics_error",
     ];
     const methodList = methodOrder.filter((method) => methods.has(method));

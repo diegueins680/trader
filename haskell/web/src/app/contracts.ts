@@ -63,6 +63,12 @@ export const METHOD_IDS = [
   "router",
   "bandit_router",
   "cross_sectional_momentum",
+  "online_nn",
+  "ta_trend",
+  "ta_reversion",
+  "ta_breakout",
+  "ta_best",
+  "ta_regime_switch",
   "kalman_physics_error",
 ] as const;
 

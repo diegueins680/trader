@@ -651,6 +651,12 @@ test("rebalance cost defaults stay aligned with backend defaults", () => {
   assert.equal(optimizerDefaults.rebalanceCostMultMax, "");
 });
 
-test("methodLabel includes kalman_physics_error", () => {
+test("methodLabel includes newer standalone strategy methods", () => {
   assert.equal(methodLabel("kalman_physics_error"), "Kalman physics error");
+  assert.equal(methodLabel("online_nn"), "Online NN");
+  assert.equal(methodLabel("ta_trend"), "TA trend");
+  assert.equal(methodLabel("ta_reversion"), "TA reversion");
+  assert.equal(methodLabel("ta_breakout"), "TA breakout");
+  assert.equal(methodLabel("ta_best"), "TA best");
+  assert.equal(methodLabel("ta_regime_switch"), "TA regime switch");
 });
