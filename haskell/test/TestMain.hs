@@ -29,7 +29,19 @@ import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatf
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
-import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
+import Trader.CapitalPreservation (
+    CapitalPreservationConfig (..),
+    CapitalPreservationReport (..),
+    PortfolioCapitalPreservationConfig (..),
+    PortfolioCapitalPreservationReport (..),
+    PortfolioCapitalTrade (..),
+    capitalPreservationIsEntryOnlyReason,
+    capitalPreservationReport,
+    defaultCapitalPreservationConfig,
+    defaultPortfolioCapitalPreservationConfig,
+    defaultPortfolioCapitalPreservationCooldownMs,
+    portfolioCapitalPreservationReport,
+ )
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
     CostCalibrationConfig (..),
@@ -370,6 +382,7 @@ main = do
     testExpectancyLookbackRejectsNegativeValue
     testPerfLookbackRejectsNegativeValue
     testCapitalPreservationReport
+    testPortfolioCapitalPreservationReport
     testLossStreakMaxRejectsNegativeValue
     testLossStreakCooldownBarsRejectsNegativeValue
     testVolScaleMaxRejectsInvalidValues
@@ -2493,6 +2506,80 @@ testCapitalPreservationReport = do
             && isNothing (cprReason disabledReport)
             && capitalPreservationIsEntryOnlyReason "CAPITAL_PRESERVATION_ROLLING_LOSS"
             && not (capitalPreservationIsEntryOnlyReason "MAX_DRAWDOWN")
+        )
+
+testPortfolioCapitalPreservationReport :: IO ()
+testPortfolioCapitalPreservationReport = do
+    let cfg = defaultPortfolioCapitalPreservationConfig
+        now = 2000000 :: Int64
+        trade closedAt ret =
+            PortfolioCapitalTrade
+                { pctReturn = ret
+                , pctClosedAtMs = Just closedAt
+                }
+        streakTrades =
+            [ trade 1000000 0.01
+            , trade 1060000 (-0.01)
+            , trade 1120000 (-0.02)
+            , trade 1180000 (-0.03)
+            ]
+        streakReport = portfolioCapitalPreservationReport cfg now streakTrades
+        cooledReport =
+            portfolioCapitalPreservationReport
+                cfg
+                (1180000 + defaultPortfolioCapitalPreservationCooldownMs + 1)
+                streakTrades
+        rollingLossCfg =
+            cfg
+                { pcpcLossStreakMax = 0
+                , pcpcMaxRollingLoss = Just 0.05
+                }
+        rollingLossReport =
+            portfolioCapitalPreservationReport
+                rollingLossCfg
+                now
+                [ trade 1000000 (-0.02)
+                , trade 1060000 (-0.02)
+                , trade 1120000 (-0.02)
+                , trade 1180000 0.005
+                , trade 1240000 (-0.01)
+                , trade 1300000 (-0.01)
+                ]
+        notReadyReport =
+            portfolioCapitalPreservationReport
+                cfg{pcpcLossStreakMax = 0}
+                now
+                [trade 1000000 (-0.02), trade 1060000 (-0.02)]
+        timestampedReport =
+            portfolioCapitalPreservationReport
+                rollingLossCfg{pcpcMinTrades = 2}
+                now
+                [ PortfolioCapitalTrade{pctReturn = -0.10, pctClosedAtMs = Nothing}
+                , trade 1000000 (-0.02)
+                , trade 1060000 (-0.02)
+                , trade 1120000 (-0.02)
+                , PortfolioCapitalTrade{pctReturn = 0 / 0, pctClosedAtMs = Just 1240000}
+                ]
+    assert
+        "portfolio capital preservation blocks cross-symbol loss streak for the cooldown window"
+        ( pcprReason streakReport == Just "CAPITAL_PRESERVATION_PORTFOLIO_LOSS_STREAK"
+            && pcprLossStreak streakReport == 3
+            && pcprOpenUntilMs streakReport == Just (1180000 + defaultPortfolioCapitalPreservationCooldownMs)
+            && isNothing (pcprReason cooledReport)
+        )
+    assert
+        "portfolio capital preservation rolls losses across symbols after readiness"
+        ( pcprReason rollingLossReport == Just "CAPITAL_PRESERVATION_PORTFOLIO_ROLLING_LOSS"
+            && pcprTrades rollingLossReport == 6
+            && pcprRollingLoss rollingLossReport > Just 0.05
+            && isNothing (pcprReason notReadyReport)
+        )
+    assert
+        "portfolio capital preservation ignores missing close times and non-finite returns"
+        ( pcprReason timestampedReport == Just "CAPITAL_PRESERVATION_PORTFOLIO_ROLLING_LOSS"
+            && pcprTrades timestampedReport == 3
+            && pcprNewestClosedAtMs timestampedReport == Just 1120000
+            && pcprOpenUntilMs timestampedReport == Just (1120000 + defaultPortfolioCapitalPreservationCooldownMs)
         )
 
 testLossStreakMaxRejectsNegativeValue :: IO ()

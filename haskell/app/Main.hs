@@ -236,9 +236,14 @@ import Trader.BotStartSemantics (
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
+    PortfolioCapitalPreservationConfig (..),
+    PortfolioCapitalPreservationReport (..),
+    PortfolioCapitalTrade (..),
     capitalPreservationIsEntryOnlyReason,
     capitalPreservationReport,
     defaultCapitalPreservationConfig,
+    defaultPortfolioCapitalPreservationConfig,
+    portfolioCapitalPreservationReport,
  )
 import Trader.Coinbase (
     CoinbaseCandle (..),
@@ -6220,16 +6225,11 @@ capitalPreservationConfigForBot args settings =
                 && argBinanceMarket args == MarketFutures
         , cpcLookback = argCapitalPreservationLookback args
         , cpcMinTrades = argCapitalPreservationMinTrades args
-        , cpcMaxDrawdown = positiveMaybe (argCapitalPreservationMaxDrawdown args)
-        , cpcMaxRollingLoss = positiveMaybe (argCapitalPreservationMaxRollingLoss args)
+        , cpcMaxDrawdown = positiveFiniteMaybe (argCapitalPreservationMaxDrawdown args)
+        , cpcMaxRollingLoss = positiveFiniteMaybe (argCapitalPreservationMaxRollingLoss args)
         , cpcMinSharpe = Just (argCapitalPreservationMinSharpe args)
         , cpcLossStreakMax = argCapitalPreservationLossStreakMax args
         }
-  where
-    positiveMaybe value =
-        if value > 0 && isFiniteDouble value
-            then Just value
-            else Nothing
 
 capitalPreservationReportForBot :: Args -> BotSettings -> Double -> Int -> [Trade] -> CapitalPreservationReport
 capitalPreservationReportForBot args settings drawdown lossStreak trades =
@@ -6250,6 +6250,120 @@ capitalPreservationJson report =
         , "rollingSharpe" .= cprRollingSharpe report
         , "reason" .= cprReason report
         ]
+
+positiveFiniteMaybe :: Double -> Maybe Double
+positiveFiniteMaybe value =
+    if value > 0 && isFiniteDouble value
+        then Just value
+        else Nothing
+
+portfolioCapitalPreservationConfigForBot :: Args -> BotSettings -> PortfolioCapitalPreservationConfig
+portfolioCapitalPreservationConfigForBot args settings =
+    let botCfg = capitalPreservationConfigForBot args settings
+     in defaultPortfolioCapitalPreservationConfig
+            { pcpcEnabled = cpcEnabled botCfg
+            , pcpcLookback = cpcLookback botCfg
+            , pcpcMinTrades = cpcMinTrades botCfg
+            , pcpcMaxRollingLoss = cpcMaxRollingLoss botCfg
+            , pcpcLossStreakMax = cpcLossStreakMax botCfg
+            }
+
+tradeExitOpenTimeMs :: BotState -> Trade -> Maybe Int64
+tradeExitOpenTimeMs st tr =
+    let idx = trExitIndex tr
+        openTimes = botOpenTimes st
+     in if idx >= 0 && idx < V.length openTimes
+            then Just (openTimes V.! idx)
+            else Nothing
+
+portfolioCapitalTradesFromState :: BotState -> [PortfolioCapitalTrade]
+portfolioCapitalTradesFromState st =
+    let cfg = portfolioCapitalPreservationConfigForBot (botArgs st) (botSettings st)
+     in if not (pcpcEnabled cfg)
+            then []
+            else
+                [ PortfolioCapitalTrade
+                    { pctReturn = trReturn tr
+                    , pctClosedAtMs = tradeExitOpenTimeMs st tr
+                    }
+                | tr <- botTrades st
+                ]
+
+portfolioCapitalPreservationReportForStates ::
+    Args ->
+    BotSettings ->
+    Int64 ->
+    [BotState] ->
+    [PortfolioCapitalTrade] ->
+    PortfolioCapitalPreservationReport
+portfolioCapitalPreservationReportForStates args settings now states extraTrades =
+    portfolioCapitalPreservationReport
+        (portfolioCapitalPreservationConfigForBot args settings)
+        now
+        (concatMap portfolioCapitalTradesFromState states ++ extraTrades)
+
+portfolioCapitalTradesFromSnapshot :: BotStatusSnapshot -> [PortfolioCapitalTrade]
+portfolioCapitalTradesFromSnapshot snap =
+    case bssStatus snap of
+        Aeson.Object o ->
+            if not (snapshotLooksLiveFuturesTrading o)
+                then []
+                else
+                    let openTimes =
+                            case KM.lookup "openTimes" o of
+                                Just (Aeson.Array arr) -> mapMaybe (AT.parseMaybe parseJSON) (V.toList arr)
+                                _ -> []
+                        closeTimeAt idx =
+                            if idx >= 0 && idx < length openTimes
+                                then Just (openTimes !! idx)
+                                else Nothing
+                     in case KM.lookup "trades" o of
+                            Just (Aeson.Array arr) -> mapMaybe (tradeFromSnapshotJson closeTimeAt) (V.toList arr)
+                            _ -> []
+        _ -> []
+  where
+    snapshotLooksLiveFuturesTrading o =
+        let market = KM.lookup "market" o >>= AT.parseMaybe parseJSON
+            live = fromMaybe True (KM.lookup "live" o >>= AT.parseMaybe parseJSON)
+            tradeEnabled =
+                case KM.lookup "settings" o of
+                    Just (Aeson.Object settingsObj) ->
+                        fromMaybe False (KM.lookup "tradeEnabled" settingsObj >>= AT.parseMaybe parseJSON)
+                    _ -> False
+         in market == Just (marketCode MarketFutures) && live && tradeEnabled
+
+    tradeFromSnapshotJson closeTimeAt v =
+        case v of
+            Aeson.Object trObj -> do
+                ret <- KM.lookup "return" trObj >>= AT.parseMaybe parseJSON
+                exitIdx <- KM.lookup "exitIndex" trObj >>= AT.parseMaybe parseJSON
+                pure
+                    PortfolioCapitalTrade
+                        { pctReturn = ret
+                        , pctClosedAtMs = closeTimeAt exitIdx
+                        }
+            _ -> Nothing
+
+portfolioCapitalPreservationReportForStart ::
+    Maybe FilePath ->
+    BotController ->
+    TenantKey ->
+    Args ->
+    BotSettings ->
+    Int64 ->
+    IO PortfolioCapitalPreservationReport
+portfolioCapitalPreservationReportForStart mBotStateDir ctrl tenantKey args settings now = do
+    states <- botGetStates ctrl tenantKey
+    snapshots <- readBotStatusSnapshotsMaybe mBotStateDir tenantKey
+    let runningSymbols = Set.fromList (map botSymbol states)
+        snapshotTrades =
+            concatMap
+                portfolioCapitalTradesFromSnapshot
+                [ snap
+                | snap <- snapshots
+                , maybe True (`Set.notMember` runningSymbols) (botSnapshotSymbol snap)
+                ]
+    pure (portfolioCapitalPreservationReportForStates args settings now states snapshotTrades)
 
 entryOnlyGateReason :: String -> Bool
 entryOnlyGateReason reason =
@@ -6587,6 +6701,7 @@ botStatusJson st =
             [ "running" .= True
             , "symbol" .= botSymbol st
             , "tenantKey" .= botTenantKey st
+            , "live" .= argBinanceLive (botArgs st)
             , "interval" .= argInterval (botArgs st)
             , "market" .= marketCode (argBinanceMarket (botArgs st))
             , "method" .= methodCode (argMethod (botArgs st))
@@ -8732,7 +8847,16 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                         case comboGuard of
                             Left e -> throwIO (userError e)
                             Right () -> pure ()
-                    initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp sym
+                    nowStart <- getTimestampMs
+                    portfolioCapitalPreservation <-
+                        portfolioCapitalPreservationReportForStart
+                            mBotStateDir
+                            ctrl
+                            tenantKey
+                            argsFinal
+                            settings
+                            nowStart
+                    initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) sym
     r <- try (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -9252,8 +9376,8 @@ botGetStateFor ctrl tenantKey symRaw = do
         Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
         _ -> pure Nothing
 
-initBotState :: Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> String -> IO BotState
-initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym = do
+initBotState :: Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> String -> IO BotState
+initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation sym = do
     let lookback = argLookback args
     now <- getTimestampMs
     env <- makeBinanceEnv mOps args
@@ -9492,7 +9616,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
         chosenDir = lsChosenDir latestStartRaw
         closeDir = lsCloseDir latestStartRaw
 
-        desiredPosSignal =
+        desiredPosSignalRaw =
             case startPos0 of
                 1 ->
                     case chosenDir of
@@ -9516,17 +9640,33 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                         Just (-1) | allowShort -> -1
                         _ -> 0
 
+        startupPortfolioReasonMaybe = mStartupPortfolioCapitalPreservation >>= pcprReason
+        (desiredPosSignal, startupGateAction) =
+            case startupPortfolioReasonMaybe of
+                Just reason ->
+                    let flipAttempt = startPos0 /= 0 && desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
+                     in if startPos0 == 0 && desiredPosSignalRaw /= 0
+                            then (0, Just ("HOLD_" ++ reason))
+                            else
+                                if flipAttempt
+                                    then (0, Just ("EXIT_" ++ reason))
+                                    else (desiredPosSignalRaw, Nothing)
+                Nothing -> (desiredPosSignalRaw, Nothing)
+
         latest =
-            case (startPos0, desiredPosSignal) of
-                (1, 0) ->
-                    if lsChosenDir latestStartRaw /= Just (-1)
-                        then latestStartRaw{lsChosenDir = Just (-1), lsAction = "FLAT (close)"}
-                        else latestStartRaw
-                (-1, 0) ->
-                    if lsChosenDir latestStartRaw /= Just 1
-                        then latestStartRaw{lsChosenDir = Just 1, lsAction = "FLAT (close)"}
-                        else latestStartRaw
-                _ -> latestStartRaw
+            case startupGateAction of
+                Just action -> latestStartRaw{lsAction = action}
+                Nothing ->
+                    case (startPos0, desiredPosSignal) of
+                        (1, 0) ->
+                            if lsChosenDir latestStartRaw /= Just (-1)
+                                then latestStartRaw{lsChosenDir = Just (-1), lsAction = "FLAT (close)"}
+                                else latestStartRaw
+                        (-1, 0) ->
+                            if lsChosenDir latestStartRaw /= Just 1
+                                then latestStartRaw{lsChosenDir = Just 1, lsAction = "FLAT (close)"}
+                                else latestStartRaw
+                        _ -> latestStartRaw
 
         baseEq = 1.0
         eq0 = V.replicate n baseEq
@@ -12958,6 +13098,25 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         capitalPreservationReasonMaybe = cprReason capitalPreservation
         entryAttempt = desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
         entryAttemptFromFlat = prevPos == 0 && desiredPosWanted2 /= 0
+        prospectiveCloseTrade =
+            if entryAttempt && prevPos /= 0 && desiredPosWanted2 /= prevPos
+                then case openTrade1 of
+                    Nothing -> []
+                    Just ot ->
+                        [ PortfolioCapitalTrade
+                            { pctReturn = eqAfterReturn / max 1e-12 (botOpenEntryEquity ot) - 1
+                            , pctClosedAtMs = Just openTimeNew
+                            }
+                        ]
+                else []
+        portfolioCapitalPreservation =
+            portfolioCapitalPreservationReportForStates
+                args
+                settings
+                now
+                allStates
+                prospectiveCloseTrade
+        portfolioCapitalPreservationReasonMaybe = pcprReason portfolioCapitalPreservation
         entryBlockReason
             | entryAttemptFromFlat && countBlocked = Just "MAX_OPEN_POSITIONS"
             | entryAttemptFromFlat && baseCountBlocked = Just "MAX_OPEN_PER_BASE"
@@ -12966,7 +13125,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             | entryAttempt && baseExposureBlocked = Just "MAX_EXPOSURE_PER_BASE"
             | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
             | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
-            | entryAttempt = capitalPreservationReasonMaybe <|> perfGateReasonMaybe
+            | entryAttempt = portfolioCapitalPreservationReasonMaybe <|> capitalPreservationReasonMaybe <|> perfGateReasonMaybe
             | otherwise = Nothing
 
         (latest2b, desiredPosWanted2b, mExitReason2b) =

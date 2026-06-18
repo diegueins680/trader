@@ -1,10 +1,19 @@
 module Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
+    PortfolioCapitalPreservationConfig (..),
+    PortfolioCapitalPreservationReport (..),
+    PortfolioCapitalTrade (..),
     capitalPreservationIsEntryOnlyReason,
     capitalPreservationReport,
     defaultCapitalPreservationConfig,
+    defaultPortfolioCapitalPreservationCooldownMs,
+    defaultPortfolioCapitalPreservationConfig,
+    portfolioCapitalPreservationReport,
 ) where
+
+import Data.Int (Int64)
+import Data.List (sortOn)
 
 data CapitalPreservationConfig = CapitalPreservationConfig
     { cpcEnabled :: !Bool
@@ -28,6 +37,35 @@ data CapitalPreservationReport = CapitalPreservationReport
     }
     deriving (Eq, Show)
 
+data PortfolioCapitalPreservationConfig = PortfolioCapitalPreservationConfig
+    { pcpcEnabled :: !Bool
+    , pcpcLookback :: !Int
+    , pcpcMinTrades :: !Int
+    , pcpcMaxRollingLoss :: !(Maybe Double)
+    , pcpcLossStreakMax :: !Int
+    , pcpcCooldownMs :: !Int64
+    }
+    deriving (Eq, Show)
+
+data PortfolioCapitalTrade = PortfolioCapitalTrade
+    { pctReturn :: !Double
+    , pctClosedAtMs :: !(Maybe Int64)
+    }
+    deriving (Eq, Show)
+
+data PortfolioCapitalPreservationReport = PortfolioCapitalPreservationReport
+    { pcprEnabled :: !Bool
+    , pcprLookback :: !Int
+    , pcprTrades :: !Int
+    , pcprLossStreak :: !Int
+    , pcprRollingReturn :: !(Maybe Double)
+    , pcprRollingLoss :: !(Maybe Double)
+    , pcprNewestClosedAtMs :: !(Maybe Int64)
+    , pcprOpenUntilMs :: !(Maybe Int64)
+    , pcprReason :: !(Maybe String)
+    }
+    deriving (Eq, Show)
+
 defaultCapitalPreservationConfig :: CapitalPreservationConfig
 defaultCapitalPreservationConfig =
     CapitalPreservationConfig
@@ -38,6 +76,20 @@ defaultCapitalPreservationConfig =
         , cpcMaxRollingLoss = Just 0.05
         , cpcMinSharpe = Just 0
         , cpcLossStreakMax = 3
+        }
+
+defaultPortfolioCapitalPreservationCooldownMs :: Int64
+defaultPortfolioCapitalPreservationCooldownMs = 30 * 60 * 1000
+
+defaultPortfolioCapitalPreservationConfig :: PortfolioCapitalPreservationConfig
+defaultPortfolioCapitalPreservationConfig =
+    PortfolioCapitalPreservationConfig
+        { pcpcEnabled = True
+        , pcpcLookback = cpcLookback defaultCapitalPreservationConfig
+        , pcpcMinTrades = cpcMinTrades defaultCapitalPreservationConfig
+        , pcpcMaxRollingLoss = cpcMaxRollingLoss defaultCapitalPreservationConfig
+        , pcpcLossStreakMax = cpcLossStreakMax defaultCapitalPreservationConfig
+        , pcpcCooldownMs = defaultPortfolioCapitalPreservationCooldownMs
         }
 
 capitalPreservationIsEntryOnlyReason :: String -> Bool
@@ -82,6 +134,75 @@ capitalPreservationReport cfg drawdown lossStreak returns0 =
             , cprRollingLoss = rollingLoss
             , cprRollingSharpe = rollingSharpe
             , cprReason = reason
+            }
+
+portfolioCapitalPreservationReport ::
+    PortfolioCapitalPreservationConfig ->
+    Int64 ->
+    [PortfolioCapitalTrade] ->
+    PortfolioCapitalPreservationReport
+portfolioCapitalPreservationReport cfg nowMs trades0 =
+    let lookback = max 0 (pcpcLookback cfg)
+        sortedTrades =
+            map snd3 $
+                sortOn
+                    (\(closedAt, idx, _) -> (closedAt, idx))
+                    [ (closedAt, idx, tr{pctClosedAtMs = Just closedAt})
+                    | (idx, tr) <- zip [(0 :: Int) ..] trades0
+                    , finiteDouble (pctReturn tr)
+                    , Just closedAt <- [pctClosedAtMs tr]
+                    ]
+        snd3 (_, _, x) = x
+        finiteTrades = sortedTrades
+        recent = take lookback (reverse finiteTrades)
+        returns = map pctReturn recent
+        trades = length recent
+        minTrades =
+            if lookback <= 0
+                then max 1 (pcpcMinTrades cfg)
+                else max 1 (min lookback (pcpcMinTrades cfg))
+        ready = pcpcEnabled cfg && lookback > 0 && trades >= minTrades
+        lossStreak =
+            length
+                ( takeWhile
+                    (\tr -> pctReturn tr <= 0)
+                    (reverse finiteTrades)
+                )
+        rollingReturn =
+            if trades > 0
+                then Just (sum returns)
+                else Nothing
+        rollingLoss = max 0 . negate <$> rollingReturn
+        triggerReason
+            | not (pcpcEnabled cfg) = Nothing
+            | pcpcLossStreakMax cfg > 0 && lossStreak >= pcpcLossStreakMax cfg = Just "CAPITAL_PRESERVATION_PORTFOLIO_LOSS_STREAK"
+            | not ready = Nothing
+            | maybe False (\lim -> maybe False (>= lim) rollingLoss) (pcpcMaxRollingLoss cfg) = Just "CAPITAL_PRESERVATION_PORTFOLIO_ROLLING_LOSS"
+            | otherwise = Nothing
+        newestClosedAtMs =
+            case finiteTrades of
+                [] -> Nothing
+                _ -> pctClosedAtMs (last finiteTrades)
+        cooldownMs = max 0 (pcpcCooldownMs cfg)
+        openUntilMs = (+ cooldownMs) <$> newestClosedAtMs
+        cooldownOpen =
+            case openUntilMs of
+                Just untilMs -> nowMs < untilMs
+                Nothing -> False
+        reason =
+            case triggerReason of
+                Just r | cooldownOpen -> Just r
+                _ -> Nothing
+     in PortfolioCapitalPreservationReport
+            { pcprEnabled = pcpcEnabled cfg
+            , pcprLookback = lookback
+            , pcprTrades = trades
+            , pcprLossStreak = lossStreak
+            , pcprRollingReturn = rollingReturn
+            , pcprRollingLoss = rollingLoss
+            , pcprNewestClosedAtMs = newestClosedAtMs
+            , pcprOpenUntilMs = openUntilMs
+            , pcprReason = reason
             }
 
 tradeSharpe :: [Double] -> Maybe Double
