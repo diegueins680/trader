@@ -480,6 +480,7 @@ main = do
     testOptimizerActivityCountInvariant
     testAutoOptimizerCappedLookbackScopes
     testSweepThresholdMinRoundTripsFallback
+    testSweepThresholdZeroCandidatesKeepsBasePair
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
@@ -5365,6 +5366,35 @@ testSweepThresholdMinRoundTripsFallback = do
             assert
                 "sweep-threshold returns a usable fallback below an over-strict activity floor"
                 (bmRoundTrips (computeMetrics 252 bt) < tcMinRoundTrips cfg && tsFoldCount stats > 0)
+
+testSweepThresholdZeroCandidatesKeepsBasePair :: IO ()
+testSweepThresholdZeroCandidatesKeepsBasePair = do
+    let prices :: [Double]
+        prices = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]
+        preds :: [Double]
+        preds = [101.5, 102.5, 103.5, 104.5, 105.5]
+        cfg =
+            (defaultTuneConfig 252)
+                { tcMaxThresholdCandidates = 0
+                , tcWalkForwardFolds = 1
+                }
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.03
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        result = sweepThresholdWithHLWith cfg MethodBoth baseCfg prices prices prices preds preds (Nothing :: Maybe [StepMeta])
+    case result of
+        Left err -> assert ("sweep-threshold zero-candidate regression failed to simulate: " ++ err) False
+        Right (openThr, closeThr, _bt, stats) -> do
+            assert "zero dynamic threshold candidates keep the configured open threshold" (abs (openThr - 0.01) < 1e-12)
+            assert "zero dynamic threshold candidates keep the configured close threshold" (abs (closeThr - 0.03) < 1e-12)
+            assert "zero dynamic threshold candidates still report tune stats" (tsFoldCount stats > 0)
 
 -- Fresh-entry sizing-validity regression: malformed cap/floor evidence must
 -- fail closed before a new position can open, while valid zero and minimum

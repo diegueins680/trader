@@ -3070,7 +3070,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
             let evalClose = evalForOpen openThr
              in foldl' (\acc0 closeThr -> pickResult acc0 (evalClose closeThr)) acc candidates
         (bestEligible, _, _, bestOpenThr, bestCloseThr, bestBt, bestStats, _bestMetrics) =
-            foldl' foldClose (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics) candidates
+            if maxCandidates <= 0
+                then (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics)
+                else foldl' foldClose (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics) candidates
 
         result = (bestOpenThr, bestCloseThr, bestBt, bestStats)
      in case validationError of
