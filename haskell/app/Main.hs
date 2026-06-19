@@ -921,7 +921,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "conformal_clip" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "risk_parity_blend" | "consensus_boost" | "anchor_blend" | "tension_gate" | "entropy_blend" | "coherence_gate" | "divergence_gate" | "fractal_blend" | "phase_cancel" | "softmax_blend" | "smooth_softmax_blend" | "hedge_blend" | "net_softmax_blend" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router" | "cross_sectional_momentum"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "conformal_clip" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "risk_parity_blend" | "consensus_boost" | "anchor_blend" | "tension_gate" | "entropy_blend" | "coherence_gate" | "divergence_gate" | "fractal_blend" | "phase_cancel" | "softmax_blend" | "smooth_softmax_blend" | "hedge_blend" | "meta_hedge_blend" | "net_softmax_blend" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router" | "cross_sectional_momentum"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1403,6 +1403,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightSmoothSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightHedgeBlend :: !(Maybe Double)
+    , arrMethodWeightMetaHedgeBlend :: !(Maybe Double)
     , arrMethodWeightNetSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightEdgeBlend :: !(Maybe Double)
     , arrMethodWeightEdgePick :: !(Maybe Double)
@@ -3755,6 +3756,7 @@ seedStrategies conn = do
             , ("softmax_blend", "Softmax Blend")
             , ("smooth_softmax_blend", "Smooth Softmax Blend")
             , ("hedge_blend", "Hedge Blend")
+            , ("meta_hedge_blend", "Meta Hedge Blend")
             , ("net_softmax_blend", "Net Softmax Blend")
             , ("edge_blend", "Edge Blend")
             , ("edge_pick", "Edge Pick")
@@ -9759,6 +9761,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                     MethodSoftmaxBlend -> MethodBoth
                     MethodSmoothSoftmaxBlend -> MethodBoth
                     MethodHedgeBlend -> MethodBoth
+                    MethodMetaHedgeBlend -> MethodBoth
                     MethodNetSoftmaxBlend -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
@@ -10334,6 +10337,7 @@ botOptimizeAfterOperation st = do
                                 , ecStopLossVolMult = argStopLossVolMult args
                                 , ecTakeProfitVolMult = argTakeProfitVolMult args
                                 , ecTrailingStopVolMult = argTrailingStopVolMult args
+                                , ecTakeProfitPartial = argTakeProfitPartial args
                                 , ecMinHoldBars = argMinHoldBars args
                                 , ecCooldownBars = argCooldownBars args
                                 , ecMaxHoldBars = argMaxHoldBars args
@@ -10611,6 +10615,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodSmoothSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodHedgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodMetaHedgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodNetSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgePick -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -13192,10 +13197,15 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             case takeProfit0 of
                                 Just tp -> Just (entryPx * (1 + tp))
                                 Nothing -> Nothing
-                        mSl =
+                        mSlBase =
                             case stopLoss0 of
                                 Just sl -> Just (entryPx * (1 - sl))
                                 Nothing -> Nothing
+                        partialTaken = maybe False botOpenPartialTaken openTrade1
+                        mSl =
+                            if partialTaken
+                                then Just (maybe entryPx (max entryPx) mSlBase)
+                                else mSlBase
                         stopPx trailHigh0 =
                             let mTs =
                                     case trailingStop0 of
@@ -13233,10 +13243,15 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             case takeProfit0 of
                                 Just tp -> Just (entryPx * (1 - tp))
                                 Nothing -> Nothing
-                        mSl =
+                        mSlBase =
                             case stopLoss0 of
                                 Just sl -> Just (entryPx * (1 + sl))
                                 Nothing -> Nothing
+                        partialTaken = maybe False botOpenPartialTaken openTrade1
+                        mSl =
+                            if partialTaken
+                                then Just (maybe entryPx (min entryPx) mSlBase)
+                                else mSlBase
                         stopPx trailLow0 =
                             let mTs =
                                     case trailingStop0 of
@@ -17091,6 +17106,8 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeDoubleArg "--method-weight-smooth-softmax-blend" (fmap (max 0) (arrMethodWeightSmoothSoftmaxBlend req))
                 methodWeightHedgeBlendArgs =
                     maybeDoubleArg "--method-weight-hedge-blend" (fmap (max 0) (arrMethodWeightHedgeBlend req))
+                methodWeightMetaHedgeBlendArgs =
+                    maybeDoubleArg "--method-weight-meta-hedge-blend" (fmap (max 0) (arrMethodWeightMetaHedgeBlend req))
                 methodWeightNetSoftmaxBlendArgs =
                     maybeDoubleArg "--method-weight-net-softmax-blend" (fmap (max 0) (arrMethodWeightNetSoftmaxBlend req))
                 methodWeightEdgeBlendArgs =
@@ -17374,6 +17391,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ methodWeightSoftmaxBlendArgs
                         ++ methodWeightSmoothSoftmaxBlendArgs
                         ++ methodWeightHedgeBlendArgs
+                        ++ methodWeightMetaHedgeBlendArgs
                         ++ methodWeightNetSoftmaxBlendArgs
                         ++ methodWeightEdgeBlendArgs
                         ++ methodWeightEdgePickArgs
@@ -21877,6 +21895,7 @@ placeDexOrderForSignal args sig = do
                 MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
                 MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
                 MethodHedgeBlend -> "No order: Hedge blend neutral (within threshold)."
+                MethodMetaHedgeBlend -> "No order: Meta hedge blend neutral (within threshold)."
                 MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
                 MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
                 MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -24247,6 +24266,89 @@ hedgeBlendPredictionsV etaRaw maxErrRaw initWeight pricesV kalPredV lstmPredV =
                      in Just (pred, (t + 1, z'))
      in V.unfoldrN (max 0 stepCount) step (0, logit w0)
 
+metaHedgeBlendPredictionsV ::
+    Double ->
+    Double ->
+    V.Vector Double ->
+    [V.Vector Double] ->
+    V.Vector Double
+metaHedgeBlendPredictionsV etaRaw maxErrRaw pricesV expertPreds0 =
+    let expertPreds = filter (not . V.null) expertPreds0
+        stepLimit = max 0 (V.length pricesV - 1)
+        stepCount =
+            if null expertPreds
+                then stepLimit
+                else minimum (stepLimit : map V.length expertPreds)
+        eta = max 0 etaRaw
+        maxErr = max 1e-12 maxErrRaw
+        bad x = isNaN x || isInfinite x
+        ret prev x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let r = x / prev - 1
+                     in if bad r then Nothing else Just r
+        lossFromR rPred rReal =
+            let e = min maxErr (max 0 (abs (rPred - rReal)))
+             in if bad e then maxErr else e
+        normalizeLogs logs =
+            case logs of
+                [] -> []
+                _ ->
+                    let mx = maximum logs
+                     in [max (-60) (min 0 (z - mx)) | z <- logs]
+        updateLogs logs prev actual preds =
+            case ret prev actual of
+                Nothing -> logs
+                Just rReal ->
+                    normalizeLogs $
+                        zipWith
+                            ( \z pred ->
+                                let loss = maybe maxErr (`lossFromR` rReal) (ret prev pred)
+                                    z' = z - eta * loss
+                                 in if bad z' then z else z'
+                            )
+                            logs
+                            preds
+        weightedPred prev logs preds =
+            let pairs =
+                    [ (z, pred)
+                    | (z, pred) <- zip logs preds
+                    , not (bad z)
+                    , not (bad pred)
+                    ]
+             in case pairs of
+                    [] -> neutralPredFromPrev prev
+                    _ ->
+                        let maxLog = maximum (map fst pairs)
+                            (num, den) =
+                                foldl'
+                                    ( \(accNum, accDen) (z, pred) ->
+                                        let w = exp (max (-60) (z - maxLog))
+                                         in (accNum + w * pred, accDen + w)
+                                    )
+                                    (0, 0)
+                                    pairs
+                            pred =
+                                if den <= 0
+                                    then neutralPredFromPrev prev
+                                    else num / den
+                         in if bad pred then neutralPredFromPrev prev else pred
+        neutral t = neutralPredFromPrev (pricesV V.! t)
+        step (t, logs) =
+            if t >= stepCount
+                then Nothing
+                else
+                    let prev = pricesV V.! t
+                        actual = pricesV V.! (t + 1)
+                        preds = map (V.! t) expertPreds
+                        pred = weightedPred prev logs preds
+                        logs' = updateLogs logs prev actual preds
+                     in Just (pred, (t + 1, logs'))
+     in if null expertPreds
+            then V.generate stepCount neutral
+            else V.unfoldrN stepCount step (0, replicate (length expertPreds) 0)
+
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi x =
     let lo' = min lo hi
@@ -24601,6 +24703,41 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                     MethodBanditRouter -> runBandit
                                     _ -> runRouter
                         else blendPred0
+                metaHedgeBlendPred0 =
+                    metaHedgeBlendPredictionsV
+                        blendHedgeEta
+                        blendHedgeMaxError
+                        pricesV
+                        [ kalPred0
+                        , lstmPred0
+                        , blendPred0
+                        , confBlendPred0
+                        , confPickPred0
+                        , conformalClipPred0
+                        , costPickPred0
+                        , harmonicBlendPred0
+                        , disagreementGuardPred0
+                        , medianBlendPred0
+                        , neutralGuardPred0
+                        , riskParityBlendPred0
+                        , consensusBoostPred0
+                        , anchorBlendPred0
+                        , tensionGatePred0
+                        , entropyBlendPred0
+                        , coherenceGatePred0
+                        , divergenceGatePred0
+                        , fractalBlendPred0
+                        , phaseCancelPred0
+                        , softmaxBlendPred0
+                        , smoothSoftmaxBlendPred0
+                        , hedgeBlendPred0
+                        , netSoftmaxBlendPred0
+                        , edgeBlendPred0
+                        , edgePickPred0
+                        , geoBlendPred0
+                        , regimeSwitchPred0
+                        , routerPred
+                        ]
                 (kalPred1, lstmPred1) =
                     case method of
                         MethodBlend -> (blendPred0, blendPred0)
@@ -24624,6 +24761,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodSoftmaxBlend -> (softmaxBlendPred0, softmaxBlendPred0)
                         MethodSmoothSoftmaxBlend -> (smoothSoftmaxBlendPred0, smoothSoftmaxBlendPred0)
                         MethodHedgeBlend -> (hedgeBlendPred0, hedgeBlendPred0)
+                        MethodMetaHedgeBlend -> (metaHedgeBlendPred0, metaHedgeBlendPred0)
                         MethodNetSoftmaxBlend -> (netSoftmaxBlendPred0, netSoftmaxBlendPred0)
                         MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
@@ -24907,6 +25045,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
             MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
             MethodHedgeBlend -> "No order: Hedge blend neutral (within threshold)."
+            MethodMetaHedgeBlend -> "No order: Meta hedge blend neutral (within threshold)."
             MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -25887,6 +26026,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
             MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
             MethodHedgeBlend -> "No order: Hedge blend neutral (within threshold)."
+            MethodMetaHedgeBlend -> "No order: Meta hedge blend neutral (within threshold)."
             MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -26765,6 +26905,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodSoftmaxBlend -> "Backtest (softmax-edge Kalman/LSTM blend) complete."
                     MethodSmoothSoftmaxBlend -> "Backtest (EMA-smoothed softmax-edge Kalman/LSTM blend) complete."
                     MethodHedgeBlend -> "Backtest (hedge-weighted Kalman/LSTM blend) complete."
+                    MethodMetaHedgeBlend -> "Backtest (meta hedge blend across method forecasts) complete."
                     MethodNetSoftmaxBlend -> "Backtest (post-cost softmax Kalman/LSTM blend) complete."
                     MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
                     MethodEdgePick -> "Backtest (edge winner-take-all Kalman/LSTM pick) complete."
@@ -27311,6 +27452,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodSoftmaxBlend -> MethodBoth
                     MethodSmoothSoftmaxBlend -> MethodBoth
                     MethodHedgeBlend -> MethodBoth
+                    MethodMetaHedgeBlend -> MethodBoth
                     MethodNetSoftmaxBlend -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
@@ -27575,6 +27717,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodSoftmaxBlend -> runDualPredictorBacktestNoPhysics
             MethodSmoothSoftmaxBlend -> runDualPredictorBacktestNoPhysics
             MethodHedgeBlend -> runDualPredictorBacktestNoPhysics
+            MethodMetaHedgeBlend -> runDualPredictorBacktestNoPhysics
             MethodNetSoftmaxBlend -> runDualPredictorBacktestNoPhysics
             MethodEdgeBlend -> runDualPredictorBacktestNoPhysics
             MethodEdgePick -> runDualPredictorBacktestNoPhysics
@@ -27630,6 +27773,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecStopLossVolMult = argStopLossVolMult args
                 , ecTakeProfitVolMult = argTakeProfitVolMult args
                 , ecTrailingStopVolMult = argTrailingStopVolMult args
+                , ecTakeProfitPartial = argTakeProfitPartial args
                 , ecMinHoldBars = argMinHoldBars args
                 , ecCooldownBars = argCooldownBars args
                 , ecMaxHoldBars = argMaxHoldBars args
@@ -28087,6 +28231,74 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     regimeSwitchV
                     edgeBlendV
                     metaV
+        metaHedgeBlendPredBacktest =
+            let pricesV = V.fromList backtestPrices
+                kalV = V.fromList kalPredBacktest
+                lstmV = V.fromList lstmPredBacktest
+                blendV = V.fromList blendPredBacktest
+                confBlendV = V.fromList confBlendPredBacktest
+                confPickV = V.fromList confPickPredBacktest
+                conformalClipV = V.fromList conformalClipPredBacktest
+                costPickV = V.fromList costPickPredBacktest
+                harmonicBlendV = V.fromList harmonicBlendPredBacktest
+                disagreementGuardV = V.fromList disagreementGuardPredBacktest
+                medianBlendV = V.fromList medianBlendPredBacktest
+                neutralGuardV = V.fromList neutralGuardPredBacktest
+                riskParityBlendV = V.fromList riskParityBlendPredBacktest
+                consensusBoostV = V.fromList consensusBoostPredBacktest
+                anchorBlendV = V.fromList anchorBlendPredBacktest
+                tensionGateV = V.fromList tensionGatePredBacktest
+                entropyBlendV = V.fromList entropyBlendPredBacktest
+                coherenceGateV = V.fromList coherenceGatePredBacktest
+                divergenceGateV = V.fromList divergenceGatePredBacktest
+                fractalBlendV = V.fromList fractalBlendPredBacktest
+                phaseCancelV = V.fromList phaseCancelPredBacktest
+                softmaxBlendV = V.fromList softmaxBlendPredBacktest
+                smoothSoftmaxBlendV = V.fromList smoothSoftmaxBlendPredBacktest
+                hedgeBlendV = V.fromList hedgeBlendPredBacktest
+                netSoftmaxBlendV = V.fromList netSoftmaxBlendPredBacktest
+                edgeBlendV = V.fromList edgeBlendPredBacktest
+                edgePickV = V.fromList edgePickPredBacktest
+                geoBlendV = V.fromList geoBlendPredBacktest
+                regimeSwitchV = V.fromList regimeSwitchPredBacktest
+                routerV = fst runRouterBacktest
+                banditV = fst runBanditBacktest
+             in V.toList $
+                    metaHedgeBlendPredictionsV
+                        blendHedgeEta
+                        blendHedgeMaxError
+                        pricesV
+                        [ kalV
+                        , lstmV
+                        , blendV
+                        , confBlendV
+                        , confPickV
+                        , conformalClipV
+                        , costPickV
+                        , harmonicBlendV
+                        , disagreementGuardV
+                        , medianBlendV
+                        , neutralGuardV
+                        , riskParityBlendV
+                        , consensusBoostV
+                        , anchorBlendV
+                        , tensionGateV
+                        , entropyBlendV
+                        , coherenceGateV
+                        , divergenceGateV
+                        , fractalBlendV
+                        , phaseCancelV
+                        , softmaxBlendV
+                        , smoothSoftmaxBlendV
+                        , hedgeBlendV
+                        , netSoftmaxBlendV
+                        , edgeBlendV
+                        , edgePickV
+                        , geoBlendV
+                        , regimeSwitchV
+                        , routerV
+                        , banditV
+                        ]
         routerPredBacktest =
             case methodUsed of
                 MethodRouter ->
@@ -28148,6 +28360,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     (smoothSoftmaxBlendPredBacktest, smoothSoftmaxBlendPredBacktest, metaBacktest, Nothing)
                 MethodHedgeBlend ->
                     (hedgeBlendPredBacktest, hedgeBlendPredBacktest, metaBacktest, Nothing)
+                MethodMetaHedgeBlend ->
+                    (metaHedgeBlendPredBacktest, metaHedgeBlendPredBacktest, metaBacktest, Nothing)
                 MethodNetSoftmaxBlend ->
                     (netSoftmaxBlendPredBacktest, netSoftmaxBlendPredBacktest, metaBacktest, Nothing)
                 MethodDivergenceGate ->
@@ -29247,6 +29461,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method hedge_blend requires both Kalman and LSTM contexts."
+            MethodMetaHedgeBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method meta_hedge_blend requires both Kalman and LSTM contexts."
             MethodNetSoftmaxBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -29322,6 +29540,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             MethodSoftmaxBlend -> True
             MethodSmoothSoftmaxBlend -> True
             MethodHedgeBlend -> True
+            MethodMetaHedgeBlend -> True
             MethodNetSoftmaxBlend -> True
             MethodEdgeBlend -> True
             MethodEdgePick -> True
@@ -30452,6 +30671,163 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 if method == MethodOnlineNeural && isNothing onlineDirRaw
                     then Just "ONLINE_NN_NEUTRAL"
                     else Nothing
+            metaHedgeBlendNext =
+                case (mKalNext, mLstmNext, mPredHistory) of
+                    (Just k, Just l, Just PredHistory{phKalman = kalHist, phLstm = lstmHist, phMeta = metaHist})
+                        | V.length kalHist >= t && V.length lstmHist >= t ->
+                            let histKal = V.take t kalHist
+                                histLstm = V.take t lstmHist
+                                histMeta =
+                                    case metaHist of
+                                        Just mv | V.length mv >= t -> Just (V.take t mv)
+                                        _ -> Nothing
+                                appendCurrent hist = fmap (V.snoc hist)
+                                pricesWithCurrent = V.snoc pricesV currentPrice
+                                blendHist = blendPredictionsV blendWeight pricesV histKal histLstm
+                                confBlendHist =
+                                    confidenceBlendPredictionsV
+                                        blendWeight
+                                        kalZMinForBlend
+                                        kalZMaxForBlend
+                                        openThrAdj
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                        histMeta
+                                confPickHist =
+                                    confidencePickPredictionsV
+                                        blendWeight
+                                        kalZMinForBlend
+                                        kalZMaxForBlend
+                                        openThrAdj
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                        histMeta
+                                conformalClipHist = conformalClipPredictionsV blendWeight pricesV histKal histLstm histMeta
+                                costPickHist = costPickPredictionsV blendWeight roundTripCost pricesV histKal histLstm
+                                harmonicBlendHist = harmonicBlendPredictionsV blendWeight pricesV histKal histLstm
+                                disagreementGuardHist = disagreementGuardPredictionsV blendWeight pricesV histKal histLstm
+                                medianBlendHist = medianBlendPredictionsV blendWeight pricesV histKal histLstm
+                                neutralGuardHist = neutralGuardPredictionsV blendWeight pricesV histKal histLstm
+                                riskParityBlendHist = riskParityBlendPredictionsV blendWeight pricesV histKal histLstm
+                                consensusBoostHist = consensusBoostPredictionsV blendWeight pricesV histKal histLstm
+                                anchorBlendHist =
+                                    anchorBlendPredictionsV
+                                        blendAnchorConflictBase
+                                        blendAnchorConflictScale
+                                        blendAnchorAlignedScale
+                                        blendWeight
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                tensionGateHist =
+                                    tensionGatePredictionsV
+                                        blendTensionConflictShrink
+                                        blendTensionNeutralShrink
+                                        blendWeight
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                entropyBlendHist =
+                                    entropyBlendPredictionsV
+                                        blendEntropyConflictFloor
+                                        blendEntropyConflictScale
+                                        blendEntropyAlignedBase
+                                        blendEntropyAlignedEntropyScale
+                                        blendWeight
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                coherenceGateHist =
+                                    coherenceGatePredictionsV
+                                        blendCoherenceConflictFloor
+                                        blendCoherenceConflictScale
+                                        blendCoherenceBoostThreshold
+                                        blendCoherenceBoostGain
+                                        blendCoherenceBoostSpan
+                                        blendWeight
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                divergenceGateHist =
+                                    divergenceGatePredictionsV
+                                        blendDivergenceK
+                                        blendWeight
+                                        openThrAdj
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                fractalBlendHist =
+                                    fractalBlendPredictionsV
+                                        blendFractalReturnClamp
+                                        blendFractalAlignedGain
+                                        blendFractalConflictGain
+                                        blendWeight
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                phaseCancelHist =
+                                    phaseCancelPredictionsV
+                                        blendPhaseCancelReturnClamp
+                                        blendPhaseCancelConflictFloor
+                                        blendPhaseCancelConflictScale
+                                        blendPhaseCancelAlignmentScale
+                                        blendWeight
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                softmaxBlendHist = softmaxBlendPredictionsV blendSoftmaxScale blendWeight pricesV histKal histLstm
+                                smoothSoftmaxBlendHist = smoothSoftmaxBlendPredictionsV blendSoftmaxScale blendSmoothAlpha blendWeight pricesV histKal histLstm
+                                hedgeBlendHist = hedgeBlendPredictionsV blendHedgeEta blendHedgeMaxError blendWeight pricesV histKal histLstm
+                                netSoftmaxBlendHist = netSoftmaxBlendPredictionsV blendNetSoftmaxScale blendWeight roundTripCost pricesV histKal histLstm
+                                edgeBlendHist = edgeBlendPredictionsV blendEdgePower blendWeight pricesV histKal histLstm
+                                edgePickHist = edgePickPredictionsV blendEdgePower blendWeight pricesV histKal histLstm
+                                geoBlendHist = geometricBlendPredictionsV blendWeight pricesV histKal histLstm
+                                regimeSwitchHist =
+                                    regimeSwitchPredictionsV
+                                        blendWeight
+                                        blendRegimeHighVolCutoff
+                                        blendRegimeKalmanZCutoff
+                                        pricesV
+                                        histKal
+                                        histLstm
+                                        histMeta
+                                experts =
+                                    catMaybes
+                                        [ Just (V.snoc histKal k)
+                                        , Just (V.snoc histLstm l)
+                                        , appendCurrent blendHist blendNext
+                                        , appendCurrent confBlendHist confBlendNext
+                                        , appendCurrent confPickHist confPickNext
+                                        , appendCurrent conformalClipHist conformalClipNext
+                                        , appendCurrent costPickHist costPickNext
+                                        , appendCurrent harmonicBlendHist harmonicBlendNext
+                                        , appendCurrent disagreementGuardHist disagreementGuardNext
+                                        , appendCurrent medianBlendHist medianBlendNext
+                                        , appendCurrent neutralGuardHist neutralGuardNext
+                                        , appendCurrent riskParityBlendHist riskParityBlendNext
+                                        , appendCurrent consensusBoostHist consensusBoostNext
+                                        , appendCurrent anchorBlendHist anchorBlendNext
+                                        , appendCurrent tensionGateHist tensionGateNext
+                                        , appendCurrent entropyBlendHist entropyBlendNext
+                                        , appendCurrent coherenceGateHist coherenceGateNext
+                                        , appendCurrent divergenceGateHist divergenceGateNext
+                                        , appendCurrent fractalBlendHist fractalBlendNext
+                                        , appendCurrent phaseCancelHist phaseCancelNext
+                                        , appendCurrent softmaxBlendHist softmaxBlendNext
+                                        , appendCurrent smoothSoftmaxBlendHist smoothSoftmaxBlendNext
+                                        , appendCurrent hedgeBlendHist hedgeBlendNext
+                                        , appendCurrent netSoftmaxBlendHist netSoftmaxBlendNext
+                                        , appendCurrent edgeBlendHist edgeBlendNext
+                                        , appendCurrent edgePickHist edgePickNext
+                                        , appendCurrent geoBlendHist geoBlendNext
+                                        , appendCurrent regimeSwitchHist regimeSwitchNext
+                                        ]
+                                preds = metaHedgeBlendPredictionsV blendHedgeEta blendHedgeMaxError pricesWithCurrent experts
+                             in if V.null preds then blendNext else Just (V.last preds)
+                    (Just _, Just _, _) -> blendNext
+                    _ -> Nothing
             sizingNext =
                 case method of
                     MethodBoth -> mLstmNext
@@ -30479,6 +30855,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSoftmaxBlend -> softmaxBlendNext
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendNext
                     MethodHedgeBlend -> hedgeBlendNext
+                    MethodMetaHedgeBlend -> metaHedgeBlendNext
                     MethodNetSoftmaxBlend -> netSoftmaxBlendNext
                     MethodEdgeBlend -> edgeBlendNext
                     MethodEdgePick -> edgePickNext
@@ -30525,6 +30902,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             edgeSoftmaxBlend = softmaxBlendNext >>= edgeFromPred
             edgeSmoothSoftmaxBlend = smoothSoftmaxBlendNext >>= edgeFromPred
             edgeHedgeBlend = hedgeBlendNext >>= edgeFromPred
+            edgeMetaHedgeBlend = metaHedgeBlendNext >>= edgeFromPred
             edgeNetSoftmaxBlend = netSoftmaxBlendNext >>= edgeFromPred
             edgeDivergenceGate = divergenceGateNext >>= edgeFromPred
             edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
@@ -30564,6 +30942,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSoftmaxBlend -> edgeSoftmaxBlend
                     MethodSmoothSoftmaxBlend -> edgeSmoothSoftmaxBlend
                     MethodHedgeBlend -> edgeHedgeBlend
+                    MethodMetaHedgeBlend -> edgeMetaHedgeBlend
                     MethodNetSoftmaxBlend -> edgeNetSoftmaxBlend
                     MethodDivergenceGate -> edgeDivergenceGate
                     MethodEdgeBlend -> edgeEdgeBlend
@@ -30744,6 +31123,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             smoothSoftmaxBlendCloseDir = smoothSoftmaxBlendNext >>= directionPrice closeThrAdj
             hedgeBlendDir = hedgeBlendNext >>= directionPrice openThrAdj
             hedgeBlendCloseDir = hedgeBlendNext >>= directionPrice closeThrAdj
+            metaHedgeBlendDir = metaHedgeBlendNext >>= directionPrice openThrAdj
+            metaHedgeBlendCloseDir = metaHedgeBlendNext >>= directionPrice closeThrAdj
             netSoftmaxBlendDir = netSoftmaxBlendNext >>= directionPrice openThrAdj
             netSoftmaxBlendCloseDir = netSoftmaxBlendNext >>= directionPrice closeThrAdj
             divergenceGateDir = divergenceGateNext >>= directionPrice openThrAdj
@@ -31155,6 +31536,25 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                          in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                     _ -> (Nothing, Nothing, Nothing, Nothing)
+            (metaHedgeBlendDirGated, metaHedgeBlendCloseDirGated, metaHedgeBlendPosSize, metaHedgeBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodMetaHedgeBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing metaHedgeBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore metaHedgeBlendDir Nothing
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore metaHedgeBlendCloseDir Nothing
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
             (netSoftmaxBlendDirGated, netSoftmaxBlendCloseDirGated, netSoftmaxBlendPosSize, netSoftmaxBlendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodNetSoftmaxBlend, Just kalZ, Just confScore) ->
@@ -31380,6 +31780,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSoftmaxBlend -> softmaxBlendCloseDirGated
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendCloseDirGated
                     MethodHedgeBlend -> hedgeBlendCloseDirGated
+                    MethodMetaHedgeBlend -> metaHedgeBlendCloseDirGated
                     MethodNetSoftmaxBlend -> netSoftmaxBlendCloseDirGated
                     MethodEdgeBlend -> edgeBlendCloseDirGated
                     MethodEdgePick -> edgePickCloseDirGated
@@ -31428,6 +31829,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSoftmaxBlend -> softmaxBlendDirGated
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendDirGated
                     MethodHedgeBlend -> hedgeBlendDirGated
+                    MethodMetaHedgeBlend -> metaHedgeBlendDirGated
                     MethodNetSoftmaxBlend -> netSoftmaxBlendDirGated
                     MethodEdgeBlend -> edgeBlendDirGated
                     MethodEdgePick -> edgePickDirGated
@@ -31823,6 +32225,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (hedge_blend neutral)"
+                        MethodMetaHedgeBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (meta_hedge_blend neutral)"
                         MethodNetSoftmaxBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -31983,6 +32393,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodSoftmaxBlend -> softmaxBlendPosSize
                         MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
                         MethodHedgeBlend -> hedgeBlendPosSize
+                        MethodMetaHedgeBlend -> metaHedgeBlendPosSize
                         MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
                         MethodEdgeBlend -> edgeBlendPosSize
                         MethodEdgePick -> edgePickPosSize
@@ -32024,6 +32435,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSoftmaxBlend -> softmaxBlendGateReason
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendGateReason
                     MethodHedgeBlend -> hedgeBlendGateReason
+                    MethodMetaHedgeBlend -> metaHedgeBlendGateReason
                     MethodNetSoftmaxBlend -> netSoftmaxBlendGateReason
                     MethodEdgeBlend -> edgeBlendGateReason
                     MethodEdgePick -> edgePickGateReason
@@ -33128,6 +33540,7 @@ printMetrics method initialBalance m = do
                 MethodSoftmaxBlend -> "Signal rate (Softmax blend)"
                 MethodSmoothSoftmaxBlend -> "Signal rate (Smooth softmax blend)"
                 MethodHedgeBlend -> "Signal rate (Hedge blend)"
+                MethodMetaHedgeBlend -> "Signal rate (Meta hedge blend)"
                 MethodNetSoftmaxBlend -> "Signal rate (Net softmax blend)"
                 MethodEdgeBlend -> "Signal rate (Edge blend)"
                 MethodEdgePick -> "Signal rate (Edge pick)"

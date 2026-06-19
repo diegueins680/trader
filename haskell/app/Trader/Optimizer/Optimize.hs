@@ -2805,6 +2805,7 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightSoftmaxBlend :: !Double
     , oaMethodWeightSmoothSoftmaxBlend :: !Double
     , oaMethodWeightHedgeBlend :: !Double
+    , oaMethodWeightMetaHedgeBlend :: !Double
     , oaMethodWeightNetSoftmaxBlend :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
@@ -4551,7 +4552,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter, methodWCrossSectionalMomentum, methodWOnlineNeural, methodWTaTrend, methodWTaReversion, methodWTaBreakout, methodWTaBest, methodWTaRegimeSwitch, methodWSmaCross, methodWSmaCrossRegime)
+    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWMetaHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter, methodWCrossSectionalMomentum, methodWOnlineNeural, methodWTaTrend, methodWTaReversion, methodWTaBreakout, methodWTaBest, methodWTaRegimeSwitch, methodWSmaCross, methodWSmaCrossRegime)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -4690,6 +4691,7 @@ sampleParams
                 , ("softmax_blend", methodWSoftmaxBlend)
                 , ("smooth_softmax_blend", methodWSmoothSoftmaxBlend)
                 , ("hedge_blend", methodWHedgeBlend)
+                , ("meta_hedge_blend", methodWMetaHedgeBlend)
                 , ("net_softmax_blend", methodWNetSoftmaxBlend)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
@@ -5938,6 +5940,7 @@ runOptimizer args0 = do
                                                             , oaMethodWeightSoftmaxBlend args
                                                             , oaMethodWeightSmoothSoftmaxBlend args
                                                             , oaMethodWeightHedgeBlend args
+                                                            , oaMethodWeightMetaHedgeBlend args
                                                             , oaMethodWeightNetSoftmaxBlend args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args

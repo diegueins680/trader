@@ -59,6 +59,9 @@ testOnlineNeuralMethodParsing = do
     assert "online_nn parses" (parseMethod "online_nn" == Right MethodOnlineNeural)
     assert "online_neural alias parses" (parseMethod "online_neural" == Right MethodOnlineNeural)
     assert "methodCode for online neural is stable" (methodCode MethodOnlineNeural == "online_nn")
+    assert "meta hedge blend parses" (parseMethod "meta_hedge_blend" == Right MethodMetaHedgeBlend)
+    assert "universal blend alias parses" (parseMethod "universal_blend" == Right MethodMetaHedgeBlend)
+    assert "methodCode for meta hedge blend is stable" (methodCode MethodMetaHedgeBlend == "meta_hedge_blend")
 
 testOnlineNeuralPredictionIsFinite :: IO ()
 testOnlineNeuralPredictionIsFinite = do

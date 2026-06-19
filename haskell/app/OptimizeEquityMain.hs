@@ -396,6 +396,7 @@ optimizerArgsParser =
         <*> option auto (long "method-weight-softmax-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-smooth-softmax-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-hedge-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-meta-hedge-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-net-softmax-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-edge-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-edge-pick" <> value 0.0 <> metavar "FLOAT")

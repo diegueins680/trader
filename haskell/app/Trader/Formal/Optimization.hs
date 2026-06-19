@@ -723,6 +723,7 @@ optimizerSurfacePreservedFields base updated =
         , ecStopLossVolMult updated == ecStopLossVolMult base
         , ecTakeProfitVolMult updated == ecTakeProfitVolMult base
         , ecTrailingStopVolMult updated == ecTrailingStopVolMult base
+        , ecTakeProfitPartial updated == ecTakeProfitPartial base
         , ecMaxPositionSize updated == ecMaxPositionSize base
         , ecSignalGateConfig updated == ecSignalGateConfig base
         , ecEntryEdgeSpikeAuditOnly updated == ecEntryEdgeSpikeAuditOnly base
@@ -794,6 +795,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
+        , ecTakeProfitPartial = 0
         , ecMinHoldBars = 0
         , ecCooldownBars = 0
         , ecMaxHoldBars = Nothing

@@ -99,6 +99,7 @@ data EnsembleConfig = EnsembleConfig
     , ecStopLossVolMult :: !Double
     , ecTakeProfitVolMult :: !Double
     , ecTrailingStopVolMult :: !Double
+    , ecTakeProfitPartial :: !Double
     , ecMinHoldBars :: !Int
     , ecCooldownBars :: !Int
     , ecMaxHoldBars :: !(Maybe Int)
@@ -728,6 +729,7 @@ data OpenTrade = OpenTrade
     , otSide :: !PositionSide
     , otBaseSize :: !Double
     , otLstmFlipCount :: !Int
+    , otPartialTaken :: !Bool
     }
     deriving (Eq, Show)
 
@@ -1707,6 +1709,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     Just ts | ts > 0 -> Just (clampFrac ts)
                                                     _ -> Nothing
 
+                                    takeProfitPartialFrac :: Double
+                                    takeProfitPartialFrac = clamp01 (ecTakeProfitPartial cfg)
+
                                     riskScaleAt :: Int -> Double
                                     riskScaleAt t =
                                         case riskPerTrade of
@@ -2610,6 +2615,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             , otSide = side
                                                             , otBaseSize = max 0 baseSize
                                                             , otLstmFlipCount = 0
+                                                            , otPartialTaken = False
                                                             }
 
                                                     openTradeUpdated =
@@ -2700,14 +2706,22 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                 let otHeld = ot0{otHoldingPeriods = otHoldingPeriods ot0 + 1}
                                                                     entryPx = otEntryPrice ot0
                                                                     trail0 = otTrail ot0
+                                                                    partialTpEligible =
+                                                                        takeProfitPartialFrac > 0
+                                                                            && takeProfitPartialFrac < 1
+                                                                            && not (otPartialTaken otHeld)
                                                                     mTp =
                                                                         case takeProfitFracAt t of
                                                                             Just tp -> Just (entryPx * (1 + tp))
                                                                             _ -> Nothing
-                                                                    mSl =
+                                                                    mSlBase =
                                                                         case stopLossFracAt t of
                                                                             Just sl -> Just (entryPx * (1 - sl))
                                                                             _ -> Nothing
+                                                                    mSl =
+                                                                        if otPartialTaken otHeld
+                                                                            then Just (maybe entryPx (max entryPx) mSlBase)
+                                                                            else mSlBase
                                                                     stopPx trail =
                                                                         let mTs =
                                                                                 case trailingStopFracAt t of
@@ -2731,11 +2745,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                         then (Just (Data.Maybe.fromMaybe nextClose mStop, stopWhy), trail0)
                                                                                         else
                                                                                             if tpHit
-                                                                                                then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
+                                                                                                then
+                                                                                                    if partialTpEligible
+                                                                                                        then (Nothing, max trail0 hi)
+                                                                                                        else (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                                                 else (Nothing, max trail0 hi)
                                                                             TakeProfitFirst ->
                                                                                 if tpHit
-                                                                                    then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
+                                                                                    then
+                                                                                        if partialTpEligible
+                                                                                            then (Nothing, max trail0 hi)
+                                                                                            else (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                                     else
                                                                                         let trail1 = max trail0 hi
                                                                                             (mStop, stopWhy) = stopPx trail1
@@ -2765,20 +2785,53 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                         }
                                                                              in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                                         (Nothing, trail1) ->
-                                                                            let otCont = otHeld{otTrail = trail1}
-                                                                             in (Just SideLong, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', Just otCont, tradesAcc')
+                                                                            if tpHit && partialTpEligible
+                                                                                then
+                                                                                    let exitPx = Data.Maybe.fromMaybe nextClose mTp
+                                                                                        partialSize = max 0 (min posSizeAfterSwitch (posSizeAfterSwitch * takeProfitPartialFrac))
+                                                                                        remainingSize = max 0 (posSizeAfterSwitch - partialSize)
+                                                                                        partialFactor = markToMarket SideLong prev exitPx
+                                                                                        closeFactor = markToMarket SideLong prev nextClose
+                                                                                        equityPartialGross =
+                                                                                            equityAfterSwitch
+                                                                                                * ( 1
+                                                                                                        + partialSize * (partialFactor - 1)
+                                                                                                        + remainingSize * (closeFactor - 1)
+                                                                                                  )
+                                                                                        (equityPartial, costTotalsPartial) =
+                                                                                            applyCostWithTotals t equityPartialGross partialSize costTotalsAfterSwitch
+                                                                                        otCont =
+                                                                                            otHeld
+                                                                                                { otTrail = trail1
+                                                                                                , otBaseSize = remainingSize
+                                                                                                , otPartialTaken = True
+                                                                                                }
+                                                                                     in if remainingSize <= 0
+                                                                                            then (Nothing, 0, equityPartial, costTotalsPartial, changes' + 1, Nothing, tradesAcc')
+                                                                                            else (Just SideLong, remainingSize, equityPartial, costTotalsPartial, changes' + 1, Just otCont, tradesAcc')
+                                                                                else
+                                                                                    let otCont = otHeld{otTrail = trail1}
+                                                                                     in (Just SideLong, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', Just otCont, tradesAcc')
                                                             (Just SideShort, Just ot0) ->
                                                                 let otHeld = ot0{otHoldingPeriods = otHoldingPeriods ot0 + 1}
                                                                     entryPx = otEntryPrice ot0
                                                                     trail0 = otTrail ot0
+                                                                    partialTpEligible =
+                                                                        takeProfitPartialFrac > 0
+                                                                            && takeProfitPartialFrac < 1
+                                                                            && not (otPartialTaken otHeld)
                                                                     mTp =
                                                                         case takeProfitFracAt t of
                                                                             Just tp -> Just (entryPx * (1 - tp))
                                                                             _ -> Nothing
-                                                                    mSl =
+                                                                    mSlBase =
                                                                         case stopLossFracAt t of
                                                                             Just sl -> Just (entryPx * (1 + sl))
                                                                             _ -> Nothing
+                                                                    mSl =
+                                                                        if otPartialTaken otHeld
+                                                                            then Just (maybe entryPx (min entryPx) mSlBase)
+                                                                            else mSlBase
                                                                     stopPx trail =
                                                                         let mTs =
                                                                                 case trailingStopFracAt t of
@@ -2802,11 +2855,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                         then (Just (Data.Maybe.fromMaybe nextClose mStop, stopWhy), trail0)
                                                                                         else
                                                                                             if tpHit
-                                                                                                then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
+                                                                                                then
+                                                                                                    if partialTpEligible
+                                                                                                        then (Nothing, min trail0 lo)
+                                                                                                        else (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                                                 else (Nothing, min trail0 lo)
                                                                             TakeProfitFirst ->
                                                                                 if tpHit
-                                                                                    then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
+                                                                                    then
+                                                                                        if partialTpEligible
+                                                                                            then (Nothing, min trail0 lo)
+                                                                                            else (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                                     else
                                                                                         let trail1 = min trail0 lo
                                                                                             (mStop, stopWhy) = stopPx trail1
@@ -2836,8 +2895,33 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                         }
                                                                              in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                                         (Nothing, trail1) ->
-                                                                            let otCont = otHeld{otTrail = trail1}
-                                                                             in (Just SideShort, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', Just otCont, tradesAcc')
+                                                                            if tpHit && partialTpEligible
+                                                                                then
+                                                                                    let exitPx = Data.Maybe.fromMaybe nextClose mTp
+                                                                                        partialSize = max 0 (min posSizeAfterSwitch (posSizeAfterSwitch * takeProfitPartialFrac))
+                                                                                        remainingSize = max 0 (posSizeAfterSwitch - partialSize)
+                                                                                        partialFactor = markToMarket SideShort prev exitPx
+                                                                                        closeFactor = markToMarket SideShort prev nextClose
+                                                                                        equityPartialGross =
+                                                                                            equityAfterSwitch
+                                                                                                * ( 1
+                                                                                                        + partialSize * (partialFactor - 1)
+                                                                                                        + remainingSize * (closeFactor - 1)
+                                                                                                  )
+                                                                                        (equityPartial, costTotalsPartial) =
+                                                                                            applyCostWithTotals t equityPartialGross partialSize costTotalsAfterSwitch
+                                                                                        otCont =
+                                                                                            otHeld
+                                                                                                { otTrail = trail1
+                                                                                                , otBaseSize = remainingSize
+                                                                                                , otPartialTaken = True
+                                                                                                }
+                                                                                     in if remainingSize <= 0
+                                                                                            then (Nothing, 0, equityPartial, costTotalsPartial, changes' + 1, Nothing, tradesAcc')
+                                                                                            else (Just SideShort, remainingSize, equityPartial, costTotalsPartial, changes' + 1, Just otCont, tradesAcc')
+                                                                                else
+                                                                                    let otCont = otHeld{otTrail = trail1}
+                                                                                     in (Just SideShort, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', Just otCont, tradesAcc')
                                                             _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', openTrade', tradesAcc')
 
                                                     (fundingSide, fundingSize) =

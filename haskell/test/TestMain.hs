@@ -307,6 +307,8 @@ main = do
     testMaxDrawdownRejectsLowerBoundValidation
     testStopLossHaltsSimulation
     testTakeProfitGuardrail
+    testPartialTakeProfitMovesLongStopToBreakeven
+    testPartialTakeProfitMovesShortStopToBreakeven
     testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
     testVenueRoundTripCostFloorMatchesVenueCosts
@@ -3034,6 +3036,7 @@ sampleEnsembleConfig =
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
+        , ecTakeProfitPartial = 0
         , ecMinHoldBars = 0
         , ecCooldownBars = 0
         , ecMaxHoldBars = Nothing
@@ -6292,6 +6295,7 @@ testTradingPublicSurfaceRegression = do
                 , ecStopLossVolMult = 1.5
                 , ecTakeProfitVolMult = 2.0
                 , ecTrailingStopVolMult = 1.25
+                , ecTakeProfitPartial = 0.5
                 }
         signalSource = TradeEntrySignal
         postDirectionSource = TradeEntryPostDirectionGates
@@ -6336,6 +6340,7 @@ testTradingPublicSurfaceRegression = do
             && ecStopLossVolMult riskConfigured == 1.5
             && ecTakeProfitVolMult riskConfigured == 2.0
             && ecTrailingStopVolMult riskConfigured == 1.25
+            && ecTakeProfitPartial riskConfigured == 0.5
             && tradeEntrySourceCode signalSource == "signal"
             && tradeEntrySourceCode postDirectionSource == "post_direction_gates"
             && exitReasonFromCode "eod" == Just ExitEod
@@ -7572,6 +7577,84 @@ testTakeProfitGuardrail = do
         ( case trades of
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1
+        )
+
+-- A partial take-profit should convert the remaining position into a protected
+-- runner: the residual stop moves to breakeven and can close the rest without
+-- giving back the first realized target.
+testPartialTakeProfitMovesLongStopToBreakeven :: IO ()
+testPartialTakeProfitMovesLongStopToBreakeven = do
+    let prices = V.fromList [100 :: Double, 100, 100, 102, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 100, 102, 102, 100]
+        lows = V.fromList [100 :: Double, 100, 100, 101, 100, 100]
+        kalPreds = V.fromList [100 :: Double, 102, 103, 103, 103]
+        lstmPreds = V.fromList [100 :: Double, 102, 103, 103, 103]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecFee = 0
+                , ecStopLoss = Just 0.02
+                , ecTakeProfit = Just 0.02
+                , ecTakeProfitPartial = 0.5
+                , ecCooldownBars = 10
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+    assert
+        "long partial take-profit leaves a trade to close later"
+        (not (null trades))
+    assert
+        "long remainder exits at breakeven stop"
+        ( case trades of
+            [] -> False
+            ts -> trExitReason (last ts) == Just ExitStopLoss
+        )
+    assert
+        "long partial profit keeps the total trade positive"
+        ( case trades of
+            [] -> False
+            ts -> trReturn (last ts) > 0
+        )
+
+testPartialTakeProfitMovesShortStopToBreakeven :: IO ()
+testPartialTakeProfitMovesShortStopToBreakeven = do
+    let prices = V.fromList [100 :: Double, 100, 100, 98, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 100, 99, 100, 100]
+        lows = V.fromList [100 :: Double, 100, 100, 98, 98, 100]
+        kalPreds = V.fromList [100 :: Double, 98, 97, 97, 97]
+        lstmPreds = V.fromList [100 :: Double, 98, 97, 97, 97]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecFee = 0
+                , ecStopLoss = Just 0.02
+                , ecTakeProfit = Just 0.02
+                , ecTakeProfitPartial = 0.5
+                , ecCooldownBars = 10
+                , ecPositioning = LongShort
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+    assert
+        "short partial take-profit leaves a trade to close later"
+        (not (null trades))
+    assert
+        "short remainder exits at breakeven stop"
+        ( case trades of
+            [] -> False
+            ts -> trExitReason (last ts) == Just ExitStopLoss
+        )
+    assert
+        "short partial profit keeps the total trade positive"
+        ( case trades of
+            [] -> False
+            ts -> trReturn (last ts) > 0
         )
 
 -- Simulation-level guardrail: prove --trailing-stop flattens the position

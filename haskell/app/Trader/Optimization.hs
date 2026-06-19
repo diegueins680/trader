@@ -1796,6 +1796,89 @@ hedgeBlendPredictionsV etaRaw maxErrRaw initWeight pricesV kalPredV lstmPredV =
                      in Just (pred, (t + 1, z'))
      in V.unfoldrN (max 0 stepCount) step (0, logit w0)
 
+metaHedgeBlendPredictionsV ::
+    Double ->
+    Double ->
+    V.Vector Double ->
+    [V.Vector Double] ->
+    V.Vector Double
+metaHedgeBlendPredictionsV etaRaw maxErrRaw pricesV expertPreds0 =
+    let expertPreds = filter (not . V.null) expertPreds0
+        stepLimit = max 0 (V.length pricesV - 1)
+        stepCount =
+            if null expertPreds
+                then stepLimit
+                else minimum (stepLimit : map V.length expertPreds)
+        eta = max 0 etaRaw
+        maxErr = max 1e-12 maxErrRaw
+        bad x = isNaN x || isInfinite x
+        ret prev x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let r = x / prev - 1
+                     in if bad r then Nothing else Just r
+        lossFromR rPred rReal =
+            let e = min maxErr (max 0 (abs (rPred - rReal)))
+             in if bad e then maxErr else e
+        normalizeLogs logs =
+            case logs of
+                [] -> []
+                _ ->
+                    let mx = maximum logs
+                     in [max (-60) (min 0 (z - mx)) | z <- logs]
+        updateLogs logs prev actual preds =
+            case ret prev actual of
+                Nothing -> logs
+                Just rReal ->
+                    normalizeLogs $
+                        zipWith
+                            ( \z pred ->
+                                let loss = maybe maxErr (`lossFromR` rReal) (ret prev pred)
+                                    z' = z - eta * loss
+                                 in if bad z' then z else z'
+                            )
+                            logs
+                            preds
+        weightedPred prev logs preds =
+            let pairs =
+                    [ (z, pred)
+                    | (z, pred) <- zip logs preds
+                    , not (bad z)
+                    , not (bad pred)
+                    ]
+             in case pairs of
+                    [] -> neutralPredFromPrev prev
+                    _ ->
+                        let maxLog = maximum (map fst pairs)
+                            (num, den) =
+                                foldl'
+                                    ( \(accNum, accDen) (z, pred) ->
+                                        let w = exp (max (-60) (z - maxLog))
+                                         in (accNum + w * pred, accDen + w)
+                                    )
+                                    (0, 0)
+                                    pairs
+                            pred =
+                                if den <= 0
+                                    then neutralPredFromPrev prev
+                                    else num / den
+                         in if bad pred then neutralPredFromPrev prev else pred
+        neutral t = neutralPredFromPrev (pricesV V.! t)
+        step (t, logs) =
+            if t >= stepCount
+                then Nothing
+                else
+                    let prev = pricesV V.! t
+                        actual = pricesV V.! (t + 1)
+                        preds = map (V.! t) expertPreds
+                        pred = weightedPred prev logs preds
+                        logs' = updateLogs logs prev actual preds
+                     in Just (pred, (t + 1, logs'))
+     in if null expertPreds
+            then V.generate stepCount neutral
+            else V.unfoldrN stepCount step (0, replicate (length expertPreds) 0)
+
 foldRanges :: Int -> Int -> [(Int, Int)]
 foldRanges stepCount foldsReq =
     let steps = max 0 stepCount
@@ -1841,6 +1924,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
         methodRank m =
             case m of
                 MethodBoth -> 3 :: Int
+                MethodMetaHedgeBlend -> 4
                 MethodRouter -> 3
                 MethodBanditRouter -> 3
                 MethodConfBlend -> 2
@@ -1888,6 +1972,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                     Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
         candidates =
             [ MethodBoth
+            , MethodMetaHedgeBlend
             , MethodRouter
             , MethodBanditRouter
             , MethodConfBlend
@@ -2164,6 +2249,75 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         divergenceGateV0 = divergenceGatePredictionsV blendDivergenceK blendWeight confBlendOpenThr0 pricesV kalV lstmV
         hedgeBlendV0 = hedgeBlendPredictionsV blendHedgeEta blendHedgeMaxError blendWeight pricesV kalV lstmV
         regimeSwitchV0 = regimeSwitchPredictionsV blendWeight blendRegimeHighVolCutoff blendRegimeKalmanZCutoff pricesV kalV lstmV metaV
+        routerBlendV0 =
+            fst $
+                routerPredictionsWithModelsV
+                    blendRegimeHighVolCutoff
+                    confBlendOpenThr0
+                    roundTripCost
+                    routerScorePnlWeight
+                    routerLookback
+                    routerRegimeMinBars
+                    routerRegimeMinFraction
+                    routerMinScore
+                    pricesV
+                    kalV
+                    lstmV
+                    blendV
+                    metaV
+        banditBlendV0 =
+            fst $
+                banditPredictionsWithModelsV
+                    blendRegimeHighVolCutoff
+                    blendBanditExploreScale
+                    confBlendOpenThr0
+                    roundTripCost
+                    routerScorePnlWeight
+                    routerLookback
+                    routerRegimeMinBars
+                    routerRegimeMinFraction
+                    routerMinScore
+                    pricesV
+                    kalV
+                    lstmV
+                    blendV
+                    metaV
+        metaHedgeBlendV0 =
+            metaHedgeBlendPredictionsV
+                blendHedgeEta
+                blendHedgeMaxError
+                pricesV
+                [ kalV
+                , lstmV
+                , blendV
+                , confBlendV0
+                , confPickV0
+                , conformalClipV0
+                , costPickV0
+                , harmonicBlendV0
+                , disagreementGuardV0
+                , medianBlendV0
+                , neutralGuardV0
+                , riskParityBlendV0
+                , consensusBoostV0
+                , anchorBlendV0
+                , tensionGateV0
+                , entropyBlendV0
+                , coherenceGateV0
+                , divergenceGateV0
+                , fractalBlendV0
+                , phaseCancelV0
+                , softmaxBlendV0
+                , smoothSoftmaxBlendV0
+                , hedgeBlendV0
+                , netSoftmaxBlendV0
+                , edgeBlendV0
+                , edgePickV0
+                , geoBlendV0
+                , regimeSwitchV0
+                , routerBlendV0
+                , banditBlendV0
+                ]
 
         (kalUsedV0, lstmUsedV0) =
             case method of
@@ -2191,6 +2345,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodSoftmaxBlend -> (softmaxBlendV0, softmaxBlendV0)
                 MethodSmoothSoftmaxBlend -> (smoothSoftmaxBlendV0, smoothSoftmaxBlendV0)
                 MethodHedgeBlend -> (hedgeBlendV0, hedgeBlendV0)
+                MethodMetaHedgeBlend -> (metaHedgeBlendV0, metaHedgeBlendV0)
                 MethodNetSoftmaxBlend -> (netSoftmaxBlendV0, netSoftmaxBlendV0)
                 MethodEdgeBlend -> (edgeBlendV0, edgeBlendV0)
                 MethodEdgePick -> (edgePickV0, edgePickV0)
@@ -2598,6 +2753,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodMetaHedgeBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodNetSoftmaxBlend
                     | V.length kalV < stepCount ->
                         Just
@@ -2813,6 +2984,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodSoftmaxBlend -> [softmaxBlendV0]
                 MethodSmoothSoftmaxBlend -> [smoothSoftmaxBlendV0]
                 MethodHedgeBlend -> [hedgeBlendV0]
+                MethodMetaHedgeBlend -> [metaHedgeBlendV0]
                 MethodNetSoftmaxBlend -> [netSoftmaxBlendV0]
                 MethodEdgeBlend -> [edgeBlendV0]
                 MethodEdgePick -> [edgePickV0]
@@ -2993,6 +3165,115 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         lstmV
                                         metaV
                              in (regimeSwitchV, regimeSwitchV, Nothing)
+                        MethodMetaHedgeBlend ->
+                            let metaOpenThr = max openThr minEdge
+                                confBlendV =
+                                    confidenceBlendPredictionsV
+                                        blendWeight
+                                        kalZMinForBlend
+                                        kalZMaxForBlend
+                                        metaOpenThr
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                        metaV
+                                confPickV =
+                                    confidencePickPredictionsV
+                                        blendWeight
+                                        kalZMinForBlend
+                                        kalZMaxForBlend
+                                        metaOpenThr
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                        metaV
+                                divergenceGateV =
+                                    divergenceGatePredictionsV
+                                        blendDivergenceK
+                                        blendWeight
+                                        metaOpenThr
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                regimeSwitchV =
+                                    regimeSwitchPredictionsV
+                                        blendWeight
+                                        blendRegimeHighVolCutoff
+                                        blendRegimeKalmanZCutoff
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                        metaV
+                                routerV =
+                                    fst $
+                                        routerPredictionsWithModelsV
+                                            blendRegimeHighVolCutoff
+                                            metaOpenThr
+                                            roundTripCost
+                                            routerScorePnlWeight
+                                            routerLookback
+                                            routerRegimeMinBars
+                                            routerRegimeMinFraction
+                                            routerMinScore
+                                            pricesV
+                                            kalV
+                                            lstmV
+                                            blendV
+                                            metaV
+                                banditV =
+                                    fst $
+                                        banditPredictionsWithModelsV
+                                            blendRegimeHighVolCutoff
+                                            blendBanditExploreScale
+                                            metaOpenThr
+                                            roundTripCost
+                                            routerScorePnlWeight
+                                            routerLookback
+                                            routerRegimeMinBars
+                                            routerRegimeMinFraction
+                                            routerMinScore
+                                            pricesV
+                                            kalV
+                                            lstmV
+                                            blendV
+                                            metaV
+                                metaHedgeV =
+                                    metaHedgeBlendPredictionsV
+                                        blendHedgeEta
+                                        blendHedgeMaxError
+                                        pricesV
+                                        [ kalV
+                                        , lstmV
+                                        , blendV
+                                        , confBlendV
+                                        , confPickV
+                                        , conformalClipV0
+                                        , costPickV0
+                                        , harmonicBlendV0
+                                        , disagreementGuardV0
+                                        , medianBlendV0
+                                        , neutralGuardV0
+                                        , riskParityBlendV0
+                                        , consensusBoostV0
+                                        , anchorBlendV0
+                                        , tensionGateV0
+                                        , entropyBlendV0
+                                        , coherenceGateV0
+                                        , divergenceGateV
+                                        , fractalBlendV0
+                                        , phaseCancelV0
+                                        , softmaxBlendV0
+                                        , smoothSoftmaxBlendV0
+                                        , hedgeBlendV0
+                                        , netSoftmaxBlendV0
+                                        , edgeBlendV0
+                                        , edgePickV0
+                                        , geoBlendV0
+                                        , regimeSwitchV
+                                        , routerV
+                                        , banditV
+                                        ]
+                             in (metaHedgeV, metaHedgeV, Nothing)
                         _ -> (kalUsedV0, lstmUsedV0, Nothing)
                 evalClose closeThr =
                     let btCfg0 =

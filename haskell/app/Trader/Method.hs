@@ -53,6 +53,7 @@ data Method
     | MethodSoftmaxBlend
     | MethodSmoothSoftmaxBlend
     | MethodHedgeBlend
+    | MethodMetaHedgeBlend
     | MethodNetSoftmaxBlend
     | MethodEdgeBlend
     | MethodEdgePick
@@ -99,6 +100,7 @@ methodCode m =
         MethodSoftmaxBlend -> "softmax_blend"
         MethodSmoothSoftmaxBlend -> "smooth_softmax_blend"
         MethodHedgeBlend -> "hedge_blend"
+        MethodMetaHedgeBlend -> "meta_hedge_blend"
         MethodNetSoftmaxBlend -> "net_softmax_blend"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
@@ -286,6 +288,18 @@ parseMethod raw =
         "online_blend" -> Right MethodHedgeBlend
         "online-blend" -> Right MethodHedgeBlend
         "onlineblend" -> Right MethodHedgeBlend
+        "meta_hedge_blend" -> Right MethodMetaHedgeBlend
+        "meta-hedge-blend" -> Right MethodMetaHedgeBlend
+        "metahedgeblend" -> Right MethodMetaHedgeBlend
+        "universal_blend" -> Right MethodMetaHedgeBlend
+        "universal-blend" -> Right MethodMetaHedgeBlend
+        "universalblend" -> Right MethodMetaHedgeBlend
+        "all_methods_blend" -> Right MethodMetaHedgeBlend
+        "all-methods-blend" -> Right MethodMetaHedgeBlend
+        "allmethodsblend" -> Right MethodMetaHedgeBlend
+        "strategy_ensemble" -> Right MethodMetaHedgeBlend
+        "strategy-ensemble" -> Right MethodMetaHedgeBlend
+        "strategyensemble" -> Right MethodMetaHedgeBlend
         "net_softmax_blend" -> Right MethodNetSoftmaxBlend
         "net-softmax-blend" -> Right MethodNetSoftmaxBlend
         "netsoftmaxblend" -> Right MethodNetSoftmaxBlend
@@ -393,7 +407,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, cross_sectional_momentum|xsmom, online_nn, ta_trend, ta_reversion, ta_breakout, ta_best, ta_regime_switch, sma_cross)"
+                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, meta_hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, cross_sectional_momentum|xsmom, online_nn, ta_trend, ta_reversion, ta_breakout, ta_best, ta_regime_switch, sma_cross)"
                 )
 
 runtimeMethod :: Method -> Method
