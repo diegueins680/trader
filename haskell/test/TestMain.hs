@@ -326,7 +326,8 @@ main = do
     testFuturesPositionRiskLeverageSaneCap
     testBinanceTradeMaxPnlLongUsesHigh
     testBinanceTradeMaxPnlShortUsesLow
-    testBinanceTradeMaxPnlLeavesUnpairedCloseBlank
+    testBinanceTradeMaxPnlFallsBackForUnpairedClose
+    testBinanceTradeMaxPnlUnpairedBothCloseDoesNotCreatePhantomLot
     testBinanceTradeMaxPnlFallsBackToFillPricesWithoutKlines
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -1327,11 +1328,29 @@ testBinanceTradeMaxPnlShortUsesLow = do
     assert "short opening fill stores the lowest-candle time" (btMaxPnlCloseTime (head enriched) == Just 120000)
     assert "short close fill also exposes the paired best PNL" (btMaxPnl (enriched !! 1) == Just 18)
 
-testBinanceTradeMaxPnlLeavesUnpairedCloseBlank :: IO ()
-testBinanceTradeMaxPnlLeavesUnpairedCloseBlank = do
+testBinanceTradeMaxPnlFallsBackForUnpairedClose :: IO ()
+testBinanceTradeMaxPnlFallsBackForUnpairedClose = do
     let closeOnly = (mkBinanceTrade 10 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
         enriched = attachBinanceTradeMaxPnl (Map.fromList [("BTCUSDT", [mkKline 60000 103 104 102 103])]) [closeOnly]
-    assert "unpaired close fill does not invent max-PNL without a visible opening lot" (isNothing (btMaxPnl (head enriched)))
+        ranges = binanceTradeMaxPnlKlineRanges [closeOnly]
+    assert "unpaired close fill does not need a kline fetch for realized-PNL fallback" (Map.null ranges)
+    assert "unpaired close fill falls back to realized PNL" (btMaxPnl (head enriched) == Just 6)
+    assert "unpaired close fill records the actual close time as max-PNL time" (btMaxPnlCloseTime (head enriched) == Just 60000)
+
+testBinanceTradeMaxPnlUnpairedBothCloseDoesNotCreatePhantomLot :: IO ()
+testBinanceTradeMaxPnlUnpairedBothCloseDoesNotCreatePhantomLot = do
+    let historicalClose = (mkBinanceTrade 1 "BTCUSDT" "SELL" (Just "BOTH") 103 2 60000){btRealizedPnl = Just 6}
+        newOpen = (mkBinanceTrade 2 "BTCUSDT" "BUY" (Just "BOTH") 100 1 120000){btRealizedPnl = Just 0}
+        newClose = (mkBinanceTrade 3 "BTCUSDT" "SELL" (Just "BOTH") 110 1 180000){btRealizedPnl = Just 10}
+        klines =
+            [ mkKline 120000 100 101 99 100
+            , mkKline 180000 110 112 109 110
+            , mkKline 240000 112 116 111 115
+            ]
+        enriched = attachBinanceTradeMaxPnl (Map.fromList [("BTCUSDT", klines)]) [historicalClose, newOpen, newClose]
+    assert "unpaired one-way close gets realized-PNL fallback" (btMaxPnl (head enriched) == Just 6)
+    assert "unpaired one-way close is not treated as an opening short lot" (btMaxPnl (enriched !! 1) == Just 16)
+    assert "later visible close still receives paired max-PNL" (btMaxPnl (enriched !! 2) == Just 16)
 
 testBinanceTradeMaxPnlFallsBackToFillPricesWithoutKlines :: IO ()
 testBinanceTradeMaxPnlFallsBackToFillPricesWithoutKlines = do

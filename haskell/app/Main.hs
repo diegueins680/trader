@@ -5074,7 +5074,7 @@ attachBinanceTradeMaxPnlFromKlines :: BinanceEnv -> String -> [BinanceTrade] -> 
 attachBinanceTradeMaxPnlFromKlines env interval trades = do
     let ranges = binanceTradeMaxPnlKlineRanges trades
     if M.null ranges
-        then pure trades
+        then pure (attachBinanceTradeMaxPnl M.empty trades)
         else do
             klinePairs <-
                 forM (M.toList ranges) $ \(sym, (startTime, endTime)) -> do

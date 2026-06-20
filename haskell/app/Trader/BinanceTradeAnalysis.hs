@@ -8,7 +8,7 @@ import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.List (foldl', sortOn)
 import qualified Data.Map.Strict as M
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, maybeToList)
 import Trader.Binance (BinanceTrade (..), Kline (..))
 
 data BinanceTradeMaxPnl = BinanceTradeMaxPnl
@@ -55,6 +55,9 @@ data PnlTarget = PnlTarget
     , ptLowerTime :: !Int64
     , ptUpperTime :: !Int64
     , ptActualExit :: !(Maybe (Int64, Double))
+    , ptActualExitPnlOverride :: !(Maybe Double)
+    , ptIncludeEntryCandidates :: !Bool
+    , ptIncludeKlineCandidates :: !Bool
     }
     deriving (Eq, Show)
 
@@ -105,11 +108,14 @@ binanceTradeMaxPnlKlineRanges =
     foldl' addTargetRange M.empty . collectPnlTargets
   where
     addTargetRange acc target =
-        M.insertWith
-            mergeRange
-            (ptSymbol target)
-            (ptLowerTime target, ptUpperTime target)
-            acc
+        if ptIncludeKlineCandidates target
+            then
+                M.insertWith
+                    mergeRange
+                    (ptSymbol target)
+                    (ptLowerTime target, ptUpperTime target)
+                    acc
+            else acc
     mergeRange (aStart, aEnd) (bStart, bEnd) = (min aStart bStart, max aEnd bEnd)
 
 collectPnlTargets :: [BinanceTrade] -> [PnlTarget]
@@ -130,19 +136,19 @@ stepTrade :: AnalysisState -> BinanceTrade -> AnalysisState
 stepTrade st trade =
     case normalizedTradeInputs trade of
         Nothing -> st
-        Just (sym, key, side, posSide, qty, price, tradeTime) ->
+        Just (sym, key, side, posSide, qty, price, tradeTime, realizedPnl) ->
             case posSide of
                 PositionLong ->
                     case side of
                         SideBuy -> pushLongLot (sym ++ "::LONG") (mkLot key sym DirectionLong tradeTime price qty) st
-                        SideSell -> closeLongLots (sym ++ "::LONG") key sym qty price tradeTime st
+                        SideSell -> closeLongLots (sym ++ "::LONG") key sym qty price tradeTime realizedPnl st
                 PositionShort ->
                     case side of
                         SideSell -> pushShortLot (sym ++ "::SHORT") (mkLot key sym DirectionShort tradeTime price qty) st
-                        SideBuy -> closeShortLots (sym ++ "::SHORT") key sym qty price tradeTime st
-                PositionBoth -> stepBothPosition sym key side qty price tradeTime st
+                        SideBuy -> closeShortLots (sym ++ "::SHORT") key sym qty price tradeTime realizedPnl st
+                PositionBoth -> stepBothPosition sym key side qty price tradeTime realizedPnl st
 
-normalizedTradeInputs :: BinanceTrade -> Maybe (String, TradeKey, TradeSide, PositionSideMode, Double, Double, Int64)
+normalizedTradeInputs :: BinanceTrade -> Maybe (String, TradeKey, TradeSide, PositionSideMode, Double, Double, Int64, Maybe Double)
 normalizedTradeInputs trade = do
     side <- tradeSide trade
     let sym = normalizeSymbolKey (btSymbol trade)
@@ -151,41 +157,52 @@ normalizedTradeInputs trade = do
         qty = btQty trade
         price = btPrice trade
         tradeTime = btTime trade
+        realizedPnl = btRealizedPnl trade >>= finiteMaybe
     if null sym || not (positiveFinite qty) || not (positiveFinite price) || tradeTime < 0
         then Nothing
-        else Just (sym, key, side, posSide, qty, price, tradeTime)
+        else Just (sym, key, side, posSide, qty, price, tradeTime, realizedPnl)
 
-stepBothPosition :: String -> TradeKey -> TradeSide -> Double -> Double -> Int64 -> AnalysisState -> AnalysisState
-stepBothPosition sym key side qty price tradeTime st =
+stepBothPosition :: String -> TradeKey -> TradeSide -> Double -> Double -> Int64 -> Maybe Double -> AnalysisState -> AnalysisState
+stepBothPosition sym key side qty price tradeTime realizedPnl st =
     let netKey = sym ++ "::BOTH"
         longKey = sym ++ "::BOTH:LONG"
         shortKey = sym ++ "::BOTH:SHORT"
         net = M.findWithDefault 0 netKey (asNetPositions st)
      in case side of
             SideBuy ->
-                let (stAfterClose, openQty) =
-                        if net < -qtyEps
-                            then
-                                let closeQty = min qty (abs net)
-                                 in (closeShortLots shortKey key sym closeQty price tradeTime st, qty - closeQty)
-                            else (st, qty)
-                    stAfterOpen =
-                        if openQty > qtyEps
-                            then pushLongLot longKey (mkLot key sym DirectionLong tradeTime price openQty) stAfterClose
-                            else stAfterClose
-                 in stAfterOpen{asNetPositions = M.insert netKey (net + qty) (asNetPositions stAfterOpen)}
+                if net < -qtyEps
+                    then
+                        let closeQty = min qty (abs net)
+                            openQty = qty - closeQty
+                            stAfterClose = closeShortLots shortKey key sym closeQty price tradeTime realizedPnl st
+                            stAfterOpen =
+                                if openQty > qtyEps
+                                    then pushLongLot longKey (mkLot key sym DirectionLong tradeTime price openQty) stAfterClose
+                                    else stAfterClose
+                         in stAfterOpen{asNetPositions = M.insert netKey (net + qty) (asNetPositions stAfterOpen)}
+                    else
+                        if closePnlEvidence realizedPnl
+                            then addFallbackCloseTarget key sym DirectionShort qty price tradeTime realizedPnl st
+                            else
+                                let stAfterOpen = pushLongLot longKey (mkLot key sym DirectionLong tradeTime price qty) st
+                                 in stAfterOpen{asNetPositions = M.insert netKey (net + qty) (asNetPositions stAfterOpen)}
             SideSell ->
-                let (stAfterClose, openQty) =
-                        if net > qtyEps
-                            then
-                                let closeQty = min qty net
-                                 in (closeLongLots longKey key sym closeQty price tradeTime st, qty - closeQty)
-                            else (st, qty)
-                    stAfterOpen =
-                        if openQty > qtyEps
-                            then pushShortLot shortKey (mkLot key sym DirectionShort tradeTime price openQty) stAfterClose
-                            else stAfterClose
-                 in stAfterOpen{asNetPositions = M.insert netKey (net - qty) (asNetPositions stAfterOpen)}
+                if net > qtyEps
+                    then
+                        let closeQty = min qty net
+                            openQty = qty - closeQty
+                            stAfterClose = closeLongLots longKey key sym closeQty price tradeTime realizedPnl st
+                            stAfterOpen =
+                                if openQty > qtyEps
+                                    then pushShortLot shortKey (mkLot key sym DirectionShort tradeTime price openQty) stAfterClose
+                                    else stAfterClose
+                         in stAfterOpen{asNetPositions = M.insert netKey (net - qty) (asNetPositions stAfterOpen)}
+                    else
+                        if closePnlEvidence realizedPnl
+                            then addFallbackCloseTarget key sym DirectionLong qty price tradeTime realizedPnl st
+                            else
+                                let stAfterOpen = pushShortLot shortKey (mkLot key sym DirectionShort tradeTime price qty) st
+                                 in stAfterOpen{asNetPositions = M.insert netKey (net - qty) (asNetPositions stAfterOpen)}
 
 mkLot :: TradeKey -> String -> TradeDirection -> Int64 -> Double -> Double -> OpenLot
 mkLot key sym dir entryTime entryPrice qty =
@@ -211,20 +228,22 @@ pushLot :: String -> OpenLot -> M.Map String [OpenLot] -> M.Map String [OpenLot]
 pushLot key lot =
     M.alter (Just . maybe [lot] (++ [lot])) key
 
-closeLongLots :: String -> TradeKey -> String -> Double -> Double -> Int64 -> AnalysisState -> AnalysisState
-closeLongLots lotKey closeKey sym qty exitPrice exitTime st =
-    let (nextLots, targets) = closeLots closeKey sym qty exitPrice exitTime (M.findWithDefault [] lotKey (asLongLots st))
+closeLongLots :: String -> TradeKey -> String -> Double -> Double -> Int64 -> Maybe Double -> AnalysisState -> AnalysisState
+closeLongLots lotKey closeKey sym qty exitPrice exitTime realizedPnl st =
+    let (nextLots, targets, remainingQty) = closeLots closeKey sym qty exitPrice exitTime (M.findWithDefault [] lotKey (asLongLots st))
+        fallbackTargets = fallbackTargetsForUnpairedClose closeKey sym DirectionLong remainingQty qty exitPrice exitTime realizedPnl
      in st
             { asLongLots = setLots lotKey nextLots (asLongLots st)
-            , asTargets = targets ++ asTargets st
+            , asTargets = fallbackTargets ++ targets ++ asTargets st
             }
 
-closeShortLots :: String -> TradeKey -> String -> Double -> Double -> Int64 -> AnalysisState -> AnalysisState
-closeShortLots lotKey closeKey sym qty exitPrice exitTime st =
-    let (nextLots, targets) = closeLots closeKey sym qty exitPrice exitTime (M.findWithDefault [] lotKey (asShortLots st))
+closeShortLots :: String -> TradeKey -> String -> Double -> Double -> Int64 -> Maybe Double -> AnalysisState -> AnalysisState
+closeShortLots lotKey closeKey sym qty exitPrice exitTime realizedPnl st =
+    let (nextLots, targets, remainingQty) = closeLots closeKey sym qty exitPrice exitTime (M.findWithDefault [] lotKey (asShortLots st))
+        fallbackTargets = fallbackTargetsForUnpairedClose closeKey sym DirectionShort remainingQty qty exitPrice exitTime realizedPnl
      in st
             { asShortLots = setLots lotKey nextLots (asShortLots st)
-            , asTargets = targets ++ asTargets st
+            , asTargets = fallbackTargets ++ targets ++ asTargets st
             }
 
 setLots :: String -> [OpenLot] -> M.Map String [OpenLot] -> M.Map String [OpenLot]
@@ -232,18 +251,20 @@ setLots key lots store
     | null lots = M.delete key store
     | otherwise = M.insert key lots store
 
-closeLots :: TradeKey -> String -> Double -> Double -> Int64 -> [OpenLot] -> ([OpenLot], [PnlTarget])
+closeLots :: TradeKey -> String -> Double -> Double -> Int64 -> [OpenLot] -> ([OpenLot], [PnlTarget], Double)
 closeLots closeKey sym qty exitPrice exitTime lots =
-    let (_remainingQty, nextLots, consumedLots, openTargets) =
+    let (remainingQty, nextLots, consumedLots, openTargets) =
             foldl'
                 consumeOne
                 (qty, [], [], [])
                 lots
         closeTargets =
-            case closeTarget closeKey sym exitPrice exitTime (reverse consumedLots) of
-                Nothing -> []
-                Just target -> [target]
-     in (reverse nextLots, closeTargets ++ openTargets)
+            if remainingQty > qtyEps
+                then []
+                else case closeTarget closeKey sym exitPrice exitTime (reverse consumedLots) of
+                    Nothing -> []
+                    Just target -> [target]
+     in (reverse nextLots, closeTargets ++ openTargets, remainingQty)
   where
     consumeOne (remaining, kept, consumed, targets) lot
         | remaining <= qtyEps = (remaining, lot : kept, consumed, targets)
@@ -279,6 +300,9 @@ completedOpenTarget lot exitPrice exitTime =
                         , ptLowerTime = lower
                         , ptUpperTime = upper
                         , ptActualExit = Just (exitTime, exitPrice)
+                        , ptActualExitPnlOverride = Nothing
+                        , ptIncludeEntryCandidates = True
+                        , ptIncludeKlineCandidates = True
                         }
 
 closeTarget :: TradeKey -> String -> Double -> Int64 -> [TargetLot] -> Maybe PnlTarget
@@ -301,15 +325,50 @@ closeTarget closeKey sym exitPrice exitTime lots =
                                 , ptLowerTime = lower
                                 , ptUpperTime = upper
                                 , ptActualExit = Just (exitTime, exitPrice)
+                                , ptActualExitPnlOverride = Nothing
+                                , ptIncludeEntryCandidates = True
+                                , ptIncludeKlineCandidates = True
                                 }
+
+fallbackTargetsForUnpairedClose :: TradeKey -> String -> TradeDirection -> Double -> Double -> Double -> Int64 -> Maybe Double -> [PnlTarget]
+fallbackTargetsForUnpairedClose closeKey sym dir remainingQty closeQty exitPrice exitTime realizedPnl =
+    if remainingQty > qtyEps
+        then maybeToList (fallbackCloseTarget closeKey sym dir closeQty exitPrice exitTime realizedPnl)
+        else []
+
+addFallbackCloseTarget :: TradeKey -> String -> TradeDirection -> Double -> Double -> Int64 -> Maybe Double -> AnalysisState -> AnalysisState
+addFallbackCloseTarget closeKey sym dir qty exitPrice exitTime realizedPnl st =
+    case fallbackCloseTarget closeKey sym dir qty exitPrice exitTime realizedPnl of
+        Nothing -> st
+        Just target -> st{asTargets = target : asTargets st}
+
+fallbackCloseTarget :: TradeKey -> String -> TradeDirection -> Double -> Double -> Int64 -> Maybe Double -> Maybe PnlTarget
+fallbackCloseTarget closeKey sym dir qty exitPrice exitTime realizedPnl = do
+    pnl <- realizedPnl
+    if positiveFinite qty && positiveFinite exitPrice && exitTime >= 0 && isFinite pnl
+        then
+            Just
+                PnlTarget
+                    { ptTradeKey = closeKey
+                    , ptSymbol = sym
+                    , ptDirection = dir
+                    , ptLots = []
+                    , ptLowerTime = exitTime
+                    , ptUpperTime = exitTime
+                    , ptActualExit = Just (exitTime, exitPrice)
+                    , ptActualExitPnlOverride = Just pnl
+                    , ptIncludeEntryCandidates = False
+                    , ptIncludeKlineCandidates = False
+                    }
+        else Nothing
 
 scoreTarget :: M.Map String [Kline] -> PnlTarget -> Maybe BinanceTradeMaxPnl
 scoreTarget klineMap target =
     let klines = M.findWithDefault [] (ptSymbol target) klineMap
         candidates =
-            entryCandidates target
+            (if ptIncludeEntryCandidates target then entryCandidates target else [])
                 ++ actualExitCandidates target
-                ++ mapMaybe (klineCandidate target) klines
+                ++ (if ptIncludeKlineCandidates target then mapMaybe (klineCandidate target) klines else [])
         scored = mapMaybe (scoreCandidate target) candidates
      in case scored of
             [] -> Nothing
@@ -349,7 +408,10 @@ klineCandidate target k =
 
 scoreCandidate :: PnlTarget -> (Int64, Double) -> Maybe (Int64, Double)
 scoreCandidate target (t, price) =
-    let pnl = sum (map (lotPnl (ptDirection target) price) (ptLots target))
+    let pnl =
+            case (ptActualExitPnlOverride target, ptActualExit target) of
+                (Just override, Just (exitTime, _)) | t == exitTime -> override
+                _ -> sum (map (lotPnl (ptDirection target) price) (ptLots target))
      in if isFinite pnl then Just (t, pnl) else Nothing
 
 lotPnl :: TradeDirection -> Double -> TargetLot -> Double
@@ -420,3 +482,12 @@ positiveFinite x = x > 0 && isFinite x
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)
+
+finiteMaybe :: Double -> Maybe Double
+finiteMaybe x
+    | isFinite x = Just x
+    | otherwise = Nothing
+
+closePnlEvidence :: Maybe Double -> Bool
+closePnlEvidence =
+    maybe False (\x -> isFinite x && abs x > qtyEps)
