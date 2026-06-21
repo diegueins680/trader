@@ -2230,7 +2230,7 @@ validateArgs args0 = do
     ensure "--cooldown-bars must be >= 0" (argCooldownBars args >= 0)
     case argMaxHoldBars args of
         Nothing -> pure ()
-        Just n -> ensure "--max-hold-bars must be >= 1" (n >= 1)
+        Just n -> ensure "--max-hold-bars must be >= 0" (n >= 0)
     case argMaxDrawdown args of
         Nothing -> pure ()
         Just v -> ensure "--max-drawdown must be > 0 and < 1" (v > 0 && v < 1)

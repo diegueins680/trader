@@ -690,6 +690,7 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
     const posSide = normalizePositionSide(trade.positionSide) ?? "BOTH";
     const orderIp = normalizeTradeIp(trade.executorIp);
     const orderInstance = normalizeTradeInstance(trade.originInstance);
+    const likelyCloseFill = isLikelyBinanceCloseFill(trade);
     let entryIp: string | null = null;
     let exitIp: string | null = null;
     let entryInstance: string | null = null;
@@ -739,10 +740,17 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
 
       if (side === "BUY") {
         if (net >= 0) {
-          pushLot(longLots, longKey, qty, orderIp, orderInstance, tradeTime, key);
-          entryIp = orderIp;
-          entryInstance = orderInstance;
-          entryTime = tradeTime;
+          if (likelyCloseFill) {
+            exitIp = orderIp;
+            exitInstance = orderInstance;
+            exitTime = tradeTime;
+          } else {
+            pushLot(longLots, longKey, qty, orderIp, orderInstance, tradeTime, key);
+            entryIp = orderIp;
+            entryInstance = orderInstance;
+            entryTime = tradeTime;
+            netPos.set(netKey, net + qty);
+          }
         } else {
           const closeQty = Math.min(qty, Math.abs(net));
           if (closeQty > BINANCE_TRADE_IP_EPS) {
@@ -764,14 +772,21 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
               entryTime = tradeTime;
             }
           }
+          netPos.set(netKey, net + qty);
         }
-        netPos.set(netKey, net + qty);
       } else {
         if (net <= 0) {
-          pushLot(shortLots, shortKey, qty, orderIp, orderInstance, tradeTime, key);
-          entryIp = orderIp;
-          entryInstance = orderInstance;
-          entryTime = tradeTime;
+          if (likelyCloseFill) {
+            exitIp = orderIp;
+            exitInstance = orderInstance;
+            exitTime = tradeTime;
+          } else {
+            pushLot(shortLots, shortKey, qty, orderIp, orderInstance, tradeTime, key);
+            entryIp = orderIp;
+            entryInstance = orderInstance;
+            entryTime = tradeTime;
+            netPos.set(netKey, net - qty);
+          }
         } else {
           const closeQty = Math.min(qty, net);
           if (closeQty > BINANCE_TRADE_IP_EPS) {
@@ -793,14 +808,14 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
               entryTime = tradeTime;
             }
           }
+          netPos.set(netKey, net - qty);
         }
-        netPos.set(netKey, net - qty);
       }
     }
 
     // When we cannot pair inventory from the visible window, non-zero realized PnL
     // still indicates a close fill, so keep its close timestamp/IP.
-    if (exitTime == null && isLikelyBinanceCloseFill(trade)) {
+    if (exitTime == null && likelyCloseFill) {
       exitIp = exitIp ?? orderIp;
       exitInstance = exitInstance ?? orderInstance;
       exitTime = tradeTime;

@@ -61,6 +61,7 @@ import Trader.CostCalibration (
     venueTakerFeeFloor,
  )
 import Trader.Formal.CloseTiming (
+    ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
     liveMaxPnlCloseTimingMaxHoldBars,
  )
@@ -123,6 +124,7 @@ import Trader.Optimizer.Optimize (
     PriorTrial (..),
     ageAdjustedPriorScore,
     ageAdjustedPriorScoreWithMissingMultiplier,
+    appliedCloseTimingMaxHoldBars,
     applyWalkForwardSummaryMetrics,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
@@ -344,6 +346,7 @@ main = do
     testTakeProfitRejectsUpperBoundValidation
     testTrailingStopRejectsAbsurdlyTightValue
     testTrailingStopRejectsLowerBoundValidation
+    testMaxHoldBarsZeroDisablesForcedExit
     testMaxPositionSizeRejectsAbsurdUpperBound
     testMaxPositionSizeRejectsNonFuturesOverFive
     testMaxPositionSizeRejectsZeroAndNegative
@@ -395,6 +398,7 @@ main = do
     testCapitalPreservationReport
     testPortfolioCapitalPreservationReport
     testLiveMaxPnlCloseTimingRecommendation
+    testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence
     testLossStreakMaxRejectsNegativeValue
     testLossStreakCooldownBarsRejectsNegativeValue
     testVolScaleMaxRejectsInvalidValues
@@ -1450,6 +1454,18 @@ testTrailingStopRejectsLowerBoundValidation =
     assert
         "trailing-stop rejects the exact lower bound"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--trailing-stop", "0"] == Left "--trailing-stop must be > 0 and < 1")
+
+testMaxHoldBarsZeroDisablesForcedExit :: IO ()
+testMaxHoldBarsZeroDisablesForcedExit = do
+    assert
+        "max-hold-bars accepts 0 as the documented disable value"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-hold-bars", "0"] of
+            Right args -> argMaxHoldBars args == Just 0
+            Left _ -> False
+        )
+    assert
+        "max-hold-bars rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-hold-bars", "-1"] == Left "--max-hold-bars must be >= 0")
 
 testMaxPositionSizeRejectsAbsurdUpperBound :: IO ()
 testMaxPositionSizeRejectsAbsurdUpperBound = do
@@ -2645,6 +2661,50 @@ testLiveMaxPnlCloseTimingRecommendation = do
     assert
         "live max-PNL close timing ignores invalid zero or negative ages"
         (liveMaxPnlCloseTimingEvidenceHoldBars [0, -1, 3, 5, 7] == Just 5)
+
+testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence :: IO ()
+testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence = do
+    let acceptedReport =
+            ComboCloseTimingReport
+                { cctrComboId = "combo"
+                , cctrSampleCount = 6
+                , cctrPositiveLiftSampleCount = 4
+                , cctrMedianRatio = Just 0.6
+                , cctrQ25Ratio = Just 0.4
+                , cctrQ75Ratio = Just 0.75
+                , cctrMadRatio = Just 0.1
+                , cctrMeanLift = Just 0.02
+                , cctrMedianLift = Just 0.01
+                , cctrMedianObservedDuration = Just 10
+                , cctrObservedHoldHorizon = Just 10
+                , cctrMedianOptimalDuration = Just 6
+                , cctrQ75OptimalDuration = Just 6
+                , cctrAnalyzedHoldBars = [6, 10]
+                , cctrRecommendedMaxHoldBars = Just 6
+                , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 6
+                , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just 4
+                , cctrRecommendedMaxHoldBarsMeanLift = Just 0.02
+                }
+        unsupportedReport =
+            acceptedReport
+                { cctrAnalyzedHoldBars = [6, 10]
+                , cctrRecommendedMaxHoldBars = Just 4
+                , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 4
+                }
+        weakReport =
+            acceptedReport
+                { cctrPositiveLiftSampleCount = 2
+                , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just 2
+                }
+    assert
+        "optimizer applies accepted close-timing recommendations"
+        (appliedCloseTimingMaxHoldBars (Just 10) acceptedReport == Just 6)
+    assert
+        "optimizer ignores recommendations outside the analyzed hold domain"
+        (appliedCloseTimingMaxHoldBars (Just 10) unsupportedReport == Just 10)
+    assert
+        "optimizer ignores recommendations without enough positive-lift support"
+        (appliedCloseTimingMaxHoldBars (Just 10) weakReport == Just 10)
 
 testLossStreakMaxRejectsNegativeValue :: IO ()
 testLossStreakMaxRejectsNegativeValue = do

@@ -134,6 +134,65 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
   });
 });
 
+test("buildBinanceTradeIpMap does not let an unpaired one-way close create a phantom lot", () => {
+  const historicalClose = mkTrade({
+    tradeId: 1,
+    orderId: 101,
+    side: "SELL",
+    qty: 2,
+    time: 1_000,
+    executorIp: "1.1.1.1",
+    originInstance: "fly",
+    realizedPnl: 6,
+  });
+  const visibleOpen = mkTrade({
+    tradeId: 2,
+    orderId: 102,
+    side: "BUY",
+    qty: 1,
+    time: 2_000,
+    executorIp: "2.2.2.2",
+    originInstance: "laptop",
+  });
+  const visibleClose = mkTrade({
+    tradeId: 3,
+    orderId: 103,
+    side: "SELL",
+    qty: 1,
+    time: 3_000,
+    executorIp: "3.3.3.3",
+    originInstance: "hetzner",
+    realizedPnl: 10,
+  });
+
+  const meta = buildBinanceTradeIpMap([historicalClose, visibleOpen, visibleClose]);
+
+  assert.deepEqual(meta.get(binanceTradeKey(historicalClose)), {
+    entryIp: null,
+    exitIp: "1.1.1.1",
+    entryInstance: null,
+    exitInstance: "fly",
+    entryTime: null,
+    exitTime: 1_000,
+  });
+  assert.deepEqual(meta.get(binanceTradeKey(visibleOpen)), {
+    entryIp: "2.2.2.2",
+    exitIp: "3.3.3.3",
+    entryInstance: "laptop",
+    exitInstance: "hetzner",
+    entryTime: 2_000,
+    exitTime: 3_000,
+  });
+  assert.deepEqual(meta.get(binanceTradeKey(visibleClose)), {
+    entryIp: "2.2.2.2",
+    exitIp: "3.3.3.3",
+    entryInstance: "laptop",
+    exitInstance: "hetzner",
+    entryTime: 2_000,
+    exitTime: 3_000,
+  });
+});
+
 test("buildBinanceTradeIpMap ignores requester origin IP when executor IP is absent", () => {
   const trades = [
     mkTrade({ tradeId: 1, orderId: 101, side: "BUY", qty: 1, time: 1_000, originIp: "192.0.2.10", originInstance: "hetzner" }),
