@@ -161,7 +161,7 @@ Coverage repair:
 Prior impact:
 
 - The executable formal report can silently contain false/stale VolConf fields while the production tests pass.
-- `docs/formal-specs-extracted.md` has been corrected to avoid treating `verifyFormalOptimization.fvrVolConf*` as current authority.
+- `docs/formal-specs-extracted.md` could treat stale `verifyFormalOptimization.fvrVolConf*` fields as current authority unless the formal helper and extracted spec are kept aligned.
 
 Applied repair:
 
