@@ -48,7 +48,7 @@ Primary documentation sources:
 | ID | Specification | Status |
 |---|---|---|
 | S1 | Fresh-entry threshold, headroom, spike, and fee-buffer gates | Implemented |
-| S2 | Directionality gate | Implemented, with doc/code value drift noted |
+| S2 | Directionality gate | Implemented |
 | S3 | Volatility-confidence gate | Implemented |
 | S4 | Conformal prediction interval admissibility | Implemented |
 | S5 | Quantile prediction interval admissibility | Implemented |

@@ -55,7 +55,7 @@ The implementation, optimizer/top-combo filters, tests, and README now agree on 
 Prior impact:
 
 - Operators reading the README would expect combos with `openThreshold > 1/3` to be rejected, but implementation permits them up to `10/3`.
-- The extracted spec correctly notes the drift, but the canonical README remains misleading.
+- The extracted spec correctly noted the drift before the README repair, but the canonical README was misleading.
 
 Applied repair:
 
