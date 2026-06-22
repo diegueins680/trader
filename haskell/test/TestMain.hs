@@ -73,6 +73,11 @@ import Trader.Formal.Optimization (
     activityCountFromMetrics,
     fvrActivityCountInvariant,
     fvrOptimizerPublicSurfaceInvariant,
+    fvrVolConfCanonicalizationInvariant,
+    fvrVolConfMalformedConfidenceFailsClosed,
+    fvrVolConfMalformedInputsStayConservative,
+    fvrVolConfMalformedVolMatchesMissing,
+    fvrVolConfOutputBounded,
     roiViewFromMetrics,
     rvActivityCount,
     verifyFormalOptimization,
@@ -3818,6 +3823,14 @@ testVolConfGateMalformedInputsFailClosed = do
     assertMonotoneNonIncreasing
         "tightening the high-volatility threshold cannot reopen a blocked vol-confidence entry"
         volatilityLadder
+    assert
+        "formal optimization vol-confidence report fields match production semantics"
+        ( fvrVolConfCanonicalizationInvariant verifyFormalOptimization
+            && fvrVolConfMalformedVolMatchesMissing verifyFormalOptimization
+            && fvrVolConfMalformedConfidenceFailsClosed verifyFormalOptimization
+            && fvrVolConfMalformedInputsStayConservative verifyFormalOptimization
+            && fvrVolConfOutputBounded verifyFormalOptimization
+        )
 
 testQueuedBotStartOrderErrorStability :: IO ()
 testQueuedBotStartOrderErrorStability = do

@@ -2,6 +2,11 @@
 
 Date: 2026-04-19
 
+Update note, 2026-06-21:
+- The Binance-specific findings in the original audit have been superseded in part: the current kline path retains close time, discards still-open candles, rejects non-finite numeric payloads, rejects negative volume and invalid OHLC shape, validates strictly increasing open times, and the live bot path holds on stale or gapped market data before processing a new decision.
+- The production stale-data policy is now stricter than the original audit recommendation: `Trader.MarketDataIntegrity.marketDataFreshness` marks data stale when `ageMs > intervalMs`, measured from the last processed candle close time. The older `2 x interval` threshold below is retained only as historical audit context.
+- The broader P0 disposition still depends on whether every live exchange and offline loader is routed through one enforced post-load/pre-trade market-series QA gate.
+
 Scope reviewed:
 - `haskell/app/Trader/App/Csv.hs`
 - `haskell/app/Trader/Binance.hs`
@@ -61,16 +66,17 @@ To satisfy this audit at P0, trading should be blocked whenever any live-loaded 
 **What passes now**
 - Parsed kline fields reject non-finite numeric strings (`Binance.hs:549-586`).
 - The public trading entry path normalizes Binance symbols before use (`Args.hs:1039-1089`, `Symbol.hs:136-148`).
+- Kline parsing retains the close-time field when present.
+- `fetchKlinesRaw` and `fetchKlinesBetweenRaw` pass responses through `normalizeClosedKlines`, which sorts by open time, rejects non-finite OHLCV payloads, rejects negative volume and invalid OHLC relationships, rejects duplicate/non-increasing open times, and filters out candles whose close time is not yet in the past.
+- The live market-data helpers mark stale data when the last processed candle close is more than one interval old and detect non-contiguous follow-on candles as `MARKET_DATA_GAP`.
 
 **What fails / is incomplete now**
-- `fetchKlinesRaw` does not deduplicate klines by `openTime`, does not validate strict monotonicity, and does not validate missing-bar continuity (`Binance.hs:767-813`).
-- The loader does not check whether the last returned kline is **closed** or still the current/open candle. The parser does not even retain close time / closed-flag fields from the Binance array (`Binance.hs:549-565`, `Binance.hs:767-813`).
-- No basic OHLC invariants are checked after parse.
+- Historical batch loading still relies on strict monotonicity and live continuation checks rather than requiring a gap-free full series at parse time.
+- Duplicate open times are rejected rather than deduplicated.
 - Cache TTL (`5s` fresh, `60s` stale) is transport caching only, not feed freshness validation (`Binance.hs:326-330`).
 
 **Risk**
-- The live bot loop can ingest a newly opened, still-forming candle as if it were final.
-- Gaps or duplicate bars can pass through to feature construction and live trading.
+- Gap-free guarantees still need to be enforced consistently at the live decision boundary and across non-Binance loaders.
 
 ### 3) Coinbase parser integrity (`Trader.Coinbase`)
 
@@ -310,14 +316,14 @@ The codebase currently has **cache TTLs**, but those TTLs are not the same thing
 
 **Audit assumption for live trading recommendation:**
 - First, discard any bar that is not known to be fully closed.
-- Then define stale as: **the last closed bar is older than `2 × interval` relative to wall clock**.
+- Production now defines stale as: **the last closed bar's close time is more than `1 x interval` behind wall clock** (`ageMs > intervalMs`).
 
-Examples under this assumption:
-- `1m` strategy: hard-fail if last closed bar is older than 2 minutes.
-- `5m` strategy: hard-fail if older than 10 minutes.
-- `1h` strategy: hard-fail if older than 2 hours.
+Examples under the production policy:
+- `1m` strategy: hard-fail if the last closed bar close time is more than 1 minute old.
+- `5m` strategy: hard-fail if the last closed bar close time is more than 5 minutes old.
+- `1h` strategy: hard-fail if the last closed bar close time is more than 1 hour old.
 
-This is a conservative minimum. A tighter policy (for example `1 × interval + small grace`) would also be defensible.
+This is stricter than the original audit's `2 x interval` recommendation and is the current code-backed policy.
 
 ---
 
@@ -347,7 +353,7 @@ Also apply the same gate in the bot polling path before `botApplyKline`.
 - Hard-fail vs soft-fail recommendations: **DONE**
 - Leakage risks: **DONE**
 - Stale-data threshold assumptions: **DONE**
-- “Malformed or stale data blocks trading where appropriate”: **NOT SATISFIED IN CODE TODAY**; this audit recommends the exact gate conditions required to satisfy it.
+- “Malformed or stale data blocks trading where appropriate”: **PARTIALLY SATISFIED FOR BINANCE LIVE PATHS** after the close-time, closed-candle, shape, strict-open-time, stale, and gap checks above; still needs one consistently enforced post-load/pre-trade QA gate across all loaders to satisfy this audit repo-wide.
 
 ### P0 disposition
 **Fail until a post-load/pre-trade data-QA gate exists and is enforced on live paths.**

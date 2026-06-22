@@ -47,9 +47,11 @@ import Trader.Trading (
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
+    VolConfGateConfig (..),
     VolConfGatePreset (..),
     defaultVolConfGateConfig,
     volConfGateCell,
+    volConfGateConfigForPreset,
  )
 
 roiRequirementSummary :: String
@@ -98,7 +100,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrOptimizerPublicSurfaceInvariant :: !Bool
     , fvrVolConfCanonicalizationInvariant :: !Bool
     , fvrVolConfMalformedVolMatchesMissing :: !Bool
-    , fvrVolConfMalformedConfidenceMatchesWeak :: !Bool
+    , fvrVolConfMalformedConfidenceFailsClosed :: !Bool
     , fvrVolConfMalformedInputsStayConservative :: !Bool
     , fvrVolConfOutputBounded :: !Bool
     , fvrKalmanFusionMalformedMeasurementsIgnored :: !Bool
@@ -557,10 +559,10 @@ verifyFormalOptimization =
                     | preset <- volConfPresetDomain
                     , mConfidence <- volConfConfidenceDomain
                     ]
-            , fvrVolConfMalformedConfidenceMatchesWeak =
+            , fvrVolConfMalformedConfidenceFailsClosed =
                 and
-                    [ volConfMalformedConfidenceMatchesWeakFor preset mVolatility
-                    | preset <- volConfPresetDomain
+                    [ volConfMalformedConfidenceFailsClosedFor preset mVolatility
+                    | preset <- volConfEnabledPresetDomain
                     , mVolatility <- volConfVolatilityDomain
                     ]
             , fvrVolConfMalformedInputsStayConservative =
@@ -1038,24 +1040,36 @@ sanitizeFiniteMaybe mValue =
         Just x | isFinite x -> Just x
         _ -> Nothing
 
-clamp :: Double -> Double -> Double -> Double
-clamp lo hi x = max lo (min hi x)
+-- Mirror the production contract: malformed volatility collapses to missing
+-- data, missing confidence remains weak, and malformed provided confidence
+-- remains malformed rather than being normalized into weak evidence.
+canonicalizeVolatilityInput :: VolConfGatePreset -> Maybe Double -> Maybe Double
+canonicalizeVolatilityInput preset mVolatility =
+    let cfg = volConfGateConfigForPreset preset
+     in case sanitizeFiniteMaybe mVolatility of
+            Just rawVol
+                | rawVol >= 0 && rawVol <= vcgcVolatilityEvidenceMax cfg -> Just rawVol
+            _ -> Nothing
 
--- Mirror the production contract: non-finite and impossible negative
--- volatility collapse to missing data, while missing or malformed
--- confidence collapses to a weak finite score.
-canonicalizeVolatilityInput :: Maybe Double -> Maybe Double
-canonicalizeVolatilityInput mVolatility =
+canonicalizeConfidenceInput :: Maybe Double -> Maybe Double
+canonicalizeConfidenceInput mConfidence =
+    case mConfidence of
+        Nothing -> Nothing
+        Just rawConfidence
+            | isFinite rawConfidence && rawConfidence >= 0 && rawConfidence <= 1 ->
+                Just rawConfidence
+            | otherwise ->
+                Just nanValue
+
+volConfMalformedCell :: VolConfGateCell
+volConfMalformedCell = VolConfGateCell VolConfGateAllowExitOnly 0
+
+canonicalizeVolatilityEvidenceOnly :: Maybe Double -> Maybe Double
+canonicalizeVolatilityEvidenceOnly mVolatility =
     case sanitizeFiniteMaybe mVolatility of
         Just rawVol
             | rawVol >= 0 -> Just rawVol
         _ -> Nothing
-
-canonicalizeConfidenceInput :: Maybe Double -> Maybe Double
-canonicalizeConfidenceInput mConfidence =
-    case sanitizeFiniteMaybe mConfidence of
-        Nothing -> Just 0.0
-        Just rawConfidence -> Just (clamp 0 1 rawConfidence)
 
 approxEq :: Double -> Double -> Bool
 approxEq x y = abs (x - y) <= comparisonEps
@@ -1101,7 +1115,7 @@ volConfCanonicalizationInvariantFor (preset, mVolatility, mConfidence) =
     volConfGateCell preset mVolatility mConfidence
         == volConfGateCell
             preset
-            (canonicalizeVolatilityInput mVolatility)
+            (canonicalizeVolatilityInput preset mVolatility)
             (canonicalizeConfidenceInput mConfidence)
 
 volConfMalformedVolMatchesMissingFor :: VolConfGatePreset -> Maybe Double -> Bool
@@ -1113,17 +1127,17 @@ volConfMalformedVolMatchesMissingFor preset mConfidence =
             | badVol <- malformedVolatilityDomain
             ]
 
-volConfMalformedConfidenceMatchesWeakFor :: VolConfGatePreset -> Maybe Double -> Bool
-volConfMalformedConfidenceMatchesWeakFor preset mVolatility =
-    let weakConfidenceCell = volConfGateCell preset mVolatility Nothing
+volConfMalformedConfidenceFailsClosedFor :: VolConfGatePreset -> Maybe Double -> Bool
+volConfMalformedConfidenceFailsClosedFor preset mVolatility =
+    let canonicalVolatility = canonicalizeVolatilityInput preset mVolatility
      in and
-            [ volConfGateCell preset mVolatility (Just badConfidence) == weakConfidenceCell
-            | badConfidence <- nonFiniteDomain
+            [ volConfGateCell preset canonicalVolatility (Just badConfidence) == volConfMalformedCell
+            | badConfidence <- malformedConfidenceDomain
             ]
 
 volConfMalformedInputsStayConservativeFor :: VolConfGatePreset -> Double -> Double -> Bool
 volConfMalformedInputsStayConservativeFor preset volatility confidence =
-    let canonicalVolatility = canonicalizeVolatilityInput (Just volatility)
+    let canonicalVolatility = canonicalizeVolatilityInput preset (Just volatility)
         canonicalConfidence = canonicalizeConfidenceInput (Just confidence)
         missingVolBaseline = volConfGateCell preset Nothing canonicalConfidence
         weakConfidenceBaseline = volConfGateCell preset canonicalVolatility Nothing
@@ -1138,14 +1152,14 @@ volConfMalformedInputsStayConservativeFor preset volatility confidence =
                 [ gateCellNoMorePermissiveThan
                     (volConfGateCell preset canonicalVolatility (Just badConfidence))
                     weakConfidenceBaseline
-                | badConfidence <- nonFiniteDomain
+                | badConfidence <- malformedConfidenceDomain
                 ]
             && and
                 [ gateCellNoMorePermissiveThan
                     (volConfGateCell preset (Just badVol) (Just badConfidence))
                     missingVolWeakConfidenceBaseline
                 | badVol <- malformedVolatilityDomain
-                , badConfidence <- nonFiniteDomain
+                , badConfidence <- malformedConfidenceDomain
                 ]
 
 volConfOutputBoundedFor :: (VolConfGatePreset, Maybe Double, Maybe Double) -> Bool
@@ -1422,14 +1436,27 @@ volConfPresetDomain =
     , VolConfGateV1ConfStricter
     ]
 
+volConfEnabledPresetDomain :: [VolConfGatePreset]
+volConfEnabledPresetDomain = filter (/= VolConfGateDisabled) volConfPresetDomain
+
 volConfFiniteVolatilityDomain :: [Double]
-volConfFiniteVolatilityDomain = [-1.0, 0.0, 0.25, 0.5, 1.0, 1.2, 1.4, 2.0]
+volConfFiniteVolatilityDomain = [-1.0, 0.0, 0.25, 0.5, 1.0, 1.2, 1.4, 2.0, 2.000001]
 
 negativeFiniteVolatilityDomain :: [Double]
 negativeFiniteVolatilityDomain = filter (< 0) volConfFiniteVolatilityDomain
 
+aboveRangeFiniteVolatilityDomain :: [Double]
+aboveRangeFiniteVolatilityDomain =
+    filter
+        ( \volatility ->
+            case canonicalizeVolatilityEvidenceOnly (Just volatility) of
+                Just rawVol -> rawVol > vcgcVolatilityEvidenceMax defaultVolConfGateConfig
+                Nothing -> False
+        )
+        volConfFiniteVolatilityDomain
+
 malformedVolatilityDomain :: [Double]
-malformedVolatilityDomain = negativeFiniteVolatilityDomain ++ nonFiniteDomain
+malformedVolatilityDomain = negativeFiniteVolatilityDomain ++ aboveRangeFiniteVolatilityDomain ++ nonFiniteDomain
 
 volConfVolatilityDomain :: [Maybe Double]
 volConfVolatilityDomain =
@@ -1438,7 +1465,14 @@ volConfVolatilityDomain =
         ++ map Just nonFiniteDomain
 
 volConfFiniteConfidenceDomain :: [Double]
-volConfFiniteConfidenceDomain = [-0.5, 0.0, 0.59, 0.60, 0.64, 0.65, 0.79, 0.80, 1.0, 1.5]
+volConfFiniteConfidenceDomain = [-0.5, -0.01, 0.0, 0.59, 0.60, 0.64, 0.65, 0.79, 0.80, 1.0, 1.000001, 1.5]
+
+malformedConfidenceDomain :: [Double]
+malformedConfidenceDomain =
+    filter
+        (\confidence -> confidence < 0 || confidence > 1)
+        volConfFiniteConfidenceDomain
+        ++ nonFiniteDomain
 
 volConfConfidenceDomain :: [Maybe Double]
 volConfConfidenceDomain =
