@@ -77,7 +77,7 @@ Proof sketch:
 
 Clauses:
 
-1. Let `threshold = normalizeSignalThreshold openThreshold`, `requiredHeadroom = 1.5 * threshold`, and `requiredEdge = requiredHeadroom + roundTripFeeFloor`. An entry is admissible only when the raw open threshold is finite and non-negative, the normalized threshold is finite and non-negative, the fee floor is finite and non-negative, the edge sample is explicit (`Just`) and finite, and `edge >= requiredEdge`; this explicit-edge obligation still applies when `requiredEdge == 0`.
+1. Let `normalizeSignalOpenThreshold openThreshold = Just threshold`, `requiredHeadroom = 1.5 * threshold`, and `requiredEdge = requiredHeadroom + roundTripFeeFloor`. An entry is admissible only when the raw open threshold is finite and non-negative, the normalized threshold is finite and non-negative, the fee floor is finite and non-negative, the edge sample is explicit (`Just`) and finite, and `edge >= requiredEdge`; this explicit-edge obligation still applies when `requiredEdge == 0`.
 2. `signalEntryHeadroomOk openThreshold` remains the zero-fee specialization `signalEntryFeeBufferOk openThreshold 0`.
 3. For fixed `openThreshold` and edge, admissibility is monotone non-increasing as any valid `roundTripFeeFloor` rises.
 4. For fixed `openThreshold` and fee floor, admissibility is monotone non-increasing as raw edge falls.
@@ -92,7 +92,7 @@ Clauses:
 13. Deploy-log-driven backend repair is non-interfering with trading admissibility: a failed Fly backend Docker/cabal build log is actionable repair context rather than pending or skippable CI noise, and any backend Haskell repair selected from that log must first restore parser/build validity before changing trading semantics or weakening the fresh-entry gate predicates above.
 14. For every enabled `Trader.VolConfGate` preset, volatility evidence is admissible only when it is present, finite, non-negative, and at most the configured evidence max (`2.0` by default). Missing, negative, non-finite, or above-range volatility evidence maps to `VolConfGateAllowExitOnly` with size multiplier `0`, so malformed volatility cannot be normalized into low-volatility entry permission.
 15. For every enabled `Trader.VolConfGate` preset, provided confidence evidence is admissible only when it is finite and within `[0,1]`. Missing confidence remains weak entry-blocking evidence, but provided negative, non-finite, or above-range confidence maps to `VolConfGateAllowExitOnly` with size multiplier `0` instead of a weak hold cell.
-16. Valid volatility-confidence boundary equality is preserved: volatility bucket boundaries remain inclusive on the higher bucket, confidence weak/strong thresholds remain inclusive on the stronger bucket, the volatility upper bound `2.0` remains valid, and entry admissibility is monotone non-increasing when moving from default to stricter confidence requirements or from looser to tighter high-volatility requirements on the same bounded witness.
+16. Valid volatility-confidence boundary equality is preserved: volatility bucket boundaries remain inclusive on the higher bucket, confidence weak/strong thresholds remain inclusive on the stronger bucket, the default volatility upper bound `2.0` remains valid, and entry admissibility is monotone non-increasing when moving from default to stricter confidence requirements or from looser to tighter high-volatility requirements on the same bounded witness.
 
 Bounded executable obligations:
 
