@@ -113,6 +113,7 @@ import Trader.Formal.CloseTiming (
     ComboTrade (..),
     acceptedCloseTimingMaxHoldBars,
     analyzeComboCloseTiming,
+    closeTimingRecommendationAccepted,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
  )
@@ -2400,7 +2401,7 @@ closeTimingReportToValue :: Maybe Int -> Maybe Int -> ComboCloseTimingReport -> 
 closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
     let recommendationAccepted =
             case cctrRecommendedMaxHoldBars report of
-                Just recommended -> acceptedCloseTimingMaxHoldBars currentMaxHoldBars report == Just recommended
+                Just recommended -> closeTimingRecommendationAccepted currentMaxHoldBars recommended report
                 Nothing -> False
      in object
             [ "comboId" .= cctrComboId report
@@ -4383,11 +4384,12 @@ trialToRecord tr symbolLabel =
             applyWalkForwardSummaryMetrics
                 (trMetrics tr)
                 (trStdoutJson tr)
+        appliedMaxHoldBars = appliedCloseTimingMaxHoldBars currentMaxHoldBars closeTimingReport
         metricsWithCloseTiming =
             applyCloseTimingMetrics
                 metricsWithWalkForward
                 currentMaxHoldBars
-                currentMaxHoldBars
+                appliedMaxHoldBars
                 closeTimingReport
         baseFields =
             [ "ok" .= trOk tr
@@ -8710,7 +8712,8 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         closeTimingReport = trialCloseTimingReport params symbol (trStdoutJson tr)
         metrics0 = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
         metricsWithWalkForward = applyWalkForwardSummaryMetrics metrics0 (trStdoutJson tr)
-        metrics = applyCloseTimingMetrics metricsWithWalkForward currentMaxHoldBars currentMaxHoldBars closeTimingReport
+        appliedMaxHoldBars = appliedCloseTimingMaxHoldBars currentMaxHoldBars closeTimingReport
+        metrics = applyCloseTimingMetrics metricsWithWalkForward currentMaxHoldBars appliedMaxHoldBars closeTimingReport
         metricsVal = maybe Null Object metrics
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
         paramsValue =

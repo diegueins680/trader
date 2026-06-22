@@ -28,9 +28,9 @@ import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds, positiveFiniteDu
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     ComboTrade (..),
+    acceptedCloseTimingMaxHoldBars,
     analyzeComboCloseTiming,
     closeTimingRecommendationAccepted,
-    closeTimingRecommendationHasRetuneEvidence,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
  )
@@ -350,16 +350,7 @@ closeTimingReportFromBacktest comboId raw =
         Nothing -> analyzeComboCloseTiming comboId [] []
 
 appliedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
-appliedCloseTimingMaxHoldBars currentMaxHoldBars report =
-    case cctrRecommendedMaxHoldBars report of
-        Just recommended
-            | closeTimingRecommendationApplies currentMaxHoldBars recommended report -> Just recommended
-        _ -> currentMaxHoldBars
-
-closeTimingRecommendationApplies :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
-closeTimingRecommendationApplies currentMaxHoldBars recommended report =
-    closeTimingRecommendationHasRetuneEvidence recommended report
-        && closeTimingRecommendationAccepted currentMaxHoldBars recommended report
+appliedCloseTimingMaxHoldBars = acceptedCloseTimingMaxHoldBars
 
 applyCloseTimingMetrics ::
     Maybe (KM.KeyMap Value) ->
@@ -376,8 +367,7 @@ closeTimingReportToValue :: Maybe Int -> Maybe Int -> ComboCloseTimingReport -> 
 closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
     let recommendationAccepted =
             case cctrRecommendedMaxHoldBars report of
-                Just recommended ->
-                    closeTimingRecommendationApplies currentMaxHoldBars recommended report
+                Just recommended -> closeTimingRecommendationAccepted currentMaxHoldBars recommended report
                 Nothing -> False
      in object
             [ "comboId" .= cctrComboId report

@@ -117,6 +117,7 @@ import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
 import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
+import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
@@ -125,6 +126,7 @@ import Trader.Optimizer.Optimize (
     ageAdjustedPriorScore,
     ageAdjustedPriorScoreWithMissingMultiplier,
     appliedCloseTimingMaxHoldBars,
+    applyCloseTimingMetrics,
     applyWalkForwardSummaryMetrics,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
@@ -399,6 +401,7 @@ main = do
     testPortfolioCapitalPreservationReport
     testLiveMaxPnlCloseTimingRecommendation
     testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence
+    testOptimizerCloseTimingMetricsRecordAppliedRecommendation
     testLossStreakMaxRejectsNegativeValue
     testLossStreakCooldownBarsRejectsNegativeValue
     testVolScaleMaxRejectsInvalidValues
@@ -2662,40 +2665,49 @@ testLiveMaxPnlCloseTimingRecommendation = do
         "live max-PNL close timing ignores invalid zero or negative ages"
         (liveMaxPnlCloseTimingEvidenceHoldBars [0, -1, 3, 5, 7] == Just 5)
 
+acceptedOptimizerCloseTimingReport :: ComboCloseTimingReport
+acceptedOptimizerCloseTimingReport =
+    ComboCloseTimingReport
+        { cctrComboId = "combo"
+        , cctrSampleCount = 6
+        , cctrPositiveLiftSampleCount = 4
+        , cctrMedianRatio = Just 0.6
+        , cctrQ25Ratio = Just 0.4
+        , cctrQ75Ratio = Just 0.75
+        , cctrMadRatio = Just 0.1
+        , cctrMeanLift = Just 0.02
+        , cctrMedianLift = Just 0.01
+        , cctrMedianObservedDuration = Just 10
+        , cctrObservedHoldHorizon = Just 10
+        , cctrMedianOptimalDuration = Just 6
+        , cctrQ75OptimalDuration = Just 6
+        , cctrAnalyzedHoldBars = [6, 10]
+        , cctrRecommendedMaxHoldBars = Just 6
+        , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 6
+        , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just 4
+        , cctrRecommendedMaxHoldBarsMeanLift = Just 0.02
+        }
+
+unsupportedOptimizerCloseTimingReport :: ComboCloseTimingReport
+unsupportedOptimizerCloseTimingReport =
+    acceptedOptimizerCloseTimingReport
+        { cctrAnalyzedHoldBars = [6, 10]
+        , cctrRecommendedMaxHoldBars = Just 4
+        , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 4
+        }
+
+weakOptimizerCloseTimingReport :: ComboCloseTimingReport
+weakOptimizerCloseTimingReport =
+    acceptedOptimizerCloseTimingReport
+        { cctrPositiveLiftSampleCount = 2
+        , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just 2
+        }
+
 testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence :: IO ()
 testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence = do
-    let acceptedReport =
-            ComboCloseTimingReport
-                { cctrComboId = "combo"
-                , cctrSampleCount = 6
-                , cctrPositiveLiftSampleCount = 4
-                , cctrMedianRatio = Just 0.6
-                , cctrQ25Ratio = Just 0.4
-                , cctrQ75Ratio = Just 0.75
-                , cctrMadRatio = Just 0.1
-                , cctrMeanLift = Just 0.02
-                , cctrMedianLift = Just 0.01
-                , cctrMedianObservedDuration = Just 10
-                , cctrObservedHoldHorizon = Just 10
-                , cctrMedianOptimalDuration = Just 6
-                , cctrQ75OptimalDuration = Just 6
-                , cctrAnalyzedHoldBars = [6, 10]
-                , cctrRecommendedMaxHoldBars = Just 6
-                , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 6
-                , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just 4
-                , cctrRecommendedMaxHoldBarsMeanLift = Just 0.02
-                }
-        unsupportedReport =
-            acceptedReport
-                { cctrAnalyzedHoldBars = [6, 10]
-                , cctrRecommendedMaxHoldBars = Just 4
-                , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 4
-                }
-        weakReport =
-            acceptedReport
-                { cctrPositiveLiftSampleCount = 2
-                , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just 2
-                }
+    let acceptedReport = acceptedOptimizerCloseTimingReport
+        unsupportedReport = unsupportedOptimizerCloseTimingReport
+        weakReport = weakOptimizerCloseTimingReport
     assert
         "optimizer applies accepted close-timing recommendations"
         (appliedCloseTimingMaxHoldBars (Just 10) acceptedReport == Just 6)
@@ -2705,6 +2717,58 @@ testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence = do
     assert
         "optimizer ignores recommendations without enough positive-lift support"
         (appliedCloseTimingMaxHoldBars (Just 10) weakReport == Just 10)
+    assert
+        "runtime close-timing helper applies the same formal recommendation"
+        (OptimizerCommon.appliedCloseTimingMaxHoldBars (Just 10) acceptedReport == Just 6)
+    assert
+        "runtime close-timing helper ignores unsupported recommendations"
+        (OptimizerCommon.appliedCloseTimingMaxHoldBars (Just 10) unsupportedReport == Just 10)
+    assert
+        "runtime close-timing helper ignores weak recommendations"
+        (OptimizerCommon.appliedCloseTimingMaxHoldBars (Just 10) weakReport == Just 10)
+
+testOptimizerCloseTimingMetricsRecordAppliedRecommendation :: IO ()
+testOptimizerCloseTimingMetricsRecordAppliedRecommendation = do
+    let acceptedReport = acceptedOptimizerCloseTimingReport
+        acceptedApplied = appliedCloseTimingMaxHoldBars (Just 10) acceptedReport
+        acceptedMetrics = applyCloseTimingMetrics Nothing (Just 10) acceptedApplied acceptedReport
+        acceptedCloseTiming = acceptedMetrics >>= KM.lookup (AK.fromString "closeTiming") >>= valueObjectMaybe
+        unsupportedReport = unsupportedOptimizerCloseTimingReport
+        unsupportedApplied = appliedCloseTimingMaxHoldBars (Just 10) unsupportedReport
+        unsupportedMetrics = applyCloseTimingMetrics Nothing (Just 10) unsupportedApplied unsupportedReport
+        unsupportedCloseTiming = unsupportedMetrics >>= KM.lookup (AK.fromString "closeTiming") >>= valueObjectMaybe
+        noOpReport =
+            acceptedOptimizerCloseTimingReport
+                { cctrRecommendedMaxHoldBars = Just 10
+                , cctrRecommendedMaxHoldBarsEvidenceDuration = Just 10
+                }
+        noOpApplied = appliedCloseTimingMaxHoldBars (Just 10) noOpReport
+        noOpMetrics = applyCloseTimingMetrics Nothing (Just 10) noOpApplied noOpReport
+        noOpCloseTiming = noOpMetrics >>= KM.lookup (AK.fromString "closeTiming") >>= valueObjectMaybe
+    assert
+        "close-timing metrics mark accepted recommendations"
+        ((acceptedCloseTiming >>= KM.lookup (AK.fromString "recommendedMaxHoldBarsAccepted")) == Just (Aeson.Bool True))
+    assert
+        "close-timing metrics record the accepted applied max-hold bars"
+        ((acceptedCloseTiming >>= KM.lookup (AK.fromString "appliedMaxHoldBars")) == Just (Aeson.Number 6))
+    assert
+        "close-timing metrics reject unsupported recommendations"
+        ((unsupportedCloseTiming >>= KM.lookup (AK.fromString "recommendedMaxHoldBarsAccepted")) == Just (Aeson.Bool False))
+    assert
+        "close-timing metrics preserve current max-hold bars when recommendation is rejected"
+        ((unsupportedCloseTiming >>= KM.lookup (AK.fromString "appliedMaxHoldBars")) == Just (Aeson.Number 10))
+    assert
+        "close-timing metrics do not mark deadband no-op recommendations as accepted"
+        ((noOpCloseTiming >>= KM.lookup (AK.fromString "recommendedMaxHoldBarsAccepted")) == Just (Aeson.Bool False))
+    assert
+        "close-timing metrics keep no-op recommendations at the current max-hold bars"
+        ((noOpCloseTiming >>= KM.lookup (AK.fromString "appliedMaxHoldBars")) == Just (Aeson.Number 10))
+
+valueObjectMaybe :: Aeson.Value -> Maybe Aeson.Object
+valueObjectMaybe value =
+    case value of
+        Aeson.Object obj -> Just obj
+        _ -> Nothing
 
 testLossStreakMaxRejectsNegativeValue :: IO ()
 testLossStreakMaxRejectsNegativeValue = do
