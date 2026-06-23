@@ -2,6 +2,7 @@
 
 module Trader.MarketContext (
     MarketModel (..),
+    alignKlineClosesToOpenTimes,
     buildMarketModel,
     marketMeasurementAt,
     fitLinearRange,
@@ -11,13 +12,15 @@ import Control.Concurrent (QSem, forkIO, modifyMVar, newEmptyMVar, newMVar, newQ
 import Control.Exception (SomeException, finally, try)
 import Control.Monad (forM)
 import Data.Char (isAsciiLower)
+import Data.Int (Int64)
 import Data.List (foldl')
-import Data.Maybe (catMaybes)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (catMaybes, isJust)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 
 import Trader.App.Args (Args (..))
-import Trader.Binance (BinanceEnv, fetchCloses, fetchTopSymbolsByQuoteVolume)
+import Trader.Binance (BinanceEnv, Kline (..), fetchKlinesBetween, fetchTopSymbolsByQuoteVolume)
 import Trader.Symbol (splitSymbol)
 
 data MarketModel = MarketModel
@@ -61,12 +64,11 @@ forwardReturnsV prices =
                 then 0
                 else safeReturn (prices V.! i) (prices V.! (i + 1))
 
-takeLast :: Int -> [a] -> [a]
-takeLast n xs
-    | n <= 0 = []
-    | otherwise =
-        let k = length xs - n
-         in if k <= 0 then xs else drop k xs
+alignKlineClosesToOpenTimes :: V.Vector Int64 -> [Kline] -> Maybe (V.Vector Double)
+alignKlineClosesToOpenTimes openTimes klines =
+    let kmap = Map.fromList [(kOpenTime k, kClose k) | k <- klines]
+        closes = traverse (`Map.lookup` kmap) (V.toList openTimes)
+     in V.fromList <$> closes
 
 weightedMarketLag :: Int -> [(Double, V.Vector Double)] -> V.Vector Double
 weightedMarketLag n xs =
@@ -138,11 +140,15 @@ fitLinearRange xs ys start endExclusive =
 The returned model predicts the target forward return using the previous-bar, volume-weighted market return.
 'fitEnd' is the exclusive end of the training window in price indices (avoids lookahead in backtests).
 -}
-buildMarketModel :: Args -> BinanceEnv -> String -> Int -> V.Vector Double -> Maybe (V.Vector Double) -> IO (Maybe MarketModel)
-buildMarketModel args env targetSymbol fitEnd pricesV mCoinbaseCloses = do
+buildMarketModel :: Args -> BinanceEnv -> String -> Int -> V.Vector Double -> Maybe (V.Vector Int64) -> Maybe (V.Vector Double) -> IO (Maybe MarketModel)
+buildMarketModel args env targetSymbol fitEnd pricesV mOpenTimes mCoinbaseCloses = do
     let topN = max 0 (argKalmanMarketTopN args)
         n = V.length pricesV
         measVarFloor = max 1e-12 (argKalmanMeasurementVar args)
+        mOpenTimesAligned =
+            case mOpenTimes of
+                Just ts | V.length ts == n -> Just ts
+                _ -> Nothing
         -- Same-asset cross-exchange (Coinbase) returns, aligned to the price grid.
         -- Its lagged return is a strong same-asset / lead-lag predictor, so it is
         -- folded into the volume-weighted basket as an extra member.
@@ -156,7 +162,7 @@ buildMarketModel args env targetSymbol fitEnd pricesV mCoinbaseCloses = do
         else do
             let (_base, quote) = splitSymbol targetSymbol
             ranked <-
-                if topN > 0
+                if topN > 0 && isJust mOpenTimesAligned
                     then fetchTopSymbolsByQuoteVolume env quote (topN + 5)
                     else pure []
             let targetU = map toUpperAscii targetSymbol
@@ -166,15 +172,18 @@ buildMarketModel args env targetSymbol fitEnd pricesV mCoinbaseCloses = do
             let maxConcurrent = max 1 (min 4 topN)
                 fetchOne (sym, w) = do
                     rateLimiter
-                    r <- try (fetchCloses env sym (argInterval args) n) :: IO (Either SomeException [Double])
+                    let Just openTimes = mOpenTimesAligned
+                        startTime = V.head openTimes
+                        endTime = V.last openTimes
+                    r <- try (fetchKlinesBetween env sym (argInterval args) startTime endTime) :: IO (Either SomeException [Kline])
                     case r of
                         Left _ -> pure Nothing
-                        Right closes
-                            | length closes < n -> pure Nothing
-                            | otherwise -> do
-                                let v = V.fromList (takeLast n closes)
-                                    rets = returnsFromCloses v
-                                pure (Just (sym, max 0 w, rets))
+                        Right klines ->
+                            case alignKlineClosesToOpenTimes openTimes klines of
+                                Nothing -> pure Nothing
+                                Just v
+                                    | V.length v /= n -> pure Nothing
+                                    | otherwise -> pure (Just (sym, max 0 w, returnsFromCloses v))
             fetched <-
                 catMaybes <$> mapConcurrentlyBounded maxConcurrent fetchOne (take topN ranked')
             let otherWrets = [(w, r) | (_s, w, r) <- fetched]

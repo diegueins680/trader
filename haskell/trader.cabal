@@ -41,6 +41,7 @@ executable trader-hs
                      , Trader.Kalman3
                      , Trader.KalmanPhysics
                      , Trader.Kraken
+                     , Trader.LiveOrderIntent
                      , Trader.LSTM
                      , Trader.LstmDefaults
                      , Trader.LstmPersistence
@@ -268,6 +269,7 @@ test-suite trader-tests
                      , Trader.Kalman3
                      , Trader.KalmanPhysics
                      , Trader.Kraken
+                     , Trader.LiveOrderIntent
                      , Trader.LSTM
                      , Trader.LstmDefaults
                      , Trader.LstmPersistence

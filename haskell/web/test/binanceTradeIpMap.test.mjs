@@ -21,6 +21,10 @@ function mkTrade({
   originIp,
   executorIp,
   originInstance,
+  method,
+  strategy,
+  decisionSummary,
+  decisionReason,
   realizedPnl = 0,
 }) {
   return {
@@ -37,6 +41,24 @@ function mkTrade({
     originIp,
     executorIp,
     originInstance,
+    method,
+    strategy,
+    decisionSummary,
+    decisionReason,
+  };
+}
+
+function expectedMeta(base) {
+  return {
+    ...base,
+    entryMethod: null,
+    exitMethod: null,
+    entryStrategy: null,
+    exitStrategy: null,
+    entryDecisionSummary: null,
+    exitDecisionSummary: null,
+    entryDecisionReason: null,
+    exitDecisionReason: null,
   };
 }
 
@@ -52,22 +74,22 @@ test("buildBinanceTradeIpMap propagates close meta back onto the opening trade",
   const openKey = binanceTradeKey(trades[0]);
   const closeKey = binanceTradeKey(trades[1]);
 
-  assert.deepEqual(meta.get(openKey), {
+  assert.deepEqual(meta.get(openKey), expectedMeta({
     entryIp: "1.2.3.4",
     exitIp: "5.6.7.8",
     entryInstance: "laptop",
     exitInstance: "fly",
     entryTime: t0,
     exitTime: t1,
-  });
-  assert.deepEqual(meta.get(closeKey), {
+  }));
+  assert.deepEqual(meta.get(closeKey), expectedMeta({
     entryIp: "1.2.3.4",
     exitIp: "5.6.7.8",
     entryInstance: "laptop",
     exitInstance: "fly",
     entryTime: t0,
     exitTime: t1,
-  });
+  }));
 });
 
 test("buildBinanceTradeIpMap waits until a lot is fully closed before backfilling exit meta", () => {
@@ -83,14 +105,14 @@ test("buildBinanceTradeIpMap waits until a lot is fully closed before backfillin
   const meta = buildBinanceTradeIpMap(trades);
   const openKey = binanceTradeKey(trades[0]);
 
-  assert.deepEqual(meta.get(openKey), {
+  assert.deepEqual(meta.get(openKey), expectedMeta({
     entryIp: "1.1.1.1",
     exitIp: "3.3.3.3",
     entryInstance: null,
     exitInstance: null,
     entryTime: t0,
     exitTime: t2,
-  });
+  }));
 });
 
 test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are closed together", () => {
@@ -108,29 +130,94 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
   const openKey2 = binanceTradeKey(trades[1]);
   const closeKey = binanceTradeKey(trades[2]);
 
-  assert.deepEqual(meta.get(openKey1), {
+  assert.deepEqual(meta.get(openKey1), expectedMeta({
     entryIp: "1.1.1.1",
     exitIp: "9.9.9.9",
     entryInstance: "fly",
     exitInstance: "laptop",
     entryTime: t0,
     exitTime: t2,
-  });
-  assert.deepEqual(meta.get(openKey2), {
+  }));
+  assert.deepEqual(meta.get(openKey2), expectedMeta({
     entryIp: "4.4.4.4",
     exitIp: "9.9.9.9",
     entryInstance: "hetzner",
     exitInstance: "laptop",
     entryTime: t1,
     exitTime: t2,
-  });
-  assert.deepEqual(meta.get(closeKey), {
+  }));
+  assert.deepEqual(meta.get(closeKey), expectedMeta({
     entryIp: "1.1.1.1 • 4.4.4.4",
     exitIp: "9.9.9.9",
     entryInstance: "fly • hetzner",
     exitInstance: "laptop",
     entryTime: t0,
     exitTime: t2,
+  }));
+});
+
+test("buildBinanceTradeIpMap propagates strategy and decisions across a closed lot", () => {
+  const open = mkTrade({
+    tradeId: 1,
+    orderId: 101,
+    side: "BUY",
+    qty: 2,
+    time: 1_000,
+    executorIp: "1.1.1.1",
+    originInstance: "hetzner",
+    method: "ta_trend",
+    strategy: "ta_trend / 1m",
+    decisionSummary: "action LONG; chosen LONG",
+    decisionReason: "LONG",
+  });
+  const close = mkTrade({
+    tradeId: 2,
+    orderId: 102,
+    side: "SELL",
+    qty: 2,
+    time: 2_000,
+    executorIp: "2.2.2.2",
+    originInstance: "fly",
+    method: "ta_trend",
+    strategy: "ta_trend / 1m",
+    decisionSummary: "action EXIT_SIGNAL; close SHORT",
+    decisionReason: "SIGNAL",
+    realizedPnl: 1,
+  });
+
+  const meta = buildBinanceTradeIpMap([open, close]);
+
+  assert.deepEqual(meta.get(binanceTradeKey(open)), {
+    entryIp: "1.1.1.1",
+    exitIp: "2.2.2.2",
+    entryInstance: "hetzner",
+    exitInstance: "fly",
+    entryTime: 1_000,
+    exitTime: 2_000,
+    entryMethod: "ta_trend",
+    exitMethod: "ta_trend",
+    entryStrategy: "ta_trend / 1m",
+    exitStrategy: "ta_trend / 1m",
+    entryDecisionSummary: "action LONG; chosen LONG",
+    exitDecisionSummary: "action EXIT_SIGNAL; close SHORT",
+    entryDecisionReason: "LONG",
+    exitDecisionReason: "SIGNAL",
+  });
+  assert.deepEqual(meta.get(binanceTradeKey(close)), {
+    entryIp: "1.1.1.1",
+    exitIp: "2.2.2.2",
+    entryInstance: "hetzner",
+    exitInstance: "fly",
+    entryTime: 1_000,
+    exitTime: 2_000,
+    entryMethod: "ta_trend",
+    exitMethod: "ta_trend",
+    entryStrategy: "ta_trend / 1m",
+    exitStrategy: "ta_trend / 1m",
+    entryDecisionSummary: "action LONG; chosen LONG",
+    exitDecisionSummary: "action EXIT_SIGNAL; close SHORT",
+    entryDecisionReason: "LONG",
+    exitDecisionReason: "SIGNAL",
   });
 });
 
@@ -167,30 +254,30 @@ test("buildBinanceTradeIpMap does not let an unpaired one-way close create a pha
 
   const meta = buildBinanceTradeIpMap([historicalClose, visibleOpen, visibleClose]);
 
-  assert.deepEqual(meta.get(binanceTradeKey(historicalClose)), {
+  assert.deepEqual(meta.get(binanceTradeKey(historicalClose)), expectedMeta({
     entryIp: null,
     exitIp: "1.1.1.1",
     entryInstance: null,
     exitInstance: "fly",
     entryTime: null,
     exitTime: 1_000,
-  });
-  assert.deepEqual(meta.get(binanceTradeKey(visibleOpen)), {
+  }));
+  assert.deepEqual(meta.get(binanceTradeKey(visibleOpen)), expectedMeta({
     entryIp: "2.2.2.2",
     exitIp: "3.3.3.3",
     entryInstance: "laptop",
     exitInstance: "hetzner",
     entryTime: 2_000,
     exitTime: 3_000,
-  });
-  assert.deepEqual(meta.get(binanceTradeKey(visibleClose)), {
+  }));
+  assert.deepEqual(meta.get(binanceTradeKey(visibleClose)), expectedMeta({
     entryIp: "2.2.2.2",
     exitIp: "3.3.3.3",
     entryInstance: "laptop",
     exitInstance: "hetzner",
     entryTime: 2_000,
     exitTime: 3_000,
-  });
+  }));
 });
 
 test("buildBinanceTradeIpMap ignores requester origin IP when executor IP is absent", () => {
@@ -201,14 +288,14 @@ test("buildBinanceTradeIpMap ignores requester origin IP when executor IP is abs
 
   const meta = buildBinanceTradeIpMap(trades);
 
-  assert.deepEqual(meta.get(binanceTradeKey(trades[0])), {
+  assert.deepEqual(meta.get(binanceTradeKey(trades[0])), expectedMeta({
     entryIp: null,
     exitIp: null,
     entryInstance: "hetzner",
     exitInstance: "hetzner",
     entryTime: 1_000,
     exitTime: 2_000,
-  });
+  }));
 });
 
 test("parseOptionalInt accepts whole numbers and rejects fractional values", () => {

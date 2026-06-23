@@ -4590,14 +4590,27 @@ export function App() {
         typeof trade.originInstance === "string" && trade.originInstance.trim() ? trade.originInstance.trim() : null;
       const tradeTime = Number.isFinite(trade.time) ? trade.time : null;
       const likelyClose = isLikelyBinanceCloseFill(trade);
+      const entryOrderIpFallback = likelyClose ? null : ownExecutorIp;
+      const entryOrderInstanceFallback = likelyClose ? null : ownOriginInstance;
+      const entryOrderTimeFallback = likelyClose ? null : tradeTime;
       return {
         ...trade,
-        entryIp: ipMeta?.entryIp ?? ownExecutorIp,
-        exitIp: ipMeta?.exitIp ?? (likelyClose ? ownExecutorIp : null),
-        entryInstance: ipMeta?.entryInstance ?? ownOriginInstance,
-        exitInstance: ipMeta?.exitInstance ?? (likelyClose ? ownOriginInstance : null),
-        entryTime: ipMeta?.entryTime ?? tradeTime,
-        exitTime: ipMeta?.exitTime ?? (likelyClose ? tradeTime : null),
+        entryIp: ipMeta?.entryIp ?? trade.entryIp ?? entryOrderIpFallback,
+        exitIp: ipMeta?.exitIp ?? trade.exitIp ?? (likelyClose ? ownExecutorIp : null),
+        entryInstance: ipMeta?.entryInstance ?? trade.entryInstance ?? entryOrderInstanceFallback,
+        exitInstance: ipMeta?.exitInstance ?? trade.exitInstance ?? (likelyClose ? ownOriginInstance : null),
+        entryTime: ipMeta?.entryTime ?? trade.entryTime ?? entryOrderTimeFallback,
+        exitTime: ipMeta?.exitTime ?? trade.exitTime ?? (likelyClose ? tradeTime : null),
+        entryMethod: ipMeta?.entryMethod ?? trade.entryMethod ?? (likelyClose ? null : trade.method ?? null),
+        exitMethod: ipMeta?.exitMethod ?? trade.exitMethod ?? (likelyClose ? trade.method ?? null : null),
+        entryStrategy: ipMeta?.entryStrategy ?? trade.entryStrategy ?? (likelyClose ? null : trade.strategy ?? trade.method ?? null),
+        exitStrategy: ipMeta?.exitStrategy ?? trade.exitStrategy ?? (likelyClose ? trade.strategy ?? trade.method ?? null : null),
+        entryDecisionSummary:
+          ipMeta?.entryDecisionSummary ?? trade.entryDecisionSummary ?? (likelyClose ? null : trade.decisionSummary ?? null),
+        exitDecisionSummary:
+          ipMeta?.exitDecisionSummary ?? trade.exitDecisionSummary ?? (likelyClose ? trade.decisionSummary ?? null : null),
+        entryDecisionReason: ipMeta?.entryDecisionReason ?? trade.entryDecisionReason ?? (likelyClose ? null : trade.decisionReason ?? null),
+        exitDecisionReason: ipMeta?.exitDecisionReason ?? trade.exitDecisionReason ?? (likelyClose ? trade.decisionReason ?? null : null),
       };
     });
     let filtered = withIps;

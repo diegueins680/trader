@@ -86,6 +86,23 @@ function TablePager({ itemLabel, pagination, onPageChange }: TablePagerProps) {
   );
 }
 
+function presentText(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function routedText(entry?: string | null, exit?: string | null): string {
+  const entryTxt = presentText(entry);
+  const exitTxt = presentText(exit);
+  if (entryTxt && exitTxt && entryTxt !== exitTxt) return `${entryTxt} -> ${exitTxt}`;
+  return entryTxt ?? exitTxt ?? "—";
+}
+
+function decisionText(summary?: string | null, reason?: string | null): string {
+  return presentText(summary) ?? presentText(reason) ?? "—";
+}
+
 export type BinanceTradesPanelProps = {
   binanceTradesSymbolsInput: string;
   setBinanceTradesSymbolsInput: (value: string) => void;
@@ -221,6 +238,12 @@ export function BinanceTradesPanel({
       "entryTimeIso",
       "exitTimeMs",
       "exitTimeIso",
+      "entryStrategy",
+      "exitStrategy",
+      "entryDecisionSummary",
+      "exitDecisionSummary",
+      "entryDecisionReason",
+      "exitDecisionReason",
       "symbol",
       "side",
       "price",
@@ -257,6 +280,12 @@ export function BinanceTradesPanel({
         entryTimeIso,
         exitTimeMs ?? "",
         exitTimeIso,
+        trade.entryStrategy ?? "",
+        trade.exitStrategy ?? "",
+        trade.entryDecisionSummary ?? "",
+        trade.exitDecisionSummary ?? "",
+        trade.entryDecisionReason ?? "",
+        trade.exitDecisionReason ?? "",
         trade.symbol ?? "",
         side,
         trade.price ?? "",
@@ -689,10 +718,13 @@ export function BinanceTradesPanel({
 	                                <th>Price</th>
 		                                <th>Qty</th>
 		                                <th>Pos</th>
+		                                <th>Strategy</th>
 		                                <th>Open Instance</th>
 		                                <th>Close Instance</th>
 		                                <th>Open IP</th>
 		                                <th>Close IP</th>
+	                                <th>Open Decision</th>
+	                                <th>Close Decision</th>
 	                                <th>PNL</th>
 	                                <th>Max PNL</th>
 	                                <th>Max Close</th>
@@ -728,6 +760,9 @@ export function BinanceTradesPanel({
 		                                const exitInstanceTxt = row.exitInstance ?? "—";
 		                                const entryIpTxt = row.entryIp ?? "—";
 		                                const exitIpTxt = row.exitIp ?? "—";
+		                                const strategyTxt = routedText(row.entryStrategy ?? row.entryMethod, row.exitStrategy ?? row.exitMethod);
+		                                const openDecisionTxt = decisionText(row.entryDecisionSummary, row.entryDecisionReason);
+		                                const closeDecisionTxt = decisionText(row.exitDecisionSummary, row.exitDecisionReason);
 	                                return (
 	                                  <tr key={`binance-win-${row.tradeId}`}>
 	                                    <td className="tdMono">{openedTimeTxt}</td>
@@ -739,10 +774,13 @@ export function BinanceTradesPanel({
 		                                    <td className="tdMono">{fmtMoney(row.price, 4)}</td>
 		                                    <td className="tdMono">{qtyTxt}</td>
 		                                    <td className="tdMono">{row.positionSide ?? "—"}</td>
+		                                    <td className="tdDecision">{strategyTxt}</td>
 		                                    <td className="tdMono">{entryInstanceTxt}</td>
 		                                    <td className="tdMono">{exitInstanceTxt}</td>
 		                                    <td className="tdMono">{entryIpTxt}</td>
 		                                    <td className="tdMono">{exitIpTxt}</td>
+	                                    <td className="tdDecision">{openDecisionTxt}</td>
+	                                    <td className="tdDecision">{closeDecisionTxt}</td>
 	                                    <td>
 	                                      <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
 	                                    </td>
@@ -783,10 +821,13 @@ export function BinanceTradesPanel({
 	                                <th>Price</th>
 		                                <th>Qty</th>
 		                                <th>Pos</th>
+		                                <th>Strategy</th>
 		                                <th>Open Instance</th>
 		                                <th>Close Instance</th>
 		                                <th>Open IP</th>
 		                                <th>Close IP</th>
+	                                <th>Open Decision</th>
+	                                <th>Close Decision</th>
 	                                <th>PNL</th>
 	                                <th>Max PNL</th>
 	                                <th>Max Close</th>
@@ -822,6 +863,9 @@ export function BinanceTradesPanel({
 		                                const exitInstanceTxt = row.exitInstance ?? "—";
 		                                const entryIpTxt = row.entryIp ?? "—";
 		                                const exitIpTxt = row.exitIp ?? "—";
+		                                const strategyTxt = routedText(row.entryStrategy ?? row.entryMethod, row.exitStrategy ?? row.exitMethod);
+		                                const openDecisionTxt = decisionText(row.entryDecisionSummary, row.entryDecisionReason);
+		                                const closeDecisionTxt = decisionText(row.exitDecisionSummary, row.exitDecisionReason);
 	                                return (
 	                                  <tr key={`binance-loss-${row.tradeId}`}>
 	                                    <td className="tdMono">{openedTimeTxt}</td>
@@ -833,10 +877,13 @@ export function BinanceTradesPanel({
 		                                    <td className="tdMono">{fmtMoney(row.price, 4)}</td>
 		                                    <td className="tdMono">{qtyTxt}</td>
 		                                    <td className="tdMono">{row.positionSide ?? "—"}</td>
+		                                    <td className="tdDecision">{strategyTxt}</td>
 		                                    <td className="tdMono">{entryInstanceTxt}</td>
 		                                    <td className="tdMono">{exitInstanceTxt}</td>
 		                                    <td className="tdMono">{entryIpTxt}</td>
 		                                    <td className="tdMono">{exitIpTxt}</td>
+	                                    <td className="tdDecision">{openDecisionTxt}</td>
+	                                    <td className="tdDecision">{closeDecisionTxt}</td>
 	                                    <td>
 	                                      <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
 	                                    </td>
@@ -894,10 +941,13 @@ export function BinanceTradesPanel({
 	                <th>Qty</th>
 		                <th>Quote</th>
 		                <th>Pos</th>
+		                <th>Strategy</th>
 		                <th>Open Instance</th>
 		                <th>Close Instance</th>
 		                <th>Open IP</th>
 		                <th>Close IP</th>
+	                <th>Open Decision</th>
+	                <th>Close Decision</th>
 	                <th>Commission</th>
 	                <th>PNL</th>
 	                <th>Max PNL</th>
@@ -935,6 +985,9 @@ export function BinanceTradesPanel({
 		                const exitInstanceTxt = trade.exitInstance ?? "—";
 		                const entryIpTxt = trade.entryIp ?? "—";
 		                const exitIpTxt = trade.exitIp ?? "—";
+		                const strategyTxt = routedText(trade.entryStrategy ?? trade.entryMethod, trade.exitStrategy ?? trade.exitMethod);
+		                const openDecisionTxt = decisionText(trade.entryDecisionSummary, trade.entryDecisionReason);
+		                const closeDecisionTxt = decisionText(trade.exitDecisionSummary, trade.exitDecisionReason);
 	                return (
 	                  <tr key={`${trade.symbol}-${trade.tradeId}`}>
 	                    <td className="tdMono">{openedTimeTxt}</td>
@@ -949,10 +1002,13 @@ export function BinanceTradesPanel({
 		                    <td className="tdMono">{qtyTxt}</td>
 		                    <td className="tdMono">{quoteTxt}</td>
 		                    <td className="tdMono">{trade.positionSide ?? "—"}</td>
+		                    <td className="tdDecision">{strategyTxt}</td>
 		                    <td className="tdMono">{entryInstanceTxt}</td>
 		                    <td className="tdMono">{exitInstanceTxt}</td>
 		                    <td className="tdMono">{entryIpTxt}</td>
 		                    <td className="tdMono">{exitIpTxt}</td>
+	                    <td className="tdDecision">{openDecisionTxt}</td>
+	                    <td className="tdDecision">{closeDecisionTxt}</td>
 	                    <td className="tdMono">{commissionTxt}</td>
 	                    <td className="tdMono">{pnlTxt}</td>
 	                    <td>
