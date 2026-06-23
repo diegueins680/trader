@@ -4,6 +4,7 @@ module Trader.Optimizer.Optimize (
     OptimizerEdgeScoreConfig (..),
     OptimizerArgs (..),
     OptimizerRecordsSummary (..),
+    OptimizationTechniqueSummary (..),
     PriorTrial (..),
     TechnicalOptimizerRanges (..),
     TechnicalTrialParams (..),
@@ -14,6 +15,7 @@ module Trader.Optimizer.Optimize (
     applyQualityPreset,
     defaultOptimizerEdgeScoreConfig,
     emptyOptimizerRecordsSummary,
+    emptyTechniqueSummary,
     kellyLiteExposureContractReason,
     normalizeObjectiveCode,
     normalizeOptimizerRiskPerTrade,
@@ -22,6 +24,8 @@ module Trader.Optimizer.Optimize (
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
     optimizerRecordsSummaryJson,
+    optimizerTechniqueSummaryJson,
+    optimizerTopJsonSortKey,
     ageAdjustedPriorScore,
     ageAdjustedPriorScoreWithMissingMultiplier,
     defaultPriorMissingAgeMultiplier,
@@ -6707,8 +6711,8 @@ runOptimizer args0 = do
                                                                         survivorsRaw = take survivorCount (filter trSearchEligible scored ++ scored)
                                                                         techniqueSummarySeed =
                                                                             techniqueSummaryBase
-                                                                                { otsAppliedSobolSeeding = seedTrials > 0
-                                                                                , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
+                                                                                { otsAppliedSeedDiversification = seedTrials > 0
+                                                                                , otsAppliedSurvivorPruning = length survivorsRaw < length seedResults
                                                                                 }
                                                                         eliteCapacity = max 1 survivorCount
                                                                         eliteScore tr =
@@ -6778,8 +6782,8 @@ runOptimizer args0 = do
                                                                         best = bestFinal
                                                                         techniqueSummaryFinal =
                                                                             techniqueSummarySeed
-                                                                                { otsAppliedBayesianEi = remainingTrials > 0 && hasExploitationBase
-                                                                                , otsAppliedEnsemble =
+                                                                                { otsAppliedSurvivorExploitation = remainingTrials > 0 && hasExploitationBase
+                                                                                , otsAppliedTopPerformerSummary =
                                                                                     case records of
                                                                                         _ : _ : _ -> True
                                                                                         _ -> False
@@ -7324,42 +7328,42 @@ data OptimizationTechnique = OptimizationTechnique
     deriving (Eq, Show)
 
 data OptimizationTechniqueSummary = OptimizationTechniqueSummary
-    { otsAppliedSobolSeeding :: !Bool
-    , otsAppliedSuccessiveHalving :: !Bool
-    , otsAppliedBayesianEi :: !Bool
+    { otsAppliedSeedDiversification :: !Bool
+    , otsAppliedSurvivorPruning :: !Bool
+    , otsAppliedSurvivorExploitation :: !Bool
     , otsAppliedEmpiricalPriors :: !Bool
     , otsAppliedWalkForward :: !Bool
-    , otsAppliedEnsemble :: !Bool
+    , otsAppliedTopPerformerSummary :: !Bool
     }
     deriving (Eq, Show)
 
 emptyTechniqueSummary :: OptimizationTechniqueSummary
 emptyTechniqueSummary =
     OptimizationTechniqueSummary
-        { otsAppliedSobolSeeding = False
-        , otsAppliedSuccessiveHalving = False
-        , otsAppliedBayesianEi = False
+        { otsAppliedSeedDiversification = False
+        , otsAppliedSurvivorPruning = False
+        , otsAppliedSurvivorExploitation = False
         , otsAppliedEmpiricalPriors = False
         , otsAppliedWalkForward = False
-        , otsAppliedEnsemble = False
+        , otsAppliedTopPerformerSummary = False
         }
 
-bestOptimizationTechniques :: [OptimizationTechnique]
-bestOptimizationTechniques =
+optimizerSearchTechniques :: [OptimizationTechnique]
+optimizerSearchTechniques =
     [ OptimizationTechnique
-        { otName = "Bayesian optimization (expected improvement)"
-        , otSummary = "Model the objective surface and pick trials that maximize expected improvement over the best result."
-        , otWhyItHelps = "Improves sample efficiency versus uniform random search when trials are expensive or noisy."
+        { otName = "Deterministic seed diversification"
+        , otSummary = "Derive deterministic, spread-out PRNG seeds for the initial random-search phase."
+        , otWhyItHelps = "Keeps repeated runs reproducible while reducing accidental seed clustering in the broad exploration pass."
         }
     , OptimizationTechnique
-        { otName = "Successive halving / ASHA"
-        , otSummary = "Run many cheap partial trainings, pruning low performers early while allocating budget to promising candidates."
-        , otWhyItHelps = "Cuts wasted computation on weak trials and converges faster to strong configurations."
+        { otName = "Full-cost survivor pruning"
+        , otSummary = "Evaluate the seed phase, retain the strongest search-eligible survivors, and discard weaker seed candidates from exploitation."
+        , otWhyItHelps = "Spends later trials around configurations that already cleared the active scoring and evidence gates."
         }
     , OptimizationTechnique
-        { otName = "Sobol / Latin hypercube seeding"
-        , otSummary = "Start the search with low-discrepancy samples that cover the space more uniformly than pure random draws."
-        , otWhyItHelps = "Reduces blind spots and gives later exploitation steps better anchor points."
+        { otName = "Rank-biased survivor perturbation/crossover"
+        , otSummary = "Sample survivor neighborhoods with rank bias, then jitter or recombine parent parameters."
+        , otWhyItHelps = "Balances local exploitation of high-scoring regions with limited mutation and crossover exploration."
         }
     , OptimizationTechnique
         { otName = "Empirical prior sampling"
@@ -7372,9 +7376,9 @@ bestOptimizationTechniques =
         , otWhyItHelps = "Rewards configurations that generalize across regimes instead of overfitting a single window."
         }
     , OptimizationTechnique
-        { otName = "Ensemble the top performers"
-        , otSummary = "Blend the strongest, diverse configurations into a composite strategy instead of picking a single winner."
-        , otWhyItHelps = "Smooths variance and reduces the risk of relying on one brittle optimum."
+        { otName = "Top-performer summary"
+        , otSummary = "Report summary metrics and member identities for the strongest eligible trials."
+        , otWhyItHelps = "Makes the selected leaderboard easier to inspect without claiming that a composite strategy was executed."
         }
     ]
 
@@ -8627,16 +8631,31 @@ optionalIntFieldOne key obj =
         Just Null -> Just Nothing
         Just value -> Just <$> coerceIntValue value
 
-techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
-techniqueSummaryToJson t =
+optimizerTechniqueSummaryJson :: OptimizationTechniqueSummary -> Value
+optimizerTechniqueSummaryJson t =
     object
-        [ "sobolSeeding" .= otsAppliedSobolSeeding t
-        , "successiveHalving" .= otsAppliedSuccessiveHalving t
-        , "bayesianExpectedImprovement" .= otsAppliedBayesianEi t
+        [ "seedDiversification" .= otsAppliedSeedDiversification t
+        , "survivorPruning" .= otsAppliedSurvivorPruning t
+        , "rankBiasedSurvivorExploitation" .= otsAppliedSurvivorExploitation t
         , "empiricalPriorSampling" .= otsAppliedEmpiricalPriors t
         , "walkForwardCrossValidation" .= otsAppliedWalkForward t
-        , "ensembleTopPerformers" .= otsAppliedEnsemble t
+        , "topPerformerSummary" .= otsAppliedTopPerformerSummary t
+        , -- Compatibility fields for older readers. These techniques are not
+          -- implemented by this optimizer, so never report them as applied.
+          "sobolSeeding" .= False
+        , "successiveHalving" .= False
+        , "bayesianExpectedImprovement" .= False
+        , "ensembleTopPerformers" .= False
         ]
+
+optimizerTopJsonSortKey :: Maybe Double -> Maybe Double -> Maybe Double -> (Double, Double, Double)
+optimizerTopJsonSortKey mScore mAnnualizedReturn mFinalEquity =
+    (sanitize mScore (-(1 / 0)), sanitize mAnnualizedReturn (-(1 / 0)), sanitize mFinalEquity 0)
+  where
+    sanitize raw fallback =
+        case raw of
+            Just value | not (isNaN value || isInfinite value) -> value
+            _ -> fallback
 
 writeTopJson ::
     String ->
@@ -8658,13 +8677,10 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
             , isJust (trScore tr)
             ]
         sortKey tr =
-            let ann = metricFloat (trMetrics tr) "annualizedReturn" (-(1 / 0))
-                ann' = if isNaN ann || isInfinite ann then -(1 / 0) else ann
-                score = fromMaybe (-(1 / 0)) (trScore tr)
-                score' = if isNaN score || isInfinite score then -(1 / 0) else score
-                eq = fromMaybe 0 (trFinalEquity tr)
-                eq' = if isNaN eq || isInfinite eq then 0 else eq
-             in (ann', score', eq')
+            optimizerTopJsonSortKey
+                (trScore tr)
+                (finiteDoubleMaybe (Just (metricFloat (trMetrics tr) "annualizedReturn" (-(1 / 0)))))
+                (trFinalEquity tr)
         sorted = sortOn (Data.Ord.Down . sortKey) successful
         combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
         topMetrics =
@@ -8695,8 +8711,9 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 , "source" .= ("optimize_equity.py" :: String)
                 , "combos" .= combos
                 , "ensemble" .= ensemble
-                , "bestOptimizationTechniques" .= map optimizationTechniqueToJson bestOptimizationTechniques
-                , "optimizationTechniquesApplied" .= techniqueSummaryToJson summary
+                , "optimizerSearchTechniques" .= map optimizationTechniqueToJson optimizerSearchTechniques
+                , "bestOptimizationTechniques" .= map optimizationTechniqueToJson optimizerSearchTechniques
+                , "optimizationTechniquesApplied" .= optimizerTechniqueSummaryJson summary
                 ]
     BL.writeFile path (encodePretty export')
     putStrLn ("Wrote top combos JSON: " ++ path)

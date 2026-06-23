@@ -129,6 +129,7 @@ import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerR
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
+    OptimizationTechniqueSummary (..),
     OptimizerEdgeScoreConfig (..),
     OptimizerRecordsSummary (..),
     PriorTrial (..),
@@ -140,10 +141,13 @@ import Trader.Optimizer.Optimize (
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
     emptyOptimizerRecordsSummary,
+    emptyTechniqueSummary,
     kellyLiteExposureContractReason,
     normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
+    optimizerTechniqueSummaryJson,
+    optimizerTopJsonSortKey,
     priorAgeDecayMultiplier,
     priorAgeDecayMultiplierWithMissingMultiplier,
     priorTrialEdgeScore,
@@ -511,6 +515,8 @@ main = do
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
+    testOptimizerTopJsonSortUsesObjectiveScore
+    testOptimizerTechniqueSummaryTruthfulRegression
     testOptimizerPriorEdgeScoreRegression
     testOptimizerPriorParserCarriesFreshEvidenceRegression
     testOptimizerPriorAgeDecayMissingTimestampRegression
@@ -6850,6 +6856,60 @@ testOptimizerQualityBudgetRegression = do
     assert
         "quality preset preserves explicit method weights above the quality floor"
         (qualityPresetWeightFloor 1.0 (2.0 :: Double) == 2.0)
+
+testOptimizerTopJsonSortUsesObjectiveScore :: IO ()
+testOptimizerTopJsonSortUsesObjectiveScore = do
+    let highScoreLowAnnualized = optimizerTopJsonSortKey (Just 2.0) (Just 0.1) (Just 1.1)
+        lowScoreHighAnnualized = optimizerTopJsonSortKey (Just 1.0) (Just 99.0) (Just 9.0)
+        equalScoreHighAnnualized = optimizerTopJsonSortKey (Just 2.0) (Just 0.2) (Just 1.1)
+        nonFiniteScore = optimizerTopJsonSortKey (Just (1 / 0)) (Just 99.0) (Just 9.0)
+    assert
+        "optimize-equity top-json sorting prefers the active objective score over annualized return"
+        (highScoreLowAnnualized > lowScoreHighAnnualized)
+    assert
+        "optimize-equity top-json sorting still uses annualized return as a score tie-breaker"
+        (equalScoreHighAnnualized > highScoreLowAnnualized)
+    assert
+        "optimize-equity top-json sorting sinks non-finite objective scores"
+        (lowScoreHighAnnualized > nonFiniteScore)
+
+testOptimizerTechniqueSummaryTruthfulRegression :: IO ()
+testOptimizerTechniqueSummaryTruthfulRegression = do
+    let summary =
+            emptyTechniqueSummary
+                { otsAppliedSeedDiversification = True
+                , otsAppliedSurvivorPruning = True
+                , otsAppliedSurvivorExploitation = True
+                , otsAppliedEmpiricalPriors = True
+                , otsAppliedWalkForward = True
+                , otsAppliedTopPerformerSummary = True
+                }
+        summaryObj =
+            case optimizerTechniqueSummaryJson summary of
+                Aeson.Object obj -> obj
+                _ -> KM.empty
+        boolField key = KM.lookup (AK.fromString key) summaryObj >>= AT.parseMaybe Aeson.parseJSON
+    assert
+        "optimizer reports the current seed-diversification mechanism"
+        (boolField "seedDiversification" == Just True)
+    assert
+        "optimizer reports survivor pruning under its actual full-cost mechanism"
+        (boolField "survivorPruning" == Just True)
+    assert
+        "optimizer reports rank-biased survivor exploitation under its actual mechanism"
+        (boolField "rankBiasedSurvivorExploitation" == Just True)
+    assert
+        "optimizer does not report unimplemented Sobol sampling as applied"
+        (boolField "sobolSeeding" == Just False)
+    assert
+        "optimizer does not report unimplemented ASHA/successive-halving as applied"
+        (boolField "successiveHalving" == Just False)
+    assert
+        "optimizer does not report unimplemented Bayesian expected improvement as applied"
+        (boolField "bayesianExpectedImprovement" == Just False)
+    assert
+        "optimizer does not report a non-executed top-performer ensemble as applied"
+        (boolField "ensembleTopPerformers" == Just False)
 
 testOptimizerPriorEdgeScoreRegression :: IO ()
 testOptimizerPriorEdgeScoreRegression = do
