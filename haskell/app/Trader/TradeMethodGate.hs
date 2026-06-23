@@ -4,6 +4,9 @@ module Trader.TradeMethodGate (
     MethodResultStats (..),
     MethodGateConfig (..),
     MethodGateDecision (..),
+    conservativeUnavailableEvidenceSize,
+    unavailableEvidenceSizeCap,
+    unavailableEvidenceSizeMultiplier,
     loadMethodResultStats,
     methodGateDecision,
 ) where
@@ -38,6 +41,21 @@ data MethodGateDecision
     | MethodGateBlocked MethodResultStats
     | MethodGateUnavailable String
     deriving (Eq, Show)
+
+unavailableEvidenceSizeMultiplier :: Double
+unavailableEvidenceSizeMultiplier = 0.25
+
+unavailableEvidenceSizeCap :: Double
+unavailableEvidenceSizeCap = 0.25
+
+conservativeUnavailableEvidenceSize :: Maybe Double -> Double
+conservativeUnavailableEvidenceSize mSize =
+    min unavailableEvidenceSizeCap (max 0 baseSize * unavailableEvidenceSizeMultiplier)
+  where
+    baseSize =
+        case mSize of
+            Just x | not (isNaN x || isInfinite x) -> x
+            _ -> 1
 
 loadMethodResultStats :: FilePath -> IO (Either String (Map T.Text MethodResultStats))
 loadMethodResultStats path = do

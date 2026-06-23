@@ -107,7 +107,8 @@ import Trader.LiveGap (
     liveGapStatsByMethod,
     liveGapStatsByMethodWithConfig,
  )
-import Trader.MarketContext (fitLinearRange)
+import Trader.LiveOrderIntent (desiredPositionForSignal, orderDirectionForTransition)
+import Trader.MarketContext (alignKlineClosesToOpenTimes, fitLinearRange)
 import Trader.MarketDataIntegrity (
     MarketSeriesBar (..),
     isTransientMarketDataError,
@@ -128,6 +129,7 @@ import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerR
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
+    OptimizationTechniqueSummary (..),
     OptimizerEdgeScoreConfig (..),
     OptimizerRecordsSummary (..),
     PriorTrial (..),
@@ -136,13 +138,17 @@ import Trader.Optimizer.Optimize (
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     applyWalkForwardSummaryMetrics,
+    dedupeFirstByKey,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
     emptyOptimizerRecordsSummary,
+    emptyTechniqueSummary,
     kellyLiteExposureContractReason,
     normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
+    optimizerTechniqueSummaryJson,
+    optimizerTopJsonSortKey,
     priorAgeDecayMultiplier,
     priorAgeDecayMultiplierWithMissingMultiplier,
     priorTrialEdgeScore,
@@ -256,7 +262,7 @@ import Trader.TopCombosStore (
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
  )
-import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), loadMethodResultStats, methodGateDecision)
+import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
@@ -322,8 +328,13 @@ main = do
     testMaxDrawdownRejectsLowerBoundValidation
     testStopLossHaltsSimulation
     testTakeProfitGuardrail
+    testMarketContextAlignsPeerKlinesByOpenTime
+    testOrderIntentUsesCloseDirectionForExistingPositions
+    testLongShortFlipCountsExitAndEntryTurnover
+    testIntrabarTakeProfitUsesExitBarCost
     testPartialTakeProfitMovesLongStopToBreakeven
     testPartialTakeProfitMovesShortStopToBreakeven
+    testPartialTakeProfitTradeFeesMatchAttribution
     testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
     testVenueRoundTripCostFloorMatchesVenueCosts
@@ -505,6 +516,9 @@ main = do
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
+    testOptimizerSurvivorDedupePreservesFirstCandidates
+    testOptimizerTopJsonSortUsesObjectiveScore
+    testOptimizerTechniqueSummaryTruthfulRegression
     testOptimizerPriorEdgeScoreRegression
     testOptimizerPriorParserCarriesFreshEvidenceRegression
     testOptimizerPriorAgeDecayMissingTimestampRegression
@@ -1157,6 +1171,18 @@ testTradeAllowedDefaultsAndAnyOverride = do
             Right args -> not (argTradeAutoMethods args) && null (argTradeAllowedMethods args) && null (argTradeAllowedSymbols args)
             Left _ -> False
         )
+    assert
+        "serve mode defaults to the standard trade-log path for method-gate evidence"
+        ( case parseAndValidateCliArgs ["--serve"] of
+            Right args -> argTradeLog args == Just ".tmp/trader/live_trades.ndjson"
+            Left _ -> False
+        )
+    assert
+        "explicit serve trade-log path overrides the standard default"
+        ( case parseAndValidateCliArgs ["--serve", "--trade-log", "/tmp/custom-trades.ndjson"] of
+            Right args -> argTradeLog args == Just "/tmp/custom-trades.ndjson"
+            Left _ -> False
+        )
 
 testTradeMethodGateUsesResultEvidence :: IO ()
 testTradeMethodGateUsesResultEvidence = do
@@ -1208,6 +1234,15 @@ testTradeMethodGateUsesResultEvidence = do
             assert
                 "method gate ignores non-strategy live marker rows"
                 (unavailable (methodGateDecision cfg MethodKalmanOnly stats))
+            assert
+                "unavailable method evidence uses a conservative quarter-size cap"
+                ( unavailableEvidenceSizeMultiplier == 0.25
+                    && unavailableEvidenceSizeCap == 0.25
+                    && conservativeUnavailableEvidenceSize (Just 1) == 0.25
+                    && abs (conservativeUnavailableEvidenceSize (Just 0.6) - 0.15) < 1e-12
+                    && conservativeUnavailableEvidenceSize (Just 10) == 0.25
+                    && conservativeUnavailableEvidenceSize Nothing == 0.25
+                )
 
 testRiskPerTradeRejectsUpperBoundValidation :: IO ()
 testRiskPerTradeRejectsUpperBoundValidation = do
@@ -1370,8 +1405,18 @@ mkBinanceTrade tradeId symbol side positionSide price qty timeMs =
         , btOriginIp = Nothing
         , btExecutorIp = Nothing
         , btOriginInstance = Nothing
+        , btEntryIp = Nothing
+        , btExitIp = Nothing
+        , btEntryInstance = Nothing
+        , btExitInstance = Nothing
+        , btEntryTime = Nothing
+        , btExitTime = Nothing
         , btMaxPnl = Nothing
         , btMaxPnlCloseTime = Nothing
+        , btMethod = Nothing
+        , btStrategy = Nothing
+        , btDecisionSummary = Nothing
+        , btDecisionReason = Nothing
         }
 
 mkKline :: Int64 -> Double -> Double -> Double -> Double -> Kline
@@ -6845,6 +6890,73 @@ testOptimizerQualityBudgetRegression = do
         "quality preset preserves explicit method weights above the quality floor"
         (qualityPresetWeightFloor 1.0 (2.0 :: Double) == 2.0)
 
+testOptimizerSurvivorDedupePreservesFirstCandidates :: IO ()
+testOptimizerSurvivorDedupePreservesFirstCandidates = do
+    let candidates =
+            [ ("eligible", "a")
+            , ("eligible", "b")
+            , ("fallback", "a")
+            , ("fallback", "c")
+            , ("fallback", "b")
+            ]
+    assert
+        "survivor candidate dedupe keeps first occurrences and skips repeated parameter keys"
+        (dedupeFirstByKey snd candidates == [("eligible", "a"), ("eligible", "b"), ("fallback", "c")])
+
+testOptimizerTopJsonSortUsesObjectiveScore :: IO ()
+testOptimizerTopJsonSortUsesObjectiveScore = do
+    let highScoreLowAnnualized = optimizerTopJsonSortKey (Just 2.0) (Just 0.1) (Just 1.1)
+        lowScoreHighAnnualized = optimizerTopJsonSortKey (Just 1.0) (Just 99.0) (Just 9.0)
+        equalScoreHighAnnualized = optimizerTopJsonSortKey (Just 2.0) (Just 0.2) (Just 1.1)
+        nonFiniteScore = optimizerTopJsonSortKey (Just (1 / 0)) (Just 99.0) (Just 9.0)
+    assert
+        "optimize-equity top-json sorting prefers the active objective score over annualized return"
+        (highScoreLowAnnualized > lowScoreHighAnnualized)
+    assert
+        "optimize-equity top-json sorting still uses annualized return as a score tie-breaker"
+        (equalScoreHighAnnualized > highScoreLowAnnualized)
+    assert
+        "optimize-equity top-json sorting sinks non-finite objective scores"
+        (lowScoreHighAnnualized > nonFiniteScore)
+
+testOptimizerTechniqueSummaryTruthfulRegression :: IO ()
+testOptimizerTechniqueSummaryTruthfulRegression = do
+    let summary =
+            emptyTechniqueSummary
+                { otsAppliedSeedDiversification = True
+                , otsAppliedSurvivorPruning = True
+                , otsAppliedSurvivorExploitation = True
+                , otsAppliedEmpiricalPriors = True
+                , otsAppliedWalkForward = True
+                , otsAppliedTopPerformerSummary = True
+                }
+        summaryObj =
+            case optimizerTechniqueSummaryJson summary of
+                Aeson.Object obj -> obj
+                _ -> KM.empty
+        boolField key = KM.lookup (AK.fromString key) summaryObj >>= AT.parseMaybe Aeson.parseJSON
+    assert
+        "optimizer reports the current seed-diversification mechanism"
+        (boolField "seedDiversification" == Just True)
+    assert
+        "optimizer reports survivor pruning under its actual full-cost mechanism"
+        (boolField "survivorPruning" == Just True)
+    assert
+        "optimizer reports rank-biased survivor exploitation under its actual mechanism"
+        (boolField "rankBiasedSurvivorExploitation" == Just True)
+    assert
+        "optimizer does not report unimplemented Sobol sampling as applied"
+        (boolField "sobolSeeding" == Just False)
+    assert
+        "optimizer does not report unimplemented ASHA/successive-halving as applied"
+        (boolField "successiveHalving" == Just False)
+    assert
+        "optimizer does not report unimplemented Bayesian expected improvement as applied"
+        (boolField "bayesianExpectedImprovement" == Just False)
+    assert
+        "optimizer does not report a non-executed top-performer ensemble as applied"
+        (boolField "ensembleTopPerformers" == Just False)
+
 testOptimizerPriorEdgeScoreRegression :: IO ()
 testOptimizerPriorEdgeScoreRegression = do
     let objectMap fields =
@@ -7851,6 +7963,84 @@ testTakeProfitGuardrail = do
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
 
+testMarketContextAlignsPeerKlinesByOpenTime :: IO ()
+testMarketContextAlignsPeerKlinesByOpenTime = do
+    let openTimes = V.fromList [1000, 2000, 3000]
+        klines =
+            [ mkKline 3000 0 0 0 30
+            , mkKline 1000 0 0 0 10
+            , mkKline 4000 0 0 0 40
+            , mkKline 2000 0 0 0 20
+            ]
+    assert
+        "market context aligns peer closes by openTime instead of fetch order"
+        (alignKlineClosesToOpenTimes openTimes klines == Just (V.fromList [10, 20, 30]))
+    assert
+        "market context fails closed when a peer candle is missing from the target grid"
+        (isNothing (alignKlineClosesToOpenTimes openTimes (filter ((/= 2000) . kOpenTime) klines)))
+
+testOrderIntentUsesCloseDirectionForExistingPositions :: IO ()
+testOrderIntentUsesCloseDirectionForExistingPositions = do
+    let longExit = desiredPositionForSignal LongFlat 1 Nothing Nothing
+        longHold = desiredPositionForSignal LongFlat 1 Nothing (Just 1)
+        shortExit = desiredPositionForSignal LongShort (-1) Nothing Nothing
+        shortHold = desiredPositionForSignal LongShort (-1) Nothing (Just (-1))
+        longToShort = desiredPositionForSignal LongShort 1 (Just (-1)) (Just 1)
+    assert "long-flat existing long exits when the close signal no longer confirms the hold" (longExit == 0)
+    assert "long-flat existing long holds when closeDirection still confirms long" (longHold == 1)
+    assert "long-short existing short exits when the close signal no longer confirms the hold" (shortExit == 0)
+    assert "long-short existing short holds when closeDirection still confirms short" (shortHold == -1)
+    assert "long-short open-threshold opposite signal still flips" (longToShort == -1)
+    assert "close-only long exit becomes a SELL order direction" (orderDirectionForTransition 1 longExit == Just (-1))
+    assert "close-only short exit becomes a BUY order direction" (orderDirectionForTransition (-1) shortExit == Just 1)
+
+testLongShortFlipCountsExitAndEntryTurnover :: IO ()
+testLongShortFlipCountsExitAndEntryTurnover = do
+    let prices = V.fromList [100 :: Double, 100, 100]
+        preds = V.fromList [102 :: Double, 98]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecPositioning = LongShort
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsembleWithHLChecked cfg 1 prices prices prices preds preds (Nothing :: Maybe (V.Vector StepMeta))
+    case result of
+        Left err -> ioError (userError ("long-short flip turnover regression failed to simulate: " ++ err))
+        Right bt ->
+            assert
+                "long-short flip counts the exit and the new entry as separate position changes"
+                (brPositionChanges bt == 3)
+
+testIntrabarTakeProfitUsesExitBarCost :: IO ()
+testIntrabarTakeProfitUsesExitBarCost = do
+    let prices = V.fromList [100 :: Double, 100, 200, 204]
+        highs = V.fromList [100 :: Double, 100, 200, 204]
+        lows = V.fromList [100 :: Double, 100, 200, 204]
+        preds = V.fromList [100 :: Double, 102, 300]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSlippageVolMult = 0.01
+                , ecSpread = 0
+                , ecVolLookback = 2
+                , ecTakeProfit = Just 0.03
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsembleWithHLChecked cfg 2 prices highs lows preds preds (Nothing :: Maybe (V.Vector StepMeta))
+    case result of
+        Left err -> ioError (userError ("intrabar cost-index regression failed to simulate: " ++ err))
+        Right bt -> do
+            let attribution = brCostAttribution bt
+            assert
+                "intrabar take-profit exit charges volatility-dependent slippage from the exit bar"
+                (bcaRealizedSlippageCost attribution > 0)
+
 -- A partial take-profit should convert the remaining position into a protected
 -- runner: the residual stop moves to breakeven and can close the rest without
 -- giving back the first realized target.
@@ -7928,6 +8118,38 @@ testPartialTakeProfitMovesShortStopToBreakeven = do
             [] -> False
             ts -> trReturn (last ts) > 0
         )
+
+testPartialTakeProfitTradeFeesMatchAttribution :: IO ()
+testPartialTakeProfitTradeFeesMatchAttribution = do
+    let prices = V.fromList [100 :: Double, 100, 100, 102, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 100, 102, 102, 100]
+        lows = V.fromList [100 :: Double, 100, 100, 101, 100, 100]
+        kalPreds = V.fromList [100 :: Double, 102, 103, 103, 103]
+        lstmPreds = V.fromList [100 :: Double, 102, 103, 103, 103]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecFee = 0.001
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecStopLoss = Just 0.02
+                , ecTakeProfit = Just 0.02
+                , ecTakeProfitPartial = 0.5
+                , ecCooldownBars = 10
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        feeAttribution = bcaRealizedFeeCost (brCostAttribution result)
+        tradeFees = sum (map trFeeCost trades)
+    assert "partial take-profit regression produces a trade" (not (null trades))
+    assertNear
+        "partial take-profit trade-level fee cost matches realized fee attribution"
+        feeAttribution
+        tradeFees
+        1e-12
 
 -- Simulation-level guardrail: prove --trailing-stop flattens the position
 -- when price rises then falls enough to trigger the trailing stop.

@@ -70,4 +70,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 
 USER 65532:65532
 
-CMD ["trader-hs", "--serve", "--port", "8080"]
+CMD ["trader-hs", "--serve", "--port", "8080", "--trade-log", ".tmp/trader/live_trades.ndjson"]

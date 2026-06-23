@@ -59,7 +59,7 @@ primary_region = "fra"
 # Run the serve process in FUTURES market: the top combos use long-short
 # positioning, which requires market=futures (spot serve rejects them).
 [processes]
-  app = "trader-hs --serve --port 8080 --futures"
+  app = "trader-hs --serve --port 8080 --futures --trade-log .tmp/trader/live_trades.ndjson"
 
 [http_service]
   internal_port = 8080

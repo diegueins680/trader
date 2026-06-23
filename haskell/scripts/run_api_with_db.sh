@@ -211,7 +211,9 @@ env_bool_enabled() {
 }
 
 run_api_once() {
-  local args=(--serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures)
+  local trade_log="${TRADER_TRADE_LOG:-.tmp/trader/live_trades.ndjson}"
+  mkdir -p "$(dirname "$trade_log")"
+  local args=(--serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures --trade-log "$trade_log")
   if env_bool_enabled "${TRADER_BINANCE_LIVE:-false}"; then
     args+=(--binance-live)
   fi

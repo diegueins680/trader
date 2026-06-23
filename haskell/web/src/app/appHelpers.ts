@@ -460,6 +460,14 @@ export type BinancePnlRow = {
   exitIp: string | null;
   entryInstance: string | null;
   exitInstance: string | null;
+  entryMethod: string | null;
+  exitMethod: string | null;
+  entryStrategy: string | null;
+  exitStrategy: string | null;
+  entryDecisionSummary: string | null;
+  exitDecisionSummary: string | null;
+  entryDecisionReason: string | null;
+  exitDecisionReason: string | null;
   maxPnl: number | null;
   maxPnlCloseTime: number | null;
 };
@@ -509,6 +517,14 @@ export type BinanceTradeIpMeta = {
   exitInstance: string | null;
   entryTime: number | null;
   exitTime: number | null;
+  entryMethod: string | null;
+  exitMethod: string | null;
+  entryStrategy: string | null;
+  exitStrategy: string | null;
+  entryDecisionSummary: string | null;
+  exitDecisionSummary: string | null;
+  entryDecisionReason: string | null;
+  exitDecisionReason: string | null;
 };
 
 type TradeLot = {
@@ -517,6 +533,10 @@ type TradeLot = {
   instance: string | null;
   openedAtMs: number | null;
   tradeKey: string | null;
+  method: string | null;
+  strategy: string | null;
+  decisionSummary: string | null;
+  decisionReason: string | null;
 };
 
 type ConsumedTradeLot = {
@@ -525,6 +545,10 @@ type ConsumedTradeLot = {
   openedAtMs: number | null;
   tradeKey: string | null;
   fullyClosed: boolean;
+  method: string | null;
+  strategy: string | null;
+  decisionSummary: string | null;
+  decisionReason: string | null;
 };
 
 const BINANCE_TRADE_IP_EPS = 1e-12;
@@ -554,6 +578,12 @@ function normalizeTradeInstance(raw?: string | null): string | null {
   return null;
 }
 
+function normalizeTradeText(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : null;
+}
+
 function normalizeTradeTime(raw: unknown): number | null {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
@@ -566,10 +596,14 @@ function pushLot(
   instance: string | null,
   openedAtMs: number | null,
   tradeKey: string | null,
+  method: string | null,
+  strategy: string | null,
+  decisionSummary: string | null,
+  decisionReason: string | null,
 ): void {
   if (!Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) return;
   const lots = store.get(key) ?? [];
-  lots.push({ qty, ip, instance, openedAtMs, tradeKey });
+  lots.push({ qty, ip, instance, openedAtMs, tradeKey, method, strategy, decisionSummary, decisionReason });
   store.set(key, lots);
 }
 
@@ -589,7 +623,17 @@ function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): 
     remaining -= take;
     const leftover = lot.qty - take;
     const fullyClosed = leftover <= BINANCE_TRADE_IP_EPS;
-    consumed.push({ ip: lot.ip, instance: lot.instance, openedAtMs: lot.openedAtMs, tradeKey: lot.tradeKey, fullyClosed });
+    consumed.push({
+      ip: lot.ip,
+      instance: lot.instance,
+      openedAtMs: lot.openedAtMs,
+      tradeKey: lot.tradeKey,
+      fullyClosed,
+      method: lot.method,
+      strategy: lot.strategy,
+      decisionSummary: lot.decisionSummary,
+      decisionReason: lot.decisionReason,
+    });
     if (leftover > BINANCE_TRADE_IP_EPS) {
       nextLots.push({ ...lot, qty: leftover });
     }
@@ -620,6 +664,15 @@ function consumedInstances(consumed: ConsumedTradeLot[]): string[] {
   return Array.from(new Set(consumed.map((item) => item.instance).filter((instance): instance is string => Boolean(instance))));
 }
 
+function consumedTexts(consumed: ConsumedTradeLot[], pick: (item: ConsumedTradeLot) => string | null): string[] {
+  return Array.from(new Set(consumed.map(pick).filter((value): value is string => Boolean(value))));
+}
+
+function joinTexts(values: string[]): string | null {
+  if (values.length === 0) return null;
+  return values.join(" • ");
+}
+
 function consumedOpenTime(consumed: ConsumedTradeLot[]): number | null {
   let out: number | null = null;
   for (const item of consumed) {
@@ -636,20 +689,27 @@ function applyExitToConsumedLots(
   exitIp: string | null,
   exitInstance: string | null,
   exitTime: number | null,
+  exitMethod: string | null,
+  exitStrategy: string | null,
+  exitDecisionSummary: string | null,
+  exitDecisionReason: string | null,
 ): void {
-  if (!exitIp && !exitInstance && exitTime == null) return;
+  if (!exitIp && !exitInstance && exitTime == null && !exitMethod && !exitStrategy && !exitDecisionSummary && !exitDecisionReason) return;
   for (const item of consumed) {
     if (!item.fullyClosed) continue;
     const tradeKey = item.tradeKey;
     if (!tradeKey) continue;
     const existing = meta.get(tradeKey);
     if (!existing) continue;
-    if (existing.exitIp || existing.exitInstance || existing.exitTime != null) continue;
     meta.set(tradeKey, {
       ...existing,
       exitIp: exitIp ?? existing.exitIp,
       exitInstance: exitInstance ?? existing.exitInstance,
       exitTime: exitTime ?? existing.exitTime,
+      exitMethod: exitMethod ?? existing.exitMethod,
+      exitStrategy: exitStrategy ?? existing.exitStrategy,
+      exitDecisionSummary: exitDecisionSummary ?? existing.exitDecisionSummary,
+      exitDecisionReason: exitDecisionReason ?? existing.exitDecisionReason,
     });
   }
 }
@@ -682,6 +742,14 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
         exitInstance: null,
         entryTime: null,
         exitTime: null,
+        entryMethod: null,
+        exitMethod: null,
+        entryStrategy: null,
+        exitStrategy: null,
+        entryDecisionSummary: null,
+        exitDecisionSummary: null,
+        entryDecisionReason: null,
+        exitDecisionReason: null,
       });
       continue;
     }
@@ -690,47 +758,116 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
     const posSide = normalizePositionSide(trade.positionSide) ?? "BOTH";
     const orderIp = normalizeTradeIp(trade.executorIp);
     const orderInstance = normalizeTradeInstance(trade.originInstance);
+    const orderMethod = normalizeTradeText(trade.method);
+    const orderStrategy = normalizeTradeText(trade.strategy) ?? orderMethod;
+    const orderDecisionSummary = normalizeTradeText(trade.decisionSummary);
+    const orderDecisionReason = normalizeTradeText(trade.decisionReason);
+    const explicitEntryIp = normalizeTradeIp(trade.entryIp);
+    const explicitExitIp = normalizeTradeIp(trade.exitIp);
+    const explicitEntryInstance = normalizeTradeInstance(trade.entryInstance);
+    const explicitExitInstance = normalizeTradeInstance(trade.exitInstance);
+    const explicitEntryTime = normalizeTradeTime(trade.entryTime);
+    const explicitExitTime = normalizeTradeTime(trade.exitTime);
+    const explicitEntryMethod = normalizeTradeText(trade.entryMethod);
+    const explicitExitMethod = normalizeTradeText(trade.exitMethod);
+    const explicitEntryStrategy = normalizeTradeText(trade.entryStrategy);
+    const explicitExitStrategy = normalizeTradeText(trade.exitStrategy);
+    const explicitEntryDecisionSummary = normalizeTradeText(trade.entryDecisionSummary);
+    const explicitExitDecisionSummary = normalizeTradeText(trade.exitDecisionSummary);
+    const explicitEntryDecisionReason = normalizeTradeText(trade.entryDecisionReason);
+    const explicitExitDecisionReason = normalizeTradeText(trade.exitDecisionReason);
     const likelyCloseFill = isLikelyBinanceCloseFill(trade);
-    let entryIp: string | null = null;
-    let exitIp: string | null = null;
-    let entryInstance: string | null = null;
-    let exitInstance: string | null = null;
-    let entryTime: number | null = null;
-    let exitTime: number | null = null;
+    let entryIp: string | null = explicitEntryIp;
+    let exitIp: string | null = explicitExitIp;
+    let entryInstance: string | null = explicitEntryInstance;
+    let exitInstance: string | null = explicitExitInstance;
+    let entryTime: number | null = explicitEntryTime;
+    let exitTime: number | null = explicitExitTime;
+    let entryMethod: string | null = explicitEntryMethod;
+    let exitMethod: string | null = explicitExitMethod;
+    let entryStrategy: string | null = explicitEntryStrategy;
+    let exitStrategy: string | null = explicitExitStrategy;
+    let entryDecisionSummary: string | null = explicitEntryDecisionSummary;
+    let exitDecisionSummary: string | null = explicitExitDecisionSummary;
+    let entryDecisionReason: string | null = explicitEntryDecisionReason;
+    let exitDecisionReason: string | null = explicitExitDecisionReason;
+    const pushOrderLot = (store: Map<string, TradeLot[]>, lotKey: string, lotQty: number) => {
+      pushLot(
+        store,
+        lotKey,
+        lotQty,
+        orderIp,
+        orderInstance,
+        tradeTime,
+        key,
+        orderMethod,
+        orderStrategy,
+        orderDecisionSummary,
+        orderDecisionReason,
+      );
+    };
+    const applyOpenOrderMeta = () => {
+      entryIp = entryIp ?? orderIp;
+      entryInstance = entryInstance ?? orderInstance;
+      entryTime = entryTime ?? tradeTime;
+      entryMethod = entryMethod ?? orderMethod;
+      entryStrategy = entryStrategy ?? orderStrategy;
+      entryDecisionSummary = entryDecisionSummary ?? orderDecisionSummary;
+      entryDecisionReason = entryDecisionReason ?? orderDecisionReason;
+    };
+    const applyExitOrderMeta = () => {
+      exitIp = exitIp ?? orderIp;
+      exitInstance = exitInstance ?? orderInstance;
+      exitTime = exitTime ?? tradeTime;
+      exitMethod = exitMethod ?? orderMethod;
+      exitStrategy = exitStrategy ?? orderStrategy;
+      exitDecisionSummary = exitDecisionSummary ?? orderDecisionSummary;
+      exitDecisionReason = exitDecisionReason ?? orderDecisionReason;
+    };
+    const applyConsumedEntryMeta = (consumed: ConsumedTradeLot[]) => {
+      entryIp = joinIps(consumedIps(consumed)) ?? entryIp;
+      entryInstance = joinInstances(consumedInstances(consumed)) ?? entryInstance;
+      entryTime = consumedOpenTime(consumed) ?? entryTime;
+      entryMethod = joinTexts(consumedTexts(consumed, (item) => item.method)) ?? entryMethod;
+      entryStrategy = joinTexts(consumedTexts(consumed, (item) => item.strategy)) ?? entryStrategy;
+      entryDecisionSummary = joinTexts(consumedTexts(consumed, (item) => item.decisionSummary)) ?? entryDecisionSummary;
+      entryDecisionReason = joinTexts(consumedTexts(consumed, (item) => item.decisionReason)) ?? entryDecisionReason;
+    };
+    const backfillExitMeta = (consumed: ConsumedTradeLot[]) => {
+      applyExitToConsumedLots(
+        meta,
+        consumed,
+        orderIp,
+        orderInstance,
+        tradeTime,
+        orderMethod,
+        orderStrategy,
+        orderDecisionSummary,
+        orderDecisionReason,
+      );
+    };
 
     if (posSide === "LONG") {
       const lotKey = `${symbolKey}::LONG`;
       if (side === "BUY") {
-        pushLot(longLots, lotKey, qty, orderIp, orderInstance, tradeTime, key);
-        entryIp = orderIp;
-        entryInstance = orderInstance;
-        entryTime = tradeTime;
+        pushOrderLot(longLots, lotKey, qty);
+        applyOpenOrderMeta();
       } else if (side === "SELL") {
         const consumed = consumeLots(longLots, lotKey, qty);
-        entryIp = joinIps(consumedIps(consumed));
-        entryInstance = joinInstances(consumedInstances(consumed));
-        exitIp = orderIp;
-        exitInstance = orderInstance;
-        entryTime = consumedOpenTime(consumed);
-        exitTime = tradeTime;
-        applyExitToConsumedLots(meta, consumed, orderIp, orderInstance, tradeTime);
+        applyConsumedEntryMeta(consumed);
+        applyExitOrderMeta();
+        backfillExitMeta(consumed);
       }
     } else if (posSide === "SHORT") {
       const lotKey = `${symbolKey}::SHORT`;
       if (side === "SELL") {
-        pushLot(shortLots, lotKey, qty, orderIp, orderInstance, tradeTime, key);
-        entryIp = orderIp;
-        entryInstance = orderInstance;
-        entryTime = tradeTime;
+        pushOrderLot(shortLots, lotKey, qty);
+        applyOpenOrderMeta();
       } else if (side === "BUY") {
         const consumed = consumeLots(shortLots, lotKey, qty);
-        entryIp = joinIps(consumedIps(consumed));
-        entryInstance = joinInstances(consumedInstances(consumed));
-        exitIp = orderIp;
-        exitInstance = orderInstance;
-        entryTime = consumedOpenTime(consumed);
-        exitTime = tradeTime;
-        applyExitToConsumedLots(meta, consumed, orderIp, orderInstance, tradeTime);
+        applyConsumedEntryMeta(consumed);
+        applyExitOrderMeta();
+        backfillExitMeta(consumed);
       }
     } else {
       const netKey = `${symbolKey}::BOTH`;
@@ -741,35 +878,25 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
       if (side === "BUY") {
         if (net >= 0) {
           if (likelyCloseFill) {
-            exitIp = orderIp;
-            exitInstance = orderInstance;
-            exitTime = tradeTime;
+            applyExitOrderMeta();
           } else {
-            pushLot(longLots, longKey, qty, orderIp, orderInstance, tradeTime, key);
-            entryIp = orderIp;
-            entryInstance = orderInstance;
-            entryTime = tradeTime;
+            pushOrderLot(longLots, longKey, qty);
+            applyOpenOrderMeta();
             netPos.set(netKey, net + qty);
           }
         } else {
           const closeQty = Math.min(qty, Math.abs(net));
           if (closeQty > BINANCE_TRADE_IP_EPS) {
             const consumed = consumeLots(shortLots, shortKey, closeQty);
-            entryIp = joinIps(consumedIps(consumed));
-            entryInstance = joinInstances(consumedInstances(consumed));
-            exitIp = orderIp;
-            exitInstance = orderInstance;
-            entryTime = consumedOpenTime(consumed);
-            exitTime = tradeTime;
-            applyExitToConsumedLots(meta, consumed, orderIp, orderInstance, tradeTime);
+            applyConsumedEntryMeta(consumed);
+            applyExitOrderMeta();
+            backfillExitMeta(consumed);
           }
           const openQty = qty - closeQty;
           if (openQty > BINANCE_TRADE_IP_EPS) {
-            pushLot(longLots, longKey, openQty, orderIp, orderInstance, tradeTime, key);
+            pushOrderLot(longLots, longKey, openQty);
             if (!entryIp && entryTime == null) {
-              entryIp = orderIp;
-              entryInstance = orderInstance;
-              entryTime = tradeTime;
+              applyOpenOrderMeta();
             }
           }
           netPos.set(netKey, net + qty);
@@ -777,35 +904,25 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
       } else {
         if (net <= 0) {
           if (likelyCloseFill) {
-            exitIp = orderIp;
-            exitInstance = orderInstance;
-            exitTime = tradeTime;
+            applyExitOrderMeta();
           } else {
-            pushLot(shortLots, shortKey, qty, orderIp, orderInstance, tradeTime, key);
-            entryIp = orderIp;
-            entryInstance = orderInstance;
-            entryTime = tradeTime;
+            pushOrderLot(shortLots, shortKey, qty);
+            applyOpenOrderMeta();
             netPos.set(netKey, net - qty);
           }
         } else {
           const closeQty = Math.min(qty, net);
           if (closeQty > BINANCE_TRADE_IP_EPS) {
             const consumed = consumeLots(longLots, longKey, closeQty);
-            entryIp = joinIps(consumedIps(consumed));
-            entryInstance = joinInstances(consumedInstances(consumed));
-            exitIp = orderIp;
-            exitInstance = orderInstance;
-            entryTime = consumedOpenTime(consumed);
-            exitTime = tradeTime;
-            applyExitToConsumedLots(meta, consumed, orderIp, orderInstance, tradeTime);
+            applyConsumedEntryMeta(consumed);
+            applyExitOrderMeta();
+            backfillExitMeta(consumed);
           }
           const openQty = qty - closeQty;
           if (openQty > BINANCE_TRADE_IP_EPS) {
-            pushLot(shortLots, shortKey, openQty, orderIp, orderInstance, tradeTime, key);
+            pushOrderLot(shortLots, shortKey, openQty);
             if (!entryIp && entryTime == null) {
-              entryIp = orderIp;
-              entryInstance = orderInstance;
-              entryTime = tradeTime;
+              applyOpenOrderMeta();
             }
           }
           netPos.set(netKey, net - qty);
@@ -816,12 +933,25 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
     // When we cannot pair inventory from the visible window, non-zero realized PnL
     // still indicates a close fill, so keep its close timestamp/IP.
     if (exitTime == null && likelyCloseFill) {
-      exitIp = exitIp ?? orderIp;
-      exitInstance = exitInstance ?? orderInstance;
-      exitTime = tradeTime;
+      applyExitOrderMeta();
     }
 
-    meta.set(key, { entryIp, exitIp, entryInstance, exitInstance, entryTime, exitTime });
+    meta.set(key, {
+      entryIp,
+      exitIp,
+      entryInstance,
+      exitInstance,
+      entryTime,
+      exitTime,
+      entryMethod,
+      exitMethod,
+      entryStrategy,
+      exitStrategy,
+      entryDecisionSummary,
+      exitDecisionSummary,
+      entryDecisionReason,
+      exitDecisionReason,
+    });
   }
 
   return meta;
@@ -1067,6 +1197,14 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
       exitIp: trade.exitIp ?? null,
       entryInstance: trade.entryInstance ?? null,
       exitInstance: trade.exitInstance ?? null,
+      entryMethod: trade.entryMethod ?? trade.method ?? null,
+      exitMethod: trade.exitMethod ?? trade.method ?? null,
+      entryStrategy: trade.entryStrategy ?? trade.strategy ?? trade.method ?? null,
+      exitStrategy: trade.exitStrategy ?? trade.strategy ?? trade.method ?? null,
+      entryDecisionSummary: trade.entryDecisionSummary ?? trade.decisionSummary ?? null,
+      exitDecisionSummary: trade.exitDecisionSummary ?? trade.decisionSummary ?? null,
+      entryDecisionReason: trade.entryDecisionReason ?? trade.decisionReason ?? null,
+      exitDecisionReason: trade.exitDecisionReason ?? trade.decisionReason ?? null,
       maxPnl,
       maxPnlCloseTime,
     });

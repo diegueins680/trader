@@ -197,8 +197,18 @@ data BinanceTrade = BinanceTrade
     , btOriginIp :: !(Maybe Text)
     , btExecutorIp :: !(Maybe Text)
     , btOriginInstance :: !(Maybe Text)
+    , btEntryIp :: !(Maybe Text)
+    , btExitIp :: !(Maybe Text)
+    , btEntryInstance :: !(Maybe Text)
+    , btExitInstance :: !(Maybe Text)
+    , btEntryTime :: !(Maybe Int64)
+    , btExitTime :: !(Maybe Int64)
     , btMaxPnl :: !(Maybe Double)
     , btMaxPnlCloseTime :: !(Maybe Int64)
+    , btMethod :: !(Maybe Text)
+    , btStrategy :: !(Maybe Text)
+    , btDecisionSummary :: !(Maybe Text)
+    , btDecisionReason :: !(Maybe Text)
     }
     deriving (Eq, Show)
 
@@ -228,8 +238,18 @@ instance FromJSON BinanceTrade where
         originIp <- o AT..:? "originIp"
         executorIp <- o AT..:? "executorIp"
         originInstance <- o AT..:? "originInstance"
+        entryIp <- o AT..:? "entryIp"
+        exitIp <- o AT..:? "exitIp"
+        entryInstance <- o AT..:? "entryInstance"
+        exitInstance <- o AT..:? "exitInstance"
+        entryTime <- o AT..:? "entryTime"
+        exitTime <- o AT..:? "exitTime"
         maxPnl <- parseMaybeDoubleField o "maxPnl"
         maxPnlCloseTime <- o AT..:? "maxPnlCloseTime"
+        method <- o AT..:? "method"
+        strategy <- o AT..:? "strategy"
+        decisionSummary <- o AT..:? "decisionSummary"
+        decisionReason <- o AT..:? "decisionReason"
         let isBuyer = isBuyerRaw <|> buyerRaw
             isMaker = isMakerRaw <|> makerRaw
             sideDerived =
@@ -267,8 +287,18 @@ instance FromJSON BinanceTrade where
                 , btOriginIp = originIp
                 , btExecutorIp = executorIp
                 , btOriginInstance = originInstance
+                , btEntryIp = entryIp
+                , btExitIp = exitIp
+                , btEntryInstance = entryInstance
+                , btExitInstance = exitInstance
+                , btEntryTime = entryTime
+                , btExitTime = exitTime
                 , btMaxPnl = maxPnl
                 , btMaxPnlCloseTime = maxPnlCloseTime
+                , btMethod = method
+                , btStrategy = strategy
+                , btDecisionSummary = decisionSummary
+                , btDecisionReason = decisionReason
                 }
 
 instance FromJSON BinanceServerTime where
@@ -296,8 +326,18 @@ instance ToJSON BinanceTrade where
             , "originIp" .= btOriginIp t
             , "executorIp" .= btExecutorIp t
             , "originInstance" .= btOriginInstance t
+            , "entryIp" .= btEntryIp t
+            , "exitIp" .= btExitIp t
+            , "entryInstance" .= btEntryInstance t
+            , "exitInstance" .= btExitInstance t
+            , "entryTime" .= btEntryTime t
+            , "exitTime" .= btExitTime t
             , "maxPnl" .= btMaxPnl t
             , "maxPnlCloseTime" .= btMaxPnlCloseTime t
+            , "method" .= btMethod t
+            , "strategy" .= btStrategy t
+            , "decisionSummary" .= btDecisionSummary t
+            , "decisionReason" .= btDecisionReason t
             ]
 
 binanceBaseUrl :: String
