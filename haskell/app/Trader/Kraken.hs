@@ -17,9 +17,11 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
+import Data.List (sortOn)
 import qualified Data.Scientific as Scientific
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
@@ -27,13 +29,16 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
+import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries)
 import Trader.Text (trim)
 
 data KrakenCandle = KrakenCandle
     { kcOpenTime :: !Int64
+    , kcOpen :: !Double
     , kcHigh :: !Double
     , kcLow :: !Double
     , kcClose :: !Double
+    , kcVolume :: !Double
     }
     deriving (Eq, Show)
 
@@ -61,6 +66,7 @@ fetchKrakenCandles pair intervalMin = do
     let key = pair ++ ":" ++ show intervalMin
     fetchWithCache krakenCandlesCache krakenCandlesFreshTtl krakenCandlesStaleTtl key $ do
         mgr <- getSharedManager
+        nowSec <- (floor <$> getPOSIXTime) :: IO Int64
         req0 <- parseRequest (krakenBaseUrl ++ "/0/public/OHLC")
         let req =
                 setQueryString
@@ -73,7 +79,10 @@ fetchKrakenCandles pair intervalMin = do
         Control.Monad.when (code < 200 || code >= 300) $ throwIO (userError ("Kraken OHLC request failed (HTTP " ++ show code ++ ")"))
         case decodeKrakenCandles pair (responseBody resp) of
             Left err -> throwIO (userError err)
-            Right xs -> pure xs
+            Right xs ->
+                case normalizeClosedKrakenCandles intervalMin (nowSec * 1000) xs of
+                    Left err -> throwIO (userError err)
+                    Right ok -> pure ok
 
 decodeKrakenCandles :: String -> BL.ByteString -> Either String [KrakenCandle]
 decodeKrakenCandles pair raw = do
@@ -117,14 +126,16 @@ parseCandles =
 parseCandle :: Value -> AT.Parser KrakenCandle
 parseCandle =
     withArray "KrakenCandle" $ \arr -> do
-        if V.length arr < 5
+        if V.length arr < 7
             then fail "Kraken candle array too short"
             else do
                 t <- parseIndexInt64 0 arr
+                open <- parseIndexDouble 1 arr
                 high <- parseIndexDouble 2 arr
                 low <- parseIndexDouble 3 arr
                 close <- parseIndexDouble 4 arr
-                pure KrakenCandle{kcOpenTime = t, kcHigh = high, kcLow = low, kcClose = close}
+                volume <- parseIndexDouble 6 arr
+                pure KrakenCandle{kcOpenTime = t, kcOpen = open, kcHigh = high, kcLow = low, kcClose = close, kcVolume = volume}
 
 parseIndexInt64 :: Int -> V.Vector Value -> AT.Parser Int64
 parseIndexInt64 i arr =
@@ -174,3 +185,25 @@ parseFiniteDouble x =
     if isNaN x || isInfinite x
         then fail "Invalid finite double"
         else pure x
+
+normalizeClosedKrakenCandles :: Int -> Int64 -> [KrakenCandle] -> Either String [KrakenCandle]
+normalizeClosedKrakenCandles intervalMin nowMs candles = do
+    let intervalMs = fromIntegral (max 1 intervalMin) * 60 * 1000
+        pairs = krakenCandlePairs candles
+    closed <- normalizeClosedMarketSeries "Kraken candle" intervalMs nowMs pairs
+    pure (map snd closed)
+
+krakenCandlePairs :: [KrakenCandle] -> [(MarketSeriesBar, KrakenCandle)]
+krakenCandlePairs candles =
+    [ ( MarketSeriesBar
+            { msbOpenTimeMs = kcOpenTime candle * 1000
+            , msbOpen = Just (kcOpen candle)
+            , msbHigh = Just (kcHigh candle)
+            , msbLow = Just (kcLow candle)
+            , msbClose = kcClose candle
+            , msbVolume = Just (kcVolume candle)
+            }
+      , candle
+      )
+    | candle <- sortOn kcOpenTime candles
+    ]

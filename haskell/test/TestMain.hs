@@ -15,7 +15,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -109,6 +109,7 @@ import Trader.LiveGap (
  )
 import Trader.MarketContext (fitLinearRange)
 import Trader.MarketDataIntegrity (
+    MarketSeriesBar (..),
     isTransientMarketDataError,
     marketDataContinuationIssue,
     marketDataFreshness,
@@ -117,6 +118,8 @@ import Trader.MarketDataIntegrity (
     mdfFreshnessBudgetMs,
     mdfLastCloseTimeMs,
     mdfStale,
+    normalizeClosedMarketSeries,
+    validateMarketSeriesBars,
  )
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
@@ -303,6 +306,7 @@ import Trader.VolConfGate (
 main :: IO ()
 main = do
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
+    testTradeAllowedDefaultsAndAnyOverride
     testRsiPeriodRejectsInvalidValues
     testTrendLookbackRejectsInvalidValues
     testRiskPerTradeRejectsUpperBoundValidation
@@ -640,7 +644,7 @@ testCrossExchangeCoinbaseInputs = do
 
     -- Alignment: exact match at matching open times, point-in-time forward-fill
     -- for gaps, and NEVER a future bucket (bar at sec 120 must use 10, not 30).
-    let candle s c = CoinbaseCandle{ccOpenTime = s, ccHigh = c, ccLow = c, ccClose = c}
+    let candle s c = CoinbaseCandle{ccOpenTime = s, ccOpen = c, ccHigh = c, ccLow = c, ccClose = c, ccVolume = 1}
         openTimesMs = [60000, 120000, 180000, 240000]
         binanceCloses = V.fromList [1, 2, 3, 4]
         aligned = alignCoinbaseClosesToGrid openTimesMs binanceCloses [candle 60 10, candle 180 30]
@@ -1131,6 +1135,23 @@ testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
     assert
         "lookback normalization does not push Binance requests past the 1000-bar platform cap"
         (argBars (normalizeBarsForLookback overCapArgs) == Just 500)
+
+testTradeAllowedDefaultsAndAnyOverride :: IO ()
+testTradeAllowedDefaultsAndAnyOverride = do
+    assert
+        "non-dry-run trading defaults to empirically allowed TA methods and SOLUSDT only"
+        ( case parseAndValidateCliArgs ["--binance-symbol", "solusdt", "--no-dry-run"] of
+            Right args ->
+                argTradeAllowedMethods args == [MethodTaBest, MethodTaRegimeSwitch]
+                    && argTradeAllowedSymbols args == ["SOLUSDT"]
+            Left _ -> False
+        )
+    assert
+        "trade allowlists can be disabled explicitly with any"
+        ( case parseAndValidateCliArgs ["--binance-symbol", "BTCUSDT", "--trade-allowed-methods", "any", "--trade-allowed-symbols", "any"] of
+            Right args -> null (argTradeAllowedMethods args) && null (argTradeAllowedSymbols args)
+            Left _ -> False
+        )
 
 testRiskPerTradeRejectsUpperBoundValidation :: IO ()
 testRiskPerTradeRejectsUpperBoundValidation = do
@@ -3456,6 +3477,45 @@ testMarketDataFreshnessAndContinuationInvariant = do
         ( isNothing (marketDataFreshness "bad" staleNow lastOpen)
             && marketDataStaleReason "bad" staleNow lastOpen == Just "MARKET_DATA_INTERVAL_INVALID interval=\"bad\""
             && marketDataContinuationIssue "bad" lastOpen [lastOpen + hourMs] == Just "MARKET_DATA_INTERVAL_INVALID interval=\"bad\""
+        )
+    let mkBar openTime close =
+            MarketSeriesBar
+                { msbOpenTimeMs = openTime
+                , msbOpen = Just close
+                , msbHigh = Just (close + 1)
+                , msbLow = Just (close - 1)
+                , msbClose = close
+                , msbVolume = Just 10
+                }
+        closedBars =
+            [ (mkBar lastOpen 100, "a")
+            , (mkBar (lastOpen + hourMs) 101, "b")
+            , (mkBar (lastOpen + 2 * hourMs) 102, "open")
+            ]
+    assert
+        "shared market-series QA drops the still-open candle and preserves contiguous closed bars"
+        (normalizeClosedMarketSeries "test candle" hourMs (lastOpen + 2 * hourMs + 1) closedBars == Right (take 2 closedBars))
+    assert
+        "shared market-series QA rejects missing bars"
+        ( case normalizeClosedMarketSeries "test candle" hourMs (lastOpen + 3 * hourMs) [head closedBars, closedBars !! 2] of
+            Left err -> "test candle gap expectedOpenTimeMs=" `isPrefixOf` err
+            Right _ -> False
+        )
+    assert
+        "shared market-series QA rejects duplicate timestamps"
+        ( case validateMarketSeriesBars "test candle" [mkBar lastOpen 100, mkBar lastOpen 101] of
+            Left err -> "test candle duplicate/non-increasing openTimeMs=" `isPrefixOf` err
+            Right _ -> False
+        )
+    assert
+        "shared market-series QA rejects malformed OHLC and volume"
+        ( case ( validateMarketSeriesBars "test candle" [(mkBar lastOpen 100){msbHigh = Just 99}]
+               , validateMarketSeriesBars "test candle" [(mkBar lastOpen 100){msbVolume = Just (-1)}]
+               ) of
+            (Left ohlcErr, Left volumeErr) ->
+                "test candle invalid OHLC relationship" `isPrefixOf` ohlcErr
+                    && "test candle negative volume" `isPrefixOf` volumeErr
+            _ -> False
         )
 
 -- The spike veto is a maximum-edge sanity cap, not a minimum-edge headroom

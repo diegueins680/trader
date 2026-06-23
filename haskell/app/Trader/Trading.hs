@@ -61,6 +61,7 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryFeeBufferOkWithConfig,
     signalEntryHeadroomOk,
+    signalRunPostDirectionGates,
     signalTrendSmaConfirmed,
     signalTrendSmaConfirmedWithConfig,
  )
@@ -2330,11 +2331,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             then lstmEntryScaleRaw
                                                             else 1
 
-                                                    trendOk =
-                                                        case desiredSide0 of
-                                                            Just side | needsEntry -> trendOkAt t trendLookbackStep openThrAdj side
-                                                            _ -> True
-
                                                     volOk = (not needsEntry || volOkAt t)
 
                                                     snrScale =
@@ -2360,11 +2356,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     volTargetReady =
                                                         (not needsEntry || volTargetReadyAt t)
 
-                                                    triLayerOk =
-                                                        case (needsEntry, desiredSide0) of
-                                                            (True, Just side) -> cloudOkAt t side && priceActionOkAt t side
-                                                            _ -> True
-
                                                     entryEdgeSample = Just (max 0 edgeRaw)
 
                                                     entryEdgeSpikeOk =
@@ -2372,6 +2363,45 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                                     entryEdgeHeadroomOk =
                                                         not needsEntry || signalEntryHeadroomOk openThrAdj entryEdgeSample
+
+                                                    desiredSideEntryGated =
+                                                        if entryEdgeSpikeOk && entryEdgeHeadroomOk
+                                                            then desiredSide0
+                                                            else Nothing
+
+                                                    sideToGateDir side =
+                                                        case side of
+                                                            SideLong -> 1
+                                                            SideShort -> -1
+
+                                                    gateDirToSide dir =
+                                                        if dir >= 0 then SideLong else SideShort
+
+                                                    trendGateOk dir =
+                                                        not needsEntry || trendOkAt t trendLookbackStep openThrAdj (gateDirToSide dir)
+
+                                                    cloudGateOk dir =
+                                                        not needsEntry || cloudOkAt t (gateDirToSide dir)
+
+                                                    priceActionGateOk dir =
+                                                        not needsEntry || priceActionOkAt t (gateDirToSide dir)
+
+                                                    (postGateDir, _postGateReason) =
+                                                        signalRunPostDirectionGates
+                                                            (sideToGateDir <$> desiredSideEntryGated)
+                                                            Nothing
+                                                            volOk
+                                                            volTargetReady
+                                                            trendGateOk
+                                                            cloudGateOk
+                                                            priceActionGateOk
+                                                            snrOk
+                                                            (const (True, Nothing))
+                                                            (True, Nothing)
+                                                            (True, Nothing)
+                                                            (True, Nothing)
+                                                            (const True)
+                                                            (const (True, 1))
 
                                                     slowCrossExit =
                                                         case posSide of
@@ -2417,16 +2447,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                                     kalmanExit = slowCrossExit || kalmanBandExit
 
-                                                    desiredSide1 =
-                                                        if not trendOk
-                                                            || not volOk
-                                                            || not snrOk
-                                                            || not volTargetReady
-                                                            || not triLayerOk
-                                                            || not entryEdgeSpikeOk
-                                                            || not entryEdgeHeadroomOk
-                                                            then Nothing
-                                                            else desiredSide0
+                                                    desiredSide1 = gateDirToSide <$> postGateDir
 
                                                     desiredSide2 =
                                                         if lstmFlipExit || kalmanExit

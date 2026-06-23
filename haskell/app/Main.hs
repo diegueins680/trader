@@ -35,7 +35,7 @@ import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, mapAccumL, sortOn, stripPrefix)
+import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, mapAccumL, sortOn, stripPrefix, zip6)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybe, maybeToList)
 import qualified Data.Ord
@@ -333,6 +333,7 @@ import Trader.LiveGap (
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
 import Trader.MarketDataIntegrity (
+    MarketSeriesBar (..),
     marketDataContinuationIssue,
     marketDataFreshness,
     marketDataStaleReason,
@@ -341,6 +342,8 @@ import Trader.MarketDataIntegrity (
     mdfLastCloseTimeMs,
     mdfLastOpenTimeMs,
     mdfStale,
+    validateMarketSeriesBars,
+    validateMarketSeriesContinuity,
  )
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
@@ -2650,6 +2653,8 @@ argsPublicJson args =
             , "binanceLive" .= argBinanceLive args
             , "binanceTrade" .= argBinanceTrade args
             , "dryRun" .= argDryRun args
+            , "tradeAllowedMethods" .= map methodCode (argTradeAllowedMethods args)
+            , "tradeAllowedSymbols" .= argTradeAllowedSymbols args
             , "hasBinanceApiKey" .= boolFromMaybe (argBinanceApiKey args)
             , "hasBinanceApiSecret" .= boolFromMaybe (argBinanceApiSecret args)
             , "hasCoinbaseApiKey" .= boolFromMaybe (argCoinbaseApiKey args)
@@ -2914,6 +2919,7 @@ argsPublicJson args =
             , "lstmExitFlipBars" .= argLstmExitFlipBars args
             , "lstmExitFlipGraceBars" .= argLstmExitFlipGraceBars args
             , "lstmExitFlipStrong" .= argLstmExitFlipStrong args
+            , "signalExitConfirmBars" .= argSignalExitConfirmBars args
             , "lstmConfidenceSoft" .= argLstmConfidenceSoft args
             , "lstmConfidenceHard" .= argLstmConfidenceHard args
             , "protectionMinConfidence" .= argProtectionMinConfidence args
@@ -5878,6 +5884,7 @@ data BotState = BotState
     , botLossStreak :: !Int
     , botOpenTrade :: !(Maybe BotOpenTrade)
     , botCooldownLeft :: !Int
+    , botSignalExitPendingBars :: !Int
     , botLatestSignal :: !LatestSignal
     , botDecisionTrace :: !BotDecisionTrace
     , botLastOrder :: !(Maybe ApiOrderResult)
@@ -6579,7 +6586,47 @@ entryOnlyGateReason :: String -> Bool
 entryOnlyGateReason reason =
     reason == "PERF_WIN_RATE"
         || reason == "PERF_PROFIT_FACTOR"
+        || reason == "TRADE_METHOD_NOT_ALLOWED"
+        || reason == "TRADE_SYMBOL_NOT_ALLOWED"
         || capitalPreservationIsEntryOnlyReason reason
+
+tradeDeploymentGateReason :: Args -> String -> LatestSignal -> Maybe String
+tradeDeploymentGateReason args sym sig
+    | argDryRun args = Nothing
+    | not methodAllowed = Just "TRADE_METHOD_NOT_ALLOWED"
+    | not symbolAllowed = Just "TRADE_SYMBOL_NOT_ALLOWED"
+    | otherwise = Nothing
+  where
+    allowedMethods = argTradeAllowedMethods args
+    allowedSymbols = map normalizeSymbol (argTradeAllowedSymbols args)
+    methodAllowed = null allowedMethods || lsMethod sig `elem` allowedMethods
+    symbolAllowed = null allowedSymbols || normalizeSymbol sym `elem` allowedSymbols
+
+tradeDeploymentGateMessage :: Args -> String -> LatestSignal -> String -> String
+tradeDeploymentGateMessage args sym sig reason =
+    case reason of
+        "TRADE_METHOD_NOT_ALLOWED" ->
+            "No order: method "
+                ++ methodCode (lsMethod sig)
+                ++ " is outside --trade-allowed-methods="
+                ++ allowedMethodsLabel
+                ++ "."
+        "TRADE_SYMBOL_NOT_ALLOWED" ->
+            "No order: symbol "
+                ++ normalizeSymbol sym
+                ++ " is outside --trade-allowed-symbols="
+                ++ allowedSymbolsLabel
+                ++ "."
+        _ -> "No order: " ++ reason ++ "."
+  where
+    allowedMethodsLabel =
+        case argTradeAllowedMethods args of
+            [] -> "any"
+            xs -> intercalate "," (map methodCode xs)
+    allowedSymbolsLabel =
+        case argTradeAllowedSymbols args of
+            [] -> "any"
+            xs -> intercalate "," (map normalizeSymbol xs)
 
 clamp01 :: Double -> Double
 clamp01 x = max 0 (min 1 x)
@@ -6974,6 +7021,7 @@ botStatusJson st =
             , "dayTrades" .= botDayTrades st
             , "consecutiveOrderErrors" .= botConsecutiveOrderErrors st
             , "cooldownLeft" .= botCooldownLeft st
+            , "signalExitPendingBars" .= botSignalExitPendingBars st
             , "prices" .= V.toList (botPrices st)
             , "openTimes" .= V.toList (botOpenTimes st)
             , "kalmanPredNext" .= map finiteMaybe (V.toList (botKalmanPredNext st))
@@ -9954,8 +10002,14 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                         _ -> 0
 
         startupPortfolioReasonMaybe = mStartupPortfolioCapitalPreservation >>= pcprReason
+        startupEntryAttempt = desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
+        startupTradeGateReasonMaybe =
+            if bsTradeEnabled settings && startupEntryAttempt
+                then tradeDeploymentGateReason argsWithKeys sym latestStartRaw
+                else Nothing
+        startupGateReasonMaybe = startupTradeGateReasonMaybe <|> startupPortfolioReasonMaybe
         (desiredPosSignal, startupGateAction) =
-            case startupPortfolioReasonMaybe of
+            case startupGateReasonMaybe of
                 Just reason ->
                     let flipAttempt = startPos0 /= 0 && desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
                      in if startPos0 == 0 && desiredPosSignalRaw /= 0
@@ -10239,6 +10293,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 , botLossStreak = restoredLossStreak
                 , botOpenTrade = openTrade2
                 , botCooldownLeft = 0
+                , botSignalExitPendingBars = 0
                 , botLatestSignal = latest
                 , botDecisionTrace = decisionTrace0
                 , botLastOrder = mOrder
@@ -13320,6 +13375,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 then (Nothing, Just "TAKE_PROFIT_PARTIAL")
                 else (mBracketExit, Nothing)
 
+        signalExitConfirmBars = max 1 (argSignalExitConfirmBars args)
+        signalExitCandidate = prevPos /= 0 && desiredPosSignal /= prevPos
+        signalExitPendingBarsPre =
+            if signalExitCandidate
+                then botSignalExitPendingBars st + 1
+                else 0
+        signalExitConfirmed = signalExitCandidate && signalExitPendingBarsPre >= signalExitConfirmBars
+
         (latestPre, desiredPosPre, mExitReasonPre) =
             case mBracketExit1 of
                 Just why ->
@@ -13327,11 +13390,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         sigExit = latest0{lsChosenDir = closeDir, lsAction = "EXIT_" ++ why}
                      in (sigExit, 0, Just why)
                 Nothing ->
-                    let exitReason =
-                            if prevPos /= 0 && desiredPosSignal /= prevPos
-                                then Just "SIGNAL"
-                                else Nothing
-                     in (latest0, desiredPosSignal, exitReason)
+                    if signalExitCandidate && not signalExitConfirmed
+                        then
+                            ( latest0{lsAction = "HOLD_SIGNAL_EXIT_CONFIRM"}
+                            , prevPos
+                            , Nothing
+                            )
+                        else
+                            let exitReason =
+                                    if signalExitConfirmed
+                                        then Just "SIGNAL"
+                                        else Nothing
+                             in (latest0, desiredPosSignal, exitReason)
 
         (latest0b, desiredPosWanted0b, mExitReason0b) =
             if halted
@@ -13520,7 +13590,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             | entryAttempt && baseExposureBlocked = Just "MAX_EXPOSURE_PER_BASE"
             | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
             | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
-            | entryAttempt = portfolioCapitalPreservationReasonMaybe <|> capitalPreservationReasonMaybe <|> perfGateReasonMaybe
+            | entryAttempt =
+                ( if bsTradeEnabled settings
+                    then tradeDeploymentGateReason args (botSymbol st) latest2
+                    else Nothing
+                )
+                    <|> portfolioCapitalPreservationReasonMaybe
+                    <|> capitalPreservationReasonMaybe
+                    <|> perfGateReasonMaybe
             | otherwise = Nothing
 
         (latest2b, desiredPosWanted2b, mExitReason2b) =
@@ -14017,6 +14094,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             if lossStreakTriggered
                 then max cooldownLeftBase (argLossStreakCooldownBars args)
                 else cooldownLeftBase
+        signalExitPendingBarsNext =
+            if prevPos /= 0 && posFinal == prevPos && signalExitCandidate
+                then signalExitPendingBarsPre
+                else 0
         eqV1 = V.snoc (botEquityCurve st) eqFinal
         posV1 = V.snoc (botPositions st) posFinal
 
@@ -14107,6 +14188,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botLossStreak = lossStreakNext
                 , botOpenTrade = openTrade2
                 , botCooldownLeft = cooldownLeftNext
+                , botSignalExitPendingBars = signalExitPendingBarsNext
                 , botLatestSignal = latest
                 , botDecisionTrace = decisionTrace1
                 , botLastOrder = mOrder <|> botLastOrder st
@@ -21826,27 +21908,31 @@ placeOrderForSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO Ap
 placeOrderForSignalPlatform args sig mBinanceEnv =
     if argDryRun args
         then pure (dryRunOrderResult args sig)
-        else case argPlatform args of
-            PlatformBinance ->
-                case (argBinanceSymbol args, mBinanceEnv) of
-                    (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
-                    (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
-                    (Just sym, Just env) -> placeOrderForSignal args sym sig env
-            PlatformCoinbase ->
-                case argBinanceSymbol args of
-                    Nothing -> pure (noOrderResult "No order: missing symbol.")
-                    Just sym -> do
-                        envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                        case envOrErr of
-                            Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
-                            Right env -> placeCoinbaseOrderForSignal args sym sig env
-            PlatformUniswap -> placeDexOrderForSignal args sig
-            PlatformCurve -> placeDexOrderForSignal args sig
-            PlatformSushiswap -> placeDexOrderForSignal args sig
-            PlatformBalancer -> placeDexOrderForSignal args sig
-            PlatformPancakeswap -> placeDexOrderForSignal args sig
-            PlatformOneInch -> placeDexOrderForSignal args sig
-            _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+        else case tradeDeploymentGateReason args gateSymbol sig of
+            Just reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sig reason))
+            Nothing -> case argPlatform args of
+                PlatformBinance ->
+                    case (argBinanceSymbol args, mBinanceEnv) of
+                        (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
+                        (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
+                        (Just sym, Just env) -> placeOrderForSignal args sym sig env
+                PlatformCoinbase ->
+                    case argBinanceSymbol args of
+                        Nothing -> pure (noOrderResult "No order: missing symbol.")
+                        Just sym -> do
+                            envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                            case envOrErr of
+                                Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
+                                Right env -> placeCoinbaseOrderForSignal args sym sig env
+                PlatformUniswap -> placeDexOrderForSignal args sig
+                PlatformCurve -> placeDexOrderForSignal args sig
+                PlatformSushiswap -> placeDexOrderForSignal args sig
+                PlatformBalancer -> placeDexOrderForSignal args sig
+                PlatformPancakeswap -> placeDexOrderForSignal args sig
+                PlatformOneInch -> placeDexOrderForSignal args sig
+                _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+  where
+    gateSymbol = fromMaybe "" (argBinanceSymbol args)
 
 placeDexOrderForSignal :: Args -> LatestSignal -> IO ApiOrderResult
 placeDexOrderForSignal args sig = do
@@ -26687,6 +26773,8 @@ emitBacktestTradesNdjson args summary = do
                         side = T.pack (if ei >= 0 && ei < length positions && positions !! ei >= 0 then "LONG" else "SHORT")
                         qty = if ei >= 0 && ei < length positions then abs (positions !! ei) else 0.0
                         pnl = trExitEquity tr - trEntryEquity tr
+                        pnlPct = trReturn tr
+                        exitReason = fmap (T.pack . exitReasonCode) (trExitReason tr)
                         epochMsToIso ms =
                             T.pack $
                                 formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
@@ -26708,11 +26796,20 @@ emitBacktestTradesNdjson args summary = do
                                     pair "timestamp" (toEncoding logTime)
                                         <> pair "symbol" (toEncoding sym)
                                         <> pair "side" (toEncoding side)
+                                        <> pair "entryPrice" (toEncoding entryPrice)
+                                        <> pair "exitPrice" (toEncoding exitPrice)
+                                        <> pair "quantity" (toEncoding qty)
+                                        <> pair "pnl" (toEncoding pnl)
+                                        <> pair "pnlPercent" (toEncoding pnlPct)
+                                        <> pair "fees" (toEncoding (trFeeCost tr))
+                                        <> pair "method" (toEncoding meth)
+                                        <> pair "volConfGate" (toEncoding vcg)
+                                        <> pair "exitReason" (toEncoding exitReason)
                                         <> pair "entry_price" (toEncoding (T.pack (show entryPrice)))
                                         <> pair "exit_price" (toEncoding (T.pack (show exitPrice)))
-                                        <> pair "quantity" (toEncoding (T.pack (show qty)))
+                                        <> pair "quantity_text" (toEncoding (T.pack (show qty)))
                                         <> pair "pnl_quote" (toEncoding (T.pack (show pnl)))
-                                        <> pair "pnl_pct" (toEncoding (T.pack (show (trReturn tr))))
+                                        <> pair "pnl_pct" (toEncoding (T.pack (show pnlPct)))
                                         <> pair "fee_quote" (toEncoding (T.pack (show (trFeeCost tr))))
                                         <> pair "signal_method" (toEncoding meth)
                                         <> pair "vol_conf_gate" (toEncoding vcg)
@@ -26720,7 +26817,8 @@ emitBacktestTradesNdjson args summary = do
                                         <> pair "slippage_estimate" (toEncoding (Nothing :: Maybe T.Text))
                                         <> pair "latency_ms" (toEncoding (Nothing :: Maybe T.Text))
                                         <> pair "trade_id" (toEncoding tid)
-                                        <> pair "schema_version" (toEncoding ("1.0" :: T.Text))
+                                        <> pair "schemaVersion" (toEncoding ("1.1" :: T.Text))
+                                        <> pair "schema_version" (toEncoding ("1.1" :: T.Text))
                     BL.appendFile path (line <> BL.fromStrict (BS.pack "\n"))
             mapM_ emitTrade trades
   where
@@ -26750,9 +26848,18 @@ emitLiveTradeNdjson mPath sym eventType price equity =
                             pair "timestamp" (toEncoding (epochMsToIso nowMs))
                                 <> pair "symbol" (toEncoding (T.pack sym))
                                 <> pair "side" (toEncoding (T.pack eventType))
+                                <> pair "entryPrice" (toEncoding price)
+                                <> pair "exitPrice" (toEncoding price)
+                                <> pair "quantity" (toEncoding (0.0 :: Double))
+                                <> pair "pnl" (toEncoding (0.0 :: Double))
+                                <> pair "pnlPercent" (toEncoding (0.0 :: Double))
+                                <> pair "fees" (toEncoding (0.0 :: Double))
+                                <> pair "method" (toEncoding (T.pack "live"))
+                                <> pair "volConfGate" (toEncoding (T.pack "live"))
+                                <> pair "exitReason" (toEncoding (T.pack eventType))
                                 <> pair "entry_price" (toEncoding (T.pack (show price)))
                                 <> pair "exit_price" (toEncoding (T.pack (show price)))
-                                <> pair "quantity" (toEncoding ("0.0" :: T.Text))
+                                <> pair "quantity_text" (toEncoding ("0.0" :: T.Text))
                                 <> pair "pnl_quote" (toEncoding ("0.0" :: T.Text))
                                 <> pair "pnl_pct" (toEncoding ("0.0" :: T.Text))
                                 <> pair "fee_quote" (toEncoding ("0.0" :: T.Text))
@@ -26762,7 +26869,8 @@ emitLiveTradeNdjson mPath sym eventType price equity =
                                 <> pair "slippage_estimate" (toEncoding (Nothing :: Maybe T.Text))
                                 <> pair "latency_ms" (toEncoding (Nothing :: Maybe T.Text))
                                 <> pair "trade_id" (toEncoding tid)
-                                <> pair "schema_version" (toEncoding ("1.0" :: T.Text))
+                                <> pair "schemaVersion" (toEncoding ("1.1" :: T.Text))
+                                <> pair "schema_version" (toEncoding ("1.1" :: T.Text))
             BL.appendFile path (line <> BL.fromStrict (BS.pack "\n"))
 
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
@@ -32909,30 +33017,10 @@ printFundingGuidance fundingRate fundingBySide =
 
 maybeSendOrder :: Maybe Webhook -> Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
 maybeSendOrder mWebhook args mBinanceEnv sig =
-    case argPlatform args of
-        PlatformBinance ->
-            case (argBinanceSymbol args, mBinanceEnv) of
-                (Just sym, Just env)
-                    | argBinanceTrade args -> do
-                        res <- placeOrderForSignal args sym sig env
-                        putStrLn (aorMessage res)
-                        webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args sig res)
-                    | otherwise -> pure ()
-                _ -> pure ()
-        PlatformCoinbase ->
-            case argBinanceSymbol args of
-                Just sym
-                    | argBinanceTrade args -> do
-                        envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                        case envOrErr of
-                            Left _ -> pure ()
-                            Right env -> do
-                                res <- placeCoinbaseOrderForSignal args sym sig env
-                                putStrLn (aorMessage res)
-                                webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args sig res)
-                    | otherwise -> pure ()
-                _ -> pure ()
-        _ -> pure ()
+    when (argBinanceTrade args) $ do
+        res <- placeOrderForSignalPlatform args sig mBinanceEnv
+        putStrLn (aorMessage res)
+        webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args sig res)
 
 data PriceSeries = PriceSeries
     { psClose :: ![Double]
@@ -32943,6 +33031,68 @@ data PriceSeries = PriceSeries
     , psOpenTimes :: !(Maybe [Int64])
     }
     deriving (Eq, Show)
+
+validateLoadedPriceSeries :: Args -> String -> Bool -> Bool -> PriceSeries -> IO PriceSeries
+validateLoadedPriceSeries args label requireContinuity requireFreshness series = do
+    bars <-
+        case priceSeriesMarketBars label series of
+            Left err -> throwIO (userError err)
+            Right out -> pure out
+    case validateMarketSeriesBars label bars of
+        Left err -> throwIO (userError err)
+        Right () -> pure ()
+    when requireContinuity $
+        case parseIntervalSeconds (argInterval args) of
+            Nothing -> throwIO (userError (label ++ " invalid interval: " ++ show (argInterval args)))
+            Just sec ->
+                case validateMarketSeriesContinuity label (fromIntegral sec * 1000) bars of
+                    Left err -> throwIO (userError err)
+                    Right () -> pure ()
+    when requireFreshness $
+        case psOpenTimes series of
+            Just openTimes@(_ : _) -> do
+                nowMs <- fmap (floor . (* 1000)) getPOSIXTime
+                case marketDataStaleReason (argInterval args) nowMs (last openTimes) of
+                    Just err -> throwIO (userError err)
+                    Nothing -> pure ()
+            _ -> throwIO (userError (label ++ " missing open times for market-data freshness validation"))
+    pure series
+
+priceSeriesMarketBars :: String -> PriceSeries -> Either String [MarketSeriesBar]
+priceSeriesMarketBars label series = do
+    let closes = psClose series
+        n = length closes
+    opens <- optionalSeries "open" n (psOpen series)
+    highs <- optionalSeries "high" n (psHigh series)
+    lows <- optionalSeries "low" n (psLow series)
+    volumes <- optionalSeries "volume" n (psVolume series)
+    openTimes <-
+        case psOpenTimes series of
+            Nothing ->
+                Right $
+                    if n <= 0
+                        then []
+                        else [0 .. fromIntegral (n - 1)]
+            Just xs
+                | length xs == n -> Right xs
+                | otherwise -> Left (label ++ " openTime length " ++ show (length xs) ++ " does not match close length " ++ show n)
+    pure
+        [ MarketSeriesBar
+            { msbOpenTimeMs = openTime
+            , msbOpen = open
+            , msbHigh = high
+            , msbLow = low
+            , msbClose = close
+            , msbVolume = volume
+            }
+        | (openTime, open, high, low, close, volume) <- zip6 openTimes opens highs lows closes volumes
+        ]
+
+optionalSeries :: String -> Int -> Maybe [Double] -> Either String [Maybe Double]
+optionalSeries _ n Nothing = Right (replicate n Nothing)
+optionalSeries label n (Just xs)
+    | length xs == n = Right (map Just xs)
+    | otherwise = Left (label ++ " series length " ++ show (length xs) ++ " does not match close length " ++ show n)
 
 featureInputsFromSeries :: PriceSeries -> FeatureInputs
 featureInputsFromSeries series =
@@ -33069,7 +33219,8 @@ loadPrices mOps args =
                     if bars > 0
                         then fmap (takeLast bars) mOpenTimes
                         else mOpenTimes
-            pure (PriceSeries closes' opens' highs' lows' volumes' openTimes', Nothing)
+            series <- validateLoadedPriceSeries args ("CSV " ++ path) False False (PriceSeries closes' opens' highs' lows' volumes' openTimes')
+            pure (series, Nothing)
      in case (argData args, argBinanceSymbol args) of
             (Just path, Nothing) -> loadCsv path
             (Just path, Just _sym) | isDex -> loadCsv path
@@ -33142,7 +33293,8 @@ loadPricesBinanceWith fetcher mOps args sym = do
         lows = map kLow ks
         volumes = map kVolume ks
         openTimes = map (normalizeEpochMs . kOpenTime) ks
-    pure (envTrade, PriceSeries closes (Just opens) (Just highs) (Just lows) (Just volumes) (Just openTimes))
+    series <- validateLoadedPriceSeries args "Binance kline" True True (PriceSeries closes (Just opens) (Just highs) (Just lows) (Just volumes) (Just openTimes))
+    pure (envTrade, series)
 
 computeBacktestFromArgsFreshBinanceWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> IO Aeson.Value
 computeBacktestFromArgsFreshBinanceWithLimits limits mOps args =
@@ -33199,14 +33351,18 @@ loadPricesCoinbase args sym = do
             Nothing -> throwIO (userError ("Interval not supported by Coinbase: " ++ interval))
     candles <- fetchCoinbaseCandles sym granularity (max 1 bars)
     let closes = map ccClose candles
+        opens = map ccOpen candles
         highs = map ccHigh candles
         lows = map ccLow candles
+        volumes = map ccVolume candles
         openTimes = map (normalizeEpochMs . ccOpenTime) candles
         closes' = if bars > 0 then takeLast bars closes else closes
+        opens' = if bars > 0 then takeLast bars opens else opens
         highs' = if bars > 0 then takeLast bars highs else highs
         lows' = if bars > 0 then takeLast bars lows else lows
+        volumes' = if bars > 0 then takeLast bars volumes else volumes
         openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
-    pure (PriceSeries closes' Nothing (Just highs') (Just lows') Nothing (Just openTimes'))
+    validateLoadedPriceSeries args "Coinbase candle" True True (PriceSeries closes' (Just opens') (Just highs') (Just lows') (Just volumes') (Just openTimes'))
 
 loadPricesKraken :: Args -> String -> IO PriceSeries
 loadPricesKraken args sym = do
@@ -33218,14 +33374,18 @@ loadPricesKraken args sym = do
             Nothing -> throwIO (userError ("Interval not supported by Kraken: " ++ interval))
     candles <- fetchKrakenCandles sym minutes
     let closes = map kcClose candles
+        opens = map kcOpen candles
         highs = map kcHigh candles
         lows = map kcLow candles
+        volumes = map kcVolume candles
         openTimes = map (normalizeEpochMs . kcOpenTime) candles
         closes' = if bars > 0 then takeLast bars closes else closes
+        opens' = if bars > 0 then takeLast bars opens else opens
         highs' = if bars > 0 then takeLast bars highs else highs
         lows' = if bars > 0 then takeLast bars lows else lows
+        volumes' = if bars > 0 then takeLast bars volumes else volumes
         openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
-    pure (PriceSeries closes' Nothing (Just highs') (Just lows') Nothing (Just openTimes'))
+    validateLoadedPriceSeries args "Kraken candle" True True (PriceSeries closes' (Just opens') (Just highs') (Just lows') (Just volumes') (Just openTimes'))
 
 loadPricesPoloniex :: Args -> String -> IO PriceSeries
 loadPricesPoloniex args sym = do
@@ -33237,14 +33397,18 @@ loadPricesPoloniex args sym = do
             _ -> throwIO (userError ("Interval not supported by Poloniex: " ++ interval))
     candles <- fetchPoloniexCandles sym label period (max 1 bars)
     let closes = map pcClose candles
+        opens = map pcOpen candles
         highs = map pcHigh candles
         lows = map pcLow candles
+        volumes = map pcVolume candles
         openTimes = map (normalizeEpochMs . pcOpenTime) candles
         closes' = if bars > 0 then takeLast bars closes else closes
+        opens' = if bars > 0 then takeLast bars opens else opens
         highs' = if bars > 0 then takeLast bars highs else highs
         lows' = if bars > 0 then takeLast bars lows else lows
+        volumes' = if bars > 0 then takeLast bars volumes else volumes
         openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
-    pure (PriceSeries closes' Nothing (Just highs') (Just lows') Nothing (Just openTimes'))
+    validateLoadedPriceSeries args "Poloniex candle" True True (PriceSeries closes' (Just opens') (Just highs') (Just lows') (Just volumes') (Just openTimes'))
 
 data BinanceBaseUrls = BinanceBaseUrls
     { bbuSpot :: !String

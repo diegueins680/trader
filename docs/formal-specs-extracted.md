@@ -59,12 +59,12 @@ Primary documentation sources:
 | S10 | Close-timing analysis and max-hold retune acceptance | Implemented |
 | S11 | Threshold calibration | Implemented |
 | S12 | Gate telemetry | Implemented |
-| S13 | Market-data freshness and continuation helpers | Implemented helper, broader data-QA gap |
+| S13 | Market-data freshness and continuity gate | Implemented |
 | S14 | Bot startup, adoption evidence, and start queue safety | Implemented |
 | S15 | Cost calibration and venue cost floors | Implemented |
 | S16 | Top-combo scoring, freshness, pruning, and merge safety | Implemented |
-| S17 | Strategy decision flow across latest-signal, live bot, and backtest | Documented with parity gaps |
-| S18 | Data integrity and leakage checklist | Documented with implementation gaps |
+| S17 | Strategy decision flow across latest-signal, live bot, and backtest | Implemented shared post-direction reducer boundary |
+| S18 | Data integrity and leakage checklist | Implemented for live exchange price-loading paths |
 
 ## S1. Fresh-Entry Gates
 
@@ -533,18 +533,23 @@ Bounded obligations:
 
 ## S13. Market Data Freshness And Continuity
 
-Status: Implemented helper; broader live data-QA gate is documented as a gap.
+Status: Implemented.
 
 Primary code:
 
 - `Trader.MarketDataIntegrity`
+- `Trader.Binance`
+- `Trader.Coinbase`
+- `Trader.Kraken`
+- `Trader.Poloniex`
+- `Main.validateLoadedPriceSeries`
 
 Documentation:
 
 - `docs/audits/p0-item-2-data-integrity-and-leakage.md`
 - `README.md`
 
-Implemented helper clauses:
+Implemented clauses:
 
 1. Interval strings must parse through `parseIntervalSeconds`; invalid intervals produce `MARKET_DATA_INTERVAL_INVALID`.
 2. Last close time is `lastOpenTimeMs + intervalMs`.
@@ -554,25 +559,15 @@ Implemented helper clauses:
 6. Continuation expects each next open time to equal the previous expected open plus interval.
 7. First mismatch yields `MARKET_DATA_GAP` with expected, actual, and interval values.
 8. `MARKET_DATA_GAP` and `STALE_MARKET_DATA` are transient market-data errors for queued bot starts.
-
-Documented broader data-QA checklist:
-
-1. Symbol canonicalization before HTTP request.
-2. Timestamp parse and unit normalization.
-3. Strict monotonicity and duplicate rejection.
-4. Missing-bar continuity.
-5. Closed-bar completeness; open candles must be discarded for live trading.
-6. Stale-data freshness.
-7. Finite OHLCV values.
-8. OHLC relationship invariants.
-9. Non-negative volume where required.
-10. Feature causality: features at `t` use only data `<= t`, target at `t+1`.
-11. Missing OHLCV must be surfaced or blocked in live trading rather than hidden by synthetic fallback.
-12. Live trade placement should hard-fail on failed data QA.
-
-Gap:
-
-- The P0 data-integrity audit states that the broader checklist is not yet fully enforced across all live-loaded series and venue loaders.
+9. Exchange candle loaders discard still-open bars before strategy input.
+10. Market-series validation rejects non-finite numeric payloads.
+11. Market-series validation rejects negative volume.
+12. Market-series validation rejects impossible OHLC relationships when OHLC fields are present.
+13. Market-series validation rejects duplicate or non-increasing open times.
+14. Live exchange price loads require exact interval continuity after closed-bar filtering.
+15. Live exchange price loads require fresh last-closed-bar evidence before strategy execution.
+16. Coinbase, Kraken, and Poloniex loaders preserve source open and volume fields instead of synthesizing them for live exchange inputs.
+17. CSV/offline input validates finite values, OHLC shape, volume, and timestamp monotonicity when those fields are present, but does not enforce interval continuity or wall-clock freshness by default because CSV can be a time-agnostic offline dataset.
 
 Bounded obligations:
 
@@ -723,7 +718,7 @@ Bounded obligations:
 
 ## S17. Strategy Decision Flow
 
-Status: Documented with parity gaps.
+Status: Implemented shared post-direction reducer boundary.
 
 Primary documentation:
 
@@ -747,37 +742,43 @@ Documented implementation state:
 1. Latest-signal has the richest stateless prediction/gate/sizing path.
 2. Live bot delegates upstream signal generation to latest-signal and adds stateful hold, cooldown, exposure, halt, execution, reconciliation, and persistence behavior.
 3. Backtest reimplements a similar but not identical path inside `Trader.Trading`.
-4. Backtest does not yet route through the same shared post-direction gate reducer as latest-signal.
-5. Existing tests cover helper invariants, but not the full blocked-entry/hold/flip/halt path matrix end to end.
+4. Backtest routes the post-direction gates it owns through `signalRunPostDirectionGates`.
+5. Backtest passes explicit no-op/allow checks for latest-signal-only contexts it does not own, such as MTF consensus, cross-asset, meta-label, funding/OI, and regime-edge data that are not present in the simulator's local context.
+6. Entry-only spike/headroom and post-sizing fee-buffer checks remain outside the shared post-direction reducer by design.
+7. Existing tests cover helper invariants and the market-data QA surface, but not the full blocked-entry/hold/flip/halt path matrix end to end.
 
-Gap:
+Remaining documented surface differences:
 
-- The audit explicitly states implementation parity is not fully achieved across latest-signal, live bot, and backtest.
+- Live bot still adds stateful execution, exposure, cooldown, order, auth, and reconciliation behavior after latest-signal.
+- Backtest still owns simulator-only state transitions such as bracket exits, rebalance, and risk-halt accounting.
+- Full end-to-end blocked-entry/hold/flip/halt parity tests remain future coverage work.
 
 ## S18. Data Integrity And Leakage
 
-Status: Documented with implementation gaps.
+Status: Implemented for live exchange price-loading paths.
 
 Primary documentation:
 
 - `docs/audits/p0-item-2-data-integrity-and-leakage.md`
 
-Documented current positives:
+Current positives:
 
 1. CSV and exchange decoders reject non-finite numeric payloads in parsed fields.
 2. CLI/args symbol normalization exists for Binance, Coinbase, and Poloniex.
 3. `Trader.Predictors.Features` is structurally no-lookahead for supervised labels and feature indexing when input bars are already closed and correctly ordered.
 4. Predictor training preserves time order by using tail calibration rather than shuffling calibration into training.
+5. Live exchange price loads now pass through a shared market-series QA gate after loading and before strategy execution.
+6. Coinbase, Kraken, and Poloniex preserve source open and volume fields, reducing live-path synthetic OHLCV fallback risk.
 
-Documented required P0 live-trading conditions:
+Implemented live exchange conditions:
 
 1. Live trading should be blocked on stale, incomplete/open, gapped, duplicate, or out-of-order bars.
-2. Venue loaders should validate strict monotonicity, continuity, closed-bar completeness, OHLC invariants, and non-negative volume where relevant.
-3. Feature construction should not hide live data defects by fabricating OHLCV values in trading paths.
-4. Cache TTL is not sufficient as a market-data freshness guarantee.
-5. Open current candles must be discarded before strategy input.
+2. Venue loaders validate strict monotonicity, duplicate rejection, continuity, closed-bar completeness, OHLC invariants, and non-negative volume where relevant.
+3. Feature construction on live exchange paths receives source open/high/low/close/volume where the venue provides those fields.
+4. Cache TTL is not treated as a market-data freshness guarantee; freshness is checked from the last closed bar's close time.
+5. Open current candles are discarded before strategy input.
 6. Feature causality requires features at `t` to use only data `<= t`, with supervised target at `t+1`.
 
-Gap:
+Remaining caveat:
 
-- The audit verdict is partial for Binance live paths and still fail for full P0 repo-wide live-trading safety because the complete QA gate is not uniformly enforced after price loading across all venue paths.
+- CSV/offline input is structurally validated but intentionally does not enforce interval continuity or wall-clock freshness by default. That keeps historical and time-agnostic CSV workflows usable, but CSV input should not be treated as a live exchange freshness guarantee.

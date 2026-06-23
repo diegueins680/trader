@@ -55,14 +55,17 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
+import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries, validateMarketSeriesBars, validateMarketSeriesContinuity)
 import Trader.Symbol (splitSymbol)
 import Trader.Text (trim)
 
 data CoinbaseCandle = CoinbaseCandle
     { ccOpenTime :: !Int64
+    , ccOpen :: !Double
     , ccHigh :: !Double
     , ccLow :: !Double
     , ccClose :: !Double
+    , ccVolume :: !Double
     }
     deriving (Eq, Show)
 
@@ -274,7 +277,9 @@ fetchCoinbaseCandles product granularitySec bars = do
         nowSec <- (floor <$> getPOSIXTime) :: IO Int64
         let ranges = buildRanges nowSec (fromIntegral granularity) totalBars
         chunks <- mapM (fetchRange mgr) ranges
-        pure (normalizeCoinbaseCandles totalBars (concat chunks))
+        case normalizeClosedCoinbaseCandles totalBars granularity (nowSec * 1000) (concat chunks) of
+            Left err -> throwIO (userError err)
+            Right xs -> pure xs
   where
     cleaned = map toUpperAscii (trim product)
     granularity = max 1 granularitySec
@@ -317,7 +322,9 @@ fetchCoinbaseCandlesEndingAt product granularitySec endSec bars = do
         mgr <- getSharedManager
         let ranges = buildRanges endSec (fromIntegral granularity) totalBars
         chunks <- mapM (fetchRange mgr) ranges
-        pure (normalizeCoinbaseCandles totalBars (concat chunks))
+        case normalizeHistoricalCoinbaseCandles totalBars granularity (concat chunks) of
+            Left err -> throwIO (userError err)
+            Right xs -> pure xs
   where
     cleaned = map toUpperAscii (trim product)
     granularity = max 1 granularitySec
@@ -404,14 +411,16 @@ parseCoinbaseResponse =
 parseCandle :: Value -> AT.Parser CoinbaseCandle
 parseCandle =
     withArray "CoinbaseCandle" $ \arr -> do
-        if V.length arr < 5
+        if V.length arr < 6
             then fail "Coinbase candle array too short"
             else do
                 t <- parseIndexInt64 0 arr
                 low <- parseIndexDouble 1 arr
                 high <- parseIndexDouble 2 arr
+                open <- parseIndexDouble 3 arr
                 close <- parseIndexDouble 4 arr
-                pure CoinbaseCandle{ccOpenTime = normalizeTimestamp t, ccHigh = high, ccLow = low, ccClose = close}
+                volume <- parseIndexDouble 5 arr
+                pure CoinbaseCandle{ccOpenTime = normalizeTimestamp t, ccOpen = open, ccHigh = high, ccLow = low, ccClose = close, ccVolume = volume}
 
 parseIndexInt64 :: Int -> V.Vector Value -> AT.Parser Int64
 parseIndexInt64 i arr =
@@ -490,6 +499,35 @@ normalizeCoinbaseCandles bars candles =
     takeLast bars' (dedupByTime (sortOn ccOpenTime candles))
   where
     bars' = max 1 bars
+
+normalizeClosedCoinbaseCandles :: Int -> Int -> Int64 -> [CoinbaseCandle] -> Either String [CoinbaseCandle]
+normalizeClosedCoinbaseCandles bars granularitySec nowMs candles = do
+    let intervalMs = fromIntegral (max 1 granularitySec) * 1000
+    closed <- normalizeClosedMarketSeries "Coinbase candle" intervalMs nowMs (coinbaseCandlePairs candles)
+    pure (takeLast (max 1 bars) (map snd closed))
+
+normalizeHistoricalCoinbaseCandles :: Int -> Int -> [CoinbaseCandle] -> Either String [CoinbaseCandle]
+normalizeHistoricalCoinbaseCandles bars granularitySec candles = do
+    let intervalMs = fromIntegral (max 1 granularitySec) * 1000
+        sorted = sortOn (msbOpenTimeMs . fst) (coinbaseCandlePairs candles)
+    validateMarketSeriesBars "Coinbase candle" (map fst sorted)
+    validateMarketSeriesContinuity "Coinbase candle" intervalMs (map fst sorted)
+    pure (takeLast (max 1 bars) (map snd sorted))
+
+coinbaseCandlePairs :: [CoinbaseCandle] -> [(MarketSeriesBar, CoinbaseCandle)]
+coinbaseCandlePairs candles =
+    [ ( MarketSeriesBar
+            { msbOpenTimeMs = ccOpenTime candle * 1000
+            , msbOpen = Just (ccOpen candle)
+            , msbHigh = Just (ccHigh candle)
+            , msbLow = Just (ccLow candle)
+            , msbClose = ccClose candle
+            , msbVolume = Just (ccVolume candle)
+            }
+      , candle
+      )
+    | candle <- candles
+    ]
 
 takeLast :: Int -> [a] -> [a]
 takeLast n xs

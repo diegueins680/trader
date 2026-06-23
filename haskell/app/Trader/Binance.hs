@@ -104,6 +104,7 @@ import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
+import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
 import Trader.Text (normalizeKey)
 
 data BinanceEnv = BinanceEnv
@@ -938,7 +939,20 @@ normalizeClosedKlines interval now ks = do
     let sorted = sortOn kOpenTime ks
     validateKlineShapes sorted
     validateStrictKlineOpenTimes sorted
-    pure (filter (klineIsClosed intervalMs now) sorted)
+    let closed = filter (klineIsClosed intervalMs now) sorted
+    validateMarketSeriesContinuity "Binance kline" intervalMs (map klineMarketSeriesBar closed)
+    pure closed
+
+klineMarketSeriesBar :: Kline -> MarketSeriesBar
+klineMarketSeriesBar k =
+    MarketSeriesBar
+        { msbOpenTimeMs = kOpenTime k
+        , msbOpen = Just (kOpen k)
+        , msbHigh = Just (kHigh k)
+        , msbLow = Just (kLow k)
+        , msbClose = kClose k
+        , msbVolume = Just (kVolume k)
+        }
 
 klineIsClosed :: Int64 -> Int64 -> Kline -> Bool
 klineIsClosed intervalMs now k =

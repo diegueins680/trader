@@ -12,12 +12,12 @@ Sources audited:
 
 ## Audit status
 
-This artifact now gives the repo one canonical written decision-flow spec, but **implementation parity is not yet fully achieved**.
+This artifact gives the repo one canonical written decision-flow spec. The shared post-direction gate reducer is now used by latest-signal and by the backtest gates the simulator owns; full surface parity still excludes live-only execution state and simulator-only accounting.
 
 Current state:
 - **Latest-signal** has the richest stateless prediction/gate/sizing path.
 - **Live bot** mostly wraps latest-signal, then adds stateful hold / cooldown / exposure / halt / execution behavior.
-- **Backtest** re-implements a similar but not identical path inside `Trader.Trading`.
+- **Backtest** still owns simulator state transitions inside `Trader.Trading`, but its available post-direction structural gates route through `signalRunPostDirectionGates`.
 - Existing tests cover several **helper invariants**, but not the full **blocked-entry / hold / flip / halt** path matrix end-to-end.
 
 ## Canonical intended flow
@@ -185,17 +185,20 @@ Live adds a second stateful layer after latest-signal:
 - Uses close-direction to keep the position when open-direction is neutral.
 
 ### Entry-side gates
-Backtest currently applies these entry-side conditions inline:
-- trend gate
-- volatility gate
-- signal-to-noise gate
-- vol-target-ready gate
-- tri-layer (`cloud` + `priceAction`) gate
+Backtest applies the entry-only edge checks before the structural reducer:
 - `signalEntryEdgeSpikeOk`
 - `signalEntryHeadroomOk`
 
-### Missing vs latest-signal
-Backtest **does not currently route through** `signalRunPostDirectionGates`, and therefore has no shared pure ordering for:
+It then routes the post-direction gates it owns through `signalRunPostDirectionGates`:
+- volatility gate
+- vol-target-ready gate
+- trend gate
+- cloud gate
+- price-action gate
+- signal-to-noise gate
+
+### Surface-specific vs latest-signal
+Backtest passes explicit allow/no-op checks for latest-signal-only contexts it does not own locally:
 - `NON_DIRECTIONAL_*`
 - `REGIME_EDGE`
 - `MTF_CONSENSUS`
@@ -231,8 +234,8 @@ Backtest then layers:
 - post-bar risk halt re-check
 
 ### Key backtest conclusion
-- Backtest has broad overlap with live/latest-signal, but it is **not yet the same documented gate order**.
-- It is a parallel implementation, not a shared reducer.
+- Backtest now shares the ordered post-direction reducer boundary for the gates available in the simulator.
+- It remains a simulator-specific state machine after direction selection, which is expected for bracket exits, rebalance, funding, and risk-halt accounting.
 
 ## Canonical map: prediction -> gate -> sizing -> execution -> exit
 
@@ -241,8 +244,8 @@ Backtest then layers:
 | Prediction | Build raw open/close dirs from models | Yes | Delegates to latest-signal | Yes |
 | Method chooser | Pick method-specific open/close dir | Yes | Delegates | Yes |
 | Entry spike/headroom | Entry-only gate before later structural gates | Yes | Delegates | Yes |
-| Post-direction gates | Single shared ordered reducer | **Yes** | Delegates | **No shared reducer** |
-| Non-directional veto | Shared structural gate | Yes | Delegates | **Missing** |
+| Post-direction gates | Single shared ordered reducer | **Yes** | Delegates | **Shared for available gates** |
+| Non-directional veto | Shared structural gate | Yes | Delegates | **No-op unless simulator evidence is added** |
 | Vol-conf close semantics | Shared stateful close behavior | Yes (`volConfStatefulCloseDirection`) | Yes via latest-signal output | **Not shared** |
 | Fee buffer after provisional size | Required | Yes | Inherited from latest-signal size/action | Yes |
 | Min-hold | Stateful wrapper after direction selection | No | Yes | Yes |
@@ -275,9 +278,8 @@ Backtest then layers:
 - vol-conf cell/behavior concepts
 - max-hold / risk-halt concepts exist in both worlds
 
-**Major parity gaps**
-- backtest does not use `signalRunPostDirectionGates`
-- backtest does not apply the new `NON_DIRECTIONAL_*` veto path from `SignalGates`
+**Remaining surface differences**
+- backtest uses `signalRunPostDirectionGates` for available gates, but passes no-op checks for latest-signal-only evidence not present in simulator context
 - backtest does not share `volConfStatefulCloseDirection`
 - latest-signal has richer gate-reason surface than backtest
 - live uses latest-signal + stateful wrapper, while backtest owns a separate inlined state machine
@@ -326,7 +328,7 @@ The repo does **not** currently prove the full decision path through integrated 
      - `EDGE_FEE_BUFFER`
 
 2. **No parity fixture between latest-signal and backtest on the same blocked entry**
-   - Especially missing for `NON_DIRECTIONAL_*`, because backtest currently has no shared implementation.
+   - Especially missing for `NON_DIRECTIONAL_*`, because backtest currently no-ops latest-signal-only evidence that is not present in simulator context.
 
 3. **No live blocked-entry reducer tests**
    - Missing stateful tests for:
@@ -406,20 +408,20 @@ The repo does **not** currently prove the full decision path through integrated 
 
 ### Acceptance target
 - one canonical decision-flow spec exists
-- latest-signal, backtest, and live bot use the same documented gate order
+- latest-signal, backtest, and live bot use the same documented gate order for shared gates
 - regression tests cover blocked-entry, hold, flip, and halt paths
 
 ### Status now
 - **Canonical spec exists:** **Yes** (this artifact)
-- **Same documented gate order across all surfaces:** **No, not yet**
+- **Same documented post-direction gate order across shared gates:** **Yes**
 - **Regression matrix for blocked-entry / hold / flip / halt:** **No, not yet**
 
-Primary blocker to full acceptance:
-- `Trader.Trading` still owns a parallel decision engine instead of reusing the latest-signal/post-direction gate reducer.
+Primary remaining blocker to full acceptance:
+- End-to-end fixtures do not yet prove blocked-entry, hold, flip, and halt semantics across latest-signal, live bot, and backtest surfaces.
 
 ## First follow-up actions
 
-1. **Write parity fixture tests before code refactor**
+1. **Write parity fixture tests**
    - Add one small synthetic scenario for each class:
      - blocked-entry
      - hold
@@ -430,9 +432,9 @@ Primary blocker to full acceptance:
      - live reducer surface
      - backtest surface (where applicable)
 
-2. **Extract a shared pure post-direction reducer**
-   - Make latest-signal and backtest call the same ordered gate function instead of maintaining separate inlined order.
-   - `signalRunPostDirectionGates` is the best current seed.
+2. **Extend simulator evidence for currently no-op gate contexts**
+   - Add simulator-side inputs for non-directionality, regime edge, MTF, cross-asset, meta-label, and funding/OI only where the backtest can provide point-in-time evidence.
+   - Keep missing evidence explicit rather than silently fabricating latest-signal contexts.
 
 3. **Unify vol-conf close semantics**
    - Backtest should either reuse `volConfStatefulCloseDirection` or document why it intentionally diverges.
@@ -445,4 +447,4 @@ Primary blocker to full acceptance:
 
 ## Bottom line
 
-The repo now has a written canonical spec, but the code still has **one rich stateless path (`computeLatestSignal`), one live stateful wrapper, and one parallel backtest state machine**. The next step is not another doc pass; it is parity tests plus shared reducers so decision-path invariants stop depending on manual comparison.
+The repo now has a written canonical spec and a shared post-direction reducer boundary for latest-signal plus the backtest gates with simulator evidence. The next step is targeted parity tests and, where justified, point-in-time simulator evidence for the currently no-op latest-signal-only gates.

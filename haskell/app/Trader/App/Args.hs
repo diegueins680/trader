@@ -23,6 +23,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (forM_, when)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower, toUpper)
 import Data.Int (Int64)
+import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Time (defaultTimeLocale, parseTimeM)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
@@ -106,6 +107,8 @@ data Args = Args
     , argBinanceTrade :: Bool
     , argBinanceLive :: Bool
     , argDryRun :: Bool
+    , argTradeAllowedMethods :: [Method]
+    , argTradeAllowedSymbols :: [String]
     , argOrderQuote :: Maybe Double
     , argOrderQuantity :: Maybe Double
     , argOrderQuoteFraction :: Maybe Double
@@ -431,6 +434,7 @@ data Args = Args
     , argLstmExitFlipBars :: Int
     , argLstmExitFlipGraceBars :: Int
     , argLstmExitFlipStrong :: Bool
+    , argSignalExitConfirmBars :: Int
     , argMaxOrderErrors :: Maybe Int
     , argPeriodsPerYear :: Maybe Double
     , argJson :: Bool
@@ -524,6 +528,47 @@ parseBarsArg raw =
                         Just bounded -> Right (Just bounded)
                         Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
                 Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
+
+splitComma :: String -> [String]
+splitComma raw =
+    filter (not . null) (map trim (go raw))
+  where
+    go "" = [""]
+    go s =
+        let (a, b) = break (== ',') s
+         in case b of
+                [] -> [a]
+                _ : rest -> a : go rest
+
+defaultTradeAllowedMethods :: [Method]
+defaultTradeAllowedMethods = [MethodTaBest, MethodTaRegimeSwitch]
+
+defaultTradeAllowedSymbols :: [String]
+defaultTradeAllowedSymbols = ["SOLUSDT"]
+
+methodListCode :: [Method] -> String
+methodListCode [] = "any"
+methodListCode xs = intercalate "," (map methodCode xs)
+
+symbolListCode :: [String] -> String
+symbolListCode [] = "any"
+symbolListCode xs = intercalate "," xs
+
+parseMethodList :: String -> Either String [Method]
+parseMethodList raw =
+    let parts = splitComma raw
+        lowered = map (map toLower) parts
+     in if null parts || lowered == ["any"] || lowered == ["*"]
+            then Right []
+            else mapM parseMethod parts
+
+parseSymbolList :: String -> Either String [String]
+parseSymbolList raw =
+    let parts = splitComma raw
+        lowered = map (map toLower) parts
+     in if null parts || lowered == ["any"] || lowered == ["*"]
+            then Right []
+            else Right (map (map toUpper) parts)
 
 parseTimeInt64 :: String -> Maybe Int64
 parseTimeInt64 s =
@@ -760,6 +805,22 @@ opts = do
             "no-dry-run"
             "Compute the latest signal and simulated trade response, but never send exchange/DEX orders."
             "Disable dry-run so --binance-trade can place test/live orders."
+    argTradeAllowedMethods <-
+        option
+            (eitherReader parseMethodList)
+            ( long "trade-allowed-methods"
+                <> value defaultTradeAllowedMethods
+                <> showDefaultWith methodListCode
+                <> help "Comma-separated methods allowed to place non-dry-run orders (default: ta_best,ta_regime_switch; use any to disable)"
+            )
+    argTradeAllowedSymbols <-
+        option
+            (eitherReader parseSymbolList)
+            ( long "trade-allowed-symbols"
+                <> value defaultTradeAllowedSymbols
+                <> showDefaultWith symbolListCode
+                <> help "Comma-separated symbols allowed to place non-dry-run orders (default: SOLUSDT; use any to disable)"
+            )
     argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
     argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
     argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
@@ -1406,6 +1467,7 @@ opts = do
     argLstmExitFlipBars <- option auto (long "lstm-exit-flip-bars" <> value 0 <> showDefault <> help "Exit after N consecutive LSTM bars flip against the position (0 disables)")
     argLstmExitFlipGraceBars <- option auto (long "lstm-exit-flip-grace-bars" <> value 0 <> showDefault <> help "Ignore LSTM flip exits during the first N bars of a trade")
     argLstmExitFlipStrong <- switch (long "lstm-exit-flip-strong" <> help "Require strong LSTM confidence for flip exits (uses --lstm-confidence-hard)")
+    argSignalExitConfirmBars <- option auto (long "signal-exit-confirm-bars" <> value 2 <> showDefault <> help "Require N consecutive opposing/flat signal bars before live bot SIGNAL exits (1 keeps immediate exits)")
     argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
     argExecutionMakerFirst <-
         defaultOnSwitch
@@ -1622,6 +1684,7 @@ validateArgs args0 = do
                 , argBacktestFrom = fmap trim (argBacktestFrom args0)
                 , argBacktestTo = fmap trim (argBacktestTo args0)
                 , argIdempotencyKey = fmap trim (argIdempotencyKey args0)
+                , argTradeAllowedSymbols = map symbolNormalizer (argTradeAllowedSymbols args0)
                 }
         present = maybe False (not . null)
     case argData args of
@@ -1690,6 +1753,7 @@ validateArgs args0 = do
     ensure
         "--binance-trade requires --symbol/--binance-symbol (or --dex-base-token/--dex-quote-token for DEX platforms)"
         (not (argBinanceTrade args) || present (argBinanceSymbol args) || (isDex && hasDexTokens))
+    ensure "--signal-exit-confirm-bars must be >= 1" (argSignalExitConfirmBars args >= 1)
 
     case argBinanceApiKey args of
         Nothing -> pure ()

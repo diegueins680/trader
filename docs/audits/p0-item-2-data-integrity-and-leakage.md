@@ -5,7 +5,10 @@ Date: 2026-04-19
 Update note, 2026-06-21:
 - The Binance-specific findings in the original audit have been superseded in part: the current kline path retains close time, discards still-open candles, rejects non-finite numeric payloads, rejects negative volume and invalid OHLC shape, validates strictly increasing open times, and the live bot path holds on stale or gapped market data before processing a new decision.
 - The production stale-data policy is now stricter than the original audit recommendation: `Trader.MarketDataIntegrity.marketDataFreshness` marks data stale when `ageMs > intervalMs`, measured from the last processed candle close time. The older `2 x interval` threshold below is retained only as historical audit context.
-- The broader P0 disposition still depends on whether every live exchange and offline loader is routed through one enforced post-load/pre-trade market-series QA gate.
+
+Update note, 2026-06-22:
+- Live exchange price-loading paths now route through one enforced post-load/pre-strategy market-series QA gate. Binance, Coinbase, Kraken, and Poloniex inputs reject non-finite OHLCV, invalid OHLC relationships, negative volume, duplicate/non-increasing timestamps, missing-bar continuity, still-open candles, and stale last-closed bars before strategy execution.
+- CSV/offline input is structurally validated but intentionally does not enforce interval continuity or wall-clock freshness by default, because CSV can be historical or time-agnostic input rather than a live venue feed.
 
 Scope reviewed:
 - `haskell/app/Trader/App/Csv.hs`
@@ -22,22 +25,24 @@ Adjacent entry-point evidence reviewed for trading impact:
 
 ## Executive summary
 
-**Current verdict: FAIL for P0 live-trading safety.**
+**Current verdict: PASS for live exchange price-loading and trade-boundary safety; CSV/offline caveats remain.**
 
 What is already good:
 - CSV and exchange decoders reject non-finite numeric payloads in the fields they parse.
 - CLI/args symbol normalization is present for Binance, Coinbase, and Poloniex.
+- `Main.validateLoadedPriceSeries` applies a shared post-load QA gate before exchange-backed strategy execution.
+- Binance, Coinbase, Kraken, and Poloniex live loaders discard still-open candles, require strict interval continuity, and reject stale market data.
+- Coinbase, Kraken, and Poloniex now preserve source open and volume fields instead of forcing live exchange paths through synthetic OHLCV fallbacks.
 - `Predictors/Features.hs` itself is **structurally no-lookahead** for supervised labels and feature indexing, assuming the input bars are already closed and correctly ordered.
 
-What is still missing for a P0-quality integrity gate:
-- No single data-QA gate blocks trading on **stale**, **incomplete/open**, **gapped**, **duplicate**, or **out-of-order** bars after price loading.
-- Exchange loaders mostly trust upstream candle continuity and completeness.
-- Feature construction silently synthesizes missing/invalid OHLCV values, which is convenient for dimensional stability but dangerous for trading integrity.
-- Cache TTLs are present, but they are **not** a market-data freshness guarantee.
+Remaining caveats:
+- CSV can still load without timestamps and does not enforce interval continuity or wall-clock freshness by default; that is an offline/backtest compatibility choice, not a live exchange freshness guarantee.
+- `Predictors/Features.hs` still supports synthetic fallback when callers omit OHLCV fields. Live exchange loaders now provide source OHLCV, so this is an offline/legacy caller caveat rather than the live exchange path.
+- Cache TTLs remain transport caching only; freshness is enforced from last closed bar time.
 
 ## Bottom line
 
-To satisfy this audit at P0, trading should be blocked whenever any live-loaded series fails: symbol canonicalization, timestamp normalization, strict monotonicity, duplicate rejection, missing-bar continuity, closed-bar completeness, stale-data freshness, non-finite OHLCV checks, or basic OHLC invariants.
+For live exchange price loads, trading is now blocked whenever a series fails timestamp normalization, strict monotonicity, duplicate rejection, missing-bar continuity, closed-bar completeness, stale-data freshness, non-finite OHLCV checks, negative-volume checks, or basic OHLC invariants. CSV remains a softer offline input surface.
 
 ---
 
@@ -49,17 +54,16 @@ To satisfy this audit at P0, trading should be blocked whenever any live-loaded 
 - Header resolution is robust and user-friendly, with exact/case-normalized suggestions (`Csv.hs:70-125`).
 - Numeric parsing rejects `NaN`/`Infinity` (`Csv.hs:127-154`).
 - Timestamps are parsed via `parseTimestampMs`, which supports integer epochs and ISO timestamps, with second→millisecond normalization in `Args.hs` (`Csv.hs:211-230`, `Args.hs:362-441`).
+- The post-load `PriceSeries` validator rejects length mismatches, duplicate/non-increasing timestamps when time is present, invalid OHLC relationships when OHLC columns are present, and negative volume when a volume column is present.
 
-**What fails / is incomplete now**
-- Rows are sorted by time when a time column is found, but duplicate timestamps are **not** rejected or deduplicated (`Csv.hs:199-209`).
-- Missing-bar continuity is not checked anywhere in `Csv.hs`.
+**What remains intentionally soft**
+- Missing-bar continuity is not enforced for CSV by default.
 - If no time column is present, the CSV still loads; that is fine for some offline use, but it means there is no way to verify ordering, gaps, or staleness (`Csv.hs:48-68`, `Csv.hs:156-168`).
-- OHLC relationship checks are absent (`high >= low`, `high >= open/close`, `low <= open/close`).
-- Negative-volume checks are absent.
+- Wall-clock staleness is not enforced for CSV.
 
 **Risk**
-- A malformed backtest/signal dataset can be silently accepted if values are finite but structurally wrong.
-- Time gaps can distort return, ATR, breakout, and volume features without being surfaced.
+- A CSV with no timestamp, or with timestamp gaps, can still be accepted for offline workflows.
+- Time gaps can distort return, ATR, breakout, and volume features unless the caller uses an exchange loader or adds explicit CSV continuity policy.
 
 ### 2) Binance parser integrity (`Trader.Binance`)
 
@@ -69,64 +73,63 @@ To satisfy this audit at P0, trading should be blocked whenever any live-loaded 
 - Kline parsing retains the close-time field when present.
 - `fetchKlinesRaw` and `fetchKlinesBetweenRaw` pass responses through `normalizeClosedKlines`, which sorts by open time, rejects non-finite OHLCV payloads, rejects negative volume and invalid OHLC relationships, rejects duplicate/non-increasing open times, and filters out candles whose close time is not yet in the past.
 - The live market-data helpers mark stale data when the last processed candle close is more than one interval old and detect non-contiguous follow-on candles as `MARKET_DATA_GAP`.
+- Closed Binance series now require exact interval continuity before strategy execution.
+- Post-load validation applies the same freshness and market-series checks to the `PriceSeries` passed into strategy code.
 
-**What fails / is incomplete now**
-- Historical batch loading still relies on strict monotonicity and live continuation checks rather than requiring a gap-free full series at parse time.
+**Residual caveats**
 - Duplicate open times are rejected rather than deduplicated.
 - Cache TTL (`5s` fresh, `60s` stale) is transport caching only, not feed freshness validation (`Binance.hs:326-330`).
 
 **Risk**
-- Gap-free guarantees still need to be enforced consistently at the live decision boundary and across non-Binance loaders.
+- Residual risk is mostly operational: upstream gaps now block exchange-backed strategy execution instead of being smoothed over.
 
 ### 3) Coinbase parser integrity (`Trader.Coinbase`)
 
 **What passes now**
 - Parsed candle fields reject non-finite numbers (`Coinbase.hs:356-378`, `Coinbase.hs:406-430`).
 - Timestamp values are normalized to seconds if the upstream payload is in milliseconds (`Coinbase.hs:420-424`).
-- Results are sorted and deduplicated by timestamp (`Coinbase.hs:432-443`).
+- Source open/high/low/close/volume values are parsed and preserved.
+- Closed-candle normalization sorts by timestamp, rejects duplicates/non-increasing times, rejects invalid OHLC and negative volume, discards still-open buckets, and requires exact interval continuity.
+- Post-load validation enforces last-closed-bar freshness before strategy execution.
 
-**What fails / is incomplete now**
-- No continuity / missing-bar check after normalization.
-- No explicit closed-candle check; ranges are built to `now`, so the newest bucket may still be open/incomplete depending on venue semantics (`Coinbase.hs:263-345`).
-- No basic OHLC invariants are checked.
+**Residual caveats**
 - Module-local symbol normalization is only `trim + uppercase`; delimiter sanitation is effectively delegated to args validation (`Coinbase.hs:263-299`, `Args.hs:1039-1089`).
 - Cache TTL (`30s` fresh, `300s` stale) is not feed freshness validation (`Coinbase.hs:147-151`).
 
 **Risk**
-- Better than Binance/Kraken on dedupe/order, but still unsafe for P0 live trading because freshness/completeness and gap checks are missing.
+- Symbol canonicalization still relies on the args layer for full delimiter sanitation.
 
 ### 4) Kraken parser integrity (`Trader.Kraken`)
 
 **What passes now**
 - Parsed candle fields reject non-finite numbers (`Kraken.hs:117-176`).
 - The response parser rejects explicit Kraken API errors (`Kraken.hs:88-96`).
+- Source open/high/low/close/volume values are parsed and preserved.
+- Closed-candle normalization sorts by timestamp, rejects duplicates/non-increasing times, rejects invalid OHLC and negative volume, discards still-open buckets, and requires exact interval continuity.
+- Post-load validation enforces last-closed-bar freshness before strategy execution.
 
-**What fails / is incomplete now**
-- No sort or dedupe normalization after parse (`Kraken.hs:59-76`, `Kraken.hs:113-127`).
-- No continuity / missing-bar check.
-- No explicit closed-candle filtering.
+**Residual caveats**
 - No module-local symbol canonicalization beyond caller-provided input (`Kraken.hs:59-76`).
 - Cache TTL (`30s` fresh, `300s` stale) is not feed freshness validation (`Kraken.hs:50-54`).
 
 **Risk**
-- Kraken is currently one of the weakest integrity paths in scope: finite parsing is good, but continuity/completeness/trading safety checks are missing.
+- Symbol canonicalization is still mostly caller-owned, but candle integrity is enforced before strategy execution.
 
 ### 5) Poloniex parser integrity (`Trader.Poloniex`)
 
 **What passes now**
 - Parsed candle fields reject non-finite numbers (`Poloniex.hs:139-216`).
 - Timestamps are normalized from ms→s when needed (`Poloniex.hs:206-210`).
-- Results are sorted and deduplicated by timestamp (`Poloniex.hs:235-247`).
+- Source open/high/low/close/volume values are parsed and preserved.
+- Closed-candle normalization sorts by timestamp, rejects duplicates/non-increasing times, rejects invalid OHLC and negative volume, discards still-open buckets, and requires exact interval continuity.
+- Post-load validation enforces last-closed-bar freshness before strategy execution.
 - There is at least some symbol normalization/candidate logic (`BASE_QUOTE` and reversed candidate retry) (`Poloniex.hs:65-91`, `Poloniex.hs:218-227`).
 
-**What fails / is incomplete now**
-- No continuity / missing-bar check after normalization.
-- No explicit closed-candle filtering.
-- No basic OHLC invariants are checked.
+**Residual caveats**
 - Cache TTL (`30s` fresh, `300s` stale) is not feed freshness validation (`Poloniex.hs:56-60`).
 
 **Risk**
-- Poloniex is better than Kraken/Binance on normalization, but still not P0-safe for live trading.
+- Residual risk is mostly platform-symbol drift or upstream outages that now fail closed at the series gate.
 
 ### 6) Symbol normalization across paths
 
@@ -134,7 +137,7 @@ To satisfy this audit at P0, trading should be blocked whenever any live-loaded 
 - CLI argument normalization and validation for Binance/Coinbase/Poloniex is solid (`Args.hs:1039-1089`).
 - `Trader.Symbol` can canonicalize platform-specific delimiters and salvage common Binance variants (`Symbol.hs:113-228`).
 
-**What fails / is incomplete now**
+**Residual caveats**
 - Module-local fetch functions are inconsistent:
   - Binance: uppercases symbol, but relies on caller for canonical structure.
   - Coinbase: uppercases only; does not locally coerce `/`→`-`.
@@ -153,7 +156,7 @@ To satisfy this audit at P0, trading should be blocked whenever any live-loaded 
 - Dataset generation uses `t in [lookback-1 .. n-2]`, so targets are aligned and do not read beyond `t+1` (`Features.hs:174-188`).
 - Predictor training preserves time order: calibration is taken from the tail, not shuffled into training (`Predictors.hs:91-115`).
 
-**What fails / is incomplete now**
+**Residual caveats**
 - `barAt` silently fabricates open/high/low/volume when those vectors are missing or invalid (`Features.hs:228-283`).
   - missing open → previous close
   - missing high/low → coerced around open/close
@@ -193,61 +196,62 @@ The following checklist should be applied to every series used for **live signal
 ### CSV (`Csv.hs`)
 - Symbol canonicalization: **N/A**
 - Timestamp parse/unit normalization: **PARTIAL PASS**
-- Strict monotonicity: **FAIL**
-- Missing-bar continuity: **FAIL**
-- Closed-bar completeness: **N/A / FAIL if used for live-derived execution**
-- Stale-data freshness: **FAIL** (no policy)
+- Strict monotonicity: **PASS when timestamps are present at post-load validation**
+- Missing-bar continuity: **SOFT / not enforced by default for offline CSV**
+- Closed-bar completeness: **N/A / not guaranteed for CSV**
+- Stale-data freshness: **SOFT / not enforced by default for offline CSV**
 - Finite OHLCV: **PASS** for parsed columns
-- OHLC invariants: **FAIL**
-- Volume invariants: **FAIL**
+- OHLC invariants: **PASS when OHLC columns are present**
+- Volume invariants: **PASS when volume column is present**
 
 ### Binance (`Binance.hs`)
 - Symbol canonicalization: **PARTIAL PASS** (args layer yes; module layer partial)
 - Timestamp parse/unit normalization: **PASS** at loader boundary via `normalizeEpochMs`
-- Strict monotonicity: **FAIL**
-- Missing-bar continuity: **FAIL**
-- Closed-bar completeness: **FAIL**
-- Stale-data freshness: **FAIL**
+- Strict monotonicity: **PASS**
+- Missing-bar continuity: **PASS**
+- Closed-bar completeness: **PASS**
+- Stale-data freshness: **PASS**
 - Finite OHLCV: **PASS**
-- OHLC invariants: **FAIL**
-- Volume invariants: **PARTIAL FAIL** (finite checked, non-negative not enforced)
+- OHLC invariants: **PASS**
+- Volume invariants: **PASS**
 
 ### Coinbase (`Coinbase.hs`)
 - Symbol canonicalization: **PARTIAL PASS**
 - Timestamp parse/unit normalization: **PASS**
-- Strict monotonicity: **PASS after dedupe/sort**
-- Missing-bar continuity: **FAIL**
-- Closed-bar completeness: **FAIL**
-- Stale-data freshness: **FAIL**
+- Strict monotonicity: **PASS**
+- Missing-bar continuity: **PASS**
+- Closed-bar completeness: **PASS**
+- Stale-data freshness: **PASS**
 - Finite OHLCV: **PASS** for parsed fields
-- OHLC invariants: **FAIL**
-- Volume invariants: **N/A** in current candle parser
+- OHLC invariants: **PASS**
+- Volume invariants: **PASS**
 
 ### Kraken (`Kraken.hs`)
-- Symbol canonicalization: **FAIL/PARTIAL**
+- Symbol canonicalization: **PARTIAL**
 - Timestamp parse/unit normalization: **PASS** at loader boundary
-- Strict monotonicity: **FAIL**
-- Missing-bar continuity: **FAIL**
-- Closed-bar completeness: **FAIL**
-- Stale-data freshness: **FAIL**
+- Strict monotonicity: **PASS**
+- Missing-bar continuity: **PASS**
+- Closed-bar completeness: **PASS**
+- Stale-data freshness: **PASS**
 - Finite OHLCV: **PASS** for parsed fields
-- OHLC invariants: **FAIL**
-- Volume invariants: **N/A** in current candle parser
+- OHLC invariants: **PASS**
+- Volume invariants: **PASS**
 
 ### Poloniex (`Poloniex.hs`)
 - Symbol canonicalization: **PASS/PARTIAL**
 - Timestamp parse/unit normalization: **PASS**
-- Strict monotonicity: **PASS after dedupe/sort**
-- Missing-bar continuity: **FAIL**
-- Closed-bar completeness: **FAIL**
-- Stale-data freshness: **FAIL**
+- Strict monotonicity: **PASS**
+- Missing-bar continuity: **PASS**
+- Closed-bar completeness: **PASS**
+- Stale-data freshness: **PASS**
 - Finite OHLCV: **PASS** for parsed fields
-- OHLC invariants: **FAIL**
-- Volume invariants: **N/A** in current candle parser
+- OHLC invariants: **PASS**
+- Volume invariants: **PASS**
 
 ### Features (`Predictors/Features.hs`)
 - Feature causality / no-lookahead indexing: **PASS**
-- Feature missingness handling for live safety: **FAIL**
+- Feature missingness handling for live exchange safety: **PASS through venue loaders providing source OHLCV**
+- Feature missingness handling for CSV/offline callers: **SOFT / caller-policy dependent**
 
 ---
 
@@ -282,27 +286,18 @@ The indexing logic is correct:
 
 This is a **PASS**, not the problem.
 
-### B. Real risk: incomplete/open-bar ingestion
-This is the biggest practical leakage/integrity issue in scope.
-
+### B. Previously high risk: incomplete/open-bar ingestion
 If exchange loaders include the currently forming candle, the model is not technically reading the future, but it is reading a bar that is not final and may later be revised. That creates a training/serving mismatch and can make the live system behave as if it had a “closed” bar when it does not.
 
-Affected current paths:
-- Binance: no closed-candle filtering (`Binance.hs:767-813`)
-- Coinbase: range built to `now`, no closed-candle filtering (`Coinbase.hs:263-345`)
-- Kraken: no closed-candle filtering (`Kraken.hs:59-76`)
-- Poloniex: range built to `now`, no closed-candle filtering (`Poloniex.hs:65-116`)
-- Bot loop accepts any newly seen `openTime` and processes it (`Main.hs:9639-9677`)
+Current exchange loaders now filter still-open candles before strategy input, and post-load freshness uses the last closed candle close time. The remaining caveat is CSV/offline input, where closed-bar status is not knowable unless the dataset carries enough timestamp policy for the caller to enforce it.
 
 ### C. Silent synthetic OHLCV fallback in feature construction
 `barAt` and `klineFeatures` make invalid/missing inputs look valid enough for downstream models (`Features.hs:228-283`, `Features.hs:327-431`).
 
 That is acceptable for some offline robustness work, but not as a hidden default in a live trading path. In trading mode, malformed upstream bars should be surfaced and blocked before features are built.
 
-### D. Row-count-only trade gate
-Current signal/trade entry paths check only minimum rows and lookback sufficiency before proceeding (`Main.hs:17136-17142`, `Main.hs:17433-17441`).
-
-That is insufficient for P0 because it allows structurally bad data to reach the strategy.
+### D. Post-load trade gate
+Exchange-backed signal/trade entry paths now validate the loaded `PriceSeries` before strategy execution, so row-count/lookback checks are no longer the only barrier for malformed venue data. CSV/offline input keeps structural validation but does not add live freshness semantics.
 
 ---
 
@@ -329,19 +324,19 @@ This is stricter than the original audit's `2 x interval` recommendation and is 
 
 ## Recommended P0 implementation shape (without changing strategy logic)
 
-Add a single **validated market-series gate** after each loader and before signal/trade execution:
+The implemented shape is a single **validated market-series gate** after each exchange loader and before signal/trade execution:
 1. canonicalize symbol
 2. normalize timestamps to ms
-3. sort + dedupe (or reject duplicates)
+3. sort and reject duplicates/non-increasing timestamps
 4. require strict monotonicity
 5. require exact interval continuity for kept bars
 6. drop current/open candle; require at least one closed latest candle
 7. enforce stale threshold on last closed bar
 8. enforce finite OHLCV and OHLC invariants
-9. reject synthetic OHLCV fallback in live trading mode
+9. preserve source OHLCV in live exchange paths
 10. only then call `computeTradeOnlySignal` / `computeTradeFromSeries`
 
-Also apply the same gate in the bot polling path before `botApplyKline`.
+The bot polling path continues to apply stale/gap checks before processing new market data. CSV input keeps the structural subset of the gate without continuity/freshness enforcement by default.
 
 ---
 
@@ -353,7 +348,7 @@ Also apply the same gate in the bot polling path before `botApplyKline`.
 - Hard-fail vs soft-fail recommendations: **DONE**
 - Leakage risks: **DONE**
 - Stale-data threshold assumptions: **DONE**
-- “Malformed or stale data blocks trading where appropriate”: **PARTIALLY SATISFIED FOR BINANCE LIVE PATHS** after the close-time, closed-candle, shape, strict-open-time, stale, and gap checks above; still needs one consistently enforced post-load/pre-trade QA gate across all loaders to satisfy this audit repo-wide.
+- “Malformed or stale data blocks trading where appropriate”: **DONE FOR LIVE EXCHANGE PRICE-LOADING PATHS** after the shared post-load/pre-strategy QA gate; **SOFT FOR CSV/OFFLINE INPUT** by design.
 
 ### P0 disposition
-**Fail until a post-load/pre-trade data-QA gate exists and is enforced on live paths.**
+**Pass for live exchange price-loading and trade-boundary safety. CSV/offline input remains intentionally softer and should not be used as a live exchange freshness guarantee.**

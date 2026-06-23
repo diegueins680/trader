@@ -30,13 +30,16 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
+import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries, validateMarketSeriesBars, validateMarketSeriesContinuity)
 import Trader.Text (dedupeStable, trim)
 
 data PoloniexCandle = PoloniexCandle
     { pcOpenTime :: !Int64
+    , pcOpen :: !Double
     , pcHigh :: !Double
     , pcLow :: !Double
     , pcClose :: !Double
+    , pcVolume :: !Double
     }
     deriving (Eq, Show)
 
@@ -82,7 +85,10 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
     go manager startMs endMs (sym : rest) = do
         res <- fetchSymbol manager startMs endMs sym
         case res of
-            Right xs -> pure (normalizePoloniexCandles bars xs)
+            Right xs ->
+                case normalizeClosedPoloniexCandles bars (max 1 periodSec) endMs xs of
+                    Left err -> throwIO (userError err)
+                    Right ok -> pure ok
             Left code ->
                 let err = userError ("Poloniex chart request failed for " ++ sym ++ " (HTTP " ++ show code ++ ")")
                     retryable = code `elem` [400, 404, 422]
@@ -146,10 +152,13 @@ parseCandle v =
             v' <- maybe (fail "Poloniex candle missing timestamp") pure (tVal <|> startVal <|> dateVal)
             tRaw <- parseInt64Value v'
             let t = normalizeTimestamp tRaw
+            open <- parseDoubleValue =<< o .: "open"
             high <- parseDoubleValue =<< o .: "high"
             low <- parseDoubleValue =<< o .: "low"
             close <- parseDoubleValue =<< o .: "close"
-            pure PoloniexCandle{pcOpenTime = t, pcHigh = high, pcLow = low, pcClose = close}
+            volumeVal <- maybe (fail "Poloniex candle missing volume") pure =<< ((o .:? "quantity") <|> (o .:? "amount") <|> (o .:? "volume"))
+            volume <- parseDoubleValue volumeVal
+            pure PoloniexCandle{pcOpenTime = t, pcOpen = open, pcHigh = high, pcLow = low, pcClose = close, pcVolume = volume}
         Array arr -> parseCandleArray arr
         _ -> fail "Poloniex candle expected object or array."
 
@@ -157,14 +166,16 @@ parseCandleArray :: V.Vector Value -> AT.Parser PoloniexCandle
 parseCandleArray arr = do
     low <- parseDoubleValue =<< parseArrayIndex 0 arr
     high <- parseDoubleValue =<< parseArrayIndex 1 arr
+    open <- parseDoubleValue =<< parseArrayIndex 2 arr
     close <- parseDoubleValue =<< parseArrayIndex 3 arr
+    volume <- parseDoubleValue =<< parseArrayIndex 4 arr
     v <-
         case arr V.!? 9 <|> arr V.!? 12 <|> arr V.!? 13 of
             Just t -> pure t
             Nothing -> fail "Poloniex candle missing timestamp"
     tRaw <- parseInt64Value v
     let t = normalizeTimestamp tRaw
-    pure PoloniexCandle{pcOpenTime = t, pcHigh = high, pcLow = low, pcClose = close}
+    pure PoloniexCandle{pcOpenTime = t, pcOpen = open, pcHigh = high, pcLow = low, pcClose = close, pcVolume = volume}
 
 parseArrayIndex :: Int -> V.Vector Value -> AT.Parser Value
 parseArrayIndex i arr =
@@ -237,6 +248,35 @@ normalizePoloniexCandles bars candles =
     takeLast bars' (dedupByTime (sortOn pcOpenTime candles))
   where
     bars' = max 1 bars
+
+normalizeClosedPoloniexCandles :: Int -> Int -> Int64 -> [PoloniexCandle] -> Either String [PoloniexCandle]
+normalizeClosedPoloniexCandles bars periodSec nowMs candles = do
+    let intervalMs = fromIntegral (max 1 periodSec) * 1000
+    closed <- normalizeClosedMarketSeries "Poloniex candle" intervalMs nowMs (poloniexCandlePairs candles)
+    pure (takeLast (max 1 bars) (map snd closed))
+
+normalizeHistoricalPoloniexCandles :: Int -> Int -> [PoloniexCandle] -> Either String [PoloniexCandle]
+normalizeHistoricalPoloniexCandles bars periodSec candles = do
+    let intervalMs = fromIntegral (max 1 periodSec) * 1000
+        sorted = sortOn (msbOpenTimeMs . fst) (poloniexCandlePairs candles)
+    validateMarketSeriesBars "Poloniex candle" (map fst sorted)
+    validateMarketSeriesContinuity "Poloniex candle" intervalMs (map fst sorted)
+    pure (takeLast (max 1 bars) (map snd sorted))
+
+poloniexCandlePairs :: [PoloniexCandle] -> [(MarketSeriesBar, PoloniexCandle)]
+poloniexCandlePairs candles =
+    [ ( MarketSeriesBar
+            { msbOpenTimeMs = pcOpenTime candle * 1000
+            , msbOpen = Just (pcOpen candle)
+            , msbHigh = Just (pcHigh candle)
+            , msbLow = Just (pcLow candle)
+            , msbClose = pcClose candle
+            , msbVolume = Just (pcVolume candle)
+            }
+      , candle
+      )
+    | candle <- candles
+    ]
 
 dedupByTime :: [PoloniexCandle] -> [PoloniexCandle]
 dedupByTime = go Set.empty
