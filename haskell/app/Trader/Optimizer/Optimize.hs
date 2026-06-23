@@ -14,6 +14,7 @@ module Trader.Optimizer.Optimize (
     closeTimingReportFromBacktest,
     applyQualityPreset,
     defaultOptimizerEdgeScoreConfig,
+    dedupeFirstByKey,
     emptyOptimizerRecordsSummary,
     emptyTechniqueSummary,
     kellyLiteExposureContractReason,
@@ -6708,7 +6709,7 @@ runOptimizer args0 = do
                                                                             sortOn
                                                                                 (Data.Ord.Down . fromMaybe (-1e18) . trScore)
                                                                                 (filter (isJust . trScore) seedResults)
-                                                                        survivorsRaw = take survivorCount (filter trSearchEligible scored ++ scored)
+                                                                        survivorsRaw = take survivorCount (dedupeFirstByKey trParams (filter trSearchEligible scored ++ scored))
                                                                         techniqueSummarySeed =
                                                                             techniqueSummaryBase
                                                                                 { otsAppliedSeedDiversification = seedTrials > 0
@@ -7428,6 +7429,16 @@ pickValue :: a -> a -> Rng -> (a, Rng)
 pickValue a b rng =
     let (r, rng1) = nextDouble rng
      in (if r < 0.5 then a else b, rng1)
+
+dedupeFirstByKey :: (Eq key) => (a -> key) -> [a] -> [a]
+dedupeFirstByKey keyOf =
+    map snd . reverse . foldl' keep []
+  where
+    keep picked item =
+        let key = keyOf item
+         in if any ((== key) . fst) picked
+                then picked
+                else (key, item) : picked
 
 rankBiasedIndex :: Int -> Double -> Rng -> (Int, Rng)
 rankBiasedIndex n bias rng0

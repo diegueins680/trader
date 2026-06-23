@@ -502,6 +502,7 @@ import Trader.TopCombosStore (
 import Trader.TradeMethodGate (
     MethodGateConfig (..),
     MethodGateDecision (..),
+    conservativeUnavailableEvidenceSize,
     loadMethodResultStats,
     methodGateDecision,
  )
@@ -4825,12 +4826,13 @@ data OpsOrderOriginRow = OpsOrderOriginRow
     , oorServerRole :: !(Maybe Text)
     , oorServerProvider :: !(Maybe Text)
     , oorParams :: !(Maybe Aeson.Value)
+    , oorArgs :: !(Maybe Aeson.Value)
     , oorResult :: !(Maybe Aeson.Value)
     }
     deriving (Eq, Show)
 
 instance FromRow OpsOrderOriginRow where
-    fromRow = OpsOrderOriginRow <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+    fromRow = OpsOrderOriginRow <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
 
 trimmedTextOrNothing :: Text -> Maybe Text
 trimmedTextOrNothing raw =
@@ -4902,6 +4904,27 @@ extractServerFieldFromOp fieldName mVal =
                     , jsonLookupPathText [AK.fromString "server", key] v
                     ]
 
+jsonLookupAnyPathText :: [[AK.Key]] -> Maybe Aeson.Value -> Maybe Text
+jsonLookupAnyPathText paths mVal =
+    case mVal of
+        Nothing -> Nothing
+        Just v -> firstJust [jsonLookupPathText path v | path <- paths]
+
+signalTextFromRow :: Text -> OpsOrderOriginRow -> Maybe Text
+signalTextFromRow fieldName row =
+    let key = AK.fromString (T.unpack fieldName)
+        paths =
+            [ [key]
+            , [AK.fromString "signal", key]
+            , [AK.fromString "trade", AK.fromString "signal", key]
+            , [AK.fromString "event", AK.fromString "signal", key]
+            ]
+     in firstJust
+            [ jsonLookupAnyPathText paths (oorResult row)
+            , jsonLookupAnyPathText paths (oorParams row)
+            , jsonLookupAnyPathText paths (oorArgs row)
+            ]
+
 extractOrderIdFromOp :: OpsOrderOriginRow -> Maybe Text
 extractOrderIdFromOp row =
     let fromJson mVal =
@@ -4912,8 +4935,10 @@ extractOrderIdFromOp row =
                         [ jsonLookupPathText [AK.fromString "orderId"] v
                         , jsonLookupPathText [AK.fromString "order", AK.fromString "orderId"] v
                         , jsonLookupPathText [AK.fromString "event", AK.fromString "order", AK.fromString "orderId"] v
+                        , jsonLookupPathText [AK.fromString "trade", AK.fromString "order", AK.fromString "orderId"] v
+                        , jsonLookupPathText [AK.fromString "result", AK.fromString "order", AK.fromString "orderId"] v
                         ]
-     in normalizeMaybeText (oorOrderId row) <|> fromJson (oorResult row) <|> fromJson (oorParams row)
+     in normalizeMaybeText (oorOrderId row) <|> fromJson (oorResult row) <|> fromJson (oorParams row) <|> fromJson (oorArgs row)
 
 originIpFromRow :: OpsOrderOriginRow -> Maybe Text
 originIpFromRow row = extractOriginIpFromOp (oorResult row) <|> extractOriginIpFromOp (oorParams row)
@@ -4967,8 +4992,90 @@ data OrderAttribution = OrderAttribution
     { oaOriginIp :: !(Maybe Text)
     , oaExecutorIp :: !(Maybe Text)
     , oaOriginInstance :: !(Maybe Text)
+    , oaEntryIp :: !(Maybe Text)
+    , oaEntryInstance :: !(Maybe Text)
+    , oaEntryTime :: !(Maybe Int64)
+    , oaMethod :: !(Maybe Text)
+    , oaStrategy :: !(Maybe Text)
+    , oaDecisionSummary :: !(Maybe Text)
+    , oaDecisionReason :: !(Maybe Text)
     }
     deriving (Eq, Show)
+
+orderMethodFromRow :: OpsOrderOriginRow -> Maybe Text
+orderMethodFromRow = signalTextFromRow "method"
+
+orderStrategyFromRow :: OpsOrderOriginRow -> Maybe Text
+orderStrategyFromRow row =
+    firstJust
+        [ signalTextFromRow "strategy" row
+        , do
+            method <- orderMethodFromRow row
+            interval <- signalTextFromRow "interval" row
+            pure (method <> " / " <> interval)
+        , orderMethodFromRow row
+        ]
+
+openTradeTextFromRow :: Text -> OpsOrderOriginRow -> Maybe Text
+openTradeTextFromRow fieldName row =
+    let key = AK.fromString (T.unpack fieldName)
+        paths =
+            [ [AK.fromString "openTrade", key]
+            , [AK.fromString "resultingOpenTrade", key]
+            , [AK.fromString "trade", AK.fromString "openTrade", key]
+            , [AK.fromString "event", AK.fromString "openTrade", key]
+            ]
+     in firstJust
+            [ jsonLookupAnyPathText paths (oorResult row)
+            , jsonLookupAnyPathText paths (oorParams row)
+            ]
+
+openTradeInt64FromRow :: Text -> OpsOrderOriginRow -> Maybe Int64
+openTradeInt64FromRow fieldName row = do
+    raw <- openTradeTextFromRow fieldName row
+    case reads (T.unpack raw) of
+        [(n, "")] -> Just n
+        _ -> Nothing
+
+entryInstanceFromRow :: OpsOrderOriginRow -> Maybe Text
+entryInstanceFromRow row =
+    firstJust
+        [ openTradeTextFromRow "entryInstance" row
+        , instanceLabelFromServerFields
+            (openTradeTextFromRow "entryServerProvider" row)
+            (openTradeTextFromRow "entryServerRole" row)
+            (openTradeTextFromRow "entryServerId" row)
+        ]
+
+orderDecisionReasonFromRow :: OpsOrderOriginRow -> Maybe Text
+orderDecisionReasonFromRow row =
+    firstJust
+        [ signalTextFromRow "reason" row
+        , jsonLookupAnyPathText [[AK.fromString "decisionTrace", AK.fromString "reason"]] (oorResult row)
+        , signalTextFromRow "action" row
+        ]
+
+orderDecisionSummaryFromRow :: OpsOrderOriginRow -> Maybe Text
+orderDecisionSummaryFromRow row =
+    firstJust
+        [ jsonLookupAnyPathText [[AK.fromString "decisionTrace", AK.fromString "summary"]] (oorResult row)
+        , do
+            action <- signalTextFromRow "action" row
+            let chosen = signalTextFromRow "chosenDirection" row
+                close = signalTextFromRow "closeDirection" row
+                openThreshold = signalTextFromRow "openThreshold" row <|> signalTextFromRow "threshold" row
+                closeThreshold = signalTextFromRow "closeThreshold" row
+                confidence = signalTextFromRow "confidence" row
+                parts =
+                    [ Just ("action " <> action)
+                    , ("chosen " <>) <$> chosen
+                    , ("close " <>) <$> close
+                    , ("open " <>) <$> openThreshold
+                    , ("closeThreshold " <>) <$> closeThreshold
+                    , ("confidence " <>) <$> confidence
+                    ]
+            pure (T.intercalate "; " (catMaybes parts))
+        ]
 
 orderAttributionFromRow :: OpsOrderOriginRow -> OrderAttribution
 orderAttributionFromRow row =
@@ -4976,6 +5083,13 @@ orderAttributionFromRow row =
         { oaOriginIp = originIpFromRow row
         , oaExecutorIp = executorIpFromRow row
         , oaOriginInstance = instanceLabelFromRow row
+        , oaEntryIp = openTradeTextFromRow "entryExecutorIp" row
+        , oaEntryInstance = entryInstanceFromRow row
+        , oaEntryTime = openTradeInt64FromRow "entryTime" row
+        , oaMethod = orderMethodFromRow row
+        , oaStrategy = orderStrategyFromRow row
+        , oaDecisionSummary = orderDecisionSummaryFromRow row
+        , oaDecisionReason = orderDecisionReasonFromRow row
         }
 
 rowScore :: TenantKey -> OpsOrderOriginRow -> OrderAttribution -> (Int, Int, Int, Int64)
@@ -4985,7 +5099,16 @@ rowScore tenantKey row attr =
                 Just t | t == tenantKey -> 1
                 _ -> 0
         attributionRank =
-            if isJust (oaExecutorIp attr) || isJust (oaOriginIp attr) || isJust (oaOriginInstance attr)
+            if isJust (oaExecutorIp attr)
+                || isJust (oaOriginIp attr)
+                || isJust (oaOriginInstance attr)
+                || isJust (oaEntryIp attr)
+                || isJust (oaEntryInstance attr)
+                || isJust (oaEntryTime attr)
+                || isJust (oaMethod attr)
+                || isJust (oaStrategy attr)
+                || isJust (oaDecisionSummary attr)
+                || isJust (oaDecisionReason attr)
                 then 1
                 else 0
         kindRank =
@@ -5008,7 +5131,7 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                 withOpsConnection store $ \conn ->
                     query
                         conn
-                        ( "SELECT id, tenant_key, kind, order_id, server_id, server_role, server_provider, params_json, result_json "
+                        ( "SELECT id, tenant_key, kind, order_id, server_id, server_role, server_provider, params_json, args_json, result_json "
                             <> "FROM ops "
                             <> "WHERE kind IN ('trade.order', 'bot.order') "
                             <> "AND (tenant_key = ? OR tenant_key IS NULL OR tenant_key = '') "
@@ -5019,11 +5142,17 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                             <> "OR result_json #>> '{event,order,orderId}' = ANY (?) "
                             <> "OR params_json ->> 'orderId' = ANY (?) "
                             <> "OR params_json #>> '{order,orderId}' = ANY (?) "
-                            <> "OR params_json #>> '{event,order,orderId}' = ANY (?)"
+                            <> "OR params_json #>> '{event,order,orderId}' = ANY (?) "
+                            <> "OR args_json ->> 'orderId' = ANY (?) "
+                            <> "OR args_json #>> '{order,orderId}' = ANY (?) "
+                            <> "OR args_json #>> '{event,order,orderId}' = ANY (?)"
                             <> ") "
                             <> "ORDER BY id DESC"
                         )
                         ( tenantKey
+                        , PGArray orderIds
+                        , PGArray orderIds
+                        , PGArray orderIds
                         , PGArray orderIds
                         , PGArray orderIds
                         , PGArray orderIds
@@ -5057,7 +5186,16 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                     HM.fromList
                         [ (oid, attr)
                         | (oid, (_score, attr)) <- HM.toList attributionMapScored
-                        , isJust (oaExecutorIp attr) || isJust (oaOriginIp attr) || isJust (oaOriginInstance attr)
+                        , isJust (oaExecutorIp attr)
+                            || isJust (oaOriginIp attr)
+                            || isJust (oaOriginInstance attr)
+                            || isJust (oaEntryIp attr)
+                            || isJust (oaEntryInstance attr)
+                            || isJust (oaEntryTime attr)
+                            || isJust (oaMethod attr)
+                            || isJust (oaStrategy attr)
+                            || isJust (oaDecisionSummary attr)
+                            || isJust (oaDecisionReason attr)
                         ]
                 attachAttribution trade =
                     case btOrderId trade of
@@ -5070,6 +5208,13 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                                         { btOriginIp = btOriginIp trade <|> oaOriginIp attr
                                         , btExecutorIp = btExecutorIp trade <|> oaExecutorIp attr
                                         , btOriginInstance = btOriginInstance trade <|> oaOriginInstance attr
+                                        , btEntryIp = btEntryIp trade <|> oaEntryIp attr
+                                        , btEntryInstance = btEntryInstance trade <|> oaEntryInstance attr
+                                        , btEntryTime = btEntryTime trade <|> oaEntryTime attr
+                                        , btMethod = btMethod trade <|> oaMethod attr
+                                        , btStrategy = btStrategy trade <|> oaStrategy attr
+                                        , btDecisionSummary = btDecisionSummary trade <|> oaDecisionSummary attr
+                                        , btDecisionReason = btDecisionReason trade <|> oaDecisionReason attr
                                         }
             pure (map attachAttribution trades)
 
@@ -5283,6 +5428,11 @@ botOpenTradeJson trade =
         [ "entryIndex" .= botOpenEntryIndex trade
         , "entryEquity" .= botOpenEntryEquity trade
         , "entryIp" .= botOpenEntryIp trade
+        , "entryExecutorIp" .= botOpenEntryExecutorIp trade
+        , "entryServerId" .= botOpenEntryServerId trade
+        , "entryServerRole" .= botOpenEntryServerRole trade
+        , "entryServerProvider" .= botOpenEntryServerProvider trade
+        , "entryInstance" .= instanceLabelFromServerFields (botOpenEntryServerProvider trade) (botOpenEntryServerRole trade) (botOpenEntryServerId trade)
         , "comboUuid" .= botOpenComboUuid trade
         , "entryHighVolProb" .= botOpenEntryHighVolProb trade
         , "holdingPeriods" .= botOpenHoldingPeriods trade
@@ -5555,6 +5705,9 @@ data PositionOrigin = PositionOrigin
     , poriComboUuid :: !(Maybe UUID.UUID)
     , poriOpenedAtMs :: !(Maybe Int64)
     , poriOrderId :: !(Maybe Text)
+    , poriOpenedServerId :: !(Maybe Text)
+    , poriOpenedServerRole :: !(Maybe Text)
+    , poriOpenedServerProvider :: !(Maybe Text)
     }
     deriving (Eq, Show)
 
@@ -5562,6 +5715,9 @@ instance FromRow PositionOrigin where
     fromRow =
         PositionOrigin
             <$> field
+            <*> field
+            <*> field
+            <*> field
             <*> field
             <*> field
             <*> field
@@ -5586,7 +5742,7 @@ readPositionOrigin store tenantKey args sym = do
                 rows <-
                     query
                         conn
-                        "SELECT side, combo_uuid, opened_at_ms, order_id FROM position_origins WHERE tenant_key = ? AND platform_id = ? AND symbol = ? AND market = ?"
+                        "SELECT side, combo_uuid, opened_at_ms, order_id, opened_server_id, opened_server_role, opened_server_provider FROM position_origins WHERE tenant_key = ? AND platform_id = ? AND symbol = ? AND market = ?"
                         (tenantKey, platformId, symbolText, marketText) ::
                         IO [PositionOrigin]
                 pure (listToMaybe rows)
@@ -5629,6 +5785,10 @@ persistPositionOriginMaybe mOps tenantKey args sym posSign mComboUuid mOrderId a
                 mSide = positionOriginSideFromSign posSign
                 mComboUuid' = mComboUuid >>= uuidFromText
                 mOrderId' = normalizeMaybeText mOrderId
+                serverIdentity = osServerIdentity store
+                mServerId = normalizeMaybeText (siServerId serverIdentity)
+                mServerRole = normalizeMaybeText (siServerRole serverIdentity)
+                mServerProvider = normalizeMaybeText (siServerProvider serverIdentity)
             withOpsConnection store $ \conn -> do
                 mPlatformId <- resolvePlatformId store conn platformCodeText
                 case mPlatformId of
@@ -5645,16 +5805,19 @@ persistPositionOriginMaybe mOps tenantKey args sym posSign mComboUuid mOrderId a
                                 void $
                                     execute
                                         conn
-                                        ( "INSERT INTO position_origins (tenant_key, platform_id, symbol, market, side, combo_uuid, opened_at_ms, order_id, updated_at_ms) "
-                                            <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                                        ( "INSERT INTO position_origins (tenant_key, platform_id, symbol, market, side, combo_uuid, opened_at_ms, order_id, opened_server_id, opened_server_role, opened_server_provider, updated_at_ms) "
+                                            <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                                             <> "ON CONFLICT (tenant_key, platform_id, symbol, market) DO UPDATE "
                                             <> "SET side = EXCLUDED.side, "
                                             <> "combo_uuid = EXCLUDED.combo_uuid, "
                                             <> "opened_at_ms = EXCLUDED.opened_at_ms, "
                                             <> "order_id = EXCLUDED.order_id, "
+                                            <> "opened_server_id = EXCLUDED.opened_server_id, "
+                                            <> "opened_server_role = EXCLUDED.opened_server_role, "
+                                            <> "opened_server_provider = EXCLUDED.opened_server_provider, "
                                             <> "updated_at_ms = EXCLUDED.updated_at_ms"
                                         )
-                                        (tenantKey, platformId, symbolText, marketText, side, mComboUuid', atMs, mOrderId', atMs)
+                                        (tenantKey, platformId, symbolText, marketText, side, mComboUuid', atMs, mOrderId', mServerId, mServerRole, mServerProvider, atMs)
 
 -- Live bot (stateful; continuous loop)
 
@@ -5818,6 +5981,10 @@ data BotOpenTrade = BotOpenTrade
     { botOpenEntryIndex :: !Int
     , botOpenEntryEquity :: !Double
     , botOpenEntryIp :: !(Maybe Text)
+    , botOpenEntryExecutorIp :: !(Maybe Text)
+    , botOpenEntryServerId :: !(Maybe Text)
+    , botOpenEntryServerRole :: !(Maybe Text)
+    , botOpenEntryServerProvider :: !(Maybe Text)
     , botOpenComboUuid :: !(Maybe Text)
     , botOpenEntryHighVolProb :: !(Maybe Double)
     , botOpenHoldingPeriods :: !Int
@@ -6603,6 +6770,28 @@ entryOnlyGateReason reason =
         || reason == "TRADE_SYMBOL_NOT_ALLOWED"
         || capitalPreservationIsEntryOnlyReason reason
 
+tradeMethodEvidenceUnavailableReason :: String
+tradeMethodEvidenceUnavailableReason = "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
+
+tradeDeploymentGateBlocksOrder :: String -> Bool
+tradeDeploymentGateBlocksOrder reason =
+    reason /= tradeMethodEvidenceUnavailableReason
+
+applyTradeDeploymentSizingPolicy :: String -> LatestSignal -> LatestSignal
+applyTradeDeploymentSizingPolicy reason sig
+    | reason == tradeMethodEvidenceUnavailableReason =
+        sig
+            { lsPositionSize = Just (conservativeUnavailableEvidenceSize (lsPositionSize sig))
+            , lsAuditWarnings = appendUnique (lsAuditWarnings sig) warning
+            }
+    | otherwise = sig
+  where
+    warning = "TRADE_METHOD_EVIDENCE_UNAVAILABLE: conservative order size"
+    appendUnique xs x =
+        if x `elem` xs
+            then xs
+            else xs ++ [x]
+
 tradeDeploymentGateReasonIO :: Args -> String -> LatestSignal -> IO (Maybe String)
 tradeDeploymentGateReasonIO args sym sig
     | argDryRun args = pure Nothing
@@ -6621,16 +6810,16 @@ tradeMethodGateReasonIO :: Args -> LatestSignal -> IO (Maybe String)
 tradeMethodGateReasonIO args sig
     | argTradeAutoMethods args =
         case argTradeLog args of
-            Nothing -> pure (Just "TRADE_METHOD_EVIDENCE_UNAVAILABLE")
+            Nothing -> pure (Just tradeMethodEvidenceUnavailableReason)
             Just path -> do
                 loaded <- loadMethodResultStats path
                 pure $
                     case loaded of
-                        Left _ -> Just "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
+                        Left _ -> Just tradeMethodEvidenceUnavailableReason
                         Right stats ->
                             case methodGateDecision cfg (lsMethod sig) stats of
                                 MethodGateAllowed _ -> Nothing
-                                MethodGateUnavailable _ -> Just "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
+                                MethodGateUnavailable _ -> Just tradeMethodEvidenceUnavailableReason
                                 MethodGateInsufficientEvidence _ -> Just "TRADE_METHOD_INSUFFICIENT_EVIDENCE"
                                 MethodGateBlocked _ -> Just "TRADE_METHOD_RESULT_BLOCKED"
     | methodAllowed = pure Nothing
@@ -10047,7 +10236,16 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
             else pure Nothing
 
     let
-        startupGateReasonMaybe = startupTradeGateReasonMaybe <|> startupPortfolioReasonMaybe
+        startupTradeHardGateReasonMaybe =
+            startupTradeGateReasonMaybe >>= \reason ->
+                if tradeDeploymentGateBlocksOrder reason
+                    then Just reason
+                    else Nothing
+        latestStart =
+            case startupTradeGateReasonMaybe of
+                Just reason -> applyTradeDeploymentSizingPolicy reason latestStartRaw
+                Nothing -> latestStartRaw
+        startupGateReasonMaybe = startupTradeHardGateReasonMaybe <|> startupPortfolioReasonMaybe
         (desiredPosSignal, startupGateAction) =
             case startupGateReasonMaybe of
                 Just reason ->
@@ -10062,18 +10260,18 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
 
         latest =
             case startupGateAction of
-                Just action -> latestStartRaw{lsAction = action}
+                Just action -> latestStart{lsAction = action}
                 Nothing ->
                     case (startPos0, desiredPosSignal) of
                         (1, 0) ->
-                            if lsChosenDir latestStartRaw /= Just (-1)
-                                then latestStartRaw{lsChosenDir = Just (-1), lsAction = "FLAT (close)"}
-                                else latestStartRaw
+                            if lsChosenDir latestStart /= Just (-1)
+                                then latestStart{lsChosenDir = Just (-1), lsAction = "FLAT (close)"}
+                                else latestStart
                         (-1, 0) ->
-                            if lsChosenDir latestStartRaw /= Just 1
-                                then latestStartRaw{lsChosenDir = Just 1, lsAction = "FLAT (close)"}
-                                else latestStartRaw
-                        _ -> latestStartRaw
+                            if lsChosenDir latestStart /= Just 1
+                                then latestStart{lsChosenDir = Just 1, lsAction = "FLAT (close)"}
+                                else latestStart
+                        _ -> latestStart
 
         baseEq = 1.0
         eq0 = V.replicate n baseEq
@@ -10088,6 +10286,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         latestOrder =
             latest{lsChosenDir = orderDirectionForTransition startPos0 desiredPosSignal}
         entrySize = entryScaleForSignal args (beMarket env) latest
+        entryExecutorIp = mOps >>= osServerEgressIp
+        entryServerId = mOps >>= siServerId . osServerIdentity
+        entryServerRole = mOps >>= siServerRole . osServerIdentity
+        entryServerProvider = mOps >>= siServerProvider . osServerIdentity
 
     mStartSize <-
         if tradeEnabled && startPos0 /= 0
@@ -10185,6 +10387,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                     { botOpenEntryIndex = n - 1
                                     , botOpenEntryEquity = eq1 V.! (n - 1)
                                     , botOpenEntryIp = originIp
+                                    , botOpenEntryExecutorIp = entryExecutorIp
+                                    , botOpenEntryServerId = entryServerId
+                                    , botOpenEntryServerRole = entryServerRole
+                                    , botOpenEntryServerProvider = entryServerProvider
                                     , botOpenComboUuid = mComboUuid
                                     , botOpenEntryHighVolProb = entryHv
                                     , botOpenHoldingPeriods = 0
@@ -10207,6 +10413,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                     { botOpenEntryIndex = n - 1
                                     , botOpenEntryEquity = eq1 V.! (n - 1)
                                     , botOpenEntryIp = originIp
+                                    , botOpenEntryExecutorIp = entryExecutorIp
+                                    , botOpenEntryServerId = entryServerId
+                                    , botOpenEntryServerRole = entryServerRole
+                                    , botOpenEntryServerProvider = entryServerProvider
                                     , botOpenComboUuid = mComboUuid
                                     , botOpenEntryHighVolProb = entryHv
                                     , botOpenHoldingPeriods = 0
@@ -12841,8 +13051,8 @@ market. Runs only for live Binance futures bots on a freshly closed bar (so
 historical catch-up replays don't apply today's exchange state to old bars);
 any API failure keeps local state untouched.
 -}
-reconcileBotPositionWithExchange :: Maybe Journal -> Int64 -> BotState -> Kline -> IO BotState
-reconcileBotPositionWithExchange mJournal now st k = do
+reconcileBotPositionWithExchange :: Maybe OpsStore -> Maybe Journal -> Int64 -> BotState -> Kline -> IO BotState
+reconcileBotPositionWithExchange mOps mJournal now st k = do
     let args = botArgs st
         settings = botSettings st
         sym = botSymbol st
@@ -12929,6 +13139,10 @@ reconcileBotPositionWithExchange mJournal now st k = do
                                                         { botOpenEntryIndex = n - 1
                                                         , botOpenEntryEquity = lastEq
                                                         , botOpenEntryIp = botTradeOriginIp stAfterClose
+                                                        , botOpenEntryExecutorIp = mOps >>= osServerEgressIp
+                                                        , botOpenEntryServerId = mOps >>= siServerId . osServerIdentity
+                                                        , botOpenEntryServerRole = mOps >>= siServerRole . osServerIdentity
+                                                        , botOpenEntryServerProvider = mOps >>= siServerProvider . osServerIdentity
                                                         , botOpenComboUuid = botComboUuid stAfterClose
                                                         , botOpenEntryHighVolProb = Nothing
                                                         , botOpenHoldingPeriods = 0
@@ -12973,7 +13187,7 @@ botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
 botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
     now <- getTimestampMs
-    st <- reconcileBotPositionWithExchange mJournal now st0 k
+    st <- reconcileBotPositionWithExchange mOps mJournal now st0 k
     -- Realized fills recalibrate the slippage assumption for this bar, so the
     -- entry fee-buffer gates and per-order cost accounting price trades at
     -- what execution actually costs instead of the static --slippage guess.
@@ -13592,6 +13806,15 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             else pure Nothing
 
     let
+        tradeGateHardReasonMaybe =
+            tradeGateReasonMaybe >>= \reason ->
+                if tradeDeploymentGateBlocksOrder reason
+                    then Just reason
+                    else Nothing
+        latest2TradeSized =
+            case tradeGateReasonMaybe of
+                Just reason -> applyTradeDeploymentSizingPolicy reason latest2
+                Nothing -> latest2
         entryBlockReason
             | entryAttemptFromFlat && countBlocked = Just "MAX_OPEN_POSITIONS"
             | entryAttemptFromFlat && baseCountBlocked = Just "MAX_OPEN_PER_BASE"
@@ -13601,7 +13824,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
             | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
             | entryAttempt =
-                tradeGateReasonMaybe
+                tradeGateHardReasonMaybe
                     <|> portfolioCapitalPreservationReasonMaybe
                     <|> capitalPreservationReasonMaybe
                     <|> perfGateReasonMaybe
@@ -13622,7 +13845,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                 if isEntryOnlyGate && flipAttempt
                                     then (latest2{lsAction = action}, 0, Just reason)
                                     else (latest2{lsAction = action}, prevPos, Nothing)
-                Nothing -> (latest2, desiredPosWanted2, mExitReason2)
+                Nothing -> (latest2TradeSized, desiredPosWanted2, mExitReason2)
 
         (latest2c, desiredPosWanted2c, mExitReason2c)
             | comboFreshForLive = (latest2b, desiredPosWanted2b, mExitReason2b)
@@ -13679,11 +13902,19 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     let feeFrac = costPerSideTotal args size volPerBar
                      in eq * (1 - feeFrac)
                 else eq
+        entryServerId = mOps >>= siServerId . osServerIdentity
+        entryServerRole = mOps >>= siServerRole . osServerIdentity
+        entryServerProvider = mOps >>= siServerProvider . osServerIdentity
+        entryExecutorIp = mOps >>= osServerEgressIp
         openTradeFor side pxEntry eqEntry size =
             BotOpenTrade
                 { botOpenEntryIndex = nPrev
                 , botOpenEntryEquity = eqEntry
                 , botOpenEntryIp = botTradeOriginIp st
+                , botOpenEntryExecutorIp = entryExecutorIp
+                , botOpenEntryServerId = entryServerId
+                , botOpenEntryServerRole = entryServerRole
+                , botOpenEntryServerProvider = entryServerProvider
                 , botOpenComboUuid = botComboUuid st
                 , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
                 , botOpenHoldingPeriods = 0
@@ -13826,6 +14057,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             , "partialSize" .= partialSize
                             , "remainingSize" .= remainingSize
                             , "originIp" .= botTradeOriginIp st
+                            , "openTrade" .= fmap botOpenTradeJson openTrade1
+                            , "resultingOpenTrade" .= fmap botOpenTradeJson openTradeNew
                             , "sessionStartedAtMs" .= botStartedAtMs st
                             ]
                         )
@@ -13961,6 +14194,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                     , "signal" .= latestFinal
                                     , "position" .= posNew
                                     , "originIp" .= botTradeOriginIp st
+                                    , "openTrade" .= fmap botOpenTradeJson openTrade1
+                                    , "resultingOpenTrade" .= fmap botOpenTradeJson openTradeNew
                                     , "sessionStartedAtMs" .= botStartedAtMs st
                                     ]
                                 )
@@ -21934,29 +22169,35 @@ placeOrderForSignalPlatform args sig mBinanceEnv =
                 Left msg -> pure (noOrderResult msg)
                 Right sigForOrder -> do
                     mReason <- tradeDeploymentGateReasonIO args gateSymbol sigForOrder
+                    let sigForOrderSized =
+                            case mReason of
+                                Just reason -> applyTradeDeploymentSizingPolicy reason sigForOrder
+                                Nothing -> sigForOrder
+                        placePrepared =
+                            case argPlatform args of
+                                PlatformBinance ->
+                                    case (argBinanceSymbol args, mBinanceEnv) of
+                                        (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
+                                        (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
+                                        (Just sym, Just env) -> placeOrderForSignal args sym sigForOrderSized env
+                                PlatformCoinbase ->
+                                    case argBinanceSymbol args of
+                                        Nothing -> pure (noOrderResult "No order: missing symbol.")
+                                        Just sym -> do
+                                            envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                                            case envOrErr of
+                                                Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
+                                                Right env -> placeCoinbaseOrderForSignal args sym sigForOrderSized env
+                                PlatformUniswap -> placeDexOrderForSignal args sigForOrderSized
+                                PlatformCurve -> placeDexOrderForSignal args sigForOrderSized
+                                PlatformSushiswap -> placeDexOrderForSignal args sigForOrderSized
+                                PlatformBalancer -> placeDexOrderForSignal args sigForOrderSized
+                                PlatformPancakeswap -> placeDexOrderForSignal args sigForOrderSized
+                                PlatformOneInch -> placeDexOrderForSignal args sigForOrderSized
+                                _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
                     case mReason of
-                        Just reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sigForOrder reason))
-                        Nothing -> case argPlatform args of
-                            PlatformBinance ->
-                                case (argBinanceSymbol args, mBinanceEnv) of
-                                    (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
-                                    (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
-                                    (Just sym, Just env) -> placeOrderForSignal args sym sigForOrder env
-                            PlatformCoinbase ->
-                                case argBinanceSymbol args of
-                                    Nothing -> pure (noOrderResult "No order: missing symbol.")
-                                    Just sym -> do
-                                        envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                                        case envOrErr of
-                                            Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
-                                            Right env -> placeCoinbaseOrderForSignal args sym sigForOrder env
-                            PlatformUniswap -> placeDexOrderForSignal args sigForOrder
-                            PlatformCurve -> placeDexOrderForSignal args sigForOrder
-                            PlatformSushiswap -> placeDexOrderForSignal args sigForOrder
-                            PlatformBalancer -> placeDexOrderForSignal args sigForOrder
-                            PlatformPancakeswap -> placeDexOrderForSignal args sigForOrder
-                            PlatformOneInch -> placeDexOrderForSignal args sigForOrder
-                            _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+                        Just reason | tradeDeploymentGateBlocksOrder reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sigForOrder reason))
+                        _ -> placePrepared
   where
     gateSymbol = fromMaybe "" (argBinanceSymbol args)
 

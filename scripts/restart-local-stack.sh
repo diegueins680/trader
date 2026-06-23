@@ -15,6 +15,7 @@
 #   TRADER_API_LAUNCHD_LABEL   default: ai.openclaw.trader.api
 #   TRADER_WEB_LAUNCHD_LABEL   default: ai.openclaw.trader.web
 #   TRADER_API_BASE_URL        default: http://127.0.0.1:8090   (used only for the post-restart probe)
+#   TRADER_TRADE_LOG           default: .tmp/trader/live_trades.ndjson
 #   TRADER_LOCAL_STACK_QUIET=1 suppress non-error output
 
 set -uo pipefail
@@ -22,6 +23,8 @@ set -uo pipefail
 API_LABEL="${TRADER_API_LAUNCHD_LABEL:-ai.openclaw.trader.api}"
 WEB_LABEL="${TRADER_WEB_LAUNCHD_LABEL:-ai.openclaw.trader.web}"
 API_BASE="${TRADER_API_BASE_URL:-http://127.0.0.1:8090}"
+API_PLIST="${TRADER_API_LAUNCHD_PLIST:-${HOME}/Library/LaunchAgents/${API_LABEL}.plist}"
+TRADE_LOG="${TRADER_TRADE_LOG:-.tmp/trader/live_trades.ndjson}"
 QUIET="${TRADER_LOCAL_STACK_QUIET:-0}"
 
 while [[ $# -gt 0 ]]; do
@@ -68,6 +71,60 @@ log "git HEAD = ${HEAD_SHA}"
 mkdir -p haskell
 printf '%s\n' "${HEAD_SHA}" > haskell/.build-commit
 log "wrote haskell/.build-commit"
+
+API_PLIST_CHANGED=0
+ensure_api_trade_log_arg() {
+  local plist="$1"
+  if [[ ! -f "${plist}" ]]; then
+    return 0
+  fi
+  if [[ ! -x /usr/libexec/PlistBuddy ]]; then
+    warn "PlistBuddy not found; cannot ensure API LaunchAgent --trade-log."
+    return 0
+  fi
+  if /usr/libexec/PlistBuddy -c "Print :ProgramArguments" "${plist}" 2>/dev/null | grep -q -- "--trade-log"; then
+    return 0
+  fi
+
+  local count
+  count="$(
+    /usr/libexec/PlistBuddy -c "Print :ProgramArguments" "${plist}" 2>/dev/null |
+      awk '
+        /^Array[[:space:]]*\{/ { in_array = 1; next }
+        /^\}/ { in_array = 0; next }
+        in_array && $0 ~ /[^[:space:]]/ { n++ }
+        END { print n + 0 }
+      '
+  )"
+  if [[ "${count}" -le 0 ]]; then
+    warn "API LaunchAgent has no ProgramArguments; cannot add --trade-log."
+    return 0
+  fi
+
+  mkdir -p "$(dirname "${TRADE_LOG}")"
+  if /usr/libexec/PlistBuddy \
+    -c "Add :ProgramArguments:${count} string --trade-log" \
+    -c "Add :ProgramArguments:$((count + 1)) string ${TRADE_LOG}" \
+    "${plist}" >/dev/null 2>&1; then
+    API_PLIST_CHANGED=1
+    log "added --trade-log ${TRADE_LOG} to ${plist}"
+  else
+    warn "failed to add --trade-log to ${plist}"
+  fi
+}
+
+ensure_api_trade_log_arg "${API_PLIST}"
+
+if [[ "${API_PLIST_CHANGED}" == "1" ]]; then
+  if launchctl print "${GUI_DOMAIN}/${API_LABEL}" >/dev/null 2>&1; then
+    launchctl bootout "${GUI_DOMAIN}/${API_LABEL}" >/dev/null 2>&1 || true
+  fi
+  if launchctl bootstrap "${GUI_DOMAIN}" "${API_PLIST}" >/dev/null 2>&1; then
+    log "reloaded ${API_LABEL} from ${API_PLIST}"
+  else
+    warn "launchctl bootstrap ${API_LABEL} failed after plist update"
+  fi
+fi
 
 kick() {
   local label="$1"

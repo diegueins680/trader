@@ -1657,6 +1657,9 @@ normalizeBarsForLookback args =
   where
     present = maybe False (not . null . trim)
 
+defaultServeTradeLogPath :: FilePath
+defaultServeTradeLogPath = ".tmp/trader/live_trades.ndjson"
+
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do
     let normalizeDelimitedSymbol delim raw =
@@ -1695,6 +1698,10 @@ validateArgs args0 = do
                 , argBacktestFrom = fmap trim (argBacktestFrom args0)
                 , argBacktestTo = fmap trim (argBacktestTo args0)
                 , argIdempotencyKey = fmap trim (argIdempotencyKey args0)
+                , argTradeLog =
+                    case fmap trim (argTradeLog args0) of
+                        Nothing | argServe args0 -> Just defaultServeTradeLogPath
+                        other -> other
                 , argTradeAllowedSymbols = map symbolNormalizer (argTradeAllowedSymbols args0)
                 }
         present = maybe False (not . null)

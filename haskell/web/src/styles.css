@@ -2602,6 +2602,14 @@ body.panelMaximized .cardMaximized {
   white-space: nowrap;
 }
 
+.tdDecision {
+  min-width: 220px;
+  max-width: 360px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
 .footerNote {
   margin-top: 16px;
   color: var(--muted);

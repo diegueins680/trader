@@ -138,6 +138,7 @@ import Trader.Optimizer.Optimize (
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     applyWalkForwardSummaryMetrics,
+    dedupeFirstByKey,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
     emptyOptimizerRecordsSummary,
@@ -261,7 +262,7 @@ import Trader.TopCombosStore (
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
  )
-import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), loadMethodResultStats, methodGateDecision)
+import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
@@ -515,6 +516,7 @@ main = do
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
+    testOptimizerSurvivorDedupePreservesFirstCandidates
     testOptimizerTopJsonSortUsesObjectiveScore
     testOptimizerTechniqueSummaryTruthfulRegression
     testOptimizerPriorEdgeScoreRegression
@@ -1169,6 +1171,18 @@ testTradeAllowedDefaultsAndAnyOverride = do
             Right args -> not (argTradeAutoMethods args) && null (argTradeAllowedMethods args) && null (argTradeAllowedSymbols args)
             Left _ -> False
         )
+    assert
+        "serve mode defaults to the standard trade-log path for method-gate evidence"
+        ( case parseAndValidateCliArgs ["--serve"] of
+            Right args -> argTradeLog args == Just ".tmp/trader/live_trades.ndjson"
+            Left _ -> False
+        )
+    assert
+        "explicit serve trade-log path overrides the standard default"
+        ( case parseAndValidateCliArgs ["--serve", "--trade-log", "/tmp/custom-trades.ndjson"] of
+            Right args -> argTradeLog args == Just "/tmp/custom-trades.ndjson"
+            Left _ -> False
+        )
 
 testTradeMethodGateUsesResultEvidence :: IO ()
 testTradeMethodGateUsesResultEvidence = do
@@ -1220,6 +1234,15 @@ testTradeMethodGateUsesResultEvidence = do
             assert
                 "method gate ignores non-strategy live marker rows"
                 (unavailable (methodGateDecision cfg MethodKalmanOnly stats))
+            assert
+                "unavailable method evidence uses a conservative quarter-size cap"
+                ( unavailableEvidenceSizeMultiplier == 0.25
+                    && unavailableEvidenceSizeCap == 0.25
+                    && conservativeUnavailableEvidenceSize (Just 1) == 0.25
+                    && abs (conservativeUnavailableEvidenceSize (Just 0.6) - 0.15) < 1e-12
+                    && conservativeUnavailableEvidenceSize (Just 10) == 0.25
+                    && conservativeUnavailableEvidenceSize Nothing == 0.25
+                )
 
 testRiskPerTradeRejectsUpperBoundValidation :: IO ()
 testRiskPerTradeRejectsUpperBoundValidation = do
@@ -1382,8 +1405,18 @@ mkBinanceTrade tradeId symbol side positionSide price qty timeMs =
         , btOriginIp = Nothing
         , btExecutorIp = Nothing
         , btOriginInstance = Nothing
+        , btEntryIp = Nothing
+        , btExitIp = Nothing
+        , btEntryInstance = Nothing
+        , btExitInstance = Nothing
+        , btEntryTime = Nothing
+        , btExitTime = Nothing
         , btMaxPnl = Nothing
         , btMaxPnlCloseTime = Nothing
+        , btMethod = Nothing
+        , btStrategy = Nothing
+        , btDecisionSummary = Nothing
+        , btDecisionReason = Nothing
         }
 
 mkKline :: Int64 -> Double -> Double -> Double -> Double -> Kline
@@ -6856,6 +6889,19 @@ testOptimizerQualityBudgetRegression = do
     assert
         "quality preset preserves explicit method weights above the quality floor"
         (qualityPresetWeightFloor 1.0 (2.0 :: Double) == 2.0)
+
+testOptimizerSurvivorDedupePreservesFirstCandidates :: IO ()
+testOptimizerSurvivorDedupePreservesFirstCandidates = do
+    let candidates =
+            [ ("eligible", "a")
+            , ("eligible", "b")
+            , ("fallback", "a")
+            , ("fallback", "c")
+            , ("fallback", "b")
+            ]
+    assert
+        "survivor candidate dedupe keeps first occurrences and skips repeated parameter keys"
+        (dedupeFirstByKey snd candidates == [("eligible", "a"), ("eligible", "b"), ("fallback", "c")])
 
 testOptimizerTopJsonSortUsesObjectiveScore :: IO ()
 testOptimizerTopJsonSortUsesObjectiveScore = do
