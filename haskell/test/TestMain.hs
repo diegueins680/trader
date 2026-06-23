@@ -107,7 +107,8 @@ import Trader.LiveGap (
     liveGapStatsByMethod,
     liveGapStatsByMethodWithConfig,
  )
-import Trader.MarketContext (fitLinearRange)
+import Trader.LiveOrderIntent (desiredPositionForSignal, orderDirectionForTransition)
+import Trader.MarketContext (alignKlineClosesToOpenTimes, fitLinearRange)
 import Trader.MarketDataIntegrity (
     MarketSeriesBar (..),
     isTransientMarketDataError,
@@ -322,8 +323,13 @@ main = do
     testMaxDrawdownRejectsLowerBoundValidation
     testStopLossHaltsSimulation
     testTakeProfitGuardrail
+    testMarketContextAlignsPeerKlinesByOpenTime
+    testOrderIntentUsesCloseDirectionForExistingPositions
+    testLongShortFlipCountsExitAndEntryTurnover
+    testIntrabarTakeProfitUsesExitBarCost
     testPartialTakeProfitMovesLongStopToBreakeven
     testPartialTakeProfitMovesShortStopToBreakeven
+    testPartialTakeProfitTradeFeesMatchAttribution
     testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
     testVenueRoundTripCostFloorMatchesVenueCosts
@@ -7851,6 +7857,84 @@ testTakeProfitGuardrail = do
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
 
+testMarketContextAlignsPeerKlinesByOpenTime :: IO ()
+testMarketContextAlignsPeerKlinesByOpenTime = do
+    let openTimes = V.fromList [1000, 2000, 3000]
+        klines =
+            [ mkKline 3000 0 0 0 30
+            , mkKline 1000 0 0 0 10
+            , mkKline 4000 0 0 0 40
+            , mkKline 2000 0 0 0 20
+            ]
+    assert
+        "market context aligns peer closes by openTime instead of fetch order"
+        (alignKlineClosesToOpenTimes openTimes klines == Just (V.fromList [10, 20, 30]))
+    assert
+        "market context fails closed when a peer candle is missing from the target grid"
+        (isNothing (alignKlineClosesToOpenTimes openTimes (filter ((/= 2000) . kOpenTime) klines)))
+
+testOrderIntentUsesCloseDirectionForExistingPositions :: IO ()
+testOrderIntentUsesCloseDirectionForExistingPositions = do
+    let longExit = desiredPositionForSignal LongFlat 1 Nothing Nothing
+        longHold = desiredPositionForSignal LongFlat 1 Nothing (Just 1)
+        shortExit = desiredPositionForSignal LongShort (-1) Nothing Nothing
+        shortHold = desiredPositionForSignal LongShort (-1) Nothing (Just (-1))
+        longToShort = desiredPositionForSignal LongShort 1 (Just (-1)) (Just 1)
+    assert "long-flat existing long exits when the close signal no longer confirms the hold" (longExit == 0)
+    assert "long-flat existing long holds when closeDirection still confirms long" (longHold == 1)
+    assert "long-short existing short exits when the close signal no longer confirms the hold" (shortExit == 0)
+    assert "long-short existing short holds when closeDirection still confirms short" (shortHold == -1)
+    assert "long-short open-threshold opposite signal still flips" (longToShort == -1)
+    assert "close-only long exit becomes a SELL order direction" (orderDirectionForTransition 1 longExit == Just (-1))
+    assert "close-only short exit becomes a BUY order direction" (orderDirectionForTransition (-1) shortExit == Just 1)
+
+testLongShortFlipCountsExitAndEntryTurnover :: IO ()
+testLongShortFlipCountsExitAndEntryTurnover = do
+    let prices = V.fromList [100 :: Double, 100, 100]
+        preds = V.fromList [102 :: Double, 98]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecPositioning = LongShort
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsembleWithHLChecked cfg 1 prices prices prices preds preds (Nothing :: Maybe (V.Vector StepMeta))
+    case result of
+        Left err -> ioError (userError ("long-short flip turnover regression failed to simulate: " ++ err))
+        Right bt ->
+            assert
+                "long-short flip counts the exit and the new entry as separate position changes"
+                (brPositionChanges bt == 3)
+
+testIntrabarTakeProfitUsesExitBarCost :: IO ()
+testIntrabarTakeProfitUsesExitBarCost = do
+    let prices = V.fromList [100 :: Double, 100, 200, 204]
+        highs = V.fromList [100 :: Double, 100, 200, 204]
+        lows = V.fromList [100 :: Double, 100, 200, 204]
+        preds = V.fromList [100 :: Double, 102, 300]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSlippageVolMult = 0.01
+                , ecSpread = 0
+                , ecVolLookback = 2
+                , ecTakeProfit = Just 0.03
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsembleWithHLChecked cfg 2 prices highs lows preds preds (Nothing :: Maybe (V.Vector StepMeta))
+    case result of
+        Left err -> ioError (userError ("intrabar cost-index regression failed to simulate: " ++ err))
+        Right bt -> do
+            let attribution = brCostAttribution bt
+            assert
+                "intrabar take-profit exit charges volatility-dependent slippage from the exit bar"
+                (bcaRealizedSlippageCost attribution > 0)
+
 -- A partial take-profit should convert the remaining position into a protected
 -- runner: the residual stop moves to breakeven and can close the rest without
 -- giving back the first realized target.
@@ -7928,6 +8012,38 @@ testPartialTakeProfitMovesShortStopToBreakeven = do
             [] -> False
             ts -> trReturn (last ts) > 0
         )
+
+testPartialTakeProfitTradeFeesMatchAttribution :: IO ()
+testPartialTakeProfitTradeFeesMatchAttribution = do
+    let prices = V.fromList [100 :: Double, 100, 100, 102, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 100, 102, 102, 100]
+        lows = V.fromList [100 :: Double, 100, 100, 101, 100, 100]
+        kalPreds = V.fromList [100 :: Double, 102, 103, 103, 103]
+        lstmPreds = V.fromList [100 :: Double, 102, 103, 103, 103]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecFee = 0.001
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecStopLoss = Just 0.02
+                , ecTakeProfit = Just 0.02
+                , ecTakeProfitPartial = 0.5
+                , ecCooldownBars = 10
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        feeAttribution = bcaRealizedFeeCost (brCostAttribution result)
+        tradeFees = sum (map trFeeCost trades)
+    assert "partial take-profit regression produces a trade" (not (null trades))
+    assertNear
+        "partial take-profit trade-level fee cost matches realized fee attribution"
+        feeAttribution
+        tradeFees
+        1e-12
 
 -- Simulation-level guardrail: prove --trailing-stop flattens the position
 -- when price rises then falls enough to trigger the trailing stop.

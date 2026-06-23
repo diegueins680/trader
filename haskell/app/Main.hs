@@ -330,6 +330,7 @@ import Trader.LiveGap (
     liveGapStatsByMethodWithConfig,
     validateLiveGapConfig,
  )
+import Trader.LiveOrderIntent (desiredPositionForSignal, orderDirectionForTransition)
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
 import Trader.MarketDataIntegrity (
@@ -10030,33 +10031,12 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         -- Startup decision:
         -- - Adopted positions are kept only if the open-threshold signal still agrees.
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
-        allowShort = argPositioning args == LongShort
-        chosenDir = lsChosenDir latestStartRaw
-        closeDir = lsCloseDir latestStartRaw
-
         desiredPosSignalRaw =
-            case startPos0 of
-                1 ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) | allowShort -> -1
-                        _ ->
-                            case closeDir of
-                                Just 1 -> 1
-                                _ -> 0
-                (-1) ->
-                    case chosenDir of
-                        Just (-1) -> -1
-                        Just 1 | allowShort -> 1
-                        _ ->
-                            case closeDir of
-                                Just (-1) -> -1
-                                _ -> 0
-                _ ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) | allowShort -> -1
-                        _ -> 0
+            desiredPositionForSignal
+                (argPositioning args)
+                startPos0
+                (lsChosenDir latestStartRaw)
+                (lsCloseDir latestStartRaw)
 
         startupPortfolioReasonMaybe = mStartupPortfolioCapitalPreservation >>= pcprReason
         startupEntryAttempt = desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
@@ -10106,17 +10086,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 then "BUY"
                 else "SELL"
         latestOrder =
-            case desiredPosSignal of
-                1 -> latest{lsChosenDir = Just 1}
-                -1 -> latest{lsChosenDir = Just (-1)}
-                0 ->
-                    if startPos0 == 0
-                        then latest{lsChosenDir = Nothing}
-                        else latest{lsChosenDir = Just (negate startPos0)}
-                x ->
-                    if x > 0
-                        then latest{lsChosenDir = Just 1}
-                        else latest{lsChosenDir = Just (-1)}
+            latest{lsChosenDir = orderDirectionForTransition startPos0 desiredPosSignal}
         entrySize = entryScaleForSignal args (beMarket env) latest
 
     mStartSize <-
@@ -13215,39 +13185,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         -- Stateful decision:
         -- - Entry uses the open-threshold signal.
         -- - Holds use the close-threshold direction when the open signal is neutral.
-        allowShort = argPositioning args == LongShort
-        chosenDir = lsChosenDir latest0Raw
-        closeDir = lsCloseDir latest0Raw
-
         desiredPosSignal =
-            case prevPos of
-                1 ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) ->
-                            if allowShort
-                                then -1
-                                else 0
-                        _ ->
-                            case closeDir of
-                                Just 1 -> 1
-                                _ -> 0
-                (-1) ->
-                    case chosenDir of
-                        Just (-1) -> -1
-                        Just 1 ->
-                            if allowShort
-                                then 1
-                                else 0
-                        _ ->
-                            case closeDir of
-                                Just (-1) -> -1
-                                _ -> 0
-                _ ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) | allowShort -> -1
-                        _ -> 0
+            desiredPositionForSignal
+                (argPositioning args)
+                prevPos
+                (lsChosenDir latest0Raw)
+                (lsCloseDir latest0Raw)
 
         -- If we decide to exit (open/close signal neutral/opposite), force chosenDir to the exit side
         -- so a closing order can be placed when trading is enabled.
@@ -13702,17 +13645,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
 
         wantSwitch = desiredPosWanted /= prevPos
         latestOrder =
-            case desiredPosWanted of
-                1 -> latestFinal{lsChosenDir = Just 1}
-                -1 -> latestFinal{lsChosenDir = Just (-1)}
-                0 ->
-                    if prevPos == 0
-                        then latestFinal{lsChosenDir = Nothing}
-                        else latestFinal{lsChosenDir = Just (negate prevPos)}
-                x ->
-                    if x > 0
-                        then latestFinal{lsChosenDir = Just 1}
-                        else latestFinal{lsChosenDir = Just (-1)}
+            latestFinal{lsChosenDir = orderDirectionForTransition prevPos desiredPosWanted}
         entrySize = entryScaleForSignal args (beMarket (botEnv st)) latestFinal
         qtyEps = 1e-9
         isPositiveQty q = q > qtyEps
@@ -21968,35 +21901,62 @@ dryRunOrderResult args sig =
             , aorMessage = message
             }
 
+prepareOrderSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO (Either String LatestSignal)
+prepareOrderSignalPlatform args sig mBinanceEnv =
+    case (argPlatform args, argBinanceSymbol args, mBinanceEnv) of
+        (PlatformBinance, Just sym, Just env) -> do
+            r <- try (fetchBotAccountPos args env sym) :: IO (Either SomeException Int)
+            case r of
+                Left ex -> pure (Left ("No order: failed to read current Binance position: " ++ take 240 (show ex)))
+                Right currentPos -> do
+                    let desiredPos =
+                            desiredPositionForSignal
+                                (argPositioning args)
+                                currentPos
+                                (lsChosenDir sig)
+                                (lsCloseDir sig)
+                        orderDir = orderDirectionForTransition currentPos desiredPos
+                        closeOnly = currentPos /= 0 && desiredPos == 0
+                        sigAction =
+                            if closeOnly
+                                then "FLAT (close)"
+                                else lsAction sig
+                    pure (Right sig{lsChosenDir = orderDir, lsAction = sigAction})
+        _ -> pure (Right sig)
+
 placeOrderForSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO ApiOrderResult
 placeOrderForSignalPlatform args sig mBinanceEnv =
     if argDryRun args
         then pure (dryRunOrderResult args sig)
         else do
-            mReason <- tradeDeploymentGateReasonIO args gateSymbol sig
-            case mReason of
-                Just reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sig reason))
-                Nothing -> case argPlatform args of
-                    PlatformBinance ->
-                        case (argBinanceSymbol args, mBinanceEnv) of
-                            (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
-                            (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
-                            (Just sym, Just env) -> placeOrderForSignal args sym sig env
-                    PlatformCoinbase ->
-                        case argBinanceSymbol args of
-                            Nothing -> pure (noOrderResult "No order: missing symbol.")
-                            Just sym -> do
-                                envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                                case envOrErr of
-                                    Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
-                                    Right env -> placeCoinbaseOrderForSignal args sym sig env
-                    PlatformUniswap -> placeDexOrderForSignal args sig
-                    PlatformCurve -> placeDexOrderForSignal args sig
-                    PlatformSushiswap -> placeDexOrderForSignal args sig
-                    PlatformBalancer -> placeDexOrderForSignal args sig
-                    PlatformPancakeswap -> placeDexOrderForSignal args sig
-                    PlatformOneInch -> placeDexOrderForSignal args sig
-                    _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+            prepared <- prepareOrderSignalPlatform args sig mBinanceEnv
+            case prepared of
+                Left msg -> pure (noOrderResult msg)
+                Right sigForOrder -> do
+                    mReason <- tradeDeploymentGateReasonIO args gateSymbol sigForOrder
+                    case mReason of
+                        Just reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sigForOrder reason))
+                        Nothing -> case argPlatform args of
+                            PlatformBinance ->
+                                case (argBinanceSymbol args, mBinanceEnv) of
+                                    (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
+                                    (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
+                                    (Just sym, Just env) -> placeOrderForSignal args sym sigForOrder env
+                            PlatformCoinbase ->
+                                case argBinanceSymbol args of
+                                    Nothing -> pure (noOrderResult "No order: missing symbol.")
+                                    Just sym -> do
+                                        envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                                        case envOrErr of
+                                            Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
+                                            Right env -> placeCoinbaseOrderForSignal args sym sigForOrder env
+                            PlatformUniswap -> placeDexOrderForSignal args sigForOrder
+                            PlatformCurve -> placeDexOrderForSignal args sigForOrder
+                            PlatformSushiswap -> placeDexOrderForSignal args sigForOrder
+                            PlatformBalancer -> placeDexOrderForSignal args sigForOrder
+                            PlatformPancakeswap -> placeDexOrderForSignal args sigForOrder
+                            PlatformOneInch -> placeDexOrderForSignal args sigForOrder
+                            _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
   where
     gateSymbol = fromMaybe "" (argBinanceSymbol args)
 
@@ -27200,7 +27160,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym)
                 | platformSupportsMarketContext (argPlatform args) -> do
-                    r <- try (buildMarketModel args env sym n pricesV mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
+                    r <- try (buildMarketModel args env sym n pricesV (V.fromList <$> psOpenTimes series) mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
                     case r of
                         Right model -> pure model
                         Left ex -> do
@@ -27678,7 +27638,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             (MethodLstmOnly, _, _) -> pure Nothing
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym) -> do
-                r <- try (buildMarketModel args env sym predStart pricesV mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
+                r <- try (buildMarketModel args env sym predStart pricesV (V.fromList <$> openTimesAll) mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
                 case r of
                     Right model -> pure model
                     Left ex -> do
