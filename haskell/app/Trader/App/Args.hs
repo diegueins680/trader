@@ -107,8 +107,11 @@ data Args = Args
     , argBinanceTrade :: Bool
     , argBinanceLive :: Bool
     , argDryRun :: Bool
+    , argTradeAutoMethods :: Bool
     , argTradeAllowedMethods :: [Method]
     , argTradeAllowedSymbols :: [String]
+    , argTradeMethodMinTrades :: Int
+    , argTradeMethodMinTotalReturn :: Double
     , argOrderQuote :: Maybe Double
     , argOrderQuantity :: Maybe Double
     , argOrderQuoteFraction :: Maybe Double
@@ -805,13 +808,19 @@ opts = do
             "no-dry-run"
             "Compute the latest signal and simulated trade response, but never send exchange/DEX orders."
             "Disable dry-run so --binance-trade can place test/live orders."
+    argTradeAutoMethods <-
+        defaultOnSwitch
+            "trade-auto-methods"
+            "no-trade-auto-methods"
+            "Automatically allow/disallow order methods from --trade-log trading/backtest evidence."
+            "Use the explicit --trade-allowed-methods list instead of evidence-based method gating."
     argTradeAllowedMethods <-
         option
             (eitherReader parseMethodList)
             ( long "trade-allowed-methods"
                 <> value defaultTradeAllowedMethods
                 <> showDefaultWith methodListCode
-                <> help "Comma-separated methods allowed to place non-dry-run orders (default: ta_best,ta_regime_switch; use any to disable)"
+                <> help "Comma-separated methods allowed when --no-trade-auto-methods is set (default: ta_best,ta_regime_switch; use any to disable)"
             )
     argTradeAllowedSymbols <-
         option
@@ -821,6 +830,8 @@ opts = do
                 <> showDefaultWith symbolListCode
                 <> help "Comma-separated symbols allowed to place non-dry-run orders (default: SOLUSDT; use any to disable)"
             )
+    argTradeMethodMinTrades <- option auto (long "trade-method-min-trades" <> value 5 <> showDefault <> help "Minimum finite trade/backtest rows required before auto-allowing a method")
+    argTradeMethodMinTotalReturn <- option auto (long "trade-method-min-total-return" <> value 0 <> showDefault <> help "Minimum cumulative fractional return required before auto-allowing a method (0.01 = 1%)")
     argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
     argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
     argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
@@ -1753,6 +1764,8 @@ validateArgs args0 = do
     ensure
         "--binance-trade requires --symbol/--binance-symbol (or --dex-base-token/--dex-quote-token for DEX platforms)"
         (not (argBinanceTrade args) || present (argBinanceSymbol args) || (isDex && hasDexTokens))
+    ensure "--trade-method-min-trades must be >= 1" (argTradeMethodMinTrades args >= 1)
+    ensure "--trade-method-min-total-return must be finite" (isFiniteNumber (argTradeMethodMinTotalReturn args))
     ensure "--signal-exit-confirm-bars must be >= 1" (argSignalExitConfirmBars args >= 1)
 
     case argBinanceApiKey args of

@@ -498,6 +498,12 @@ import Trader.TopCombosStore (
     withTopCombosLock,
     writeTopCombosValue,
  )
+import Trader.TradeMethodGate (
+    MethodGateConfig (..),
+    MethodGateDecision (..),
+    loadMethodResultStats,
+    methodGateDecision,
+ )
 import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
@@ -2653,8 +2659,11 @@ argsPublicJson args =
             , "binanceLive" .= argBinanceLive args
             , "binanceTrade" .= argBinanceTrade args
             , "dryRun" .= argDryRun args
+            , "tradeAutoMethods" .= argTradeAutoMethods args
             , "tradeAllowedMethods" .= map methodCode (argTradeAllowedMethods args)
             , "tradeAllowedSymbols" .= argTradeAllowedSymbols args
+            , "tradeMethodMinTrades" .= argTradeMethodMinTrades args
+            , "tradeMethodMinTotalReturn" .= argTradeMethodMinTotalReturn args
             , "hasBinanceApiKey" .= boolFromMaybe (argBinanceApiKey args)
             , "hasBinanceApiSecret" .= boolFromMaybe (argBinanceApiSecret args)
             , "hasCoinbaseApiKey" .= boolFromMaybe (argCoinbaseApiKey args)
@@ -6587,20 +6596,52 @@ entryOnlyGateReason reason =
     reason == "PERF_WIN_RATE"
         || reason == "PERF_PROFIT_FACTOR"
         || reason == "TRADE_METHOD_NOT_ALLOWED"
+        || reason == "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
+        || reason == "TRADE_METHOD_INSUFFICIENT_EVIDENCE"
+        || reason == "TRADE_METHOD_RESULT_BLOCKED"
         || reason == "TRADE_SYMBOL_NOT_ALLOWED"
         || capitalPreservationIsEntryOnlyReason reason
 
-tradeDeploymentGateReason :: Args -> String -> LatestSignal -> Maybe String
-tradeDeploymentGateReason args sym sig
-    | argDryRun args = Nothing
-    | not methodAllowed = Just "TRADE_METHOD_NOT_ALLOWED"
-    | not symbolAllowed = Just "TRADE_SYMBOL_NOT_ALLOWED"
-    | otherwise = Nothing
+tradeDeploymentGateReasonIO :: Args -> String -> LatestSignal -> IO (Maybe String)
+tradeDeploymentGateReasonIO args sym sig
+    | argDryRun args = pure Nothing
+    | otherwise = do
+        methodReason <- tradeMethodGateReasonIO args sig
+        pure (methodReason <|> symbolReason)
   where
-    allowedMethods = argTradeAllowedMethods args
     allowedSymbols = map normalizeSymbol (argTradeAllowedSymbols args)
-    methodAllowed = null allowedMethods || lsMethod sig `elem` allowedMethods
     symbolAllowed = null allowedSymbols || normalizeSymbol sym `elem` allowedSymbols
+    symbolReason =
+        if symbolAllowed
+            then Nothing
+            else Just "TRADE_SYMBOL_NOT_ALLOWED"
+
+tradeMethodGateReasonIO :: Args -> LatestSignal -> IO (Maybe String)
+tradeMethodGateReasonIO args sig
+    | argTradeAutoMethods args =
+        case argTradeLog args of
+            Nothing -> pure (Just "TRADE_METHOD_EVIDENCE_UNAVAILABLE")
+            Just path -> do
+                loaded <- loadMethodResultStats path
+                pure $
+                    case loaded of
+                        Left _ -> Just "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
+                        Right stats ->
+                            case methodGateDecision cfg (lsMethod sig) stats of
+                                MethodGateAllowed _ -> Nothing
+                                MethodGateUnavailable _ -> Just "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
+                                MethodGateInsufficientEvidence _ -> Just "TRADE_METHOD_INSUFFICIENT_EVIDENCE"
+                                MethodGateBlocked _ -> Just "TRADE_METHOD_RESULT_BLOCKED"
+    | methodAllowed = pure Nothing
+    | otherwise = pure (Just "TRADE_METHOD_NOT_ALLOWED")
+  where
+    cfg =
+        MethodGateConfig
+            { mgcMinTrades = argTradeMethodMinTrades args
+            , mgcMinTotalReturn = argTradeMethodMinTotalReturn args
+            }
+    allowedMethods = argTradeAllowedMethods args
+    methodAllowed = null allowedMethods || lsMethod sig `elem` allowedMethods
 
 tradeDeploymentGateMessage :: Args -> String -> LatestSignal -> String -> String
 tradeDeploymentGateMessage args sym sig reason =
@@ -6611,6 +6652,22 @@ tradeDeploymentGateMessage args sym sig reason =
                 ++ " is outside --trade-allowed-methods="
                 ++ allowedMethodsLabel
                 ++ "."
+        "TRADE_METHOD_EVIDENCE_UNAVAILABLE" ->
+            "No order: method "
+                ++ methodCode (lsMethod sig)
+                ++ " has no finite trading/backtest evidence in --trade-log. Provide a populated --trade-log or use --no-trade-auto-methods."
+        "TRADE_METHOD_INSUFFICIENT_EVIDENCE" ->
+            "No order: method "
+                ++ methodCode (lsMethod sig)
+                ++ " has fewer than --trade-method-min-trades="
+                ++ show (argTradeMethodMinTrades args)
+                ++ " finite result rows."
+        "TRADE_METHOD_RESULT_BLOCKED" ->
+            "No order: method "
+                ++ methodCode (lsMethod sig)
+                ++ " is below --trade-method-min-total-return="
+                ++ show (argTradeMethodMinTotalReturn args)
+                ++ " in --trade-log evidence."
         "TRADE_SYMBOL_NOT_ALLOWED" ->
             "No order: symbol "
                 ++ normalizeSymbol sym
@@ -10003,10 +10060,13 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
 
         startupPortfolioReasonMaybe = mStartupPortfolioCapitalPreservation >>= pcprReason
         startupEntryAttempt = desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
-        startupTradeGateReasonMaybe =
-            if bsTradeEnabled settings && startupEntryAttempt
-                then tradeDeploymentGateReason argsWithKeys sym latestStartRaw
-                else Nothing
+
+    startupTradeGateReasonMaybe <-
+        if bsTradeEnabled settings && startupEntryAttempt
+            then tradeDeploymentGateReasonIO argsWithKeys sym latestStartRaw
+            else pure Nothing
+
+    let
         startupGateReasonMaybe = startupTradeGateReasonMaybe <|> startupPortfolioReasonMaybe
         (desiredPosSignal, startupGateAction) =
             case startupGateReasonMaybe of
@@ -13582,6 +13642,13 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 allStates
                 prospectiveCloseTrade
         portfolioCapitalPreservationReasonMaybe = pcprReason portfolioCapitalPreservation
+
+    tradeGateReasonMaybe <-
+        if bsTradeEnabled settings && entryAttempt
+            then tradeDeploymentGateReasonIO args (botSymbol st) latest2
+            else pure Nothing
+
+    let
         entryBlockReason
             | entryAttemptFromFlat && countBlocked = Just "MAX_OPEN_POSITIONS"
             | entryAttemptFromFlat && baseCountBlocked = Just "MAX_OPEN_PER_BASE"
@@ -13591,10 +13658,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
             | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
             | entryAttempt =
-                ( if bsTradeEnabled settings
-                    then tradeDeploymentGateReason args (botSymbol st) latest2
-                    else Nothing
-                )
+                tradeGateReasonMaybe
                     <|> portfolioCapitalPreservationReasonMaybe
                     <|> capitalPreservationReasonMaybe
                     <|> perfGateReasonMaybe
@@ -21908,29 +21972,31 @@ placeOrderForSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO Ap
 placeOrderForSignalPlatform args sig mBinanceEnv =
     if argDryRun args
         then pure (dryRunOrderResult args sig)
-        else case tradeDeploymentGateReason args gateSymbol sig of
-            Just reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sig reason))
-            Nothing -> case argPlatform args of
-                PlatformBinance ->
-                    case (argBinanceSymbol args, mBinanceEnv) of
-                        (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
-                        (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
-                        (Just sym, Just env) -> placeOrderForSignal args sym sig env
-                PlatformCoinbase ->
-                    case argBinanceSymbol args of
-                        Nothing -> pure (noOrderResult "No order: missing symbol.")
-                        Just sym -> do
-                            envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                            case envOrErr of
-                                Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
-                                Right env -> placeCoinbaseOrderForSignal args sym sig env
-                PlatformUniswap -> placeDexOrderForSignal args sig
-                PlatformCurve -> placeDexOrderForSignal args sig
-                PlatformSushiswap -> placeDexOrderForSignal args sig
-                PlatformBalancer -> placeDexOrderForSignal args sig
-                PlatformPancakeswap -> placeDexOrderForSignal args sig
-                PlatformOneInch -> placeDexOrderForSignal args sig
-                _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+        else do
+            mReason <- tradeDeploymentGateReasonIO args gateSymbol sig
+            case mReason of
+                Just reason -> pure (noOrderResult (tradeDeploymentGateMessage args gateSymbol sig reason))
+                Nothing -> case argPlatform args of
+                    PlatformBinance ->
+                        case (argBinanceSymbol args, mBinanceEnv) of
+                            (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
+                            (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
+                            (Just sym, Just env) -> placeOrderForSignal args sym sig env
+                    PlatformCoinbase ->
+                        case argBinanceSymbol args of
+                            Nothing -> pure (noOrderResult "No order: missing symbol.")
+                            Just sym -> do
+                                envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                                case envOrErr of
+                                    Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
+                                    Right env -> placeCoinbaseOrderForSignal args sym sig env
+                    PlatformUniswap -> placeDexOrderForSignal args sig
+                    PlatformCurve -> placeDexOrderForSignal args sig
+                    PlatformSushiswap -> placeDexOrderForSignal args sig
+                    PlatformBalancer -> placeDexOrderForSignal args sig
+                    PlatformPancakeswap -> placeDexOrderForSignal args sig
+                    PlatformOneInch -> placeDexOrderForSignal args sig
+                    _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
   where
     gateSymbol = fromMaybe "" (argBinanceSymbol args)
 

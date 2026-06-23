@@ -256,6 +256,7 @@ import Trader.TopCombosStore (
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
  )
+import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), loadMethodResultStats, methodGateDecision)
 import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
@@ -307,6 +308,7 @@ main :: IO ()
 main = do
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride
+    testTradeMethodGateUsesResultEvidence
     testRsiPeriodRejectsInvalidValues
     testTrendLookbackRejectsInvalidValues
     testRiskPerTradeRejectsUpperBoundValidation
@@ -1139,19 +1141,73 @@ testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
 testTradeAllowedDefaultsAndAnyOverride :: IO ()
 testTradeAllowedDefaultsAndAnyOverride = do
     assert
-        "non-dry-run trading defaults to empirically allowed TA methods and SOLUSDT only"
+        "non-dry-run trading defaults to automatic method gating with the static fallback list and SOLUSDT only"
         ( case parseAndValidateCliArgs ["--binance-symbol", "solusdt", "--no-dry-run"] of
             Right args ->
-                argTradeAllowedMethods args == [MethodTaBest, MethodTaRegimeSwitch]
+                argTradeAutoMethods args
+                    && argTradeAllowedMethods args == [MethodTaBest, MethodTaRegimeSwitch]
                     && argTradeAllowedSymbols args == ["SOLUSDT"]
+                    && argTradeMethodMinTrades args == 5
+                    && argTradeMethodMinTotalReturn args == 0
             Left _ -> False
         )
     assert
-        "trade allowlists can be disabled explicitly with any"
-        ( case parseAndValidateCliArgs ["--binance-symbol", "BTCUSDT", "--trade-allowed-methods", "any", "--trade-allowed-symbols", "any"] of
-            Right args -> null (argTradeAllowedMethods args) && null (argTradeAllowedSymbols args)
+        "static trade allowlists can be used explicitly and disabled with any"
+        ( case parseAndValidateCliArgs ["--binance-symbol", "BTCUSDT", "--no-trade-auto-methods", "--trade-allowed-methods", "any", "--trade-allowed-symbols", "any"] of
+            Right args -> not (argTradeAutoMethods args) && null (argTradeAllowedMethods args) && null (argTradeAllowedSymbols args)
             Left _ -> False
         )
+
+testTradeMethodGateUsesResultEvidence :: IO ()
+testTradeMethodGateUsesResultEvidence = do
+    (path, handle) <- openTempFile "/tmp" "trader-method-gate.ndjson"
+    hClose handle
+    let rows =
+            [ Aeson.object ["method" .= ("ta_best" :: String), "pnlPercent" .= (0.01 :: Double)]
+            , Aeson.object ["signal_method" .= ("ta_best" :: String), "pnl_pct" .= ("2%" :: String)]
+            , Aeson.object ["method" .= ("ta_trend" :: String), "pnlPercent" .= (-0.02 :: Double)]
+            , Aeson.object ["method" .= ("ta_trend" :: String), "pnlPercent" .= (0.005 :: Double)]
+            , Aeson.object ["method" .= ("ta_breakout" :: String), "return" .= (0.05 :: Double)]
+            , Aeson.object ["method" .= ("live" :: String), "pnlPercent" .= (10.0 :: Double)]
+            ]
+        lineBytes = [Aeson.encode row <> "\n" | row <- rows]
+        cfg = MethodGateConfig{mgcMinTrades = 2, mgcMinTotalReturn = 0}
+        statsNear expectedTrades expectedReturn stats =
+            mrsTrades stats == expectedTrades && abs (mrsTotalReturn stats - expectedReturn) < 1e-12
+        allowedWith expectedTrades expectedReturn decision =
+            case decision of
+                MethodGateAllowed stats -> statsNear expectedTrades expectedReturn stats
+                _ -> False
+        blockedWith expectedTrades expectedReturn decision =
+            case decision of
+                MethodGateBlocked stats -> statsNear expectedTrades expectedReturn stats
+                _ -> False
+        insufficientWith expectedTrades expectedReturn decision =
+            case decision of
+                MethodGateInsufficientEvidence stats -> statsNear expectedTrades expectedReturn stats
+                _ -> False
+        unavailable decision =
+            case decision of
+                MethodGateUnavailable _ -> True
+                _ -> False
+    BL.writeFile path (BL.concat lineBytes)
+    loaded <- loadMethodResultStats path
+    _ <- try (removeFile path) :: IO (Either SomeException ())
+    case loaded of
+        Left err -> ioError (userError err)
+        Right stats -> do
+            assert
+                "method gate allows methods with enough positive trading/backtest evidence"
+                (allowedWith 2 0.03 (methodGateDecision cfg MethodTaBest stats))
+            assert
+                "method gate blocks methods with enough losing evidence"
+                (blockedWith 2 (-0.015) (methodGateDecision cfg MethodTaTrend stats))
+            assert
+                "method gate keeps low-sample winners unavailable until enough rows exist"
+                (insufficientWith 1 0.05 (methodGateDecision cfg MethodTaBreakout stats))
+            assert
+                "method gate ignores non-strategy live marker rows"
+                (unavailable (methodGateDecision cfg MethodKalmanOnly stats))
 
 testRiskPerTradeRejectsUpperBoundValidation :: IO ()
 testRiskPerTradeRejectsUpperBoundValidation = do
