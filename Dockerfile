@@ -17,10 +17,17 @@ COPY haskell/trader.cabal .
 COPY haskell/app app
 COPY haskell/test test
 
-# Update cabal index, fetch dependencies, and build all binaries in a single RUN to ensure package list is fresh
+# Build dependencies in parallel, then build local executables sequentially.
+# Fly remote Depot builds can otherwise race while renaming Cabal object temp
+# files for shared project modules across executables.
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cabal update && cabal fetch --enable-tests --enable-benchmarks && cabal build -j4 --disable-optimization exe:trader-hs exe:optimize-equity exe:merge-top-combos
+  cabal update \
+  && cabal fetch --enable-tests --enable-benchmarks \
+  && cabal build -j4 --disable-optimization --only-dependencies exe:trader-hs exe:optimize-equity exe:merge-top-combos \
+  && cabal build -j1 --disable-optimization exe:trader-hs \
+  && cabal build -j1 --disable-optimization exe:optimize-equity \
+  && cabal build -j1 --disable-optimization exe:merge-top-combos
 
 # Extract binaries and strip in one layer
 RUN --mount=type=cache,target=/root/.cabal \
