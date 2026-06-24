@@ -20,6 +20,7 @@ primary_region = "fra"
   # applies them to the live bots. See fly.research.toml + deploy/COMBOS_SYNC.md.
   TRADER_OPTIMIZER_ENABLED = "false"
   TRADER_OPTIMIZER_MAX_POINTS = "2000"
+  TRADER_OPTIMIZER_MAX_COMBOS = "5000"
   TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"
   # --- Cross-instance combo sync (shared S3 bus: Tigris, S3-compatible) ---
   # Provision with `fly storage create` (see deploy/COMBOS_SYNC.md). That command
@@ -34,6 +35,7 @@ primary_region = "fra"
   TRADER_STATE_S3_PREFIX = "trader-prod"
   TRADER_TOP_COMBOS_SYNC_ENABLED = "true"
   TRADER_TOP_COMBOS_SYNC_EVERY_SEC = "60"
+  TRADER_TOP_COMBOS_SYNC_MAX_COMBOS = "5000"
 
 [http_service]
   internal_port = 8080

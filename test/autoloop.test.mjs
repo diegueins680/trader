@@ -1115,6 +1115,53 @@ test("docs pin the mandatory Hetzner deploy contract for both roles", async () =
   assert.match(changelog, /maxPositionSize` at 0\.25/);
 });
 
+test("top-combo sync retention is independent from optimizer retention", async () => {
+  const main = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
+  const sourceSection = (startNeedle, length, from = 0) => {
+    const start = main.indexOf(startNeedle, from);
+    assert.notEqual(start, -1, `expected Main.hs to contain ${startNeedle}`);
+    return main.slice(start, start + length);
+  };
+
+  assert.match(main, /defaultTopCombosSyncMaxCombos\s*::\s*Int\s+defaultTopCombosSyncMaxCombos\s*=\s*5000/);
+  assert.match(main, /lookupEnv "TRADER_TOP_COMBOS_SYNC_MAX_COMBOS"/);
+  assert.match(main, /max defaultTopCombosSyncMaxCombos optimizerMaxCombos/);
+
+  const syncLoop = sourceSection("topCombosSyncLoop ::", 4500);
+  assert.match(syncLoop, /syncMaxCombos <- topCombosSyncMaxCombosFromEnv/);
+  assert.match(syncLoop, /mergeTopCombosPayloads syncMaxCombos now candidates/);
+  assert.doesNotMatch(syncLoop, /optimizerMaxCombosFromEnv/);
+
+  const importHandlerStart = main.indexOf("handleStateSyncImport ::");
+  assert.notEqual(importHandlerStart, -1, "expected Main.hs to contain handleStateSyncImport");
+  const topCombosImport = sourceSection("case sspTopCombos payload of", 4500, importHandlerStart);
+  assert.match(topCombosImport, /maxCombos <- topCombosSyncMaxCombosFromEnv/);
+  assert.match(topCombosImport, /mergeTopCombosPayloads maxCombos now \[localVal, incomingSanitized\]/);
+  assert.doesNotMatch(topCombosImport, /optimizerMaxCombosFromEnv/);
+
+  const retentionConfigPaths = [
+    "../.env.example",
+    "../fly.toml",
+    "../fly.research.toml",
+    "../deploy/hetzner/trader.research.env.example",
+    "../deploy/hetzner/trader.research.env.managed",
+    "../deploy/hetzner/trader.trading.env.example",
+    "../deploy/hetzner/trader.trading.env.managed",
+  ];
+  for (const relativePath of retentionConfigPaths) {
+    const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
+    assert.match(config, /TRADER_OPTIMIZER_MAX_COMBOS\s*(?:=|:)\s*"?5000"?/, `${relativePath} optimizer retention`);
+    assert.match(
+      config,
+      /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS\s*(?:=|:)\s*"?5000"?/,
+      `${relativePath} sync retention`,
+    );
+  }
+
+  const hetznerCompose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
+  assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
+});
+
 test("repo root package exposes the autoloop verifier script", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);

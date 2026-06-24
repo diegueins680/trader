@@ -2223,9 +2223,10 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
         then putStrLn "Top combos sync worker disabled (TRADER_TOP_COMBOS_SYNC_ENABLED=false)."
         else do
             everySec <- topCombosSyncEverySecFromEnv
+            syncMaxCombos <- topCombosSyncMaxCombosFromEnv
             let topJsonPath = tcsPath topCombosStore
             errRef <- newIORef HM.empty
-            putStrLn (printf "Top combos sync enabled: everySec=%d path=%s" everySec topJsonPath)
+            putStrLn (printf "Top combos sync enabled: everySec=%d maxCombos=%d path=%s" everySec syncMaxCombos topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
                 loop = do
                     dbFetch <- traverse fetchTopCombosReplicaDb mOps
@@ -2242,9 +2243,8 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                             if null candidates
                                 then pure Nothing
                                 else do
-                                    maxCombos <- optimizerMaxCombosFromEnv
                                     now <- getTimestampMs
-                                    let merged = mergeTopCombosPayloads maxCombos now candidates
+                                    let merged = mergeTopCombosPayloads syncMaxCombos now candidates
                                         localNeedsWrite =
                                             case tcrfPayload localFetch of
                                                 Just val -> not (topCombosPayloadEquivalent merged val)
@@ -17841,6 +17841,18 @@ optimizerMaxCombosFromEnv = do
             Just n | n >= 1 -> n
             _ -> defaultOptimizerMaxCombos
 
+defaultTopCombosSyncMaxCombos :: Int
+defaultTopCombosSyncMaxCombos = 5000
+
+topCombosSyncMaxCombosFromEnv :: IO Int
+topCombosSyncMaxCombosFromEnv = do
+    syncMaxEnv <- lookupEnv "TRADER_TOP_COMBOS_SYNC_MAX_COMBOS"
+    optimizerMaxCombos <- optimizerMaxCombosFromEnv
+    pure $
+        case syncMaxEnv >>= readMaybe of
+            Just n | n >= 1 -> n
+            _ -> max defaultTopCombosSyncMaxCombos optimizerMaxCombos
+
 defaultTopCombosMinPersist :: Int
 defaultTopCombosMinPersist = 100
 
@@ -19299,7 +19311,7 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                                         (Nothing, Just _) -> False
                                         if shouldReplace
                                             then do
-                                                maxCombos <- optimizerMaxCombosFromEnv
+                                                maxCombos <- topCombosSyncMaxCombosFromEnv
                                                 let mergedVal =
                                                         case localTopVal of
                                                             Just localVal -> mergeTopCombosPayloads maxCombos now [localVal, incomingSanitized]

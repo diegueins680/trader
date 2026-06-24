@@ -56,6 +56,7 @@ This repo ships with the placeholder prefix `trader-prod`. Keep it the same ever
 | `TRADER_STATE_S3_PREFIX` | `trader-prod` | Identical everywhere. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | *(from Tigris)* | Credentials. |
 | `TRADER_STATE_S3_FORCE_PATH_STYLE` | *(unset)* | Defaults to path-style when an endpoint is set. |
+| `TRADER_TOP_COMBOS_SYNC_MAX_COMBOS` | `5000` | Anti-entropy retention cap. Defaults to `max(TRADER_OPTIMIZER_MAX_COMBOS, 5000)` so live/read-only replicas do not shrink the shared leaderboard. |
 
 ---
 
@@ -106,6 +107,7 @@ AWS_ACCESS_KEY_ID=<tigris-access-key-from-step-1>
 AWS_SECRET_ACCESS_KEY=<tigris-secret-from-step-1>
 TRADER_TOP_COMBOS_SYNC_ENABLED=true
 TRADER_TOP_COMBOS_SYNC_EVERY_SEC=60
+TRADER_TOP_COMBOS_SYNC_MAX_COMBOS=5000
 ```
 
 `docker-compose.yml` already passes these through to the `api` service. Redeploy:
@@ -130,7 +132,7 @@ creds. Keep `TRADER_STATE_S3_PREFIX=trader-prod`.
 After all instances restart, on each you should see in the logs:
 
 ```
-Top combos sync enabled: everySec=60 path=...
+Top combos sync enabled: everySec=60 maxCombos=5000 path=...
 Top combos sync reconciled s3 (<N> combos).
 ```
 
