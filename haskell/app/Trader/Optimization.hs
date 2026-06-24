@@ -118,6 +118,12 @@ data TuneStats = TuneStats
     }
     deriving (Eq, Show)
 
+{- | Safe defaults for callers that use the convenience wrappers instead of
+passing an explicit 'TuneConfig'. Walk-forward scoring is enabled by default
+(5 folds + 1 embargo bar), and candidates below the round-trip floor are
+treated as ineligible for selection. The CLI path passes an explicit config
+from arguments, so these defaults only bind library-style callers.
+-}
 defaultTuneConfig :: Double -> TuneConfig
 defaultTuneConfig periodsPerYear =
     TuneConfig
@@ -125,9 +131,9 @@ defaultTuneConfig periodsPerYear =
         , tcPenaltyMaxDrawdown = 1.0
         , tcPenaltyTurnover = 0.0
         , tcPeriodsPerYear = max 1e-12 periodsPerYear
-        , tcWalkForwardFolds = 1
-        , tcWalkForwardEmbargoBars = 0
-        , tcMinRoundTrips = 0
+        , tcWalkForwardFolds = 5
+        , tcWalkForwardEmbargoBars = 1
+        , tcMinRoundTrips = 20
         , tcMaxThresholdCandidates = defaultMaxThresholdCandidates
         , tcStressVolMultiplier = 1.0
         , tcStressShock = 0.0

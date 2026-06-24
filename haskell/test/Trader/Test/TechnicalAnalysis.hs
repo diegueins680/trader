@@ -15,6 +15,7 @@ runTechnicalAnalysisTests = do
     testRsiBounds
     testAtrNonNegative
     testAroonPeriodOneFailsClosed
+    testAroonTiesPreferMostRecentExtreme
     testRegimeSelectorFindsTrend
     testTrendCandidateFailsClosedOnShortSeries
     testBreakoutCandidateCanTriggerLong
@@ -65,6 +66,16 @@ testAroonPeriodOneFailsClosed = do
     let highs = V.fromList [101, 102, 103]
         lows = V.fromList [99, 98, 97]
     assert "aroonSeries period 1 fails closed" (V.all (== Nothing) (aroonSeries 1 highs lows))
+
+testAroonTiesPreferMostRecentExtreme :: IO ()
+testAroonTiesPreferMostRecentExtreme = do
+    let highs = V.fromList [10, 11, 11]
+        lows = V.fromList [9, 8, 8]
+    case aroonSeries 3 highs lows V.! 2 of
+        Nothing -> assert "aroonSeries emits a point once period bars are available" False
+        Just point -> do
+            assert "Aroon up uses the most recent tied high" (aroonUp point == 100)
+            assert "Aroon down uses the most recent tied low" (aroonDown point == 100)
 
 testRegimeSelectorFindsTrend :: IO ()
 testRegimeSelectorFindsTrend = do

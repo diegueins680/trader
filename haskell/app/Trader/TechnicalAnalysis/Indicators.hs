@@ -309,14 +309,20 @@ aroonSeries period highs lows
         V.generate n step
   where
     n = V.length highs
+    -- Canonical Aroon measures bars since the MOST RECENT extreme.
+    -- 'V.maxIndex'/'V.minIndex' return the first occurrence, which biases the
+    -- indicator toward older extremes on repeated highs/lows; track the last
+    -- index achieving the extreme instead (ties resolve to the later bar).
+    lastIndexOfMax w = V.ifoldl' (\best i x -> if x >= w V.! best then i else best) 0 w
+    lastIndexOfMin w = V.ifoldl' (\best i x -> if x <= w V.! best then i else best) 0 w
     step idx
         | idx + 1 < period = Nothing
         | otherwise =
             let start = idx + 1 - period
                 highWindow = V.slice start period highs
                 lowWindow = V.slice start period lows
-                highestIdx = V.maxIndex highWindow
-                lowestIdx = V.minIndex lowWindow
+                highestIdx = lastIndexOfMax highWindow
+                lowestIdx = lastIndexOfMin lowWindow
                 barsSinceHigh = period - 1 - highestIdx
                 barsSinceLow = period - 1 - lowestIdx
                 scale = 100 / fromIntegral (period - 1)
