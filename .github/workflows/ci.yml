@@ -186,7 +186,10 @@ jobs:
             local config_path="$3"
             local app_name="$4"
             local token_override="${5:-}"
+            local token_secret_name="${6:-FLY_API_TOKEN}"
+            local unauthorized_annotation="${7:-error}"
             local config_basename
+            local app_display
 
             if [[ ! -f "$config_path" ]]; then
               echo "::notice::No ${label} Fly config at ${config_path}; skipping ${label} deploy."
@@ -194,6 +197,13 @@ jobs:
             fi
 
             config_basename="$(basename "$config_path")"
+            app_display="$app_name"
+            if [[ -z "$app_display" ]]; then
+              app_display="$(awk -F'"' '/^app = / { print $2; exit }' "$config_path")"
+            fi
+            if [[ -z "$app_display" ]]; then
+              app_display="the app configured in ${config_basename}"
+            fi
             pushd "$workdir" >/dev/null
 
             local deploy_args=(deploy . --config "$config_basename" --remote-only)
@@ -204,7 +214,7 @@ jobs:
 
             # Per-deploy token override: Fly app-scoped deploy tokens
             # only carry a discharge for a single app, but we need to
-            # deploy two (backend + frontend). Pass a per-call override
+            # deploy multiple apps. Pass a per-call override
             # so each deploy sees the token authorized for that app.
             local token_env=()
             if [[ -n "$token_override" ]]; then
@@ -231,6 +241,13 @@ jobs:
                 return 0
               fi
 
+              if grep -qiE "unauthorized|not authorized|permission denied|access denied" "$deploy_log"; then
+                echo "::${unauthorized_annotation}::${label} Fly deploy is unauthorized for ${app_display}. Set GitHub secret ${token_secret_name} to a Fly deploy token scoped to that app: fly tokens create deploy -a ${app_display}"
+                cat "$deploy_log"
+                popd >/dev/null
+                return 1
+              fi
+
               if grep -qiE "overdue invoices|update your payment information" "$deploy_log"; then
                 echo "::warning::${label} Fly deploy is blocked by Fly billing state; update Fly billing information and rerun deploy. Skipping ${label} deploy for this run."
                 popd >/dev/null
@@ -246,16 +263,16 @@ jobs:
             popd >/dev/null
           }
 
-          deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}" "${FLY_API_TOKEN}"
+          deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}" "${FLY_API_TOKEN}" "FLY_API_TOKEN" "error"
           # Research producer app (optimizer discovery). App-scoped deploy
           # tokens carry a single app's discharge, so prefer a dedicated
           # research token when configured and fall back to the primary one.
           # Non-fatal: a missing/under-scoped research token must not fail the
           # backend deploy or the Hetzner deploy workflow that keys off this run.
-          deploy_with_retries "research" "." "fly.research.toml" "${RESEARCH_FLY_APP:-trader-hs-research}" "${FLY_API_TOKEN_RESEARCH:-${FLY_API_TOKEN}}" ||
+          deploy_with_retries "research" "." "fly.research.toml" "${RESEARCH_FLY_APP:-trader-hs-research}" "${FLY_API_TOKEN_RESEARCH:-${FLY_API_TOKEN}}" "FLY_API_TOKEN_RESEARCH" "warning" ||
             echo "::warning::research Fly deploy failed; set an app-scoped FLY_API_TOKEN_RESEARCH secret (fly tokens create deploy -a trader-hs-research)."
           # If a frontend-specific token is configured (recommended,
           # because Fly app-scoped deploy tokens carry a discharge for
           # only one app), use it; otherwise fall back to the primary
           # FLY_API_TOKEN and rely on org-level authorization.
-          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}" "${FLY_API_TOKEN_FRONTEND:-${FLY_API_TOKEN}}"
+          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}" "${FLY_API_TOKEN_FRONTEND:-${FLY_API_TOKEN}}" "FLY_API_TOKEN_FRONTEND" "error"

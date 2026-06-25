@@ -53,6 +53,7 @@ module Trader.Binance (
     fetchFuturesAvailableBalance,
     fetchFuturesPositionAmt,
     fetchFuturesPositionRisks,
+    fetchFuturesPositionRisksWithResponseTimeout,
     fetchOpenOrders,
     cancelFuturesOpenOrdersByClientPrefix,
     BinanceProxyHealth (..),
@@ -2200,7 +2201,16 @@ futuresPositionRiskLeverageSane fpr =
      in not (isNaN lev || isInfinite lev) && lev > 0 && lev <= 125
 
 fetchFuturesPositionRisks :: BinanceEnv -> IO [FuturesPositionRisk]
-fetchFuturesPositionRisks env = do
+fetchFuturesPositionRisks =
+    fetchFuturesPositionRisksWithRequest id
+
+fetchFuturesPositionRisksWithResponseTimeout :: Int -> BinanceEnv -> IO [FuturesPositionRisk]
+fetchFuturesPositionRisksWithResponseTimeout timeoutMicros =
+    fetchFuturesPositionRisksWithRequest $ \req ->
+        req{responseTimeout = responseTimeoutMicro (max 1 timeoutMicros)}
+
+fetchFuturesPositionRisksWithRequest :: (Request -> Request) -> BinanceEnv -> IO [FuturesPositionRisk]
+fetchFuturesPositionRisksWithRequest adjustRequest env = do
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesPositionRisks requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
@@ -2215,11 +2225,12 @@ fetchFuturesPositionRisks env = do
                 qs = renderSimpleQuery True paramsSigned
             req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
             let req =
-                    req0
-                        { method = "GET"
-                        , queryString = qs
-                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                        }
+                    adjustRequest $
+                        req0
+                            { method = "GET"
+                            , queryString = qs
+                            , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                            }
             binanceHttp env "futures/positionRisk" req
     resp <- withBinanceTimestampRetry env send
     ensure2xx "futures/positionRisk" resp

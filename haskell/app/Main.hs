@@ -190,6 +190,7 @@ import Trader.Binance (
     fetchFuturesOpenAlgoOrders,
     fetchFuturesPositionAmt,
     fetchFuturesPositionRisks,
+    fetchFuturesPositionRisksWithResponseTimeout,
     fetchKlines,
     fetchKlinesBetween,
     fetchKlinesRaw,
@@ -5754,7 +5755,7 @@ binancePositionsTimeoutMessage :: Int -> String
 binancePositionsTimeoutMessage timeoutSec =
     "Binance positions timed out after "
         ++ show timeoutSec
-        ++ "s while fetching futures positionRisk. Showing cached positions when available; try again or increase TRADER_BINANCE_POSITIONS_TIMEOUT_SEC."
+        ++ "s while loading futures positions. Showing cached positions when available; try again or increase TRADER_BINANCE_POSITIONS_TIMEOUT_SEC."
 
 isBinancePositionsTimeoutMessage :: String -> Bool
 isBinancePositionsTimeoutMessage =
@@ -5767,6 +5768,20 @@ timeBinancePositionsStep label action = do
         `finally` do
             finished <- getTimestampMs
             putStrLn (printf "Binance positions timing: %s=%dms" label (max 0 (finished - started)))
+
+binancePositionsIntervalLimit :: Args -> ApiBinancePositionsRequest -> (String, Int)
+binancePositionsIntervalLimit baseArgs params =
+    let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
+        limitRaw = fromMaybe 120 (abpLimit params)
+        limitSafe = max 10 (min 1000 limitRaw)
+     in (interval, limitSafe)
+
+binancePositionsOverallTimeoutMicros :: Int -> Int
+binancePositionsOverallTimeoutMicros timeoutSec =
+    max 1 (timeoutSec + 5) * 1000000
+
+defaultBinancePositionsTimeoutSec :: Int
+defaultBinancePositionsTimeoutSec = 15
 
 data ComboParamsRow = ComboParamsRow
     { cprFinalEquity :: !(Maybe Double)
@@ -14803,7 +14818,7 @@ runRestApi cliArgs mWebhook = do
         positionsTimeoutSec =
             case positionsTimeoutEnv >>= readMaybe of
                 Just n | n >= 1 -> n
-                _ -> 15
+                _ -> defaultBinancePositionsTimeoutSec
         limits =
             ApiComputeLimits
                 { aclMaxBarsLstm =
@@ -21346,16 +21361,15 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
     apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
     urls <- resolveBinanceBaseUrls
     let baseUrl = selectBinanceBaseUrl urls testnet market
-        interval = fromMaybe (argInterval baseArgs) (abpInterval params)
-        limitRaw = fromMaybe 120 (abpLimit params)
-        limitSafe = max 10 (min 1000 limitRaw)
+        (interval, limitSafe) = binancePositionsIntervalLimit baseArgs params
     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
     advanceRequestProgressMaybe mTracker "positions" (Just ("positionRisk timeout " ++ show positionsTimeoutSec ++ "s"))
+    let positionRiskHttpTimeoutMicros = binancePositionsOverallTimeoutMicros positionsTimeoutSec
     r <-
         try
             ( timeout
                 (positionsTimeoutSec * 1000000)
-                (timeBinancePositionsStep "positionRisk" (fetchFuturesPositionRisks env))
+                (timeBinancePositionsStep "positionRisk" (fetchFuturesPositionRisksWithResponseTimeout positionRiskHttpTimeoutMicros env))
             ) ::
             IO (Either SomeException (Maybe [FuturesPositionRisk]))
     case r of
@@ -21418,6 +21432,31 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
                     , abprError = Nothing
                     }
 
+computeBinancePositionsResponseWithDeadline :: Maybe (RequestProgressStore, String) -> Maybe OpsStore -> Args -> BinanceMarket -> Bool -> ApiBinancePositionsRequest -> Int -> IO ApiBinancePositionsResponse
+computeBinancePositionsResponseWithDeadline mTracker mOps baseArgs market testnet params positionsTimeoutSec = do
+    let (interval, limitSafe) = binancePositionsIntervalLimit baseArgs params
+        timeoutMsg = binancePositionsTimeoutMessage positionsTimeoutSec
+    mResult <-
+        timeout
+            (binancePositionsOverallTimeoutMicros positionsTimeoutSec)
+            ( computeBinancePositionsResponse
+                mTracker
+                mOps
+                baseArgs
+                market
+                testnet
+                params
+                positionsTimeoutSec
+            )
+    case mResult of
+        Just out -> pure out
+        Nothing -> do
+            advanceRequestProgressMaybe mTracker "timeout" (Just timeoutMsg)
+            mCached <- cachedBinancePositionsResponse mOps market testnet interval limitSafe (Just timeoutMsg)
+            case mCached of
+                Just cached -> pure cached
+                Nothing -> throwIO (userError timeoutMsg)
+
 handleBinancePositions :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respond = do
     let mTracker = requestProgressTracker requestProgressStore req
@@ -21441,7 +21480,7 @@ handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respond 
                                             startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
                                             result <-
                                                 try
-                                                    ( computeBinancePositionsResponse
+                                                    ( computeBinancePositionsResponseWithDeadline
                                                         mTracker
                                                         mOps
                                                         baseArgs
@@ -21493,7 +21532,7 @@ handleBinancePositionsGet requestProgressStore reqLimits mOps baseArgs req respo
                                     startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
                                     result <-
                                         try
-                                            ( computeBinancePositionsResponse
+                                            ( computeBinancePositionsResponseWithDeadline
                                                 mTracker
                                                 mOps
                                                 baseArgs
