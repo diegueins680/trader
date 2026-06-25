@@ -277,12 +277,15 @@ import {
   sigBool,
   sigNumber,
   sigText,
+  sortBinancePositions,
   splitStats,
   symbolFormatExample,
   symbolFormatPattern,
   trimBinanceComboSuffix,
   tuneRatioBounds,
   type ActiveAsyncJob,
+  type BinancePositionSortDirection,
+  type BinancePositionSortKey,
   type BinancePnlAnalysis,
   type BinancePnlRow,
   type BinancePositionsUiState,
@@ -1729,6 +1732,8 @@ export function App() {
     response: null,
   });
   const [binancePositionsBars, setBinancePositionsBars] = useState(200);
+  const [binancePositionsSortKey, setBinancePositionsSortKey] = useState<BinancePositionSortKey>("symbol");
+  const [binancePositionsSortDirection, setBinancePositionsSortDirection] = useState<BinancePositionSortDirection>("asc");
   const [binanceClosePositionKey, setBinanceClosePositionKey] = useState<string | null>(null);
   const binancePositionsAutoKeyRef = useRef<string | null>(null);
 
@@ -6654,10 +6659,8 @@ export function App() {
 
   const binancePositionsList = useMemo(() => {
     const raw = binancePositionsUi.response?.positions ?? [];
-    return raw
-      .filter(isOpenBinancePosition)
-      .sort((a, b) => a.symbol.localeCompare(b.symbol));
-  }, [binancePositionsUi.response?.positions]);
+    return sortBinancePositions(raw.filter(isOpenBinancePosition), binancePositionsSortKey, binancePositionsSortDirection);
+  }, [binancePositionsSortDirection, binancePositionsSortKey, binancePositionsUi.response?.positions]);
   const binancePositionsDigest = useMemo(() => {
     let totalPnl = 0;
     let totalNotional = 0;
@@ -10486,6 +10489,46 @@ export function App() {
                   <div className="hint">Uses the current interval ({form.interval}).</div>
                 </div>
                 <div className="field">
+                  <label className="label" htmlFor="positionsSortKey">
+                    Order by
+                  </label>
+                  <select
+                    id="positionsSortKey"
+                    className="select"
+                    value={binancePositionsSortKey}
+                    onChange={(e) => setBinancePositionsSortKey(e.target.value as BinancePositionSortKey)}
+                  >
+                    <option value="symbol">Symbol</option>
+                    <option value="pnl">PNL</option>
+                    <option value="pnlPct">PNL % of notional</option>
+                    <option value="notional">Notional size</option>
+                    <option value="quantity">Base quantity</option>
+                    <option value="leverage">Leverage</option>
+                    <option value="liquidationDistance">Liquidation distance</option>
+                    <option value="margin">Estimated margin</option>
+                    <option value="entry">Entry price</option>
+                    <option value="mark">Mark price</option>
+                    <option value="breakEven">Break-even price</option>
+                    <option value="side">Side</option>
+                  </select>
+                  <div className="hint">Applies to open positions and orphaned-position ordering.</div>
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="positionsSortDirection">
+                    Direction
+                  </label>
+                  <select
+                    id="positionsSortDirection"
+                    className="select"
+                    value={binancePositionsSortDirection}
+                    onChange={(e) => setBinancePositionsSortDirection(e.target.value as BinancePositionSortDirection)}
+                  >
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                  </select>
+                  <div className="hint">Missing metric values stay at the bottom.</div>
+                </div>
+                <div className="field">
                   <div className="label">Actions</div>
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
@@ -10507,6 +10550,9 @@ export function App() {
                       </>
                     ) : null}
                     <span className="badge">{binancePositionsList.length} positions</span>
+                    <span className="badge">
+                      Ordered {binancePositionsSortDirection === "asc" ? "ascending" : "descending"}
+                    </span>
                   </div>
                   {binancePositionsInputError ? (
                     <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
