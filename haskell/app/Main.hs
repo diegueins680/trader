@@ -5781,7 +5781,7 @@ binancePositionsOverallTimeoutMicros timeoutSec =
     max 1 (timeoutSec + 5) * 1000000
 
 defaultBinancePositionsTimeoutSec :: Int
-defaultBinancePositionsTimeoutSec = 15
+defaultBinancePositionsTimeoutSec = 45
 
 data ComboParamsRow = ComboParamsRow
     { cprFinalEquity :: !(Maybe Double)

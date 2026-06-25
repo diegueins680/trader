@@ -104,7 +104,7 @@ If `docker push` fails with `403 Forbidden` (often on a `HEAD .../manifests/<tag
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
     - `TRADER_API_TRADE_TIMEOUT_SEC` (default: `600`)
-    - `TRADER_BINANCE_POSITIONS_TIMEOUT_SEC` (default: `15`)
+    - `TRADER_BINANCE_POSITIONS_TIMEOUT_SEC` (default: `45`)
     - `TRADER_API_MAX_BARS_LSTM` (default: `1000`)
     - `TRADER_API_MAX_EPOCHS` (default: `100`)
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`; set to `50` to allow larger LSTM hidden sizes)
