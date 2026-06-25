@@ -85,6 +85,7 @@ async function withApiModuleNoWindow(fetchImpl, run) {
 
 test("api client preserves relative base pathname and query for health requests", async () => {
   const calls = [];
+  let tenantHeader = null;
   await withApiModule(
     {
       apiBaseUrl: "/api/base?tenantKey=demo&mode=proxy",
@@ -92,8 +93,9 @@ test("api client preserves relative base pathname and query for health requests"
       apiFallbackUrl: "",
       apiToken: "",
     },
-    async (url) => {
+    async (url, init = {}) => {
       calls.push(String(url));
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
       return jsonResponse(200, { status: "ok" });
     },
     async (api) => {
@@ -101,7 +103,8 @@ test("api client preserves relative base pathname and query for health requests"
       assert.equal(out.status, "ok");
     },
   );
-  assert.deepEqual(calls, ["/api/base/health?tenantKey=demo&mode=proxy"]);
+  assert.equal(tenantHeader, "demo");
+  assert.deepEqual(calls, ["/api/base/health?mode=proxy"]);
 });
 
 test("api client keeps base and request query params for relative bot URLs", async () => {
@@ -131,11 +134,12 @@ test("api client keeps base and request query params for relative bot URLs", asy
     },
   );
   assert.equal(tenantHeader, "tenant-request");
-  assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100&tenantKey=tenant-request"]);
+  assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100"]);
 });
 
 test("api client preserves exact safe integer query params for bot status, ops, and ops performance", async () => {
   const calls = [];
+  const tenantHeaders = [];
   await withApiModule(
     {
       apiBaseUrl: "/api",
@@ -143,8 +147,9 @@ test("api client preserves exact safe integer query params for bot status, ops, 
       apiFallbackUrl: "",
       apiToken: "",
     },
-    async (url) => {
+    async (url, init = {}) => {
       calls.push(String(url));
+      tenantHeaders.push(new Headers(init.headers).get("X-Tenant-Key"));
       return jsonResponse(200, { ok: true, running: false });
     },
     async (api) => {
@@ -170,14 +175,16 @@ test("api client preserves exact safe integer query params for bot status, ops, 
     },
   );
   assert.deepEqual(calls, [
-    "/api/bot/status?tail=25&tenantKey=tenant-status",
-    "/api/ops?limit=10&since=20&fromMs=30&toMs=40&bot=1&tenantKey=tenant-ops",
-    "/api/ops/performance?commitLimit=7&comboLimit=9&tenantKey=tenant-perf",
+    "/api/bot/status?tail=25",
+    "/api/ops?limit=10&since=20&fromMs=30&toMs=40&bot=1",
+    "/api/ops/performance?commitLimit=7&comboLimit=9",
   ]);
+  assert.deepEqual(tenantHeaders, ["tenant-status", "tenant-ops", "tenant-perf"]);
 });
 
 test("api client omits fractional and unsafe integer query params instead of truncating them", async () => {
   const calls = [];
+  const tenantHeaders = [];
   await withApiModule(
     {
       apiBaseUrl: "/api",
@@ -185,8 +192,9 @@ test("api client omits fractional and unsafe integer query params instead of tru
       apiFallbackUrl: "",
       apiToken: "",
     },
-    async (url) => {
+    async (url, init = {}) => {
       calls.push(String(url));
+      tenantHeaders.push(new Headers(init.headers).get("X-Tenant-Key"));
       return jsonResponse(200, { ok: true, running: false });
     },
     async (api) => {
@@ -216,15 +224,17 @@ test("api client omits fractional and unsafe integer query params instead of tru
     },
   );
   assert.deepEqual(calls, [
-    "/api/bot/status?tenantKey=tenant-fractional",
-    "/api/bot/status?tenantKey=tenant-unsafe",
-    "/api/ops?bot=1&tenantKey=tenant-ops",
-    "/api/ops/performance?tenantKey=tenant-perf",
+    "/api/bot/status",
+    "/api/bot/status",
+    "/api/ops?bot=1",
+    "/api/ops/performance",
   ]);
+  assert.deepEqual(tenantHeaders, ["tenant-fractional", "tenant-unsafe", "tenant-ops", "tenant-perf"]);
 });
 
 test("api client preserves absolute base path and merges base query with state sync query", async () => {
   const calls = [];
+  let tenantHeader = null;
   await withApiModule(
     {
       apiBaseUrl: "https://api.example.com/base?tenantKey=demo&mode=direct",
@@ -232,8 +242,9 @@ test("api client preserves absolute base path and merges base query with state s
       apiFallbackUrl: "",
       apiToken: "",
     },
-    async (url) => {
+    async (url, init = {}) => {
       calls.push(String(url));
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
       return jsonResponse(200, {});
     },
     async (api) => {
@@ -244,7 +255,8 @@ test("api client preserves absolute base path and merges base query with state s
       assert.deepEqual(out, {});
     },
   );
-  assert.deepEqual(calls, ["https://api.example.com/base/state/sync?mode=direct&tenantKey=tenant-request"]);
+  assert.equal(tenantHeader, "tenant-request");
+  assert.deepEqual(calls, ["https://api.example.com/base/state/sync?mode=direct"]);
 });
 
 test("api fallback does not use 401 for explicit direct hosts", async () => {
@@ -838,7 +850,7 @@ test("api client forwards tenant key as X-Tenant-Key from query params", async (
   assert.equal(tenantHeader, "tenant-query");
 });
 
-test("api client skips X-Tenant-Key header for cross-origin direct hosts", async () => {
+test("api client forwards X-Tenant-Key for cross-origin direct-host tenant queries", async () => {
   let tenantHeader = null;
   await withApiModule(
     {
@@ -849,7 +861,7 @@ test("api client skips X-Tenant-Key header for cross-origin direct hosts", async
     },
     async (url, init = {}) => {
       const href = String(url);
-      if (!href.startsWith("https://api.example.com/bot/status?")) throw new Error(`unexpected request: ${href}`);
+      if (href !== "https://api.example.com/bot/status?tail=100") throw new Error(`unexpected request: ${href}`);
       tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
       return jsonResponse(200, { running: false });
     },
@@ -858,7 +870,7 @@ test("api client skips X-Tenant-Key header for cross-origin direct hosts", async
       assert.equal(out.running, false);
     },
   );
-  assert.equal(tenantHeader, null);
+  assert.equal(tenantHeader, "tenant-query");
 });
 
 test("api client forwards X-Tenant-Key for cross-origin direct-host writes", async () => {

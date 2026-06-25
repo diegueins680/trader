@@ -15,8 +15,8 @@ corsSuite :: [(String, IO ())]
 corsSuite =
     [ ("implicit cors allows health reads", testHealthReadAllowed)
     , ("implicit cors allows optimizer combos reads", testOptimizerCombosReadAllowed)
-    , ("implicit cors allows tenant-scoped ops reads", testTenantScopedOpsReadAllowed)
-    , ("implicit cors rejects tenant-scoped reads without tenant key", testTenantScopedReadRequiresTenantKey)
+    , ("implicit cors rejects tenant-scoped query reads", testTenantScopedQueryReadBlocked)
+    , ("implicit cors rejects tenant-scoped reads without auth headers", testTenantScopedReadRequiresAuthHeader)
     , ("implicit cors rejects non-read tenant routes without auth headers", testTenantScopedWriteStillBlocked)
     , ("auth-like headers still allow origin echo", testAuthHeaderAllowsOriginEcho)
     , ("preflight allows request-progress header on tenant writes", testTenantWritePreflightAllowsRequestProgressHeader)
@@ -56,15 +56,15 @@ testOptimizerCombosReadAllowed :: IO ()
 testOptimizerCombosReadAllowed =
     expectOriginAllowed "GET /api/optimizer/combos echoes origin" (mkRequest "GET" ["api", "optimizer", "combos"] [] [])
 
-testTenantScopedOpsReadAllowed :: IO ()
-testTenantScopedOpsReadAllowed =
-    expectOriginAllowed
-        "GET /ops with tenantKey echoes origin"
+testTenantScopedQueryReadBlocked :: IO ()
+testTenantScopedQueryReadBlocked =
+    expectOriginBlocked
+        "GET /ops with query tenantKey does not echo origin"
         (mkRequest "GET" ["ops"] [("tenantKey", Just "binance:abc123")] [])
 
-testTenantScopedReadRequiresTenantKey :: IO ()
-testTenantScopedReadRequiresTenantKey =
-    expectOriginBlocked "GET /ops without tenantKey does not echo origin" (mkRequest "GET" ["ops"] [] [])
+testTenantScopedReadRequiresAuthHeader :: IO ()
+testTenantScopedReadRequiresAuthHeader =
+    expectOriginBlocked "GET /ops without auth-like headers does not echo origin" (mkRequest "GET" ["ops"] [] [])
 
 testTenantScopedWriteStillBlocked :: IO ()
 testTenantScopedWriteStillBlocked =

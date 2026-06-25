@@ -5350,8 +5350,8 @@ export function App() {
           setListenKeyUi((s) => ({ ...s, wsStatus: "connecting", wsError: reason ?? s.wsError }));
         };
 
-        const requestHeaders = { ...(authHeaders ?? {}), Accept: "text/event-stream" };
-        const url = `${listenKeyStreamBase}/binance/listenKey/stream?tenantKey=${encodeURIComponent(tenantKey)}`;
+        const requestHeaders = { ...(authHeaders ?? {}), Accept: "text/event-stream", "X-Tenant-Key": tenantKey };
+        const url = `${listenKeyStreamBase}/binance/listenKey/stream`;
         const res = await fetch(url, {
           method: "GET",
           headers: requestHeaders,

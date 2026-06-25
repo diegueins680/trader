@@ -7,7 +7,6 @@ module Trader.Cors (
     withCors,
 ) where
 
-import Control.Applicative ((<|>))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.CaseInsensitive as CI
 import Data.List (find)
@@ -19,7 +18,7 @@ import Network.HTTP.Types (RequestHeaders, ResponseHeaders)
 import qualified Network.Wai as Wai
 import System.Environment (lookupEnv)
 
-import Trader.App.Runtime (TenantKey, normalizeTenantKey, splitEnvList)
+import Trader.App.Runtime (splitEnvList)
 import Trader.Text (normalizeKey)
 
 data CorsConfig = CorsConfig
@@ -50,18 +49,6 @@ lookupHeaderNormalized wanted hs =
     let wantedNorm = normalizeKey wanted
      in snd <$> find (\(h, _) -> normalizeKey (BS.unpack (CI.original h)) == wantedNorm) hs
 
-tenantKeyFromRequest :: Wai.Request -> Maybe TenantKey
-tenantKeyFromRequest req =
-    let headers = Wai.requestHeaders req
-        headerRaw = lookupHeaderNormalized "X-Tenant-Key" headers
-        queryRaw =
-            case lookup "tenantKey" (Wai.queryString req) of
-                Just (Just raw) -> Just raw
-                _ -> Nothing
-        headerStr = fmap BS.unpack headerRaw
-        queryStr = fmap BS.unpack queryRaw
-     in normalizeTenantKey headerStr <|> normalizeTenantKey queryStr
-
 requestPathNoApiPrefix :: Wai.Request -> [Text]
 requestPathNoApiPrefix req =
     case Wai.pathInfo req of
@@ -86,23 +73,13 @@ corsRequestHasAuthHeaders req =
 corsRequestHasImplicitReadOrigin :: Wai.Request -> Bool
 corsRequestHasImplicitReadOrigin req =
     Wai.requestMethod req == "GET"
-        && ( path `elem` publicReadPaths
-                || (path `elem` tenantScopedReadPaths && isJust (tenantKeyFromRequest req))
-           )
+        && path `elem` publicReadPaths
   where
     path = requestPathNoApiPrefix req
     publicReadPaths =
         [ ["health"]
         , ["version"]
         , ["optimizer", "combos"]
-        ]
-    tenantScopedReadPaths =
-        [ ["ops"]
-        , ["ops", "performance"]
-        , ["outbox"]
-        , ["bot", "status"]
-        , ["state", "sync"]
-        , ["binance", "listenKey", "stream"]
         ]
 
 corsHeadersFor :: CorsConfig -> Wai.Request -> ResponseHeaders

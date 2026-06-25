@@ -185,7 +185,6 @@ import Trader.Binance (
     fetchBookTickerQuote,
     fetchCloses,
     fetchFreeBalance,
-    fetchFuturesAccountUid,
     fetchFuturesAvailableBalance,
     fetchFuturesMarkPrice,
     fetchFuturesOpenAlgoOrders,
@@ -8030,13 +8029,8 @@ tenantKeyFromRequest :: Wai.Request -> Maybe TenantKey
 tenantKeyFromRequest req =
     let headers = Wai.requestHeaders req
         headerRaw = lookupHeaderNormalized "X-Tenant-Key" headers
-        queryRaw =
-            case lookup (BS.pack "tenantKey") (Wai.queryString req) of
-                Just (Just raw) -> Just raw
-                _ -> Nothing
         headerStr = fmap BS.unpack headerRaw
-        queryStr = fmap BS.unpack queryRaw
-     in normalizeTenantKey headerStr <|> normalizeTenantKey queryStr
+     in normalizeTenantKey headerStr
 
 requestOriginIp :: Wai.Request -> Maybe Text
 requestOriginIp req =
@@ -14620,8 +14614,23 @@ runRestApi cliArgs mWebhook = do
                 }
     mCommit <- getBuildCommit
     let buildInfo = BuildInfo traderVersion mCommit
-    apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
+    apiTokenRaw <- lookupEnv "TRADER_API_TOKEN"
+    allowUnauthenticatedApiEnv <- lookupEnv "TRADER_ALLOW_UNAUTHENTICATED_API"
     multiUserEnv <- lookupEnv "TRADER_MULTI_USER"
+    let apiToken =
+            case trim <$> apiTokenRaw of
+                Just tok | not (null tok) -> Just (BS.pack tok)
+                _ -> Nothing
+        allowUnauthenticatedApi = readEnvBool allowUnauthenticatedApiEnv False
+    when (isNothing apiToken && not allowUnauthenticatedApi) $
+        ioError
+            ( userError
+                ( unlines
+                    [ "TRADER_API_TOKEN is required in --serve mode."
+                    , "Set TRADER_API_TOKEN to protect the API, or set TRADER_ALLOW_UNAUTHENTICATED_API=true only for isolated local development."
+                    ]
+                )
+            )
     corsConfig <- resolveCorsConfig apiToken
     timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
     maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
@@ -14737,10 +14746,12 @@ runRestApi cliArgs mWebhook = do
         else case ccAllowedOrigins corsConfig of
             [] ->
                 if ccAllowAuthOrigin corsConfig
-                    then putStrLn "CORS: implicit read/auth origins allowed (auth-like headers, /health, /version, /optimizer/combos, and tenantKey-scoped GETs)"
+                    then putStrLn "CORS: implicit read/auth origins allowed (auth-like headers, /health, /version, and /optimizer/combos)"
                     else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
             origins ->
                 putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
+    when (isNothing apiToken && allowUnauthenticatedApi) $
+        putStrLn "WARNING: TRADER_ALLOW_UNAUTHENTICATED_API=true; API requests are not authenticated."
     apiCache <- newApiCache cacheMaxEntries cacheTtlMs
     putStrLn
         ( printf
@@ -15917,6 +15928,13 @@ pruneJobStore store now =
                     pure jobs2
         )
 
+forkBackground :: IO () -> IO ()
+forkBackground action =
+    void $
+        forkIO $ do
+            _ <- try action :: IO (Either SomeException ())
+            pure ()
+
 data StoredAsyncJobMeta = StoredAsyncJobMeta
     { sajStatus :: !String
     , sajCreatedAtMs :: !(Maybe Int64)
@@ -16045,8 +16063,6 @@ startJob :: (ToJSON a) => Maybe OpsStore -> JobStore a -> IO a -> IO (Either Str
 startJob mOps store action = do
     now <- getTimestampMs
     pruneJobStore store now
-    pruneJobStoreDisk store now
-
     let maxRunning = max 1 (jsMaxRunning store)
     (running, ok) <-
         modifyMVar (jsRunning store) $ \n ->
@@ -16076,12 +16092,13 @@ startJob mOps store action = do
                         <> "-"
                         <> T.pack (printf "%016x" r)
             out <- newEmptyMVar
-            persistAsyncJobState mOps store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
             tid <-
                 forkIO $
                     ( do
-                        r <- try action
-                        case r of
+                        pruneJobStoreDisk store now
+                        persistAsyncJobState mOps store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
+                        result <- try action
+                        case result of
                             Right v -> do
                                 doneAt <- getTimestampMs
                                 persistAsyncJobState mOps store jobId (object ["status" .= ("done" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "result" .= v])
@@ -19608,33 +19625,36 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                                                 let paramsJson = Just (toJSON (sanitizeApiParams params))
                                                     argsJson = Just (argsPublicJson argsOk)
                                                     noCache = requestWantsNoCache req
-                                                r <-
-                                                    startJob mOps store $ do
-                                                        sig <-
-                                                            if noCache
-                                                                then computeLatestSignalFromArgsWithLimits limits mOps argsOk
-                                                                else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
-                                                        opsAppendMaybe mOps mReqTenant "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing (T.pack <$> argBinanceSymbol argsOk) Nothing
-                                                        outboxEnqueueMaybe
-                                                            mOps
-                                                            mReqTenant
-                                                            "trader.v1.signals.generated"
-                                                            (Just (ownerKeyFromArgs mReqTenant argsOk))
-                                                            ( object
-                                                                [ "ownerKey" .= ownerKeyFromArgs mReqTenant argsOk
-                                                                , "signal" .= sig
-                                                                ]
-                                                            )
-                                                        pure sig
+                                                    jobAction =
+                                                        ( do
+                                                            sig <-
+                                                                if noCache
+                                                                    then computeLatestSignalFromArgsWithLimits limits mOps argsOk
+                                                                    else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
+                                                            opsAppendMaybe mOps mReqTenant "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing (T.pack <$> argBinanceSymbol argsOk) Nothing
+                                                            outboxEnqueueMaybe
+                                                                mOps
+                                                                mReqTenant
+                                                                "trader.v1.signals.generated"
+                                                                (Just (ownerKeyFromArgs mReqTenant argsOk))
+                                                                ( object
+                                                                    [ "ownerKey" .= ownerKeyFromArgs mReqTenant argsOk
+                                                                    , "signal" .= sig
+                                                                    ]
+                                                                )
+                                                            pure sig
+                                                        )
+                                                r <- startJob mOps store jobAction
                                                 case r of
                                                     Left e -> respond (jsonError status429 e)
                                                     Right jobId -> do
-                                                        outboxEnqueueMaybe
-                                                            mOps
-                                                            mReqTenant
-                                                            "trader.v1.jobs.requested"
-                                                            (Just jobId)
-                                                            (object ["jobId" .= jobId, "jobType" .= ("signal" :: String), "status" .= ("running" :: String)])
+                                                        forkBackground $
+                                                            outboxEnqueueMaybe
+                                                                mOps
+                                                                mReqTenant
+                                                                "trader.v1.jobs.requested"
+                                                                (Just jobId)
+                                                                (object ["jobId" .= jobId, "jobType" .= ("signal" :: String), "status" .= ("running" :: String)])
                                                         respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -19862,12 +19882,13 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                             TradeIdemConflict msg -> respond (jsonError status409 msg)
                                                             TradeIdemBusy msg -> respond (jsonError status409 msg)
                                                             TradeIdemCached cachedValue -> do
-                                                                outboxEnqueueMaybe
-                                                                    mOps
-                                                                    mOpsTenant
-                                                                    "trader.v1.jobs.requested"
-                                                                    Nothing
-                                                                    (object ["jobType" .= ("trade" :: String), "status" .= ("cached" :: String)])
+                                                                forkBackground $
+                                                                    outboxEnqueueMaybe
+                                                                        mOps
+                                                                        mOpsTenant
+                                                                        "trader.v1.jobs.requested"
+                                                                        Nothing
+                                                                        (object ["jobType" .= ("trade" :: String), "status" .= ("cached" :: String)])
                                                                 respond (jsonValue status200 (object ["status" .= ("done" :: String), "result" .= cachedValue]))
                                                             TradeIdemAcquire -> do
                                                                 r <-
@@ -19938,12 +19959,13 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                             _ -> pure ()
                                                                         respond (jsonError status429 e)
                                                                     Right jobId -> do
-                                                                        outboxEnqueueMaybe
-                                                                            mOps
-                                                                            mReqTenant
-                                                                            "trader.v1.jobs.requested"
-                                                                            (Just jobId)
-                                                                            (object ["jobId" .= jobId, "jobType" .= ("trade" :: String), "status" .= ("running" :: String)])
+                                                                        forkBackground $
+                                                                            outboxEnqueueMaybe
+                                                                                mOps
+                                                                                mReqTenant
+                                                                                "trader.v1.jobs.requested"
+                                                                                (Just jobId)
+                                                                                (object ["jobId" .= jobId, "jobType" .= ("trade" :: String), "status" .= ("running" :: String)])
                                                                         respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 extractBacktestFinalEquity :: Aeson.Value -> Maybe Double
@@ -20034,43 +20056,46 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                                         let paramsJson = Just (toJSON (sanitizeApiParams params))
                                             argsJson = Just (argsPublicJson argsOk)
                                             noCache = requestWantsNoCache req
-                                        r <-
-                                            startJob mOps store $ do
-                                                let computeAction =
-                                                        if noCache
-                                                            then computeBacktestFromArgsWithLimits limits mOps argsOk
-                                                            else computeBacktestFromArgsCached apiCache limits mOps argsOk
-                                                gateResult <- runBacktestWithGateWait backtestGate computeAction
-                                                case gateResult of
-                                                    Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
-                                                    Right out -> do
-                                                        opsAppendMaybe
-                                                            mOps
-                                                            mReqTenant
-                                                            "backtest"
-                                                            paramsJson
-                                                            argsJson
-                                                            (Just out)
-                                                            (extractBacktestFinalEquity out)
-                                                            Nothing
-                                                            (T.pack <$> argBinanceSymbol argsOk)
-                                                            Nothing
-                                                        outboxEnqueueMaybe
-                                                            mOps
-                                                            mReqTenant
-                                                            "trader.v1.backtests.completed"
-                                                            (Just (ownerKeyFromArgs mReqTenant argsOk))
-                                                            (object ["ownerKey" .= ownerKeyFromArgs mReqTenant argsOk, "result" .= out])
-                                                        pure out
+                                            jobAction =
+                                                ( do
+                                                    let computeAction =
+                                                            if noCache
+                                                                then computeBacktestFromArgsWithLimits limits mOps argsOk
+                                                                else computeBacktestFromArgsCached apiCache limits mOps argsOk
+                                                    gateResult <- runBacktestWithGateWait backtestGate computeAction
+                                                    case gateResult of
+                                                        Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
+                                                        Right out -> do
+                                                            opsAppendMaybe
+                                                                mOps
+                                                                mReqTenant
+                                                                "backtest"
+                                                                paramsJson
+                                                                argsJson
+                                                                (Just out)
+                                                                (extractBacktestFinalEquity out)
+                                                                Nothing
+                                                                (T.pack <$> argBinanceSymbol argsOk)
+                                                                Nothing
+                                                            outboxEnqueueMaybe
+                                                                mOps
+                                                                mReqTenant
+                                                                "trader.v1.backtests.completed"
+                                                                (Just (ownerKeyFromArgs mReqTenant argsOk))
+                                                                (object ["ownerKey" .= ownerKeyFromArgs mReqTenant argsOk, "result" .= out])
+                                                            pure out
+                                                )
+                                        r <- startJob mOps store jobAction
                                         case r of
                                             Left e -> respond (jsonError status429 e)
                                             Right jobId -> do
-                                                outboxEnqueueMaybe
-                                                    mOps
-                                                    mReqTenant
-                                                    "trader.v1.jobs.requested"
-                                                    (Just jobId)
-                                                    (object ["jobId" .= jobId, "jobType" .= ("backtest" :: String), "status" .= ("running" :: String)])
+                                                forkBackground $
+                                                    outboxEnqueueMaybe
+                                                        mOps
+                                                        mReqTenant
+                                                        "trader.v1.jobs.requested"
+                                                        (Just jobId)
+                                                        (object ["jobId" .= jobId, "jobType" .= ("backtest" :: String), "status" .= ("running" :: String)])
                                                 respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleAsyncPoll :: (ToJSON a) => Maybe OpsStore -> JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -21040,12 +21065,6 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
     let baseUrl = selectBinanceBaseUrl urls testnet market
     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
     r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
-    advanceRequestProgressMaybe mTracker "account UID" Nothing
-    accountUidResult <- try (fetchFuturesAccountUid env) :: IO (Either SomeException (Maybe Int64))
-    let accountUid =
-            case accountUidResult of
-                Right v -> v
-                Left _ -> Nothing
     case r of
         Left ex -> throwIO ex
         Right positions -> do
@@ -21095,7 +21114,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
                     , abprPositions = map toApiPosition openPositions
                     , abprCharts = catMaybes chartsRaw
                     , abprFetchedAtMs = now
-                    , abprAccountUid = accountUid
+                    , abprAccountUid = Nothing
                     }
 
 handleBinancePositions :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived

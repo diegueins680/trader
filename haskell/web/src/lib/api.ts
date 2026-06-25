@@ -200,6 +200,19 @@ function tenantKeyFromPath(path: string): string | null {
   }
 }
 
+function pathWithoutTenantKey(path: string): string {
+  const hashIndex = path.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? path.slice(0, hashIndex) : path;
+  const hash = hashIndex >= 0 ? path.slice(hashIndex) : "";
+  const queryIndex = beforeHash.indexOf("?");
+  if (queryIndex < 0) return path;
+  const pathname = beforeHash.slice(0, queryIndex);
+  const query = new URLSearchParams(beforeHash.slice(queryIndex + 1));
+  query.delete("tenantKey");
+  const search = query.toString();
+  return `${pathname}${search ? `?${search}` : ""}${hash}`;
+}
+
 export function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   if (!body) return null;
   if (typeof body === "string") {
@@ -248,8 +261,8 @@ function shouldAttachTenantHeader(requestUrl: string, method: string): boolean {
   try {
     const resolved = new URL(requestUrl, window.location.origin);
     if (resolved.origin === window.location.origin) return true;
-    // Keep cross-origin GET/HEAD requests header-free so tenant-scoped reads can
-    // stay on the backend's implicit read-only CORS path without preflight.
+    // Keep public cross-origin GET/HEAD requests header-free. Calls with
+    // tenant context override this and send X-Tenant-Key instead of a URL query.
     return requestMethod !== "GET" && requestMethod !== "HEAD";
   } catch {
     return true;
@@ -482,14 +495,17 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
   const timeoutMs = opts?.timeoutMs ?? TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 60_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
-    const url = resolveUrl(baseUrl, path);
+    const resolvedUrl = resolveUrl(baseUrl, path);
+    const tenantKey = tenantKeyFromPath(path) ?? tenantKeyFromPath(resolvedUrl);
+    const url = pathWithoutTenantKey(resolvedUrl);
     const method = String(init.method ?? "GET").toUpperCase();
     const headers = withTenantHeader(
       new Headers(mergeHeaders(init.headers, opts?.headers)),
       path,
       init.body,
-      shouldAttachTenantHeader(url, method),
+      Boolean(tenantKey) || shouldAttachTenantHeader(url, method),
     );
+    if (tenantKey && !headers.has(TENANT_HEADER)) headers.set(TENANT_HEADER, tenantKey);
     const res = await fetch(url, {
       ...init,
       cache: init.cache ?? "no-store",

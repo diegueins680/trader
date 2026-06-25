@@ -17,7 +17,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, query)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
-import Network.HTTP.Client (Manager, Request (..), RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
+import Network.HTTP.Client (Manager, Request (..), RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (hContentType, statusCode)
 import System.Environment (lookupEnv)
@@ -44,6 +44,7 @@ data PublisherCtx = PublisherCtx
     { pcMode :: !PublishMode
     , pcKafkaRestBaseUrl :: !(Maybe String)
     , pcManager :: !Manager
+    , pcKafkaRestTimeoutMicros :: !Int
     }
 
 instance FromRow OutboxEvent where
@@ -72,6 +73,13 @@ parseInt64Env key def =
 parseInt64EnvAllowZero :: String -> Int64 -> IO Int64
 parseInt64EnvAllowZero key def =
     parseNumericEnv key def (>= 0) "integer >= 0"
+
+parseSecondsEnvMicros :: String -> Int -> IO Int
+parseSecondsEnvMicros key defSec = do
+    seconds <- parseNumericEnv key defSec (>= 1) "integer >= 1"
+    let micros = toInteger seconds * 1000000
+        cap = toInteger (maxBound :: Int)
+    pure (fromInteger (min cap micros))
 
 parseNumericEnv :: (Read a, Show a) => String -> a -> (a -> Bool) -> String -> IO a
 parseNumericEnv key def predicate expected = do
@@ -260,6 +268,7 @@ publishEvent ctx event =
                                 { method = "POST"
                                 , requestHeaders = [(hContentType, "application/vnd.kafka.json.v2+json")]
                                 , requestBody = RequestBodyLBS (encode bodyValue)
+                                , responseTimeout = responseTimeoutMicro (pcKafkaRestTimeoutMicros ctx)
                                 }
                     resp <- httpLbs req (pcManager ctx)
                     if statusCode (responseStatus resp) >= 200 && statusCode (responseStatus resp) < 300
@@ -302,11 +311,12 @@ main = do
     batchSize <- parseIntEnv "TRADER_OUTBOX_BATCH_SIZE" 100
     staleTimeoutMs <- parseInt64Env "TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS" 60000
     publishedRetentionMs <- parseInt64EnvAllowZero "TRADER_OUTBOX_PUBLISHED_RETENTION_MS" 604800000
+    kafkaRestTimeoutMicros <- parseSecondsEnvMicros "TRADER_OUTBOX_KAFKA_REST_TIMEOUT_SEC" 15
     mode <- resolveMode
     kafkaRestBaseUrl <- parseTextEnv "TRADER_OUTBOX_KAFKA_REST_URL"
     validatePublisherConfig mode kafkaRestBaseUrl
     manager <- newManager tlsManagerSettings
-    let ctx = PublisherCtx{pcMode = mode, pcKafkaRestBaseUrl = kafkaRestBaseUrl, pcManager = manager}
+    let ctx = PublisherCtx{pcMode = mode, pcKafkaRestBaseUrl = kafkaRestBaseUrl, pcManager = manager, pcKafkaRestTimeoutMicros = kafkaRestTimeoutMicros}
     conn <- connectPostgreSQL (TE.encodeUtf8 (T.pack dbUrl))
     putStrLn
         ( "outbox-publisher started"
@@ -318,6 +328,8 @@ main = do
             <> show batchSize
             <> " publishingTimeoutMs="
             <> show staleTimeoutMs
+            <> " kafkaRestTimeoutSec="
+            <> show (kafkaRestTimeoutMicros `div` 1000000)
             <> " publishedRetentionMs="
             <> show publishedRetentionMs
             <> " kafkaRestUrlConfigured="
