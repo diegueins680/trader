@@ -2267,6 +2267,229 @@ body.panelMaximized .cardMaximized {
   flex-wrap: wrap;
 }
 
+.comboMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: 8px;
+}
+
+.comboMetricTile {
+  min-width: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: var(--card2);
+  display: grid;
+  gap: 3px;
+}
+
+.comboMetricTileGain {
+  border-color: rgba(var(--accent-alt-rgb), 0.34);
+}
+
+.comboMetricTileLoss {
+  border-color: rgba(239, 68, 68, 0.32);
+}
+
+.comboMetricLabel,
+.comboMetricDetail {
+  font-size: 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.comboMetricValue {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.comboMetricTileGain .comboMetricValue {
+  color: rgba(var(--accent-alt-rgb), 0.95);
+}
+
+.comboMetricTileLoss .comboMetricValue {
+  color: rgba(239, 68, 68, 0.92);
+}
+
+.comboAnalyticsDashboard {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.comboAnalyticsGroupGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.comboAnalyticsPanel,
+.comboRoiSubsection {
+  min-width: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--card2);
+  display: grid;
+  gap: 9px;
+}
+
+.comboAnalyticsPanelWide {
+  overflow: auto;
+}
+
+.comboAnalyticsPanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.comboGroupBars {
+  display: grid;
+  gap: 9px;
+}
+
+.comboGroupBarRow {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.comboGroupBarLabel,
+.comboGroupBarMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.comboGroupBarLabel span:first-child,
+.comboGroupBarMeta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comboGroupBarLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.comboGroupBarLabel span:last-child {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.comboGroupBarTrack {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.comboGroupBarFill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.comboGroupBarGain {
+  background: linear-gradient(90deg, rgba(var(--accent-alt-rgb), 0.88), rgba(var(--accent-rgb), 0.8));
+}
+
+.comboGroupBarLoss {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.86), rgba(245, 158, 11, 0.78));
+}
+
+.comboGroupBarMeta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.comboRiskSvg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 31 / 13;
+  min-height: 190px;
+  border-radius: 8px;
+  background: var(--chart-bg);
+}
+
+.comboHeatmap {
+  display: grid;
+  gap: 5px;
+  min-width: 620px;
+  align-items: stretch;
+}
+
+.comboHeatmapCorner,
+.comboHeatmapAxis,
+.comboHeatmapCell {
+  min-width: 0;
+  border-radius: 7px;
+  padding: 6px 7px;
+  font-size: 10px;
+}
+
+.comboHeatmapCorner,
+.comboHeatmapAxis {
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--stroke);
+}
+
+.comboHeatmapSymbol,
+.comboHeatmapMethod {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comboHeatmapCell {
+  min-height: 48px;
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  font-family: var(--mono);
+}
+
+.comboHeatmapCell span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.comboHeatmapCell small {
+  color: var(--muted);
+}
+
+.comboHeatmapCellEmpty {
+  align-items: center;
+  background: var(--surface-subtle);
+  color: var(--faint);
+}
+
+@media (max-width: 860px) {
+  .comboAnalyticsDashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .comboHeatmap {
+    min-width: 560px;
+  }
+}
+
 .comboRoiGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
