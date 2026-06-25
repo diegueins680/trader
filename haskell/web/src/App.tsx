@@ -91,6 +91,7 @@ import { localApiStartHelp } from "./app/localApiStart";
 import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from "./app/comboMarket";
 import {
   BACKTEST_TIMEOUT_MS,
+  BINANCE_POSITIONS_TIMEOUT_MS,
   BOT_START_TIMEOUT_MS,
   OPTIMIZER_TIMEOUT_MS,
   BOT_STATUS_OPS_FALLBACK_LIMIT,
@@ -6543,7 +6544,7 @@ export function App() {
       };
       const out = await binancePositions(apiBase, withBinanceKeys(params), {
         headers: { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId },
-        timeoutMs: diagnosticsRequestTimeoutMs,
+        timeoutMs: BINANCE_POSITIONS_TIMEOUT_MS,
         signal: controller.signal,
       });
       setBinancePositionsUi({ loading: false, error: null, response: out });
@@ -6577,7 +6578,6 @@ export function App() {
     authHeaders,
     binancePositionsInputError,
     binancePositionsLimitSafe,
-    diagnosticsRequestTimeoutMs,
     fetchBinancePositionTrades,
     fetchTimedRequestProgressMessage,
     form.binanceTestnet,
