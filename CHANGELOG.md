@@ -1,4 +1,5 @@
 ## Unreleased
+- Web/Optimizer: expand Optimizer Combos analytics with filtered profitability summary tiles, risk/return scatter, method-by-symbol ROI heatmap, and method/symbol/interval/strategy ROI bars alongside the existing parameter-to-ROI correlation charts.
 - Web/Binance: give the open-positions refresh a 90s client timeout so 200-bar position charts do not race the generic 60s request ceiling.
 - API/Binance: keep HTTP retries from swallowing `/binance/positions` server-side request deadlines, add an overall positions response deadline with cached fallback, and raise the futures `positionRisk` timeout default from 15s to 45s.
 - API/Ops: add an authenticated `GET /admin/health` endpoint that reports active async job IDs with poll/cancel paths and per-queue running counts, and add `TRADER_API_TRADE_TIMEOUT_SEC` (default `600`) so stuck `/trade/async` work is marked failed and releases the trade queue slot.

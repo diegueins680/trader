@@ -107,6 +107,18 @@ export type OptimizationCombo = {
     turnover?: number | null;
     roundTrips?: number | null;
     annualizedReturn?: number | null;
+    calmar?: number | null;
+    profitFactor?: number | null;
+    tradeCount?: number | null;
+    winRate?: number | null;
+    exposure?: number | null;
+    walkForwardSummary?: {
+      sharpeMean?: number | null;
+      sharpeStd?: number | null;
+      folds?: number | null;
+      [key: string]: unknown;
+    } | null;
+    [key: string]: unknown;
   } | null;
   openThreshold: number | null;
   closeThreshold: number | null;
