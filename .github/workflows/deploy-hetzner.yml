@@ -126,7 +126,7 @@ jobs:
     steps:
       # Check out the exact commit that passed CI (not the branch tip, which may
       # have advanced) so the deploy script and the box deploy the same SHA.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-deploy.outputs.deploy_sha }}
 
