@@ -297,6 +297,23 @@ migrations =
             , "CREATE INDEX IF NOT EXISTS ops_server_provider_idx ON ops(server_provider)"
             ]
         }
+    , Migration
+        { migVersion = 5
+        , migDescription = "async_job_shared_storage"
+        , migStatements =
+            [ "CREATE TABLE IF NOT EXISTS async_jobs ("
+                <> "job_id TEXT PRIMARY KEY,"
+                <> "job_type TEXT NOT NULL,"
+                <> "status TEXT NOT NULL,"
+                <> "payload_json JSONB NOT NULL,"
+                <> "created_at_ms BIGINT,"
+                <> "completed_at_ms BIGINT,"
+                <> "updated_at_ms BIGINT NOT NULL"
+                <> ")"
+            , "CREATE INDEX IF NOT EXISTS async_jobs_type_status_idx ON async_jobs(job_type, status)"
+            , "CREATE INDEX IF NOT EXISTS async_jobs_updated_at_ms_idx ON async_jobs(updated_at_ms)"
+            ]
+        }
     ]
 
 ensureOpsDbSchema :: Connection -> IO ()

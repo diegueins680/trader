@@ -1,4 +1,5 @@
 ## Unreleased
+- API/Ops: add an idempotent async-job storage migration and persist the initial async `running` state before returning a `jobId`, preventing restarted or load-balanced serve-mode deployments from polling a missing job row.
 - Web/Positions: add Order by and Direction controls for open Binance futures positions, covering symbol, side, PNL, PNL percent, notional size, quantity, leverage, liquidation distance, margin, entry, mark, and break-even price.
 - Web/Optimizer: expand Optimizer Combos analytics with filtered profitability summary tiles, risk/return scatter, method-by-symbol ROI heatmap, and method/symbol/interval/strategy ROI bars alongside the existing parameter-to-ROI correlation charts.
 - Web/Binance: give the open-positions refresh a 90s client timeout so 200-bar position charts do not race the generic 60s request ceiling.

@@ -16178,8 +16178,11 @@ persistAsyncJobState mOps store jobId payload = do
     case mOps of
         Nothing -> pure ()
         Just opsStore -> do
-            _ <- try (writeAsyncJobDb opsStore (jsPrefix store) jobId payload) :: IO (Either SomeException ())
-            pure ()
+            e <- try (writeAsyncJobDb opsStore (jsPrefix store) jobId payload) :: IO (Either SomeException ())
+            case e of
+                Left ex ->
+                    hPutStrLn stderr (printf "WARN: failed to persist async job %s to ops DB: %s" (T.unpack jobId) (show ex))
+                Right _ -> pure ()
 
 readJobFile :: JobStore a -> Text -> IO (Maybe Aeson.Value)
 readJobFile store jobId =
@@ -16280,12 +16283,13 @@ startJob mOps store action = do
                         <> T.pack (show n)
                         <> "-"
                         <> T.pack (printf "%016x" r)
+                runningPayload = object ["status" .= ("running" :: String), "createdAtMs" .= now]
             out <- newEmptyMVar
+            pruneJobStoreDisk store now
+            persistAsyncJobState mOps store jobId runningPayload
             tid <-
                 forkIO $
                     ( do
-                        pruneJobStoreDisk store now
-                        persistAsyncJobState mOps store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
                         result <- try action
                         case result of
                             Right v -> do
