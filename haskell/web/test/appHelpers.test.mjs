@@ -15,6 +15,7 @@ import {
   readExactSafeInteger,
   readNonNegativeExactSafeInteger,
   sanitizeOptimizationComboOperation,
+  sortBinancePositions,
   splitStats,
 } from "../.tmp/web-tests/appHelpers.js";
 
@@ -33,6 +34,30 @@ function optimizerCombo(id, finalEquity, params) {
       normalization: "none",
       ...params,
     },
+  };
+}
+
+function binancePosition({
+  symbol,
+  positionAmt,
+  entryPrice,
+  markPrice,
+  unrealizedPnl,
+  leverage = null,
+  liquidationPrice = null,
+  breakEvenPrice = null,
+  positionSide = null,
+}) {
+  return {
+    symbol,
+    positionAmt,
+    entryPrice,
+    markPrice,
+    unrealizedPnl,
+    leverage,
+    liquidationPrice,
+    breakEvenPrice,
+    positionSide,
   };
 }
 
@@ -575,4 +600,91 @@ test("open Binance position helpers ignore flat dust and normalize symbols", () 
   assert.equal(isOpenBinancePosition(positions[2]), true);
   assert.equal(isOpenBinancePosition(positions[3]), true);
   assert.deepEqual([...buildOpenBinancePositionSymbolSet(positions)].sort(), ["ATOMUSDT", "FILUSDT"]);
+});
+
+test("sortBinancePositions orders open positions by visible numeric risk and PNL fields", () => {
+  const positions = [
+    binancePosition({
+      symbol: "ADAUSDT",
+      positionAmt: 745,
+      entryPrice: 0.1443,
+      markPrice: 0.141,
+      unrealizedPnl: -2.384,
+      leverage: 20,
+      liquidationPrice: 0.1,
+    }),
+    binancePosition({
+      symbol: "AVAXUSDT",
+      positionAmt: -40,
+      entryPrice: 6.504,
+      markPrice: 6.081,
+      unrealizedPnl: 16.92,
+      leverage: 20,
+      liquidationPrice: 34.430497,
+    }),
+    binancePosition({
+      symbol: "BTCUSDT",
+      positionAmt: 0.1,
+      entryPrice: 9990,
+      markPrice: 10000,
+      unrealizedPnl: 1,
+      leverage: null,
+      liquidationPrice: null,
+    }),
+  ];
+
+  assert.deepEqual(
+    sortBinancePositions(positions, "pnl", "desc").map((position) => position.symbol),
+    ["AVAXUSDT", "BTCUSDT", "ADAUSDT"],
+  );
+  assert.deepEqual(
+    sortBinancePositions(positions, "notional", "desc").map((position) => position.symbol),
+    ["BTCUSDT", "AVAXUSDT", "ADAUSDT"],
+  );
+  assert.deepEqual(
+    sortBinancePositions(positions, "quantity", "desc").map((position) => position.symbol),
+    ["ADAUSDT", "AVAXUSDT", "BTCUSDT"],
+  );
+  assert.deepEqual(
+    sortBinancePositions(positions, "liquidationDistance", "asc").map((position) => position.symbol),
+    ["ADAUSDT", "AVAXUSDT", "BTCUSDT"],
+  );
+});
+
+test("sortBinancePositions keeps missing metric values at the bottom and preserves symbol fallback ties", () => {
+  const positions = [
+    binancePosition({
+      symbol: "ETHUSDT",
+      positionAmt: 1,
+      entryPrice: 100,
+      markPrice: 101,
+      unrealizedPnl: 1,
+      leverage: null,
+    }),
+    binancePosition({
+      symbol: "ADAUSDT",
+      positionAmt: 10,
+      entryPrice: 1,
+      markPrice: 1,
+      unrealizedPnl: 0,
+      leverage: 5,
+    }),
+    binancePosition({
+      symbol: "BNBUSDT",
+      positionAmt: 2,
+      entryPrice: 10,
+      markPrice: 10,
+      unrealizedPnl: 0,
+      leverage: 5,
+    }),
+  ];
+
+  assert.deepEqual(
+    sortBinancePositions(positions, "leverage", "desc").map((position) => position.symbol),
+    ["ADAUSDT", "BNBUSDT", "ETHUSDT"],
+  );
+  assert.deepEqual(
+    sortBinancePositions(positions, "symbol", "desc").map((position) => position.symbol),
+    ["ETHUSDT", "BNBUSDT", "ADAUSDT"],
+  );
 });

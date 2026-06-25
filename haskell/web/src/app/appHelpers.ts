@@ -1362,6 +1362,132 @@ export function buildOpenBinancePositionSymbolSet(positions: ApiBinancePositions
   return out;
 }
 
+export type BinancePositionSortKey =
+  | "symbol"
+  | "side"
+  | "pnl"
+  | "pnlPct"
+  | "notional"
+  | "quantity"
+  | "leverage"
+  | "liquidationDistance"
+  | "entry"
+  | "mark"
+  | "breakEven"
+  | "margin";
+
+export type BinancePositionSortDirection = "asc" | "desc";
+
+export function binancePositionNotional(position: ApiBinancePositionsResponse["positions"][number]): number | null {
+  const quantity = Math.abs(position.positionAmt);
+  const price =
+    Number.isFinite(position.markPrice) && position.markPrice > 0
+      ? position.markPrice
+      : Number.isFinite(position.entryPrice) && position.entryPrice > 0
+        ? position.entryPrice
+        : null;
+  const notional = price !== null && Number.isFinite(quantity) ? quantity * price : null;
+  return notional !== null && Number.isFinite(notional) ? notional : null;
+}
+
+export function binancePositionLiquidationDistancePct(position: ApiBinancePositionsResponse["positions"][number]): number | null {
+  const sideDir = positionSideInfo(position.positionAmt, position.positionSide).dir;
+  if (sideDir === 0) return null;
+  if (!Number.isFinite(position.markPrice) || position.markPrice <= 0) return null;
+  const liquidationPrice = position.liquidationPrice;
+  if (typeof liquidationPrice !== "number" || !Number.isFinite(liquidationPrice) || liquidationPrice <= 0) return null;
+  const distance =
+    sideDir > 0
+      ? (position.markPrice - liquidationPrice) / position.markPrice
+      : (liquidationPrice - position.markPrice) / position.markPrice;
+  return Number.isFinite(distance) ? distance : null;
+}
+
+function binancePositionSortNumber(position: ApiBinancePositionsResponse["positions"][number], sortKey: BinancePositionSortKey): number | null {
+  switch (sortKey) {
+    case "pnl":
+      return Number.isFinite(position.unrealizedPnl) ? position.unrealizedPnl : null;
+    case "pnlPct": {
+      const notional = binancePositionNotional(position);
+      return notional !== null && notional > 0 && Number.isFinite(position.unrealizedPnl) ? position.unrealizedPnl / notional : null;
+    }
+    case "notional":
+      return binancePositionNotional(position);
+    case "quantity": {
+      const quantity = Math.abs(position.positionAmt);
+      return Number.isFinite(quantity) ? quantity : null;
+    }
+    case "leverage":
+      return typeof position.leverage === "number" && Number.isFinite(position.leverage) ? position.leverage : null;
+    case "liquidationDistance":
+      return binancePositionLiquidationDistancePct(position);
+    case "entry":
+      return Number.isFinite(position.entryPrice) ? position.entryPrice : null;
+    case "mark":
+      return Number.isFinite(position.markPrice) ? position.markPrice : null;
+    case "breakEven":
+      return typeof position.breakEvenPrice === "number" && Number.isFinite(position.breakEvenPrice) ? position.breakEvenPrice : null;
+    case "margin": {
+      const notional = binancePositionNotional(position);
+      const leverage = position.leverage;
+      return notional !== null && typeof leverage === "number" && Number.isFinite(leverage) && leverage > 0 ? notional / leverage : null;
+    }
+    case "symbol":
+    case "side":
+      return null;
+    default:
+      return null;
+  }
+}
+
+function compareNullableNumbers(a: number | null, b: number | null, direction: BinancePositionSortDirection): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  const diff = a - b;
+  return direction === "asc" ? diff : -diff;
+}
+
+function comparePositionTiebreaker(
+  a: ApiBinancePositionsResponse["positions"][number],
+  b: ApiBinancePositionsResponse["positions"][number],
+): number {
+  const symbol = a.symbol.localeCompare(b.symbol);
+  if (symbol !== 0) return symbol;
+  return positionSideInfo(a.positionAmt, a.positionSide).key.localeCompare(positionSideInfo(b.positionAmt, b.positionSide).key);
+}
+
+export function sortBinancePositions(
+  positions: ApiBinancePositionsResponse["positions"],
+  sortKey: BinancePositionSortKey,
+  direction: BinancePositionSortDirection,
+): ApiBinancePositionsResponse["positions"] {
+  return positions
+    .map((position, index) => ({ position, index }))
+    .sort((a, b) => {
+      let result = 0;
+      if (sortKey === "symbol") {
+        result = a.position.symbol.localeCompare(b.position.symbol);
+      } else if (sortKey === "side") {
+        result = positionSideInfo(a.position.positionAmt, a.position.positionSide).key.localeCompare(
+          positionSideInfo(b.position.positionAmt, b.position.positionSide).key,
+        );
+      } else {
+        result = compareNullableNumbers(
+          binancePositionSortNumber(a.position, sortKey),
+          binancePositionSortNumber(b.position, sortKey),
+          direction,
+        );
+      }
+      if (sortKey === "symbol" && direction === "desc") result = -result;
+      if (sortKey === "side" && direction === "desc") result = -result;
+      if (result !== 0) return result;
+      const tie = comparePositionTiebreaker(a.position, b.position);
+      return tie !== 0 ? tie : a.index - b.index;
+    })
+    .map(({ position }) => position);
+}
+
 export type ListenKeyStreamStatus = "disconnected" | "connecting" | "connected" | "stopped";
 
 export type ListenKeyStreamStatusPayload = { status?: string; message?: string; atMs?: number };
