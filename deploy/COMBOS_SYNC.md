@@ -32,8 +32,10 @@ the merge is **commutative, associative, and idempotent**. Consequences:
 The object store (Tigris/S3) is the single durable rendezvous; both are highly available,
 so there is **no primary/fallback to manage**.
 
-> The existing Hetzner research→trading `/state/sync` HTTP push is kept as
-> Hetzner-internal redundancy. It is harmless alongside S3 (same idempotent merge).
+> The existing Hetzner research→trading `/state/sync` HTTP push can be kept as
+> Hetzner-internal redundancy, but the managed research env leaves it disabled by
+> default. S3/Tigris is the primary combo bus, and avoiding the HTTP push keeps the
+> trading API from spending time on long `/state/sync` requests.
 
 ## The one critical rule
 

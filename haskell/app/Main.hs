@@ -8,7 +8,7 @@ module Main where
 import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
 import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
 import Control.Exception (AsyncException, IOException, SomeException, catch, displayException, finally, fromException, throwIO, try)
@@ -15935,6 +15935,32 @@ forkBackground action =
             _ <- try action :: IO (Either SomeException ())
             pure ()
 
+putConcurrentException :: MVar (Either SomeException b) -> SomeException -> IO ()
+putConcurrentException resultVar ex =
+    putMVar resultVar (Left ex)
+
+mapConcurrentlyBounded :: Int -> (a -> IO b) -> [a] -> IO [b]
+mapConcurrentlyBounded maxConcurrent action items =
+    fmap concat (mapM runBatch (chunksOfN (max 1 maxConcurrent) items))
+  where
+    chunksOfN _ [] = []
+    chunksOfN n xs =
+        let (chunk, rest) = splitAt n xs
+         in chunk : chunksOfN n rest
+    runBatch batch = do
+        vars <-
+            forM batch $ \item -> do
+                resultVar <- newEmptyMVar
+                void $
+                    forkIO $
+                        catch
+                            (action item >>= putMVar resultVar . Right)
+                            (putConcurrentException resultVar)
+                pure resultVar
+        forM vars $ \resultVar -> do
+            result <- takeMVar resultVar
+            either throwIO pure result
+
 data StoredAsyncJobMeta = StoredAsyncJobMeta
     { sajStatus :: !String
     , sajCreatedAtMs :: !(Maybe Int64)
@@ -21088,9 +21114,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
                         }
                 formatKlineDetail idx sym =
                     sym ++ " (" ++ show idx ++ "/" ++ show totalOpenPositions ++ ")"
-            persistBinancePositionsMaybe mOps market openPositions
-            chartsRaw <-
-                forM (zip [1 ..] openPositions) $ \(idx, pos) -> do
+                fetchPositionChart (idx, pos) = do
                     let sym = fprSymbol pos
                     advanceRequestProgressMaybe mTracker "klines" (Just (formatKlineDetail idx sym))
                     kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
@@ -21104,6 +21128,10 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
                                         , abpcOpenTimes = map kOpenTime ks
                                         , abpcPrices = map kClose ks
                                         }
+            persistBinancePositionsMaybe mOps market openPositions
+            let chartConcurrency = 4
+            chartsRaw <-
+                mapConcurrentlyBounded chartConcurrency fetchPositionChart (zip [1 ..] openPositions)
             now <- getTimestampMs
             pure
                 ApiBinancePositionsResponse
