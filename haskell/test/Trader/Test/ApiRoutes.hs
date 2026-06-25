@@ -51,6 +51,7 @@ expectedRouteLabels =
     , (["trade", "async", "job-1", "cancel"], "trade/async/:jobId/cancel")
     , (["backtest", "async", "job-1"], "backtest/async/:jobId")
     , (["backtest", "async", "job-1", "cancel"], "backtest/async/:jobId/cancel")
+    , (["admin", "health"], "admin/health")
     , (["request-progress", "request-1"], "request-progress/:requestId")
     , (["optimizer", "run"], "optimizer/run")
     , (["optimizer", "combos"], "optimizer/combos")
@@ -61,6 +62,7 @@ expectedEndpointPairs :: [(String, String)]
 expectedEndpointPairs =
     [ ("GET", "/")
     , ("GET", "/health")
+    , ("GET", "/admin/health")
     , ("GET", "/version")
     , ("GET", "/metrics")
     , ("GET", "/ops")

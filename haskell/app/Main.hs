@@ -1825,6 +1825,9 @@ data ApiBinancePositionsResponse = ApiBinancePositionsResponse
     , abprCharts :: ![ApiBinancePositionChart]
     , abprFetchedAtMs :: !Int64
     , abprAccountUid :: !(Maybe Int64)
+    , abprStale :: !Bool
+    , abprSource :: !String
+    , abprError :: !(Maybe String)
     }
     deriving (Eq, Show, Generic)
 
@@ -5633,6 +5636,137 @@ persistBinancePositions store market positions =
                             , now
                             )
                     pure ()
+
+data CachedBinancePositionRow = CachedBinancePositionRow
+    { cbprSymbol :: !Text
+    , cbprSide :: !(Maybe Text)
+    , cbprQuantity :: !(Maybe Double)
+    , cbprEntryPrice :: !(Maybe Double)
+    , cbprMarkPrice :: !(Maybe Double)
+    , cbprLeverage :: !(Maybe Double)
+    , cbprUnrealizedPnl :: !(Maybe Double)
+    , cbprPositionJson :: !(Maybe Text)
+    , cbprUpdatedAtMs :: !(Maybe Int64)
+    }
+    deriving (Eq, Show)
+
+instance FromRow CachedBinancePositionRow where
+    fromRow =
+        CachedBinancePositionRow
+            <$> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+
+decodePositionJson :: Maybe Text -> Maybe Aeson.Value
+decodePositionJson mTxt = do
+    txt <- mTxt
+    case eitherDecode (BL.fromStrict (TE.encodeUtf8 txt)) of
+        Right v -> Just v
+        Left _ -> Nothing
+
+positionJsonDouble :: Maybe Aeson.Value -> String -> Maybe Double
+positionJsonDouble mJson key =
+    case mJson of
+        Just (Aeson.Object o) -> KM.lookup (AK.fromString key) o >>= coerceDoubleValue
+        _ -> Nothing
+
+positionJsonString :: Maybe Aeson.Value -> String -> Maybe String
+positionJsonString mJson key =
+    T.unpack <$> (mJson >>= jsonLookupPathText [AK.fromString key])
+
+cachedBinancePositionToApi :: CachedBinancePositionRow -> ApiBinancePosition
+cachedBinancePositionToApi row =
+    let mJson = decodePositionJson (cbprPositionJson row)
+        sideFallback = T.unpack . T.toUpper <$> cbprSide row
+     in ApiBinancePosition
+            { abpSymbol = T.unpack (cbprSymbol row)
+            , abpPositionAmt = fromMaybe 0 (cbprQuantity row)
+            , abpEntryPrice = fromMaybe 0 (cbprEntryPrice row)
+            , abpMarkPrice = fromMaybe 0 (cbprMarkPrice row)
+            , abpUnrealizedPnl = fromMaybe 0 (cbprUnrealizedPnl row)
+            , abpLiquidationPrice = positionJsonDouble mJson "liquidationPrice"
+            , abpBreakEvenPrice = positionJsonDouble mJson "breakEvenPrice"
+            , abpLeverage = fromMaybe 0 (cbprLeverage row)
+            , abpMarginType = positionJsonString mJson "marginType"
+            , abpPositionSide = positionJsonString mJson "positionSide" <|> sideFallback
+            }
+
+cachedBinancePositionsResponse :: Maybe OpsStore -> BinanceMarket -> Bool -> String -> Int -> Maybe String -> IO (Maybe ApiBinancePositionsResponse)
+cachedBinancePositionsResponse mOps market testnet interval limitSafe mErr =
+    case mOps of
+        Nothing -> pure Nothing
+        Just store -> do
+            result <- try $ withOpsConnection store $ \conn -> do
+                let marketText = normalizeMarketText (T.pack (marketCode market))
+                query
+                    conn
+                    ( "SELECT p.symbol, p.side, p.quantity, p.entry_price, p.mark_price, p.leverage, p.pnl_unrealized, p.position_json::text, p.updated_at_ms "
+                        <> "FROM ("
+                        <> "SELECT DISTINCT ON (p0.symbol, coalesce(p0.side, '')) p0.* "
+                        <> "FROM positions p0 "
+                        <> "JOIN platforms pl0 ON p0.platform_id = pl0.id "
+                        <> "WHERE pl0.code = ? "
+                        <> "AND lower(coalesce(p0.market, '')) = ? "
+                        <> "AND abs(coalesce(p0.quantity, 0)) > 1e-12 "
+                        <> "ORDER BY p0.symbol, coalesce(p0.side, ''), CASE WHEN p0.bot_id IS NULL THEN 0 ELSE 1 END, p0.updated_at_ms DESC NULLS LAST"
+                        <> ") p "
+                        <> "JOIN platforms pl ON p.platform_id = pl.id "
+                        <> "WHERE pl.code = ? "
+                        <> "AND lower(coalesce(p.market, '')) = ? "
+                        <> "AND abs(coalesce(p.quantity, 0)) > 1e-12 "
+                        <> "ORDER BY p.updated_at_ms DESC NULLS LAST, p.symbol"
+                    )
+                    ("binance" :: Text, marketText, "binance" :: Text, marketText)
+            case result :: Either SomeException [CachedBinancePositionRow] of
+                Left ex -> do
+                    hPutStrLn stderr ("WARN: failed to load cached Binance positions: " ++ displayException ex)
+                    pure Nothing
+                Right [] -> pure Nothing
+                Right rows -> do
+                    now <- getTimestampMs
+                    let fetchedAt =
+                            case mapMaybe cbprUpdatedAtMs rows of
+                                [] -> now
+                                xs -> maximum xs
+                    pure $
+                        Just
+                            ApiBinancePositionsResponse
+                                { abprMarket = marketCode market
+                                , abprTestnet = testnet
+                                , abprInterval = interval
+                                , abprLimit = limitSafe
+                                , abprPositions = map cachedBinancePositionToApi rows
+                                , abprCharts = []
+                                , abprFetchedAtMs = fetchedAt
+                                , abprAccountUid = Nothing
+                                , abprStale = True
+                                , abprSource = "cache"
+                                , abprError = mErr
+                                }
+
+binancePositionsTimeoutMessage :: Int -> String
+binancePositionsTimeoutMessage timeoutSec =
+    "Binance positions timed out after "
+        ++ show timeoutSec
+        ++ "s while fetching futures positionRisk. Showing cached positions when available; try again or increase TRADER_BINANCE_POSITIONS_TIMEOUT_SEC."
+
+isBinancePositionsTimeoutMessage :: String -> Bool
+isBinancePositionsTimeoutMessage =
+    isPrefixOf "Binance positions timed out after "
+
+timeBinancePositionsStep :: String -> IO a -> IO a
+timeBinancePositionsStep label action = do
+    started <- getTimestampMs
+    action
+        `finally` do
+            finished <- getTimestampMs
+            putStrLn (printf "Binance positions timing: %s=%dms" label (max 0 (finished - started)))
 
 data ComboParamsRow = ComboParamsRow
     { cprFinalEquity :: !(Maybe Double)
@@ -14636,6 +14770,8 @@ runRestApi cliArgs mWebhook = do
     maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
     maxBacktestRunningEnv <- lookupEnv "TRADER_API_MAX_BACKTEST_RUNNING"
     backtestTimeoutEnv <- lookupEnv "TRADER_API_BACKTEST_TIMEOUT_SEC"
+    tradeTimeoutEnv <- lookupEnv "TRADER_API_TRADE_TIMEOUT_SEC"
+    positionsTimeoutEnv <- lookupEnv "TRADER_BINANCE_POSITIONS_TIMEOUT_SEC"
     cacheTtlEnv <- lookupEnv "TRADER_API_CACHE_TTL_MS"
     cacheMaxEnv <- lookupEnv "TRADER_API_CACHE_MAX_ENTRIES"
     maxBarsLstmEnv <- lookupEnv "TRADER_API_MAX_BARS_LSTM"
@@ -14660,6 +14796,14 @@ runRestApi cliArgs mWebhook = do
             case backtestTimeoutEnv >>= readMaybe of
                 Just n | n >= 30 -> n
                 _ -> 900
+        tradeTimeoutSec =
+            case tradeTimeoutEnv >>= readMaybe of
+                Just n | n >= 1 -> n
+                _ -> 600
+        positionsTimeoutSec =
+            case positionsTimeoutEnv >>= readMaybe of
+                Just n | n >= 1 -> n
+                _ -> 15
         limits =
             ApiComputeLimits
                 { aclMaxBarsLstm =
@@ -14696,6 +14840,8 @@ runRestApi cliArgs mWebhook = do
                 { arlMaxBodyBytes = maxBodyBytes
                 , arlMaxOptimizerOutputBytes = maxOptimizerOutputBytes
                 , arlMaxBotStatusTail = defaultApiMaxBotStatusTail
+                , arlTradeTimeoutSec = tradeTimeoutSec
+                , arlBinancePositionsTimeoutSec = positionsTimeoutSec
                 }
     -- With 1 vCPU (common in small ECS/Fargate tasks), long-running pure compute can starve the
     -- Warp accept loop and make even quick "poll" endpoints appear to hang.
@@ -14734,6 +14880,8 @@ runRestApi cliArgs mWebhook = do
             maxBacktestRunning
             backtestTimeoutSec
         )
+    putStrLn (printf "API trade async timeout: timeoutSec=%d" tradeTimeoutSec)
+    putStrLn (printf "API Binance positions timeout: timeoutSec=%d" positionsTimeoutSec)
     putStrLn
         ( printf
             "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
@@ -16158,6 +16306,8 @@ data ApiRequestLimits = ApiRequestLimits
     { arlMaxBodyBytes :: !Int64
     , arlMaxOptimizerOutputBytes :: !Int
     , arlMaxBotStatusTail :: !Int
+    , arlTradeTimeoutSec :: !Int
+    , arlBinancePositionsTimeoutSec :: !Int
     }
     deriving (Eq, Show)
 
@@ -16311,6 +16461,115 @@ validateApiComputeLimitsAfterLoad limits args series =
                             )
                     else Right ()
 
+activeAsyncJobSummaries :: Int64 -> JobStore a -> IO [Aeson.Value]
+activeAsyncJobSummaries now store =
+    withMVar
+        (jsJobs store)
+        ( \jobs ->
+            fmap catMaybes $
+                forM (sortOn fst (HM.toList jobs)) $ \(jobId, entry) -> do
+                    result <- tryReadMVar (jeResult entry)
+                    case result of
+                        Just _ -> pure Nothing
+                        Nothing -> do
+                            let path = T.concat ["/", jsPrefix store, "/async/", jobId]
+                                apiPath = "/api" <> path
+                            pure $
+                                Just $
+                                    object
+                                        [ "jobType" .= jsPrefix store
+                                        , "jobId" .= jobId
+                                        , "status" .= ("running" :: String)
+                                        , "createdAtMs" .= jeCreatedAtMs entry
+                                        , "ageMs" .= max 0 (now - jeCreatedAtMs entry)
+                                        , "pollMethod" .= ("POST" :: String)
+                                        , "pollPath" .= path
+                                        , "apiPollPath" .= apiPath
+                                        , "cancelMethod" .= ("POST" :: String)
+                                        , "cancelPath" .= (path <> "/cancel")
+                                        , "apiCancelPath" .= (apiPath <> "/cancel")
+                                        ]
+        )
+
+asyncQueueSummary :: [Aeson.Value] -> JobStore a -> IO Aeson.Value
+asyncQueueSummary jobs store = do
+    running <- readMVar (jsRunning store)
+    pure $
+        object
+            [ "running" .= running
+            , "maxRunning" .= jsMaxRunning store
+            , "active" .= length jobs
+            ]
+
+adminAsyncHealthJson :: AsyncStores -> IO (Aeson.Value, Aeson.Value)
+adminAsyncHealthJson stores = do
+    now <- getTimestampMs
+    signalJobs <- activeAsyncJobSummaries now (asSignal stores)
+    backtestJobs <- activeAsyncJobSummaries now (asBacktest stores)
+    tradeJobs <- activeAsyncJobSummaries now (asTrade stores)
+    signalQueue <- asyncQueueSummary signalJobs (asSignal stores)
+    backtestQueue <- asyncQueueSummary backtestJobs (asBacktest stores)
+    tradeQueue <- asyncQueueSummary tradeJobs (asTrade stores)
+    let jobs = signalJobs ++ backtestJobs ++ tradeJobs
+        queues =
+            object
+                [ "signal" .= signalQueue
+                , "backtest" .= backtestQueue
+                , "trade" .= tradeQueue
+                ]
+    pure (Aeson.Array (V.fromList jobs), queues)
+
+apiHealthJson ::
+    BuildInfo ->
+    Maybe BS.ByteString ->
+    Wai.Request ->
+    ApiComputeLimits ->
+    ApiRequestLimits ->
+    ApiCache ->
+    Maybe OpsStore ->
+    AsyncStores ->
+    Bool ->
+    IO Aeson.Value
+apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
+    let authRequired = isJust apiToken
+        authOk = authorized apiToken req
+        asyncCfg = asBacktest asyncStores
+        basePairs =
+            ["status" .= ("ok" :: String), "version" .= biVersion buildInfo, "authRequired" .= authRequired, "authOk" .= authOk]
+                ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
+                ++ [ "computeLimits"
+                        .= object
+                            [ "maxBarsLstm" .= aclMaxBarsLstm limits
+                            , "maxEpochs" .= aclMaxEpochs limits
+                            , "maxHiddenSize" .= aclMaxHiddenSize limits
+                            ]
+                   , "asyncJobs"
+                        .= object
+                            [ "maxRunning" .= jsMaxRunning asyncCfg
+                            , "ttlMs" .= jsTtlMs asyncCfg
+                            , "persistence" .= (isJust (jsDir asyncCfg) || isJust mOps)
+                            , "tradeTimeoutSec" .= arlTradeTimeoutSec reqLimits
+                            , "binancePositionsTimeoutSec" .= arlBinancePositionsTimeoutSec reqLimits
+                            ]
+                   , "cache"
+                        .= object
+                            [ "enabled" .= cacheEnabled apiCache
+                            , "ttlMs" .= acTtlMs apiCache
+                            , "maxEntries" .= acMaxEntries apiCache
+                            ]
+                   ]
+    if not includeAdmin
+        then pure (object basePairs)
+        else do
+            (activeJobs, queues) <- adminAsyncHealthJson asyncStores
+            pure $
+                object
+                    ( basePairs
+                        ++ [ "activeAsyncJobs" .= activeJobs
+                           , "asyncQueues" .= queues
+                           ]
+                    )
+
 apiApp ::
     BuildInfo ->
     Args ->
@@ -16401,33 +16660,15 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["health"] ->
                                 case Wai.requestMethod req of
-                                    "GET" ->
-                                        let authRequired = isJust apiToken
-                                            authOk = authorized apiToken req
-                                            asyncCfg = asBacktest asyncStores
-                                            pairs =
-                                                ["status" .= ("ok" :: String), "version" .= biVersion buildInfo, "authRequired" .= authRequired, "authOk" .= authOk]
-                                                    ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
-                                                    ++ [ "computeLimits"
-                                                            .= object
-                                                                [ "maxBarsLstm" .= aclMaxBarsLstm limits
-                                                                , "maxEpochs" .= aclMaxEpochs limits
-                                                                , "maxHiddenSize" .= aclMaxHiddenSize limits
-                                                                ]
-                                                       , "asyncJobs"
-                                                            .= object
-                                                                [ "maxRunning" .= jsMaxRunning asyncCfg
-                                                                , "ttlMs" .= jsTtlMs asyncCfg
-                                                                , "persistence" .= (isJust (jsDir asyncCfg) || isJust mOps)
-                                                                ]
-                                                       , "cache"
-                                                            .= object
-                                                                [ "enabled" .= cacheEnabled apiCache
-                                                                , "ttlMs" .= acTtlMs apiCache
-                                                                , "maxEntries" .= acMaxEntries apiCache
-                                                                ]
-                                                       ]
-                                         in respondCors (jsonValue status200 (object pairs))
+                                    "GET" -> do
+                                        v <- apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores False
+                                        respondCors (jsonValue status200 v)
+                                    _ -> respondCors (jsonError status405 "Method not allowed")
+                            ["admin", "health"] ->
+                                case Wai.requestMethod req of
+                                    "GET" -> do
+                                        v <- apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores True
+                                        respondCors (jsonValue status200 v)
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["metrics"] ->
                                 case Wai.requestMethod req of
@@ -19824,6 +20065,11 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                                         webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
                                                                         respond (jsonValue status200 out)
 
+tradeAsyncTimeoutMessage :: Int -> String
+tradeAsyncTimeoutMessage =
+    printf
+        "Trade async job timed out after %ds. Check exchange/order state before retrying; increase TRADER_API_TRADE_TIMEOUT_SEC if this deployment needs longer trade requests."
+
 handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
@@ -19919,16 +20165,27 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                             TradeIdemAcquire -> do
                                                                 r <-
                                                                     startJob mOps store $ do
-                                                                        outResult <- try (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
+                                                                        let tradeTimeoutSec = arlTradeTimeoutSec reqLimits
+                                                                        outResult <-
+                                                                            try
+                                                                                (timeout (tradeTimeoutSec * 1000000) (computeTradeFromArgsWithLimits limits mOps argsFinal)) ::
+                                                                                IO (Either SomeException (Maybe ApiTradeResponse))
                                                                         out <-
                                                                             case outResult of
+                                                                                Right Nothing -> do
+                                                                                    let msg = tradeAsyncTimeoutMessage tradeTimeoutSec
+                                                                                    case (mOps, mIdemKey) of
+                                                                                        (Just opsStore, Just idemKey) ->
+                                                                                            completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash msg
+                                                                                        _ -> pure ()
+                                                                                    throwIO (userError msg)
                                                                                 Left ex -> do
                                                                                     case (mOps, mIdemKey) of
                                                                                         (Just opsStore, Just idemKey) ->
                                                                                             completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash (snd (exceptionToHttp ex))
                                                                                         _ -> pure ()
                                                                                     throwIO ex
-                                                                                Right out' -> do
+                                                                                Right (Just out') -> do
                                                                                     case (mOps, mIdemKey) of
                                                                                         (Just opsStore, Just idemKey) ->
                                                                                             completeTradeIdempotencySuccess opsStore mOpsTenant idemKey idemReqHash (toJSON out')
@@ -21083,21 +21340,34 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                         Right payload ->
                                                             respond (jsonValue status200 payload)
 
-computeBinancePositionsResponse :: Maybe (RequestProgressStore, String) -> Maybe OpsStore -> Args -> BinanceMarket -> Bool -> ApiBinancePositionsRequest -> IO ApiBinancePositionsResponse
-computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = do
+computeBinancePositionsResponse :: Maybe (RequestProgressStore, String) -> Maybe OpsStore -> Args -> BinanceMarket -> Bool -> ApiBinancePositionsRequest -> Int -> IO ApiBinancePositionsResponse
+computeBinancePositionsResponse mTracker mOps baseArgs market testnet params positionsTimeoutSec = do
     apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
     apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
     urls <- resolveBinanceBaseUrls
     let baseUrl = selectBinanceBaseUrl urls testnet market
+        interval = fromMaybe (argInterval baseArgs) (abpInterval params)
+        limitRaw = fromMaybe 120 (abpLimit params)
+        limitSafe = max 10 (min 1000 limitRaw)
     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-    r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+    advanceRequestProgressMaybe mTracker "positions" (Just ("positionRisk timeout " ++ show positionsTimeoutSec ++ "s"))
+    r <-
+        try
+            ( timeout
+                (positionsTimeoutSec * 1000000)
+                (timeBinancePositionsStep "positionRisk" (fetchFuturesPositionRisks env))
+            ) ::
+            IO (Either SomeException (Maybe [FuturesPositionRisk]))
     case r of
         Left ex -> throwIO ex
-        Right positions -> do
-            let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
-                limitRaw = fromMaybe 120 (abpLimit params)
-                limitSafe = max 10 (min 1000 limitRaw)
-                openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
+        Right Nothing -> do
+            let msg = binancePositionsTimeoutMessage positionsTimeoutSec
+            mCached <- cachedBinancePositionsResponse mOps market testnet interval limitSafe (Just msg)
+            case mCached of
+                Just cached -> pure cached
+                Nothing -> throwIO (userError msg)
+        Right (Just positions) -> do
+            let openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
                 totalOpenPositions = length openPositions
                 toApiPosition p =
                     ApiBinancePosition
@@ -21117,7 +21387,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
                 fetchPositionChart (idx, pos) = do
                     let sym = fprSymbol pos
                     advanceRequestProgressMaybe mTracker "klines" (Just (formatKlineDetail idx sym))
-                    kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
+                    kr <- try (timeBinancePositionsStep ("klines " ++ sym) (fetchKlines env sym interval limitSafe)) :: IO (Either SomeException [Kline])
                     pure $
                         case kr of
                             Left _ -> Nothing
@@ -21128,7 +21398,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
                                         , abpcOpenTimes = map kOpenTime ks
                                         , abpcPrices = map kClose ks
                                         }
-            persistBinancePositionsMaybe mOps market openPositions
+            timeBinancePositionsStep "persist" (persistBinancePositionsMaybe mOps market openPositions)
             let chartConcurrency = 4
             chartsRaw <-
                 mapConcurrentlyBounded chartConcurrency fetchPositionChart (zip [1 ..] openPositions)
@@ -21143,6 +21413,9 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = d
                     , abprCharts = catMaybes chartsRaw
                     , abprFetchedAtMs = now
                     , abprAccountUid = Nothing
+                    , abprStale = False
+                    , abprSource = "binance"
+                    , abprError = Nothing
                     }
 
 handleBinancePositions :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -21166,10 +21439,22 @@ handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respond 
                                         then respond (jsonError status400 "binance positions require market=futures")
                                         else do
                                             startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
-                                            result <- try (computeBinancePositionsResponse mTracker mOps baseArgs market testnet params) :: IO (Either SomeException ApiBinancePositionsResponse)
+                                            result <-
+                                                try
+                                                    ( computeBinancePositionsResponse
+                                                        mTracker
+                                                        mOps
+                                                        baseArgs
+                                                        market
+                                                        testnet
+                                                        params
+                                                        (arlBinancePositionsTimeoutSec reqLimits)
+                                                    ) ::
+                                                    IO (Either SomeException ApiBinancePositionsResponse)
                                             case result of
                                                 Left ex ->
-                                                    let (st, msg) = exceptionToHttp ex
+                                                    let (st0, msg) = exceptionToHttp ex
+                                                        st = if isBinancePositionsTimeoutMessage msg then status504 else st0
                                                      in do
                                                             failRequestProgressMaybe mTracker msg
                                                             respond (jsonError st msg)
@@ -21178,7 +21463,7 @@ handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respond 
                                                     respond (jsonValue status200 out)
 
 handleBinancePositionsGet :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinancePositionsGet requestProgressStore _reqLimits mOps baseArgs req respond = do
+handleBinancePositionsGet requestProgressStore reqLimits mOps baseArgs req respond = do
     let mTracker = requestProgressTracker requestProgressStore req
     -- Reuse POST handler with defaults derived from base args.
     let params =
@@ -21206,10 +21491,22 @@ handleBinancePositionsGet requestProgressStore _reqLimits mOps baseArgs req resp
                                 then respond (jsonError status400 "binance positions require market=futures")
                                 else do
                                     startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
-                                    result <- try (computeBinancePositionsResponse mTracker mOps baseArgs market testnet params) :: IO (Either SomeException ApiBinancePositionsResponse)
+                                    result <-
+                                        try
+                                            ( computeBinancePositionsResponse
+                                                mTracker
+                                                mOps
+                                                baseArgs
+                                                market
+                                                testnet
+                                                params
+                                                (arlBinancePositionsTimeoutSec reqLimits)
+                                            ) ::
+                                            IO (Either SomeException ApiBinancePositionsResponse)
                                     case result of
                                         Left ex ->
-                                            let (st, msg) = exceptionToHttp ex
+                                            let (st0, msg) = exceptionToHttp ex
+                                                st = if isBinancePositionsTimeoutMessage msg then status504 else st0
                                              in do
                                                     failRequestProgressMaybe mTracker msg
                                                     respond (jsonError st msg)

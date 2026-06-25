@@ -1,4 +1,5 @@
 ## Unreleased
+- API/Ops: add an authenticated `GET /admin/health` endpoint that reports active async job IDs with poll/cancel paths and per-queue running counts, and add `TRADER_API_TRADE_TIMEOUT_SEC` (default `600`) so stuck `/trade/async` work is marked failed and releases the trade queue slot.
 - Web/Fly: generate `trader-config.js` from runtime env in the Nginx container so the frontend Fly app can receive `TRADER_API_TOKEN` as a secret and authenticate `/api` calls after backend API auth is enabled.
 - Deploy/Research: disable the legacy Hetzner research-to-trading HTTP state push in the managed research env, relying on the shared S3/Tigris top-combo bus instead so research no longer drives long `/state/sync` requests against the trading API.
 - API/Binance: make `/binance/positions` avoid the slow futures account UID lookup and fetch open-position chart klines with bounded parallelism, reducing the UI timeout risk when multiple futures positions are open.

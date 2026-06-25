@@ -10499,6 +10499,8 @@ export function App() {
                     {binancePositionsUi.response ? (
                       <>
                         <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
+                        {binancePositionsUi.response.stale ? <span className="badge">cached fallback</span> : null}
+                        {binancePositionsUi.response.source ? <span className="badge">{binancePositionsUi.response.source}</span> : null}
                         {typeof binancePositionsUi.response.accountUid === "number" ? (
                           <span className="badge">UID {binancePositionsUi.response.accountUid}</span>
                         ) : null}
@@ -10514,6 +10516,11 @@ export function App() {
                     <div className="hint">{binanceSignedKeysHint ?? "Requires Binance API keys with futures access."}</div>
                   )}
                   <div className="hint">Open time is inferred from recent trades; "opened before" means the position predates the fetched trade window.</div>
+                  {binancePositionsUi.response?.stale && binancePositionsUi.response.error ? (
+                    <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                      {binancePositionsUi.response.error}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

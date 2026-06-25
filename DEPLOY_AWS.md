@@ -237,6 +237,7 @@ curl -s -H "Authorization: Bearer ${TRADER_API_TOKEN}" \
 Expected response notes:
 - `authRequired` is `true` when `TRADER_API_TOKEN` is configured on the service.
 - `authOk` is `false` without the auth header, and `true` when you pass the correct token.
+- Use authenticated `GET /admin/health` when you need active async job IDs and their `/trade/async/:jobId/cancel` paths.
 
 Example response:
 ```json

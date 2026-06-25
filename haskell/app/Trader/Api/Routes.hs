@@ -14,6 +14,7 @@ apiEndpointDocs :: [Value]
 apiEndpointDocs =
     [ endpoint "GET" "/"
     , endpoint "GET" "/health"
+    , endpoint "GET" "/admin/health"
     , endpoint "GET" "/version"
     , endpoint "GET" "/metrics"
     , endpoint "GET" "/ops"
@@ -68,6 +69,7 @@ apiRouteLabel path =
         ["signal", "async", _] -> "signal/async/:jobId"
         ["backtest", "async", _] -> "backtest/async/:jobId"
         ["trade", "async", _] -> "trade/async/:jobId"
+        ["admin", "health"] -> "admin/health"
         ["request-progress", _] -> "request-progress/:requestId"
         ["optimizer", "run"] -> "optimizer/run"
         ["optimizer", "combos"] -> "optimizer/combos"
