@@ -22,6 +22,11 @@ test("trader-config infers direct Fly API host for -web-hs naming", () => {
   assert.equal(config.apiBaseUrlInferred, true);
   assert.equal(config.apiFallbackUrl, "https://trader-hs.fly.dev");
   assert.equal(config.timeoutsMs?.requestMs, 60000);
+  assert.equal(config.timeoutsMs?.signalMs, 1800000);
+  assert.equal(config.timeoutsMs?.backtestMs, 1800000);
+  assert.equal(config.timeoutsMs?.tradeMs, 1800000);
+  assert.equal(config.timeoutsMs?.optimizerMs, 1800000);
+  assert.equal(config.timeoutsMs?.botStartMs, 1800000);
   assert.equal(config.timeoutsMs?.botStatusMs, 120000);
 });
 

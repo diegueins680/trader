@@ -1,6 +1,7 @@
 ## Unreleased
 - API/Ops: add an idempotent async-job storage migration and persist the initial async `running` state before returning a `jobId`, preventing restarted or load-balanced serve-mode deployments from polling a missing job row.
 - Web/Optimizer: make parameter-to-ROI correlation charts expandable; clicking a mini scatter now opens a full-screen interactive chart with point-level combo metrics and parameter details.
+- Web/Deploy: raise browser-side signal/backtest/trade/optimizer/bot-start request timers to 30 minutes by default and expose runtime `TRADER_UI_*_TIMEOUT_MS` knobs in generated web config, preventing long async requests from failing early with the generic UI timeout before the API returns a backend result or precise server-side timeout.
 - Web/Positions: add Order by and Direction controls for open Binance futures positions, covering symbol, side, PNL, PNL percent, notional size, quantity, leverage, liquidation distance, margin, entry, mark, and break-even price.
 - Web/Optimizer: expand Optimizer Combos analytics with filtered profitability summary tiles, risk/return scatter, method-by-symbol ROI heatmap, and method/symbol/interval/strategy ROI bars alongside the existing parameter-to-ROI correlation charts.
 - Web/Binance: give the open-positions refresh a 90s client timeout so 200-bar position charts do not race the generic 60s request ceiling.

@@ -15,12 +15,13 @@
 //   apiFallbackUrl: "",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
-//     // Increase these if slower sync requests (for example Check keys / Open positions)
-//     // or large backtests/trades time out in the UI.
+//     // Increase these if slower sync requests, large backtests, live signals, or
+//     // trade requests time out in the UI before the API returns a result.
 //     requestMs: 60_000,
-//     signalMs: 10 * 60_000,
+//     signalMs: 30 * 60_000,
 //     backtestMs: 30 * 60_000,
-//     tradeMs: 10 * 60_000,
+//     tradeMs: 30 * 60_000,
+//     optimizerMs: 30 * 60_000,
 //     botStartMs: 30 * 60_000,
 //     botStatusMs: 60_000,
 //   },
@@ -64,6 +65,14 @@
     apiBaseUrlInferred,
     apiFallbackUrl: inferredDirectApiBaseUrl || "",
     apiToken: "",
-    timeoutsMs: { requestMs: 60000, botStatusMs: 120000 },
+    timeoutsMs: {
+      requestMs: 60000,
+      signalMs: 1800000,
+      backtestMs: 1800000,
+      tradeMs: 1800000,
+      optimizerMs: 1800000,
+      botStartMs: 1800000,
+      botStatusMs: 120000,
+    },
   };
 })();
