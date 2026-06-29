@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { comboMarketLabel, comboMarketValue } from "../app/comboMarket";
 import { methodLabelFromMeta } from "../app/methodMeta";
 import { fmtPct, fmtRatio } from "../lib/format";
@@ -110,6 +110,9 @@ const MAX_RISK_RETURN_POINTS = 220;
 const CHART_W = 420;
 const CHART_H = 180;
 const CHART_PAD = { l: 34, r: 14, t: 14, b: 30 };
+const DETAIL_CHART_W = 980;
+const DETAIL_CHART_H = 560;
+const DETAIL_CHART_PAD = { l: 76, r: 30, t: 34, b: 62 };
 const RISK_CHART_W = 620;
 const RISK_CHART_H = 260;
 const RISK_CHART_PAD = { l: 52, r: 18, t: 18, b: 38 };
@@ -221,6 +224,24 @@ function comboRoundTrips(combo: OptimizationCombo): number | null {
     metricNumber(combo, "tradeCount") ??
     (combo.operations && combo.operations.length > 0 ? combo.operations.length : null)
   );
+}
+
+function fmtParamValue(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return "—";
+    if (Number.isInteger(value)) return value.toString();
+    const fixed = value.toFixed(6);
+    return fixed.replace(/\.?0+$/, "");
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "string") return value.trim() ? value : "—";
+  try {
+    const json = JSON.stringify(value);
+    return json.length > 140 ? `${json.slice(0, 137)}...` : json;
+  } catch {
+    return String(value);
+  }
 }
 
 function comboMethodLabel(combo: OptimizationCombo): string {
@@ -608,6 +629,15 @@ function downsamplePoints(points: ComboRoiPoint[]): ComboRoiPoint[] {
   return sampled;
 }
 
+function comboRoiPointKey(point: ComboRoiPoint): string {
+  return `${point.comboId}:${point.x}:${point.roi}`;
+}
+
+function strongestRoiPoint(points: ComboRoiPoint[]): ComboRoiPoint | null {
+  if (points.length === 0) return null;
+  return points.reduce((best, point) => (point.roi > best.roi ? point : best), points[0]!);
+}
+
 export function buildComboRoiCorrelations(combos: OptimizationCombo[]): ComboRoiCorrelation[] {
   const byParam = new Map<string, ComboRoiPoint[]>();
 
@@ -656,7 +686,7 @@ export function buildComboRoiCorrelations(combos: OptimizationCombo[]): ComboRoi
       label: niceParamLabel(key),
       correlation: stats.correlation,
       sampleCount: points.length,
-      points: downsamplePoints(points),
+      points,
       xMin,
       xMax,
       xActualMin,
@@ -953,11 +983,55 @@ function MethodSymbolHeatmap({ heatmap }: { heatmap: MethodSymbolHeatmap | null 
   );
 }
 
-function ComboRoiScatter({ chart }: { chart: ComboRoiCorrelation }) {
-  const x1 = CHART_PAD.l;
-  const x2 = CHART_W - CHART_PAD.r;
-  const y1 = CHART_PAD.t;
-  const y2 = CHART_H - CHART_PAD.b;
+type ChartPad = {
+  l: number;
+  r: number;
+  t: number;
+  b: number;
+};
+
+type ComboRoiScatterProps = {
+  chart: ComboRoiCorrelation;
+  points?: ComboRoiPoint[];
+  width?: number;
+  height?: number;
+  pad?: ChartPad;
+  className?: string;
+  interactive?: boolean;
+  selectedPointKey?: string | null;
+  onPointHover?: (point: ComboRoiPoint | null) => void;
+  onPointSelect?: (point: ComboRoiPoint) => void;
+  comboById?: Map<number, OptimizationCombo>;
+};
+
+function comboPointTitle(
+  chart: ComboRoiCorrelation,
+  point: ComboRoiPoint,
+  combo: OptimizationCombo | null | undefined,
+): string {
+  const comboLabel = combo ? `#${combo.rank ?? combo.id} ${comboSymbolLabel(combo)} · ${comboMethodLabel(combo)}` : `#${point.comboId}`;
+  const sharpe = combo ? comboSharpe(combo) : null;
+  return `${comboLabel} · ${chart.label} ${fmtCompact(point.x)} · ROI ${fmtPct(point.roi, 2)} · Sharpe ${fmtMaybeNumber(sharpe, 2)}`;
+}
+
+function ComboRoiScatter({
+  chart,
+  points,
+  width = CHART_W,
+  height = CHART_H,
+  pad = CHART_PAD,
+  className = "comboRoiSvg",
+  interactive = false,
+  selectedPointKey = null,
+  onPointHover,
+  onPointSelect,
+  comboById,
+}: ComboRoiScatterProps) {
+  const renderedPoints = points ?? downsamplePoints(chart.points);
+  const x1 = pad.l;
+  const x2 = width - pad.r;
+  const y1 = pad.t;
+  const y2 = height - pad.b;
   const xFor = (value: number) => scale(value, chart.xMin, chart.xMax, x1, x2);
   const yFor = (value: number) => scale(value, chart.roiMin, chart.roiMax, y2, y1);
   const trendStartY = chart.slope * chart.xMin + chart.intercept;
@@ -965,7 +1039,7 @@ function ComboRoiScatter({ chart }: { chart: ComboRoiCorrelation }) {
   const zeroY = chart.roiMin <= 0 && chart.roiMax >= 0 ? yFor(0) : null;
 
   return (
-    <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="comboRoiSvg" role="img" aria-label={`${chart.label} ROI correlation`}>
+    <svg viewBox={`0 0 ${width} ${height}`} className={className} role="img" aria-label={`${chart.label} ROI correlation`}>
       <line x1={x1} x2={x2} y1={y2} y2={y2} className="comboRoiAxis" />
       <line x1={x1} x2={x1} y1={y1} y2={y2} className="comboRoiAxis" />
       {zeroY != null ? <line x1={x1} x2={x2} y1={zeroY} y2={zeroY} className="comboRoiZeroLine" /> : null}
@@ -976,19 +1050,51 @@ function ComboRoiScatter({ chart }: { chart: ComboRoiCorrelation }) {
         y2={yFor(trendEndY)}
         className="comboRoiTrend"
       />
-      {chart.points.map((point, idx) => (
-        <circle
-          key={`${chart.key}-${idx}-${point.comboId}-${point.x}-${point.roi}`}
-          cx={xFor(point.x)}
-          cy={yFor(point.roi)}
-          r="3.2"
-          className={point.roi >= 0 ? "comboRoiPointGain" : "comboRoiPointLoss"}
-        />
-      ))}
-      <text x={x1} y={CHART_H - 7} className="comboRoiAxisLabel" textAnchor="start">
+      {renderedPoints.map((point, idx) => {
+        const pointKey = comboRoiPointKey(point);
+        const selected = selectedPointKey === pointKey;
+        const combo = comboById?.get(point.comboId);
+        const pointClass = [
+          point.roi >= 0 ? "comboRoiPointGain" : "comboRoiPointLoss",
+          interactive ? "comboRoiPointInteractive" : "",
+          selected ? "comboRoiPointSelected" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return (
+          <circle
+            key={`${chart.key}-${idx}-${pointKey}`}
+            cx={xFor(point.x)}
+            cy={yFor(point.roi)}
+            r={interactive && selected ? "6.5" : interactive ? "5.2" : "3.2"}
+            className={pointClass}
+            role={interactive ? "button" : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            aria-label={interactive ? comboPointTitle(chart, point, combo) : undefined}
+            onMouseEnter={interactive ? () => onPointHover?.(point) : undefined}
+            onMouseLeave={interactive ? () => onPointHover?.(null) : undefined}
+            onFocus={interactive ? () => onPointHover?.(point) : undefined}
+            onBlur={interactive ? () => onPointHover?.(null) : undefined}
+            onClick={interactive ? () => onPointSelect?.(point) : undefined}
+            onKeyDown={
+              interactive
+                ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onPointSelect?.(point);
+                    }
+                  }
+                : undefined
+            }
+          >
+            <title>{comboPointTitle(chart, point, combo)}</title>
+          </circle>
+        );
+      })}
+      <text x={x1} y={height - 7} className="comboRoiAxisLabel" textAnchor="start">
         {fmtCompact(chart.xActualMin)}
       </text>
-      <text x={x2} y={CHART_H - 7} className="comboRoiAxisLabel" textAnchor="end">
+      <text x={x2} y={height - 7} className="comboRoiAxisLabel" textAnchor="end">
         {fmtCompact(chart.xActualMax)}
       </text>
       <text x={x1 - 8} y={y1 + 5} className="comboRoiAxisLabel" textAnchor="end">
@@ -1001,7 +1107,180 @@ function ComboRoiScatter({ chart }: { chart: ComboRoiCorrelation }) {
   );
 }
 
+function ComboRoiPointMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="comboRoiInspectorMetric">
+      <div className="comboRoiInspectorMetricLabel">{label}</div>
+      <div className="comboRoiInspectorMetricValue">{value}</div>
+    </div>
+  );
+}
+
+function comboPointParamEntries(combo: OptimizationCombo | null, chart: ComboRoiCorrelation, point: ComboRoiPoint): Array<[string, unknown]> {
+  const entries = new Map<string, unknown>();
+  if (combo) {
+    entries.set("openThreshold", combo.openThreshold);
+    entries.set("closeThreshold", combo.closeThreshold);
+    const rawParams = (combo.params ?? {}) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(rawParams)) {
+      if (value !== undefined && !entries.has(key)) entries.set(key, value);
+    }
+  }
+  if (!entries.has(chart.key)) entries.set(chart.key, point.x);
+  return [...entries.entries()].sort(([a], [b]) => {
+    if (a === chart.key) return -1;
+    if (b === chart.key) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+function ComboRoiPointInspector({
+  chart,
+  point,
+  combo,
+}: {
+  chart: ComboRoiCorrelation;
+  point: ComboRoiPoint | null;
+  combo: OptimizationCombo | null;
+}) {
+  if (!point) {
+    return (
+      <aside className="comboRoiInspector">
+        <div className="hint">No point selected.</div>
+      </aside>
+    );
+  }
+
+  const paramEntries = comboPointParamEntries(combo, chart, point);
+  const title = combo ? `#${combo.rank ?? combo.id} · ${comboSymbolLabel(combo)}` : `#${point.comboId}`;
+  const subtitle = combo
+    ? `${comboMarketLabel(comboMarketValue(combo))} · ${comboMethodLabel(combo)} · ${comboIntervalLabel(combo)} · bars=${combo.params.bars}`
+    : chart.label;
+  const objectiveLabel = combo?.objective && typeof combo.objective === "string" ? combo.objective : "—";
+  const scoreLabel = typeof combo?.score === "number" && Number.isFinite(combo.score) ? combo.score.toFixed(4) : "—";
+
+  return (
+    <aside className="comboRoiInspector" aria-label="Selected correlation point">
+      <div>
+        <div className="comboRoiInspectorTitle">{title}</div>
+        <div className="comboRoiInspectorSubtitle">{subtitle}</div>
+      </div>
+      <div className="comboRoiInspectorGrid">
+        <ComboRoiPointMetric label={chart.label} value={fmtParamValue(point.x)} />
+        <ComboRoiPointMetric label="ROI" value={fmtPct(point.roi, 2)} />
+        <ComboRoiPointMetric label="Final equity" value={combo ? fmtRatio(combo.finalEquity, 4) : "—"} />
+        <ComboRoiPointMetric label="Annualized" value={combo ? fmtMaybePct(comboAnnualizedReturn(combo), 2) : "—"} />
+        <ComboRoiPointMetric label="Sharpe" value={combo ? fmtMaybeNumber(comboSharpe(combo), 2) : "—"} />
+        <ComboRoiPointMetric label="MaxDD" value={combo ? fmtMaybePct(comboMaxDrawdown(combo), 2) : "—"} />
+        <ComboRoiPointMetric label="Win rate" value={combo ? fmtMaybePct(comboWinRate(combo), 0) : "—"} />
+        <ComboRoiPointMetric label="Round trips" value={combo ? fmtMaybeCount(comboRoundTrips(combo)) : "—"} />
+        <ComboRoiPointMetric label="Objective" value={objectiveLabel} />
+        <ComboRoiPointMetric label="Score" value={scoreLabel} />
+      </div>
+      <div className="comboRoiInspectorParams">
+        <div className="comboRoiInspectorSectionTitle">Parameters</div>
+        <div className="comboRoiInspectorParamList">
+          {paramEntries.map(([key, value]) => (
+            <div key={`${point.comboId}-${key}`} className={key === chart.key ? "comboRoiInspectorParam comboRoiInspectorParamActive" : "comboRoiInspectorParam"}>
+              <span>{niceParamLabel(key)}</span>
+              <strong>{fmtParamValue(value)}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function ComboRoiExpandedDialog({
+  chart,
+  comboById,
+  onClose,
+}: {
+  chart: ComboRoiCorrelation;
+  comboById: Map<number, OptimizationCombo>;
+  onClose: () => void;
+}) {
+  const [selectedPointKey, setSelectedPointKey] = useState<string | null>(() => {
+    const point = strongestRoiPoint(chart.points);
+    return point ? comboRoiPointKey(point) : null;
+  });
+  const [hoveredPointKey, setHoveredPointKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const point = strongestRoiPoint(chart.points);
+    setSelectedPointKey(point ? comboRoiPointKey(point) : null);
+    setHoveredPointKey(null);
+  }, [chart]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const activePointKey = hoveredPointKey ?? selectedPointKey;
+  const activePoint =
+    (activePointKey ? chart.points.find((point) => comboRoiPointKey(point) === activePointKey) : null) ??
+    strongestRoiPoint(chart.points);
+  const activeCombo = activePoint ? comboById.get(activePoint.comboId) ?? null : null;
+  const chartSelectedPointKey = activePoint ? comboRoiPointKey(activePoint) : selectedPointKey;
+
+  return (
+    <div
+      className="comboRoiModalBackdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="comboRoiModal" role="dialog" aria-modal="true" aria-label={`${chart.label} ROI correlation details`}>
+        <div className="comboRoiModalHeader">
+          <div>
+            <div className="comboRoiModalTitle">{chart.label}</div>
+            <div className="comboRoiModalMeta">
+              <span>{chart.sampleCount} points</span>
+              <span>
+                {fmtCompact(chart.xActualMin)} to {fmtCompact(chart.xActualMax)}
+              </span>
+              <span>
+                ROI {fmtPct(chart.roiActualMin, 0)} to {fmtPct(chart.roiActualMax, 0)}
+              </span>
+            </div>
+          </div>
+          <div className="comboRoiModalActions">
+            <span className="badge">r {fmtCorrelation(chart.correlation)}</span>
+            <button className="btnSmall comboRoiModalClose" type="button" onClick={onClose} aria-label="Close expanded chart">
+              ×
+            </button>
+          </div>
+        </div>
+        <div className="comboRoiModalContent">
+          <div className="comboRoiExpandedChartWrap">
+            <ComboRoiScatter
+              chart={chart}
+              points={chart.points}
+              width={DETAIL_CHART_W}
+              height={DETAIL_CHART_H}
+              pad={DETAIL_CHART_PAD}
+              className="comboRoiSvg comboRoiSvgExpanded"
+              interactive
+              selectedPointKey={chartSelectedPointKey}
+              onPointHover={(point) => setHoveredPointKey(point ? comboRoiPointKey(point) : null)}
+              onPointSelect={(point) => setSelectedPointKey(comboRoiPointKey(point))}
+              comboById={comboById}
+            />
+          </div>
+          <ComboRoiPointInspector chart={chart} point={activePoint} combo={activeCombo} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelationCharts({ combos, loading }: Props) {
+  const [expandedChartKey, setExpandedChartKey] = useState<string | null>(null);
   const analytics = useMemo(
     () => ({
       summary: buildProfitabilitySummary(combos),
@@ -1016,6 +1295,12 @@ export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelation
     [combos],
   );
   const charts = analytics.correlations;
+  const comboById = useMemo(() => new Map(combos.map((combo) => [combo.id, combo])), [combos]);
+  const expandedChart = expandedChartKey ? charts.find((chart) => chart.key === expandedChartKey) ?? null : null;
+
+  useEffect(() => {
+    if (expandedChartKey && !expandedChart) setExpandedChartKey(null);
+  }, [expandedChartKey, expandedChart]);
 
   return (
     <section className="comboRoiSection" aria-label="Optimizer combo analytics">
@@ -1063,7 +1348,20 @@ export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelation
             ) : (
               <div className="comboRoiGrid">
                 {charts.map((chart) => (
-                  <div key={chart.key} className="comboRoiChart">
+                  <div
+                    key={chart.key}
+                    className="comboRoiChart"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${chart.label} ROI correlation details`}
+                    onClick={() => setExpandedChartKey(chart.key)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setExpandedChartKey(chart.key);
+                      }
+                    }}
+                  >
                     <div className="comboRoiChartHeader">
                       <div className="comboRoiParam">{chart.label}</div>
                       <span className="badge">r {fmtCorrelation(chart.correlation)}</span>
@@ -1082,6 +1380,13 @@ export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelation
           </div>
         </>
       )}
+      {expandedChart ? (
+        <ComboRoiExpandedDialog
+          chart={expandedChart}
+          comboById={comboById}
+          onClose={() => setExpandedChartKey(null)}
+        />
+      ) : null}
     </section>
   );
 });

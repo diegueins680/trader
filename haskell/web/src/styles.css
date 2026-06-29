@@ -2504,6 +2504,20 @@ body.panelMaximized .cardMaximized {
   border-radius: 8px;
   padding: 10px;
   background: var(--card2);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.comboRoiChart:hover {
+  border-color: rgba(var(--accent-rgb), 0.34);
+  box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.1);
+  transform: translateY(-1px);
+}
+
+.comboRoiChart:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-color: rgba(var(--accent-rgb), 0.55);
 }
 
 .comboRoiChartHeader {
@@ -2569,10 +2583,244 @@ body.panelMaximized .cardMaximized {
   stroke-width: 1;
 }
 
+.comboRoiPointInteractive {
+  cursor: pointer;
+  transition: r 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
+}
+
+.comboRoiPointInteractive:hover,
+.comboRoiPointInteractive:focus,
+.comboRoiPointSelected {
+  stroke: var(--text);
+  stroke-width: 2.4;
+  opacity: 1;
+}
+
 .comboRoiAxisLabel {
   fill: var(--muted);
   font-family: var(--mono);
   font-size: 12px;
+}
+
+.comboRoiModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  padding: 14px;
+  background: rgba(2, 6, 23, 0.58);
+  backdrop-filter: blur(14px);
+}
+
+.comboRoiModal {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--stroke2);
+  border-radius: 8px;
+  background: var(--card-solid);
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.34);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.comboRoiModalHeader {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+}
+
+.comboRoiModalTitle {
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.comboRoiModalMeta,
+.comboRoiModalActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comboRoiModalMeta {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.comboRoiModalActions {
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.comboRoiModalClose {
+  width: 32px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.comboRoiModalContent {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.comboRoiExpandedChartWrap {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.comboRoiSvgExpanded {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 360px;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.comboRoiInspector {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  background: var(--card2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.comboRoiInspectorTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.comboRoiInspectorSubtitle {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.comboRoiInspectorGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.comboRoiInspectorMetric {
+  min-width: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface-subtle);
+}
+
+.comboRoiInspectorMetricLabel,
+.comboRoiInspectorSectionTitle {
+  font-size: 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.comboRoiInspectorMetricValue {
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.comboRoiInspectorParams {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.comboRoiInspectorParamList {
+  display: grid;
+  gap: 6px;
+}
+
+.comboRoiInspectorParam {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  border: 1px solid var(--stroke);
+  border-radius: 7px;
+  padding: 6px 7px;
+  background: var(--surface-subtle);
+}
+
+.comboRoiInspectorParam span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.comboRoiInspectorParam strong {
+  max-width: 150px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.comboRoiInspectorParamActive {
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+@media (max-width: 860px) {
+  .comboRoiModalBackdrop {
+    padding: 0;
+  }
+
+  .comboRoiModal {
+    border-radius: 0;
+  }
+
+  .comboRoiModalContent {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(340px, 1fr) minmax(240px, 42vh);
+    overflow: auto;
+  }
+
+  .comboRoiSvgExpanded {
+    min-height: 340px;
+  }
+
+  .comboRoiInspector {
+    min-height: 240px;
+  }
 }
 
 .comboRow {
