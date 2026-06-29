@@ -1,4 +1,5 @@
 ## Unreleased
+- Web/API Binance: stop `/binance/trades` from racing the old 30s browser abort by giving account-trade fetches a 180s configurable UI timeout (`TRADER_UI_BINANCE_TRADES_TIMEOUT_MS`), add a server-side `TRADER_BINANCE_TRADES_TIMEOUT_SEC` deadline with a 504 error, and fetch multi-symbol trades / Max PNL candle ranges with bounded concurrency.
 - API/Ops: add an idempotent async-job storage migration and persist the initial async `running` state before returning a `jobId`, preventing restarted or load-balanced serve-mode deployments from polling a missing job row.
 - Web/Optimizer: make parameter-to-ROI correlation charts expandable; clicking a mini scatter now opens a full-screen interactive chart with point-level combo metrics and parameter details.
 - Web/Deploy: raise browser-side signal/backtest/trade/optimizer/bot-start request timers to 30 minutes by default and expose runtime `TRADER_UI_*_TIMEOUT_MS` knobs in generated web config, preventing long async requests from failing early with the generic UI timeout before the API returns a backend result or precise server-side timeout.

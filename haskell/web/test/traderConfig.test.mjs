@@ -28,6 +28,7 @@ test("trader-config infers direct Fly API host for -web-hs naming", () => {
   assert.equal(config.timeoutsMs?.optimizerMs, 1800000);
   assert.equal(config.timeoutsMs?.botStartMs, 1800000);
   assert.equal(config.timeoutsMs?.botStatusMs, 120000);
+  assert.equal(config.timeoutsMs?.binanceTradesMs, 180000);
 });
 
 test("trader-config does not infer direct Fly API host for plain -web suffix naming", () => {

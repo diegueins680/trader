@@ -20,6 +20,7 @@ interface Window {
       optimizerMs?: number;
       botStartMs?: number;
       botStatusMs?: number;
+      binanceTradesMs?: number;
     };
   };
 }

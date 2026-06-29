@@ -6,6 +6,7 @@ export type TraderUiTimeoutsMs = {
   optimizerMs?: number;
   botStartMs?: number;
   botStatusMs?: number;
+  binanceTradesMs?: number;
 };
 
 export type TraderUiDeployConfig = {
@@ -190,6 +191,7 @@ function readTimeouts(raw: unknown): TraderUiTimeoutsMs | undefined {
     optimizerMs: normalizeTimeoutMs(r.optimizerMs),
     botStartMs: normalizeTimeoutMs(r.botStartMs),
     botStatusMs: normalizeTimeoutMs(r.botStatusMs),
+    binanceTradesMs: normalizeTimeoutMs(r.binanceTradesMs),
   };
   if (!Object.values(out).some((v) => typeof v === "number")) return undefined;
   return out;

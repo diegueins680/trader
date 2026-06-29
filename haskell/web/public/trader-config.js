@@ -24,6 +24,7 @@
 //     optimizerMs: 30 * 60_000,
 //     botStartMs: 30 * 60_000,
 //     botStatusMs: 60_000,
+//     binanceTradesMs: 180_000,
 //   },
 // };
 (() => {
@@ -73,6 +74,7 @@
       optimizerMs: 1800000,
       botStartMs: 1800000,
       botStatusMs: 120000,
+      binanceTradesMs: 180000,
     },
   };
 })();

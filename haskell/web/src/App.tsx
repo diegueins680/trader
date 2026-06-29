@@ -92,6 +92,7 @@ import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from 
 import {
   BACKTEST_TIMEOUT_MS,
   BINANCE_POSITIONS_TIMEOUT_MS,
+  BINANCE_TRADES_TIMEOUT_MS,
   BOT_START_TIMEOUT_MS,
   OPTIMIZER_TIMEOUT_MS,
   BOT_STATUS_OPS_FALLBACK_LIMIT,
@@ -6395,7 +6396,7 @@ export function App() {
       };
       const out = await binanceTrades(apiBase, withBinanceKeys(params), {
         headers: authHeaders,
-        timeoutMs: 30_000,
+        timeoutMs: BINANCE_TRADES_TIMEOUT_MS,
         signal: controller.signal,
       });
       setBinanceTradesUi({ loading: false, error: null, response: out });
@@ -6489,7 +6490,7 @@ export function App() {
         };
         const out = await binanceTrades(apiBase, withBinanceKeys(params), {
           headers: authHeaders,
-          timeoutMs: 30_000,
+          timeoutMs: BINANCE_TRADES_TIMEOUT_MS,
           signal: controller.signal,
         });
         setBinancePositionTradesUi({ loading: false, error: null, response: out });

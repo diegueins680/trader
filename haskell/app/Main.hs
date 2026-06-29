@@ -5240,13 +5240,15 @@ attachBinanceTradeMaxPnlFromKlines env interval trades = do
     if M.null ranges
         then pure (attachBinanceTradeMaxPnl M.empty trades)
         else do
-            klinePairs <-
-                forM (M.toList ranges) $ \(sym, (startTime, endTime)) -> do
+            let klineConcurrency = 4
+                fetchRange (sym, (startTime, endTime)) = do
                     r <- try (fetchKlinesBetween env sym interval startTime endTime) :: IO (Either SomeException [Kline])
                     pure $
                         case r of
                             Left _ -> Nothing
                             Right ks -> Just (sym, ks)
+            klinePairs <-
+                mapConcurrentlyBounded klineConcurrency fetchRange (M.toList ranges)
             pure (attachBinanceTradeMaxPnl (M.fromList (catMaybes klinePairs)) trades)
 
 defaultBotStatusLogIntervalMs :: Int64
@@ -5761,6 +5763,12 @@ isBinancePositionsTimeoutMessage :: String -> Bool
 isBinancePositionsTimeoutMessage =
     isPrefixOf "Binance positions timed out after "
 
+binanceTradesTimeoutMessage :: Int -> String
+binanceTradesTimeoutMessage timeoutSec =
+    "Binance trades timed out after "
+        ++ show timeoutSec
+        ++ "s while loading account trades and Max PNL candles. Try a smaller symbol/window, or increase TRADER_BINANCE_TRADES_TIMEOUT_SEC."
+
 timeBinancePositionsStep :: String -> IO a -> IO a
 timeBinancePositionsStep label action = do
     started <- getTimestampMs
@@ -5782,6 +5790,9 @@ binancePositionsOverallTimeoutMicros timeoutSec =
 
 defaultBinancePositionsTimeoutSec :: Int
 defaultBinancePositionsTimeoutSec = 45
+
+defaultBinanceTradesTimeoutSec :: Int
+defaultBinanceTradesTimeoutSec = 120
 
 data ComboParamsRow = ComboParamsRow
     { cprFinalEquity :: !(Maybe Double)
@@ -14786,6 +14797,7 @@ runRestApi cliArgs mWebhook = do
     maxBacktestRunningEnv <- lookupEnv "TRADER_API_MAX_BACKTEST_RUNNING"
     backtestTimeoutEnv <- lookupEnv "TRADER_API_BACKTEST_TIMEOUT_SEC"
     tradeTimeoutEnv <- lookupEnv "TRADER_API_TRADE_TIMEOUT_SEC"
+    tradesTimeoutEnv <- lookupEnv "TRADER_BINANCE_TRADES_TIMEOUT_SEC"
     positionsTimeoutEnv <- lookupEnv "TRADER_BINANCE_POSITIONS_TIMEOUT_SEC"
     cacheTtlEnv <- lookupEnv "TRADER_API_CACHE_TTL_MS"
     cacheMaxEnv <- lookupEnv "TRADER_API_CACHE_MAX_ENTRIES"
@@ -14815,6 +14827,10 @@ runRestApi cliArgs mWebhook = do
             case tradeTimeoutEnv >>= readMaybe of
                 Just n | n >= 1 -> n
                 _ -> 600
+        tradesTimeoutSec =
+            case tradesTimeoutEnv >>= readMaybe of
+                Just n | n >= 1 -> n
+                _ -> defaultBinanceTradesTimeoutSec
         positionsTimeoutSec =
             case positionsTimeoutEnv >>= readMaybe of
                 Just n | n >= 1 -> n
@@ -14856,6 +14872,7 @@ runRestApi cliArgs mWebhook = do
                 , arlMaxOptimizerOutputBytes = maxOptimizerOutputBytes
                 , arlMaxBotStatusTail = defaultApiMaxBotStatusTail
                 , arlTradeTimeoutSec = tradeTimeoutSec
+                , arlBinanceTradesTimeoutSec = tradesTimeoutSec
                 , arlBinancePositionsTimeoutSec = positionsTimeoutSec
                 }
     -- With 1 vCPU (common in small ECS/Fargate tasks), long-running pure compute can starve the
@@ -14896,6 +14913,7 @@ runRestApi cliArgs mWebhook = do
             backtestTimeoutSec
         )
     putStrLn (printf "API trade async timeout: timeoutSec=%d" tradeTimeoutSec)
+    putStrLn (printf "API Binance trades timeout: timeoutSec=%d" tradesTimeoutSec)
     putStrLn (printf "API Binance positions timeout: timeoutSec=%d" positionsTimeoutSec)
     putStrLn
         ( printf
@@ -16326,6 +16344,7 @@ data ApiRequestLimits = ApiRequestLimits
     , arlMaxOptimizerOutputBytes :: !Int
     , arlMaxBotStatusTail :: !Int
     , arlTradeTimeoutSec :: !Int
+    , arlBinanceTradesTimeoutSec :: !Int
     , arlBinancePositionsTimeoutSec :: !Int
     }
     deriving (Eq, Show)
@@ -16568,6 +16587,7 @@ apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores 
                             , "ttlMs" .= jsTtlMs asyncCfg
                             , "persistence" .= (isJust (jsDir asyncCfg) || isJust mOps)
                             , "tradeTimeoutSec" .= arlTradeTimeoutSec reqLimits
+                            , "binanceTradesTimeoutSec" .= arlBinanceTradesTimeoutSec reqLimits
                             , "binancePositionsTimeoutSec" .= arlBinancePositionsTimeoutSec reqLimits
                             ]
                    , "cache"
@@ -21325,38 +21345,44 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                             if allSymbols && market /= MarketFutures
                                                 then respond (jsonError status400 "binance trades require symbol for spot/margin markets")
                                                 else do
-                                                    result <- try $ do
-                                                        trades <-
-                                                            if allSymbols
-                                                                then fetchAccountTrades env Nothing limit startTime endTime fromId
-                                                                else
-                                                                    concat
-                                                                        <$> mapM
-                                                                            (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
-                                                                            symbols
-                                                        let tradesSorted = sortOn (negate . btTime) trades
-                                                        tradesWithIps <-
-                                                            case (mOps, mOpsTenant) of
-                                                                (Just store, Just tenantKey) ->
-                                                                    attachBinanceTradeOriginIps store tenantKey tradesSorted
-                                                                _ -> pure tradesSorted
-                                                        tradesWithMaxPnl <- attachBinanceTradeMaxPnlFromKlines env interval tradesWithIps
-                                                        now <- getTimestampMs
-                                                        pure
-                                                            ApiBinanceTradesResponse
-                                                                { abtrMarket = marketCode market
-                                                                , abtrTestnet = testnet
-                                                                , abtrInterval = interval
-                                                                , abtrSymbols = symbols
-                                                                , abtrAllSymbols = allSymbols
-                                                                , abtrTrades = tradesWithMaxPnl
-                                                                , abtrFetchedAtMs = now
-                                                                }
+                                                    let tradesTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
+                                                        fetchSymbolTrades sym = fetchAccountTrades env (Just sym) limit startTime endTime fromId
+                                                    result <-
+                                                        try
+                                                            ( timeout
+                                                                (tradesTimeoutSec * 1000000)
+                                                                ( do
+                                                                    trades <-
+                                                                        if allSymbols
+                                                                            then fetchAccountTrades env Nothing limit startTime endTime fromId
+                                                                            else concat <$> mapConcurrentlyBounded 4 fetchSymbolTrades symbols
+                                                                    let tradesSorted = sortOn (negate . btTime) trades
+                                                                    tradesWithIps <-
+                                                                        case (mOps, mOpsTenant) of
+                                                                            (Just store, Just tenantKey) ->
+                                                                                attachBinanceTradeOriginIps store tenantKey tradesSorted
+                                                                            _ -> pure tradesSorted
+                                                                    tradesWithMaxPnl <- attachBinanceTradeMaxPnlFromKlines env interval tradesWithIps
+                                                                    now <- getTimestampMs
+                                                                    pure
+                                                                        ApiBinanceTradesResponse
+                                                                            { abtrMarket = marketCode market
+                                                                            , abtrTestnet = testnet
+                                                                            , abtrInterval = interval
+                                                                            , abtrSymbols = symbols
+                                                                            , abtrAllSymbols = allSymbols
+                                                                            , abtrTrades = tradesWithMaxPnl
+                                                                            , abtrFetchedAtMs = now
+                                                                            }
+                                                                )
+                                                            )
                                                     case result of
                                                         Left ex ->
                                                             let (st, msg) = exceptionToHttp ex
                                                              in respond (jsonError st msg)
-                                                        Right payload ->
+                                                        Right Nothing ->
+                                                            respond (jsonError status504 (binanceTradesTimeoutMessage tradesTimeoutSec))
+                                                        Right (Just payload) ->
                                                             respond (jsonValue status200 payload)
 
 computeBinancePositionsResponse :: Maybe (RequestProgressStore, String) -> Maybe OpsStore -> Args -> BinanceMarket -> Bool -> ApiBinancePositionsRequest -> Int -> IO ApiBinancePositionsResponse

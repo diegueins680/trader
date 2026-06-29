@@ -70,6 +70,7 @@ trade_timeout_ms="$(timeout_ms "${TRADER_UI_TRADE_TIMEOUT_MS:-}" "$trade_default
 optimizer_timeout_ms="$(timeout_ms "${TRADER_UI_OPTIMIZER_TIMEOUT_MS:-}" 1800000)"
 bot_start_timeout_ms="$(timeout_ms "${TRADER_UI_BOT_START_TIMEOUT_MS:-}" 1800000)"
 bot_status_timeout_ms="$(timeout_ms "${TRADER_UI_BOT_STATUS_TIMEOUT_MS:-}" 120000)"
+binance_trades_timeout_ms="$(timeout_ms "${TRADER_UI_BINANCE_TRADES_TIMEOUT_MS:-}" 180000)"
 
 cat > "$config_path" <<EOF
 globalThis.__TRADER_CONFIG__ = {
@@ -85,6 +86,7 @@ globalThis.__TRADER_CONFIG__ = {
     optimizerMs: $optimizer_timeout_ms,
     botStartMs: $bot_start_timeout_ms,
     botStatusMs: $bot_status_timeout_ms,
+    binanceTradesMs: $binance_trades_timeout_ms,
   },
 };
 EOF

@@ -170,6 +170,7 @@ test("deploy-config keeps exact safe integer millisecond timeouts and clamps onl
       signalMs: "1000.0",
       backtestMs: "1e3",
       tradeMs: 86_400_001,
+      binanceTradesMs: 180_000,
     },
   });
 
@@ -178,6 +179,7 @@ test("deploy-config keeps exact safe integer millisecond timeouts and clamps onl
     signalMs: 1000,
     backtestMs: 1000,
     tradeMs: 86_400_000,
+    binanceTradesMs: 180_000,
   });
 });
 
@@ -190,6 +192,7 @@ test("deploy-config rejects fractional and unsafe integer-like timeout values in
       signalMs: "1000.4",
       backtestMs: "9007199254740993",
       tradeMs: Number.MAX_SAFE_INTEGER + 1,
+      binanceTradesMs: "999",
     },
   });
 

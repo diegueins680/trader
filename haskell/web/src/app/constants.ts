@@ -31,9 +31,13 @@ const DEFAULT_TRADE_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_OPTIMIZER_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_BOT_START_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_BOT_STATUS_TIMEOUT_MS = 60_000;
+const DEFAULT_BINANCE_TRADES_TIMEOUT_MS = 180_000;
 const DEFAULT_BINANCE_POSITIONS_TIMEOUT_MS = 90_000;
 
-function resolveTimeoutMs(key: "signalMs" | "backtestMs" | "tradeMs" | "optimizerMs" | "botStartMs" | "botStatusMs", fallback: number): number {
+function resolveTimeoutMs(
+  key: "signalMs" | "backtestMs" | "tradeMs" | "optimizerMs" | "botStartMs" | "botStatusMs" | "binanceTradesMs",
+  fallback: number,
+): number {
   const v = TRADER_UI_CONFIG.timeoutsMs?.[key];
   return typeof v === "number" && Number.isFinite(v) && v >= 1000 ? v : fallback;
 }
@@ -44,6 +48,7 @@ export const TRADE_TIMEOUT_MS = resolveTimeoutMs("tradeMs", DEFAULT_TRADE_TIMEOU
 export const OPTIMIZER_TIMEOUT_MS = resolveTimeoutMs("optimizerMs", DEFAULT_OPTIMIZER_TIMEOUT_MS);
 export const BOT_START_TIMEOUT_MS = resolveTimeoutMs("botStartMs", DEFAULT_BOT_START_TIMEOUT_MS);
 export const BOT_STATUS_TIMEOUT_MS = resolveTimeoutMs("botStatusMs", DEFAULT_BOT_STATUS_TIMEOUT_MS);
+export const BINANCE_TRADES_TIMEOUT_MS = resolveTimeoutMs("binanceTradesMs", DEFAULT_BINANCE_TRADES_TIMEOUT_MS);
 export const BINANCE_POSITIONS_TIMEOUT_MS = DEFAULT_BINANCE_POSITIONS_TIMEOUT_MS;
 export const BOT_STATUS_POLL_MS = 5_000;
 export const BOT_STATUS_TAIL_POINTS = 5000;
