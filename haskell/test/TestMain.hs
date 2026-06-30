@@ -959,6 +959,39 @@ testTCNSanitizesMalformedInputs = do
                 }
     assert "TCN malformed model weights fail closed" (isNothing (predictTCN malformedModel prices 4))
 
+testPatchTSTSanitizesMalformedInputs :: IO ()
+testPatchTSTSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        prices = V.fromList [100 + fromIntegral i | i <- [0 .. 39 :: Int]]
+        poisonedPrices = prices V.// [(20, nan)]
+        trainTargets =
+            [ (t, 0.001 * fromIntegral t)
+            | t <- [8 .. 30]
+            ]
+                ++ [(31, nan), (32, inf)]
+        model = trainPatchTST 12 prices trainTargets
+        finite x = not (isNaN x || isInfinite x)
+    assert
+        "PatchTST feature extraction rejects non-finite price windows"
+        (isNothing (patchTstFeaturesAt [4, 8, 12] poisonedPrices 24))
+    assert
+        "PatchTST training drops malformed targets before fitting"
+        (not (null (pmWeights model)) && all finite (pmWeights model) && maybe True finite (pmSigma model))
+    assert
+        "PatchTST finite prediction remains finite"
+        ( case predictPatchTST model prices 35 of
+            Just (mu, sigma) -> finite mu && maybe True finite sigma
+            Nothing -> False
+        )
+    let malformedModel =
+            PatchTSTModel
+                { pmPatchLengths = [4]
+                , pmWeights = [nan, 0, 0, 0, 0, 1]
+                , pmSigma = Just inf
+                }
+    assert "PatchTST malformed model weights fail closed" (isNothing (predictPatchTST malformedModel prices 8))
+
 testHMMSanitizesMalformedInputs :: IO ()
 testHMMSanitizesMalformedInputs = do
     let nan = 0 / 0
