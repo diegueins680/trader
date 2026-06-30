@@ -60,6 +60,7 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
+import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, parseExternalJsonSpec)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -88,7 +89,6 @@ import Trader.Formal.Risk (
     specRiskHalt,
     verifyFormalRisk,
  )
-import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, parseExternalJsonSpec)
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import qualified Trader.Kalman3 as Kalman3
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
@@ -129,7 +129,6 @@ import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, 
 import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
-import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.Optimizer.Optimize (
     CorrelationGuidanceField (..),
     OptimizationTechniqueSummary (..),
@@ -162,6 +161,7 @@ import Trader.Optimizer.Optimize (
     qualityPresetCeiling,
     qualityPresetWeightFloor,
  )
+import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Platform (Platform (..))
 import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
@@ -769,9 +769,10 @@ testExternalDataFeatureInputs = do
 
     assert
         "generic external JSON specs parse provider family, URL, timestamp key, and value key"
-        (case parseExternalJsonSpec "onchain|https://example.invalid/metric|t|v" of
+        ( case parseExternalJsonSpec "onchain|https://example.invalid/metric|t|v" of
             Just spec -> ejsFeature spec == ExternalOnChain
-            Nothing -> False)
+            Nothing -> False
+        )
 
 {- | Multivariate LSTM: a single channel is byte-identical to the univariate
 model (so the default/live path is unchanged), input dim is recoverable from the
