@@ -216,7 +216,9 @@ export const defaultForm: FormState = {
 const METHOD_SET = new Set<Method>(METHOD_IDS);
 const NORMALIZATION_SET = new Set<Normalization>(["none", "minmax", "standard", "log"]);
 
-export type FormStateJson = Partial<FormState> & {
+type ManualOrderSizingKey = "orderQuote" | "orderQuantity" | "orderQuoteFraction" | "maxOrderQuote";
+
+export type FormStateJson = Omit<Partial<FormState>, ManualOrderSizingKey> & {
   threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
   platform?: unknown;
   interval?: unknown;
@@ -224,7 +226,33 @@ export type FormStateJson = Partial<FormState> & {
   intrabarFill?: unknown;
   lookbackWindow?: unknown;
   lookbackBars?: unknown;
+  tradeOrderQuoteAmount?: unknown;
+  tradeOrderBaseQuantity?: unknown;
+  tradeOrderQuoteFraction?: unknown;
+  tradeOrderQuoteCap?: unknown;
 };
+
+export type SerializedFormState = Omit<FormState, ManualOrderSizingKey> & {
+  tradeOrderQuoteAmount: number;
+  tradeOrderBaseQuantity: number;
+  tradeOrderQuoteFraction: number;
+  tradeOrderQuoteCap: number;
+};
+
+export function serializeFormState(form: FormState): SerializedFormState {
+  const { orderQuote, orderQuantity, orderQuoteFraction, maxOrderQuote, ...rest } = form;
+  return {
+    ...rest,
+    tradeOrderQuoteAmount: orderQuote,
+    tradeOrderBaseQuantity: orderQuantity,
+    tradeOrderQuoteFraction: orderQuoteFraction,
+    tradeOrderQuoteCap: maxOrderQuote,
+  };
+}
+
+export function serializeFormProfiles(profiles: Record<string, FormState>): Record<string, SerializedFormState> {
+  return Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [name, serializeFormState(profile)]));
+}
 
 export function binanceIntervalSeconds(interval: string): number | null {
   const sec = BINANCE_INTERVAL_SECONDS[interval];
@@ -493,15 +521,15 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   // canonicalize compatible aliases and otherwise fall back to that platform's default symbol.
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform);
   // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
-  const orderQuote = normalizeFiniteNumber(rawRec.orderQuote ?? merged.orderQuote, defaultForm.orderQuote, 0, 1e9);
-  const orderQuantity = normalizeFiniteNumber(rawRec.orderQuantity ?? merged.orderQuantity, defaultForm.orderQuantity, 0, 1e9);
+  const orderQuote = normalizeFiniteNumber(rawRec.tradeOrderQuoteAmount, defaultForm.orderQuote, 0, 1e9);
+  const orderQuantity = normalizeFiniteNumber(rawRec.tradeOrderBaseQuantity, defaultForm.orderQuantity, 0, 1e9);
   const orderQuoteFraction = normalizeFiniteNumber(
-    rawRec.orderQuoteFraction ?? merged.orderQuoteFraction,
+    rawRec.tradeOrderQuoteFraction,
     defaultForm.orderQuoteFraction,
     -1e9,
     1e9,
   );
-  const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
+  const maxOrderQuote = normalizeFiniteNumber(rawRec.tradeOrderQuoteCap, defaultForm.maxOrderQuote, 0, 1e9);
   // Integer-backed request fields should restore as exact safe integers so the UI state
   // cannot diverge from the values later emitted by the request builder.
   const bars = normalizeWholeNumber(rawRec.bars ?? merged.bars, defaultForm.bars, 0, 1e9);
