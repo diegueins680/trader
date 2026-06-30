@@ -355,7 +355,7 @@ export type OrderSizingState = {
   effectiveLabel: string;
   fractionError: string | null;
   blockingError: string | null;
-  blockingTargetId: "tradeSizingQuoteAmount" | "tradeSizingQuoteFraction";
+  blockingTargetId: "liveTradeQuoteBudget" | "liveTradeQuoteBalanceFraction";
   statusLabel: string;
   hint: string;
   tone: "ok" | "warn" | "bad";
@@ -409,7 +409,7 @@ export function summarizeOrderSizing(input: OrderSizingInput): OrderSizingState 
         ? "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction."
         : null;
   const blockingTargetId =
-    fractionError && !quantityOn && !quoteOn ? "tradeSizingQuoteFraction" : "tradeSizingQuoteAmount";
+    fractionError && !quantityOn && !quoteOn ? "liveTradeQuoteBalanceFraction" : "liveTradeQuoteBudget";
 
   const statusLabel =
     blockingError

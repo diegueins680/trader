@@ -126,8 +126,8 @@ const emittedUiTargetPageMap = {
   epochs: "section-risk",
   hiddenSize: "section-risk",
   botSymbols: "section-livebot",
-  tradeSizingQuoteAmount: "section-trade",
-  tradeSizingQuoteFraction: "section-trade",
+  liveTradeQuoteBudget: "section-trade",
+  liveTradeQuoteBalanceFraction: "section-trade",
   platformKeys: "section-api",
   "section-trade": "section-trade",
 };
@@ -249,13 +249,13 @@ test("repo contract routes trade sizing validation targets to trade config page"
 
   assert.match(
     targetPageMapBody,
-    /tradeSizingQuoteAmount:\s*"section-trade"/,
-    "tradeSizingQuoteAmount sizing issues must route to the Trade config page",
+    /liveTradeQuoteBudget:\s*"section-trade"/,
+    "liveTradeQuoteBudget sizing issues must route to the Trade config page",
   );
   assert.match(
     targetPageMapBody,
-    /tradeSizingQuoteFraction:\s*"section-trade"/,
-    "tradeSizingQuoteFraction sizing issues must route to the Trade config page",
+    /liveTradeQuoteBalanceFraction:\s*"section-trade"/,
+    "liveTradeQuoteBalanceFraction sizing issues must route to the Trade config page",
   );
 });
 

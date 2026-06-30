@@ -74,8 +74,8 @@ export const CONFIG_TARGET_PAGE_MAP: Record<string, ConfigPageId> = {
   epochs: "section-risk",
   hiddenSize: "section-risk",
   botSymbols: "section-livebot",
-  tradeSizingQuoteAmount: "section-trade",
-  tradeSizingQuoteFraction: "section-trade",
+  liveTradeQuoteBudget: "section-trade",
+  liveTradeQuoteBalanceFraction: "section-trade",
 };
 
 export const CONFIG_PANEL_HEIGHTS: Record<ConfigPanelId, string> = {

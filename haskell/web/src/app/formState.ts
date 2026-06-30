@@ -226,17 +226,25 @@ export type FormStateJson = Omit<Partial<FormState>, ManualOrderSizingKey> & {
   intrabarFill?: unknown;
   lookbackWindow?: unknown;
   lookbackBars?: unknown;
-  tradeSizingQuoteAmount?: unknown;
-  tradeSizingBaseQuantity?: unknown;
-  tradeSizingQuoteFraction?: unknown;
-  tradeSizingQuoteCap?: unknown;
+  liveTradeQuoteBudget?: unknown;
+  liveTradeBaseUnits?: unknown;
+  liveTradeQuoteBalanceFraction?: unknown;
+  liveTradeQuoteBudgetCap?: unknown;
+  tradeOrderQuoteAmount?: unknown; // legacy sizing field, ignored
+  tradeOrderBaseQuantity?: unknown; // legacy sizing field, ignored
+  tradeOrderQuoteFraction?: unknown; // legacy sizing field, ignored
+  tradeOrderQuoteCap?: unknown; // legacy sizing field, ignored
+  tradeSizingQuoteAmount?: unknown; // legacy sizing field, ignored
+  tradeSizingBaseQuantity?: unknown; // legacy sizing field, ignored
+  tradeSizingQuoteFraction?: unknown; // legacy sizing field, ignored
+  tradeSizingQuoteCap?: unknown; // legacy sizing field, ignored
 };
 
 export type SerializedFormState = Omit<FormState, ManualOrderSizingKey> & {
-  tradeSizingQuoteAmount: number;
-  tradeSizingBaseQuantity: number;
-  tradeSizingQuoteFraction: number;
-  tradeSizingQuoteCap: number;
+  liveTradeQuoteBudget: number;
+  liveTradeBaseUnits: number;
+  liveTradeQuoteBalanceFraction: number;
+  liveTradeQuoteBudgetCap: number;
 };
 
 export function serializeFormState(form: FormState): SerializedFormState {
@@ -253,6 +261,10 @@ export function serializeFormState(form: FormState): SerializedFormState {
     tradeSizingBaseQuantity: _ignoredTradeSizingBaseQuantity,
     tradeSizingQuoteFraction: _ignoredTradeSizingQuoteFraction,
     tradeSizingQuoteCap: _ignoredTradeSizingQuoteCap,
+    liveTradeQuoteBudget: _ignoredLiveTradeQuoteBudget,
+    liveTradeBaseUnits: _ignoredLiveTradeBaseUnits,
+    liveTradeQuoteBalanceFraction: _ignoredLiveTradeQuoteBalanceFraction,
+    liveTradeQuoteBudgetCap: _ignoredLiveTradeQuoteBudgetCap,
     ...rest
   } = form as FormState & {
     tradeOrderQuoteAmount?: unknown;
@@ -263,13 +275,17 @@ export function serializeFormState(form: FormState): SerializedFormState {
     tradeSizingBaseQuantity?: unknown;
     tradeSizingQuoteFraction?: unknown;
     tradeSizingQuoteCap?: unknown;
+    liveTradeQuoteBudget?: unknown;
+    liveTradeBaseUnits?: unknown;
+    liveTradeQuoteBalanceFraction?: unknown;
+    liveTradeQuoteBudgetCap?: unknown;
   };
   return {
     ...rest,
-    tradeSizingQuoteAmount: orderQuote,
-    tradeSizingBaseQuantity: orderQuantity,
-    tradeSizingQuoteFraction: orderQuoteFraction,
-    tradeSizingQuoteCap: maxOrderQuote,
+    liveTradeQuoteBudget: orderQuote,
+    liveTradeBaseUnits: orderQuantity,
+    liveTradeQuoteBalanceFraction: orderQuoteFraction,
+    liveTradeQuoteBudgetCap: maxOrderQuote,
   };
 }
 
@@ -496,19 +512,6 @@ function normalizeNonNegativeFiniteNumber(raw: unknown, fallback: number): numbe
   return normalizeFiniteNumber(raw, fallback, 0, Number.MAX_VALUE);
 }
 
-function own(raw: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(raw, key);
-}
-
-function isLegacyFixedQuoteSizingPreset(raw: Record<string, unknown>): boolean {
-  if (!own(raw, "tradeSizingQuoteAmount") || !own(raw, "tradeSizingQuoteFraction")) return false;
-  const orderQuote = normalizeFiniteNumber(raw.tradeSizingQuoteAmount, Number.NaN, 0, 1e9);
-  const orderQuantity = normalizeFiniteNumber(raw.tradeSizingBaseQuantity, 0, 0, 1e9);
-  const orderQuoteFraction = normalizeFiniteNumber(raw.tradeSizingQuoteFraction, Number.NaN, -1e9, 1e9);
-  const maxOrderQuote = normalizeFiniteNumber(raw.tradeSizingQuoteCap, 0, 0, 1e9);
-  return orderQuote === 100 && orderQuantity === 0 && orderQuoteFraction === 0 && maxOrderQuote === 0;
-}
-
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
@@ -556,21 +559,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   // Restore-time symbol hydration must keep the field usable for the active platform:
   // canonicalize compatible aliases and otherwise fall back to that platform's default symbol.
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform);
-  // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
-  // Older browser state may already use these storage keys while still carrying the prior fixed-quote preset.
-  const legacyFixedQuoteSizing = isLegacyFixedQuoteSizingPreset(rawRec);
-  const orderQuote = legacyFixedQuoteSizing
-    ? defaultForm.orderQuote
-    : normalizeFiniteNumber(rawRec.tradeSizingQuoteAmount, defaultForm.orderQuote, 0, 1e9);
-  const orderQuantity = legacyFixedQuoteSizing
-    ? defaultForm.orderQuantity
-    : normalizeFiniteNumber(rawRec.tradeSizingBaseQuantity, defaultForm.orderQuantity, 0, 1e9);
-  const orderQuoteFraction = legacyFixedQuoteSizing
-    ? defaultForm.orderQuoteFraction
-    : normalizeFiniteNumber(rawRec.tradeSizingQuoteFraction, defaultForm.orderQuoteFraction, -1e9, 1e9);
-  const maxOrderQuote = legacyFixedQuoteSizing
-    ? defaultForm.maxOrderQuote
-    : normalizeFiniteNumber(rawRec.tradeSizingQuoteCap, defaultForm.maxOrderQuote, 0, 1e9);
+  // Only the current liveTrade... keys can hydrate manual sizing. Older field
+  // names are ignored so stale browser/localStorage presets cannot reapply.
+  const orderQuote = normalizeFiniteNumber(rawRec.liveTradeQuoteBudget, defaultForm.orderQuote, 0, 1e9);
+  const orderQuantity = normalizeFiniteNumber(rawRec.liveTradeBaseUnits, defaultForm.orderQuantity, 0, 1e9);
+  const orderQuoteFraction = normalizeFiniteNumber(rawRec.liveTradeQuoteBalanceFraction, defaultForm.orderQuoteFraction, -1e9, 1e9);
+  const maxOrderQuote = normalizeFiniteNumber(rawRec.liveTradeQuoteBudgetCap, defaultForm.maxOrderQuote, 0, 1e9);
   // Integer-backed request fields should restore as exact safe integers so the UI state
   // cannot diverge from the values later emitted by the request builder.
   const bars = normalizeWholeNumber(rawRec.bars ?? merged.bars, defaultForm.bars, 0, 1e9);
@@ -607,6 +601,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     tradeSizingBaseQuantity: _ignoredTradeSizingBaseQuantity,
     tradeSizingQuoteFraction: _ignoredTradeSizingQuoteFraction,
     tradeSizingQuoteCap: _ignoredTradeSizingQuoteCap,
+    liveTradeQuoteBudget: _ignoredLiveTradeQuoteBudget,
+    liveTradeBaseUnits: _ignoredLiveTradeBaseUnits,
+    liveTradeQuoteBalanceFraction: _ignoredLiveTradeQuoteBalanceFraction,
+    liveTradeQuoteBudgetCap: _ignoredLiveTradeQuoteBudgetCap,
     ...mergedNoLegacy
   } = merged as FormState & {
     threshold?: unknown;
@@ -618,6 +616,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     tradeSizingBaseQuantity?: unknown;
     tradeSizingQuoteFraction?: unknown;
     tradeSizingQuoteCap?: unknown;
+    liveTradeQuoteBudget?: unknown;
+    liveTradeBaseUnits?: unknown;
+    liveTradeQuoteBalanceFraction?: unknown;
+    liveTradeQuoteBudgetCap?: unknown;
   };
   return {
     ...mergedNoLegacy,

@@ -3460,14 +3460,14 @@ export const ConfigDock = (props: ConfigDockProps) => {
 
               <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 8 }}>
                 <div className="field">
-                  <label className="label" htmlFor="tradeSizingQuoteAmount">
+                  <label className="label" htmlFor="liveTradeQuoteBudget">
                     Order quote (e.g., USDT)
                   </label>
                   <input
-                    id="tradeSizingQuoteAmount"
-                    name="tradeSizingQuoteAmount"
+                    id="liveTradeQuoteBudget"
+                    name="liveTradeQuoteBudget"
                     className={
-                      orderSizing.blockingError && orderSizing.blockingTargetId === "tradeSizingQuoteAmount" ? "input inputError" : "input"
+                      orderSizing.blockingError && orderSizing.blockingTargetId === "liveTradeQuoteBudget" ? "input inputError" : "input"
                     }
                     type="number"
                     min={0}
@@ -3483,12 +3483,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   />
                 </div>
                 <div className="field">
-                  <label className="label" htmlFor="tradeSizingBaseQuantity">
+                  <label className="label" htmlFor="liveTradeBaseUnits">
                     Order quantity (base units)
                   </label>
                   <input
-                    id="tradeSizingBaseQuantity"
-                    name="tradeSizingBaseQuantity"
+                    id="liveTradeBaseUnits"
+                    name="liveTradeBaseUnits"
                     className="input"
                     type="number"
                     min={0}
@@ -3508,14 +3508,14 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
                 <div className="field">
                   <div className="labelRow">
-                    <label className="label" htmlFor="tradeSizingQuoteFraction">
+                    <label className="label" htmlFor="liveTradeQuoteBalanceFraction">
                       Order quote fraction (0 &lt; F ≤ 1; 0 disables)
                     </label>
                     {pctTag(form.orderQuoteFraction, 1)}
                   </div>
                   <input
-                    id="tradeSizingQuoteFraction"
-                    name="tradeSizingQuoteFraction"
+                    id="liveTradeQuoteBalanceFraction"
+                    name="liveTradeQuoteBalanceFraction"
                     className={orderQuoteFractionError ? "input inputError" : "input"}
                     type="number"
                     step="0.01"
@@ -3537,12 +3537,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   </div>
                 </div>
                 <div className="field">
-                  <label className="label" htmlFor="tradeSizingQuoteCap">
+                  <label className="label" htmlFor="liveTradeQuoteBudgetCap">
                     Max quote cap (optional)
                   </label>
                   <input
-                    id="tradeSizingQuoteCap"
-                    name="tradeSizingQuoteCap"
+                    id="liveTradeQuoteBudgetCap"
+                    name="liveTradeQuoteBudgetCap"
                     className="input"
                     type="number"
                     step="1"
@@ -3554,7 +3554,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     placeholder="0 (no cap)"
                   />
                   <div className="hint">
-                    {form.orderQuoteFraction > 0 ? "Optional cap when using orderQuoteFraction." : "Enable orderQuoteFraction to use this cap."}
+                    {form.orderQuoteFraction > 0 ? "Optional cap when using quote fraction." : "Enable quote fraction to use this cap."}
                   </div>
                 </div>
               </div>

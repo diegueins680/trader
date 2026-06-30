@@ -378,6 +378,65 @@ test("applyComboToForm preserves live-order toggles exactly on supported trade p
   }
 });
 
+test("applyComboToForm ignores the legacy fixed-quote sizing preset", () => {
+  const prev = {
+    ...defaultForm,
+    orderQuote: 0,
+    orderQuantity: 0,
+    orderQuoteFraction: 1,
+    maxOrderQuote: 0,
+  };
+  const legacyPreset = applyComboToForm(
+    prev,
+    buildComboFromForm(prev, {
+      orderQuote: 100,
+      orderQuantity: 0,
+      orderQuoteFraction: 0,
+      maxOrderQuote: 0,
+    }),
+    null,
+  );
+  assert.deepEqual(
+    {
+      orderQuote: legacyPreset.orderQuote,
+      orderQuantity: legacyPreset.orderQuantity,
+      orderQuoteFraction: legacyPreset.orderQuoteFraction,
+      maxOrderQuote: legacyPreset.maxOrderQuote,
+    },
+    {
+      orderQuote: defaultForm.orderQuote,
+      orderQuantity: defaultForm.orderQuantity,
+      orderQuoteFraction: defaultForm.orderQuoteFraction,
+      maxOrderQuote: defaultForm.maxOrderQuote,
+    },
+  );
+
+  const explicitQuote = applyComboToForm(
+    prev,
+    buildComboFromForm(prev, {
+      orderQuote: 125,
+      orderQuantity: 0,
+      orderQuoteFraction: 0,
+      maxOrderQuote: 0,
+    }),
+    null,
+  );
+  assert.deepEqual(
+    {
+      orderQuote: explicitQuote.orderQuote,
+      orderQuantity: explicitQuote.orderQuantity,
+      orderQuoteFraction: explicitQuote.orderQuoteFraction,
+      maxOrderQuote: explicitQuote.maxOrderQuote,
+    },
+    {
+      orderQuote: 125,
+      orderQuantity: 0,
+      orderQuoteFraction: 0,
+      maxOrderQuote: 0,
+    },
+  );
+});
+
 test("applyComboToForm canonicalizes exchange aliases and falls back to source metadata", () => {
   const prev = {
     ...defaultForm,

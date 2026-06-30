@@ -3759,6 +3759,12 @@ export function applyComboToForm(
     combo.params.orderQuote != null ||
     combo.params.orderQuoteFraction != null ||
     combo.params.maxOrderQuote != null;
+  const hasLegacyFixedQuoteComboSizing =
+    combo.params.orderQuote != null &&
+    comboOrderQuote === 100 &&
+    comboOrderQuantity === 0 &&
+    comboOrderQuoteFraction === 0 &&
+    comboMaxOrderQuote === 0;
 
   let orderQuantity = prev.orderQuantity;
   let orderQuote = prev.orderQuote;
@@ -3766,7 +3772,12 @@ export function applyComboToForm(
   let maxOrderQuote = prev.maxOrderQuote;
 
   if (hasComboSizing) {
-    if (comboOrderQuoteFraction > 0) {
+    if (hasLegacyFixedQuoteComboSizing) {
+      orderQuantity = defaultForm.orderQuantity;
+      orderQuote = defaultForm.orderQuote;
+      orderQuoteFraction = defaultForm.orderQuoteFraction;
+      maxOrderQuote = defaultForm.maxOrderQuote;
+    } else if (comboOrderQuoteFraction > 0) {
       orderQuoteFraction = comboOrderQuoteFraction;
       orderQuantity = 0;
       orderQuote = 0;
