@@ -80,7 +80,8 @@ fractionError && !quantityOn && !quoteOn
 : effective === "none"
 ? "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction."
 : null;
-const blockingTargetId = fractionError && !quantityOn && !quoteOn ? "orderQuoteFraction" : "orderQuote";
+const blockingTargetId =
+fractionError && !quantityOn && !quoteOn ? "tradeSizingQuoteFraction" : "tradeSizingQuoteAmount";
 const effectiveLabel =
 effective === "orderQuantity"
 ? `Quantity ${expectedFmtNum(orderQuantity, 8)}`
@@ -1019,7 +1020,7 @@ test("summarizeOrderSizing blocks trade when no effective size is configured", (
   });
   assert.equal(state.effective, "none");
   assert.equal(state.blockingError, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
-  assert.equal(state.blockingTargetId, "orderQuote");
+  assert.equal(state.blockingTargetId, "tradeSizingQuoteAmount");
   assert.equal(state.statusLabel, "Sizing required");
   assert.equal(state.hint, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
   assert.equal(state.tone, "bad");
@@ -1396,10 +1397,10 @@ assert.equal(restored[key], defaultForm[key], `${key} blank restore should fall 
 });
 test("normalizeFormState rehydrates manual sizing fields as finite numbers", () => {
 const restored = normalizeFormState({
-tradeOrderQuoteAmount: "125.5",
-tradeOrderBaseQuantity: "0.25",
-tradeOrderQuoteFraction: "0.4",
-tradeOrderQuoteCap: "50",
+tradeSizingQuoteAmount: "125.5",
+tradeSizingBaseQuantity: "0.25",
+tradeSizingQuoteFraction: "0.4",
+tradeSizingQuoteCap: "50",
 });
 assert.deepEqual(
 {
@@ -1420,10 +1421,10 @@ assert.equal(typeof value, "number");
 assert.equal(Number.isFinite(value), true);
 }
 const fallback = normalizeFormState({
-tradeOrderQuoteAmount: "Infinity",
-tradeOrderBaseQuantity: Number.NaN,
-tradeOrderQuoteFraction: "not-a-number",
-tradeOrderQuoteCap: "-Infinity",
+tradeSizingQuoteAmount: "Infinity",
+tradeSizingBaseQuantity: Number.NaN,
+tradeSizingQuoteFraction: "not-a-number",
+tradeSizingQuoteCap: "-Infinity",
 });
 assert.deepEqual(
 {
@@ -1441,7 +1442,7 @@ maxOrderQuote: defaultForm.maxOrderQuote,
 );
 });
 test("normalizeFormState ignores stale manual sizing field names", () => {
-const restored = normalizeFormState({
+const staleApiShape = normalizeFormState({
 orderQuote: 100,
 orderQuantity: 0,
 orderQuoteFraction: 0,
@@ -1449,10 +1450,10 @@ maxOrderQuote: 0,
 });
 assert.deepEqual(
 {
-orderQuote: restored.orderQuote,
-orderQuantity: restored.orderQuantity,
-orderQuoteFraction: restored.orderQuoteFraction,
-maxOrderQuote: restored.maxOrderQuote,
+orderQuote: staleApiShape.orderQuote,
+orderQuantity: staleApiShape.orderQuantity,
+orderQuoteFraction: staleApiShape.orderQuoteFraction,
+maxOrderQuote: staleApiShape.maxOrderQuote,
 },
 {
 orderQuote: defaultForm.orderQuote,
@@ -1461,7 +1462,34 @@ orderQuoteFraction: defaultForm.orderQuoteFraction,
 maxOrderQuote: defaultForm.maxOrderQuote,
 },
 );
-const state = summarizeOrderSizing(restored);
+const staleStorageShape = normalizeFormState({
+tradeOrderQuoteAmount: 100,
+tradeOrderBaseQuantity: 0,
+tradeOrderQuoteFraction: 0,
+tradeOrderQuoteCap: 0,
+});
+assert.deepEqual(
+{
+orderQuote: staleStorageShape.orderQuote,
+orderQuantity: staleStorageShape.orderQuantity,
+orderQuoteFraction: staleStorageShape.orderQuoteFraction,
+maxOrderQuote: staleStorageShape.maxOrderQuote,
+},
+{
+orderQuote: defaultForm.orderQuote,
+orderQuantity: defaultForm.orderQuantity,
+orderQuoteFraction: defaultForm.orderQuoteFraction,
+maxOrderQuote: defaultForm.maxOrderQuote,
+},
+);
+for (const key of ["tradeOrderQuoteAmount", "tradeOrderBaseQuantity", "tradeOrderQuoteFraction", "tradeOrderQuoteCap"]) {
+assert.equal(Object.prototype.hasOwnProperty.call(staleStorageShape, key), false, `${key} should be stripped from normalized state`);
+}
+const serializedStaleStorageShape = serializeFormState(staleStorageShape);
+for (const key of ["tradeOrderQuoteAmount", "tradeOrderBaseQuantity", "tradeOrderQuoteFraction", "tradeOrderQuoteCap"]) {
+assert.equal(Object.prototype.hasOwnProperty.call(serializedStaleStorageShape, key), false, `${key} should not be serialized`);
+}
+const state = summarizeOrderSizing(staleStorageShape);
 assert.equal(state.effective, "orderQuoteFraction");
 assert.equal(state.effectiveLabel, "Fraction 100.00%");
 });
@@ -1480,16 +1508,16 @@ assert.equal(Object.prototype.hasOwnProperty.call(serialized, "orderQuoteFractio
 assert.equal(Object.prototype.hasOwnProperty.call(serialized, "maxOrderQuote"), false);
 assert.deepEqual(
 {
-tradeOrderQuoteAmount: serialized.tradeOrderQuoteAmount,
-tradeOrderBaseQuantity: serialized.tradeOrderBaseQuantity,
-tradeOrderQuoteFraction: serialized.tradeOrderQuoteFraction,
-tradeOrderQuoteCap: serialized.tradeOrderQuoteCap,
+tradeSizingQuoteAmount: serialized.tradeSizingQuoteAmount,
+tradeSizingBaseQuantity: serialized.tradeSizingBaseQuantity,
+tradeSizingQuoteFraction: serialized.tradeSizingQuoteFraction,
+tradeSizingQuoteCap: serialized.tradeSizingQuoteCap,
 },
 {
-tradeOrderQuoteAmount: 125.5,
-tradeOrderBaseQuantity: 0.25,
-tradeOrderQuoteFraction: 0.4,
-tradeOrderQuoteCap: 50,
+tradeSizingQuoteAmount: 125.5,
+tradeSizingBaseQuantity: 0.25,
+tradeSizingQuoteFraction: 0.4,
+tradeSizingQuoteCap: 50,
 },
 );
 const restored = normalizeFormState(serialized);
@@ -1508,7 +1536,7 @@ maxOrderQuote: 50,
 },
 );
 const serializedProfiles = serializeFormProfiles({ live: form });
-assert.equal(serializedProfiles.live.tradeOrderQuoteFraction, 0.4);
+assert.equal(serializedProfiles.live.tradeSizingQuoteFraction, 0.4);
 assert.equal(Object.prototype.hasOwnProperty.call(serializedProfiles.live, "orderQuoteFraction"), false);
 });
 test("normalizeFormState clamps restored manual sizing bounds without changing the sizing contract", () => {
@@ -1516,10 +1544,10 @@ const cases = [
 {
 label: "negative restores clamp non-fraction fields to zero and keep negative fraction finite",
 raw: {
-tradeOrderQuoteAmount: "-125.5",
-tradeOrderBaseQuantity: "-0.25",
-tradeOrderQuoteFraction: "-0.4",
-tradeOrderQuoteCap: "-50",
+tradeSizingQuoteAmount: "-125.5",
+tradeSizingBaseQuantity: "-0.25",
+tradeSizingQuoteFraction: "-0.4",
+tradeSizingQuoteCap: "-50",
 },
 expectedFields: {
 orderQuote: 0,
@@ -1531,10 +1559,10 @@ maxOrderQuote: 0,
 {
 label: "oversized restores clamp non-fraction fields to the hard ceiling and keep finite fraction precedence",
 raw: {
-tradeOrderQuoteAmount: "1000000005",
-tradeOrderBaseQuantity: "1000000007",
-tradeOrderQuoteFraction: "1.25",
-tradeOrderQuoteCap: "1000000009",
+tradeSizingQuoteAmount: "1000000005",
+tradeSizingBaseQuantity: "1000000007",
+tradeSizingQuoteFraction: "1.25",
+tradeSizingQuoteCap: "1000000009",
 },
 expectedFields: {
 orderQuote: 1e9,
@@ -1587,10 +1615,10 @@ assert.equal(state.tone, expected.tone, label + ": severity should match the mod
 });
 test("normalizeFormState keeps restored maxOrderQuote cap-only when quote fraction is inactive", () => {
 const restored = normalizeFormState({
-tradeOrderQuoteAmount: 0,
-tradeOrderBaseQuantity: 0,
-tradeOrderQuoteFraction: 0,
-tradeOrderQuoteCap: "40",
+tradeSizingQuoteAmount: 0,
+tradeSizingBaseQuantity: 0,
+tradeSizingQuoteFraction: 0,
+tradeSizingQuoteCap: "40",
 });
 const state = summarizeOrderSizing({
 orderQuantity: restored.orderQuantity,
@@ -1606,10 +1634,10 @@ assert.equal(state.hint, "Set one sizing input: orderQuote, orderQuantity, or or
 });
 test("normalizeFormState preserves restored fraction validation and precedence", () => {
   const invalidFractionOnly = normalizeFormState({
-    tradeOrderQuoteAmount: 0,
-    tradeOrderBaseQuantity: 0,
-    tradeOrderQuoteFraction: "1.25",
-    tradeOrderQuoteCap: "40",
+    tradeSizingQuoteAmount: 0,
+    tradeSizingBaseQuantity: 0,
+    tradeSizingQuoteFraction: "1.25",
+    tradeSizingQuoteCap: "40",
   });
   const invalidFractionState = summarizeOrderSizing({
     orderQuantity: invalidFractionOnly.orderQuantity,
@@ -1621,14 +1649,14 @@ test("normalizeFormState preserves restored fraction validation and precedence",
   assert.equal(invalidFractionOnly.maxOrderQuote, 40);
   assert.equal(invalidFractionState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
   assert.equal(invalidFractionState.blockingError, "Order quote fraction must be <= 1 (use 0 to disable).");
-  assert.equal(invalidFractionState.blockingTargetId, "orderQuoteFraction");
+  assert.equal(invalidFractionState.blockingTargetId, "tradeSizingQuoteFraction");
   assert.equal(invalidFractionState.statusLabel, "Sizing required");
 
   const precedenceRestored = normalizeFormState({
-    tradeOrderBaseQuantity: "0.25",
-    tradeOrderQuoteAmount: "100",
-    tradeOrderQuoteFraction: "1.25",
-    tradeOrderQuoteCap: "40",
+    tradeSizingBaseQuantity: "0.25",
+    tradeSizingQuoteAmount: "100",
+    tradeSizingQuoteFraction: "1.25",
+    tradeSizingQuoteCap: "40",
   });
   const precedenceState = summarizeOrderSizing({
     orderQuantity: precedenceRestored.orderQuantity,

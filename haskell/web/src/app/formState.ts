@@ -226,27 +226,50 @@ export type FormStateJson = Omit<Partial<FormState>, ManualOrderSizingKey> & {
   intrabarFill?: unknown;
   lookbackWindow?: unknown;
   lookbackBars?: unknown;
-  tradeOrderQuoteAmount?: unknown;
-  tradeOrderBaseQuantity?: unknown;
-  tradeOrderQuoteFraction?: unknown;
-  tradeOrderQuoteCap?: unknown;
+  tradeSizingQuoteAmount?: unknown;
+  tradeSizingBaseQuantity?: unknown;
+  tradeSizingQuoteFraction?: unknown;
+  tradeSizingQuoteCap?: unknown;
 };
 
 export type SerializedFormState = Omit<FormState, ManualOrderSizingKey> & {
-  tradeOrderQuoteAmount: number;
-  tradeOrderBaseQuantity: number;
-  tradeOrderQuoteFraction: number;
-  tradeOrderQuoteCap: number;
+  tradeSizingQuoteAmount: number;
+  tradeSizingBaseQuantity: number;
+  tradeSizingQuoteFraction: number;
+  tradeSizingQuoteCap: number;
 };
 
 export function serializeFormState(form: FormState): SerializedFormState {
-  const { orderQuote, orderQuantity, orderQuoteFraction, maxOrderQuote, ...rest } = form;
+  const {
+    orderQuote,
+    orderQuantity,
+    orderQuoteFraction,
+    maxOrderQuote,
+    tradeOrderQuoteAmount: _ignoredTradeOrderQuoteAmount,
+    tradeOrderBaseQuantity: _ignoredTradeOrderBaseQuantity,
+    tradeOrderQuoteFraction: _ignoredTradeOrderQuoteFraction,
+    tradeOrderQuoteCap: _ignoredTradeOrderQuoteCap,
+    tradeSizingQuoteAmount: _ignoredTradeSizingQuoteAmount,
+    tradeSizingBaseQuantity: _ignoredTradeSizingBaseQuantity,
+    tradeSizingQuoteFraction: _ignoredTradeSizingQuoteFraction,
+    tradeSizingQuoteCap: _ignoredTradeSizingQuoteCap,
+    ...rest
+  } = form as FormState & {
+    tradeOrderQuoteAmount?: unknown;
+    tradeOrderBaseQuantity?: unknown;
+    tradeOrderQuoteFraction?: unknown;
+    tradeOrderQuoteCap?: unknown;
+    tradeSizingQuoteAmount?: unknown;
+    tradeSizingBaseQuantity?: unknown;
+    tradeSizingQuoteFraction?: unknown;
+    tradeSizingQuoteCap?: unknown;
+  };
   return {
     ...rest,
-    tradeOrderQuoteAmount: orderQuote,
-    tradeOrderBaseQuantity: orderQuantity,
-    tradeOrderQuoteFraction: orderQuoteFraction,
-    tradeOrderQuoteCap: maxOrderQuote,
+    tradeSizingQuoteAmount: orderQuote,
+    tradeSizingBaseQuantity: orderQuantity,
+    tradeSizingQuoteFraction: orderQuoteFraction,
+    tradeSizingQuoteCap: maxOrderQuote,
   };
 }
 
@@ -521,15 +544,15 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   // canonicalize compatible aliases and otherwise fall back to that platform's default symbol.
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform);
   // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
-  const orderQuote = normalizeFiniteNumber(rawRec.tradeOrderQuoteAmount, defaultForm.orderQuote, 0, 1e9);
-  const orderQuantity = normalizeFiniteNumber(rawRec.tradeOrderBaseQuantity, defaultForm.orderQuantity, 0, 1e9);
+  const orderQuote = normalizeFiniteNumber(rawRec.tradeSizingQuoteAmount, defaultForm.orderQuote, 0, 1e9);
+  const orderQuantity = normalizeFiniteNumber(rawRec.tradeSizingBaseQuantity, defaultForm.orderQuantity, 0, 1e9);
   const orderQuoteFraction = normalizeFiniteNumber(
-    rawRec.tradeOrderQuoteFraction,
+    rawRec.tradeSizingQuoteFraction,
     defaultForm.orderQuoteFraction,
     -1e9,
     1e9,
   );
-  const maxOrderQuote = normalizeFiniteNumber(rawRec.tradeOrderQuoteCap, defaultForm.maxOrderQuote, 0, 1e9);
+  const maxOrderQuote = normalizeFiniteNumber(rawRec.tradeSizingQuoteCap, defaultForm.maxOrderQuote, 0, 1e9);
   // Integer-backed request fields should restore as exact safe integers so the UI state
   // cannot diverge from the values later emitted by the request builder.
   const bars = normalizeWholeNumber(rawRec.bars ?? merged.bars, defaultForm.bars, 0, 1e9);
@@ -556,7 +579,28 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   );
   const botTrainBars = normalizeWholeNumber(rawRec.botTrainBars ?? merged.botTrainBars, defaultForm.botTrainBars, 10, 1e9);
   const botMaxPoints = normalizeWholeNumber(rawRec.botMaxPoints ?? merged.botMaxPoints, defaultForm.botMaxPoints, 100, 100_000);
-  const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
+  const {
+    threshold: _ignoredThreshold,
+    tradeOrderQuoteAmount: _ignoredTradeOrderQuoteAmount,
+    tradeOrderBaseQuantity: _ignoredTradeOrderBaseQuantity,
+    tradeOrderQuoteFraction: _ignoredTradeOrderQuoteFraction,
+    tradeOrderQuoteCap: _ignoredTradeOrderQuoteCap,
+    tradeSizingQuoteAmount: _ignoredTradeSizingQuoteAmount,
+    tradeSizingBaseQuantity: _ignoredTradeSizingBaseQuantity,
+    tradeSizingQuoteFraction: _ignoredTradeSizingQuoteFraction,
+    tradeSizingQuoteCap: _ignoredTradeSizingQuoteCap,
+    ...mergedNoLegacy
+  } = merged as FormState & {
+    threshold?: unknown;
+    tradeOrderQuoteAmount?: unknown;
+    tradeOrderBaseQuantity?: unknown;
+    tradeOrderQuoteFraction?: unknown;
+    tradeOrderQuoteCap?: unknown;
+    tradeSizingQuoteAmount?: unknown;
+    tradeSizingBaseQuantity?: unknown;
+    tradeSizingQuoteFraction?: unknown;
+    tradeSizingQuoteCap?: unknown;
+  };
   return {
     ...mergedNoLegacy,
     ...numericFields,

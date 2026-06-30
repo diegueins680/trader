@@ -3460,14 +3460,18 @@ export const ConfigDock = (props: ConfigDockProps) => {
 
               <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 8 }}>
                 <div className="field">
-                  <label className="label" htmlFor="orderQuote">
+                  <label className="label" htmlFor="tradeSizingQuoteAmount">
                     Order quote (e.g., USDT)
                   </label>
                   <input
-                    id="orderQuote"
-                    className={orderSizing.blockingError && orderSizing.blockingTargetId === "orderQuote" ? "input inputError" : "input"}
+                    id="tradeSizingQuoteAmount"
+                    name="tradeSizingQuoteAmount"
+                    className={
+                      orderSizing.blockingError && orderSizing.blockingTargetId === "tradeSizingQuoteAmount" ? "input inputError" : "input"
+                    }
                     type="number"
                     min={0}
+                    autoComplete="off"
                     value={form.orderQuote}
                     onChange={(e) =>
                       setForm((f) => {
@@ -3479,14 +3483,16 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   />
                 </div>
                 <div className="field">
-                  <label className="label" htmlFor="orderQuantity">
+                  <label className="label" htmlFor="tradeSizingBaseQuantity">
                     Order quantity (base units)
                   </label>
                   <input
-                    id="orderQuantity"
+                    id="tradeSizingBaseQuantity"
+                    name="tradeSizingBaseQuantity"
                     className="input"
                     type="number"
                     min={0}
+                    autoComplete="off"
                     value={form.orderQuantity}
                     onChange={(e) =>
                       setForm((f) => {
@@ -3502,19 +3508,21 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
                 <div className="field">
                   <div className="labelRow">
-                    <label className="label" htmlFor="orderQuoteFraction">
+                    <label className="label" htmlFor="tradeSizingQuoteFraction">
                       Order quote fraction (0 &lt; F ≤ 1; 0 disables)
                     </label>
                     {pctTag(form.orderQuoteFraction, 1)}
                   </div>
                   <input
-                    id="orderQuoteFraction"
+                    id="tradeSizingQuoteFraction"
+                    name="tradeSizingQuoteFraction"
                     className={orderQuoteFractionError ? "input inputError" : "input"}
                     type="number"
                     step="0.01"
                     min={0}
                     max={1}
                     inputMode="decimal"
+                    autoComplete="off"
                     value={form.orderQuoteFraction}
                     onChange={(e) =>
                       setForm((f) => {
@@ -3529,15 +3537,17 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   </div>
                 </div>
                 <div className="field">
-                  <label className="label" htmlFor="maxOrderQuote">
+                  <label className="label" htmlFor="tradeSizingQuoteCap">
                     Max quote cap (optional)
                   </label>
                   <input
-                    id="maxOrderQuote"
+                    id="tradeSizingQuoteCap"
+                    name="tradeSizingQuoteCap"
                     className="input"
                     type="number"
                     step="1"
                     min={0}
+                    autoComplete="off"
                     disabled={form.orderQuoteFraction <= 0}
                     value={form.maxOrderQuote}
                     onChange={(e) => setForm((f) => ({ ...f, maxOrderQuote: numFromInput(e.target.value, f.maxOrderQuote) }))}
