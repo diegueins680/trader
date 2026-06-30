@@ -47,6 +47,30 @@ Proof sketch:
 - Equality at `q10 == q90` satisfies the ordered-bound predicate and produces a zero-width interval with `Nothing` sigma because `sigmaFromQ1090` requires positive width. This preserves the valid deterministic boundary without creating false confidence from zero spread.
 - After admissibility, the returned lower and upper bounds are exactly the raw q10 and q90 values, so interval width is exactly `q90 - q10`. Widening ordered bounds can only preserve or increase that width, and sigma is width divided by a positive constant when width is positive.
 
+## Formal exogenous alignment contract
+
+`alignToBars` in `haskell/app/Trader/Predictors/Exogenous.hs` is treated as the point-in-time boundary for irregular exogenous market features before they are attached to predictor inputs.
+
+Clauses:
+
+1. An exogenous observation is admissible only when its value is finite. Negative finite values remain admissible because funding and basis evidence can legitimately be negative.
+2. A bar grid is admissible only when bar open times are strictly ascending and the interval is positive.
+3. For an admissible grid, the value emitted for bar `i` is the most recent admissible observation whose timestamp is at or before `openTime_i + intervalMs - 1`.
+4. Bars with no prior admissible observation emit `Nothing`; neutral filling may later map that absence to `0`.
+5. A malformed grid, non-positive interval, or overflowed close-time witness emits only `Nothing`, so malformed time evidence cannot create look-ahead features.
+
+Bounded executable obligations:
+
+- `testAlignToBarsPointInTime` witnesses unsorted observation input, forward fill across gaps, and no leakage from a future observation into an earlier bar.
+- `testAlignToBarsFailClosedOnMalformedInputs` witnesses non-finite observation filtering, non-positive interval fail-closed behavior, descending and duplicate bar-grid rejection, and close-time overflow fail-closed behavior.
+
+Proof sketch:
+
+- Sorting the observation stream by timestamp and consuming it monotonically ensures each output bar can only see observations at or before that bar's close.
+- Filtering non-finite values before the monotone scan means malformed readings cannot become feature evidence or erase the last finite reading.
+- Strictly ascending bar opens and a positive interval are checked before scanning; if they fail, the function returns an all-`Nothing` vector with the same length as the requested grid.
+- The close-time overflow guard rejects any bar whose computed close precedes its open, preserving the same fail-closed absence semantics for arithmetic corruption.
+
 ## Formal backtest cost-attribution contract
 
 The backtest JSON `costAttribution` and `costs.attribution` surfaces emitted by `haskell/app/Trader/Trading.hs` are treated as the accounting reconciliation contract for realized trading costs in one emitted simulation run.

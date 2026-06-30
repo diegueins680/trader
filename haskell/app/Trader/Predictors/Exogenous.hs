@@ -20,27 +20,42 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 
 {- | Forward-fill an irregular @(timestampMs, value)@ series onto @barOpenTimes@,
-point-in-time. The value at bar @i@ is the most recent observation whose
+point-in-time. The value at bar @i@ is the most recent finite observation whose
 timestamp is @<=@ that bar's close time (@openTime_i + intervalMs - 1@). Bars
-with no prior observation get 'Nothing'.
+with no prior admissible observation get 'Nothing'.
 
 Assumes @barOpenTimes@ is ascending (closed klines already are); the series may
-be in any order and is sorted internally. Runs in O(n + m log m).
+be in any order and is sorted internally. Malformed bar grids and non-positive
+intervals fail closed to all 'Nothing' values rather than emitting
+time-incoherent features. Runs in O(n + m log m).
 -}
 alignToBars :: V.Vector Int64 -> Int64 -> [(Int64, Double)] -> V.Vector (Maybe Double)
-alignToBars barOpenTimes intervalMs series =
-    V.fromList (go (sortOn fst series) Nothing 0)
+alignToBars barOpenTimes intervalMs series
+    | intervalMs <= 0 = neutral
+    | not (strictlyAscending barOpenTimes) = neutral
+    | otherwise = V.fromList (go (sortOn fst (filter finiteObservation series)) Nothing 0)
   where
     n = V.length barOpenTimes
+    neutral = V.replicate n Nothing
     go remaining lastV i
         | i >= n = []
         | otherwise =
-            let closeT = (barOpenTimes V.! i) + intervalMs - 1
-                (usable, rest) = span ((<= closeT) . fst) remaining
-                lastV' = case usable of
-                    [] -> lastV
-                    _ -> Just (snd (last usable))
-             in lastV' : go rest lastV' (i + 1)
+            case closeTime (barOpenTimes V.! i) of
+                Nothing -> Nothing : go remaining lastV (i + 1)
+                Just closeT ->
+                    let (usable, rest) = span ((<= closeT) . fst) remaining
+                        lastV' = case usable of
+                            [] -> lastV
+                            _ -> Just (snd (last usable))
+                     in lastV' : go rest lastV' (i + 1)
+    closeTime openTime =
+        let closeT = openTime + intervalMs - 1
+         in if closeT < openTime then Nothing else Just closeT
+    finiteObservation (_, value) = not (isNaN value || isInfinite value)
+
+strictlyAscending :: V.Vector Int64 -> Bool
+strictlyAscending xs =
+    V.length xs <= 1 || V.and (V.zipWith (<) xs (V.tail xs))
 
 {- | Replace pre-coverage 'Nothing' bars with a neutral 0. Used when packing an
 aligned series into a 'FeatureInputs' field (whose features are deltas/centered
