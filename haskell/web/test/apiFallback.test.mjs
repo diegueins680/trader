@@ -182,6 +182,63 @@ test("api client preserves exact safe integer query params for bot status, ops, 
   assert.deepEqual(tenantHeaders, ["tenant-status", "tenant-ops", "tenant-perf"]);
 });
 
+test("api client sends Binance trades includeMaxPnl flag in JSON body with tenant header", async () => {
+  const calls = [];
+  const bodies = [];
+  const tenantHeaders = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      calls.push(String(url));
+      bodies.push(JSON.parse(String(init.body)));
+      tenantHeaders.push(new Headers(init.headers).get("X-Tenant-Key"));
+      return jsonResponse(200, {
+        market: "futures",
+        testnet: false,
+        interval: "3m",
+        symbols: ["BTCUSDT"],
+        allSymbols: false,
+        trades: [],
+        fetchedAtMs: 1,
+      });
+    },
+    async (api) => {
+      const out = await api.binanceTrades(
+        "/api",
+        {
+          market: "futures",
+          binanceTestnet: false,
+          tenantKey: "tenant-trades",
+          symbol: "BTCUSDT",
+          interval: "3m",
+          limit: 100,
+          includeMaxPnl: false,
+        },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(out.market, "futures");
+    },
+  );
+  assert.deepEqual(calls, ["/api/binance/trades"]);
+  assert.deepEqual(tenantHeaders, ["tenant-trades"]);
+  assert.deepEqual(bodies, [
+    {
+      market: "futures",
+      binanceTestnet: false,
+      tenantKey: "tenant-trades",
+      symbol: "BTCUSDT",
+      interval: "3m",
+      limit: 100,
+      includeMaxPnl: false,
+    },
+  ]);
+});
+
 test("api client omits fractional and unsafe integer query params instead of truncating them", async () => {
   const calls = [];
   const tenantHeaders = [];

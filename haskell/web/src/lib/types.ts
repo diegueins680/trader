@@ -376,6 +376,7 @@ export type ApiBinanceTradesRequest = {
   startTimeMs?: number;
   endTimeMs?: number;
   fromId?: number;
+  includeMaxPnl?: boolean;
 };
 
 export type ApiBinanceTradesResponse = {

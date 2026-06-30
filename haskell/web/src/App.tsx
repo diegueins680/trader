@@ -6020,6 +6020,21 @@ export function App() {
   const fetchBotStatusOps = useCallback(
     async (opts?: RunOptions) => {
       if (apiOk !== "ok") return;
+      if (!activeTenantKey) {
+        botStatusOpsAbortRef.current?.abort();
+        botStatusOpsSinceRef.current = null;
+        botStatusOpsLimitRef.current = BOT_STATUS_OPS_LIMIT;
+        setBotStatusOps({
+          loading: false,
+          error: null,
+          enabled: false,
+          hint: "Tenant key required. Add API keys (or check keys) to load bot status history.",
+          ops: [],
+          limit: BOT_STATUS_OPS_LIMIT,
+          lastFetchedAtMs: null,
+        });
+        return;
+      }
       if (botStatusOpsInFlightRef.current) return;
       botStatusOpsInFlightRef.current = true;
       botStatusOpsAbortRef.current?.abort();
@@ -6047,7 +6062,7 @@ export function App() {
             : undefined;
         const out = await ops(
           apiBase,
-          { kind: "bot.status", limit, ...(since ? { since } : {}), tenantKey: activeTenantKey ?? undefined },
+          { kind: "bot.status", limit, ...(since ? { since } : {}), tenantKey: activeTenantKey },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
         const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -6077,7 +6092,7 @@ export function App() {
             const fallbackLimit = BOT_STATUS_OPS_FALLBACK_LIMIT;
             const out = await ops(
               apiBase,
-              { kind: "bot.status", limit: fallbackLimit, tenantKey: activeTenantKey ?? undefined },
+              { kind: "bot.status", limit: fallbackLimit, tenantKey: activeTenantKey },
               { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
             );
             const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -6127,6 +6142,19 @@ export function App() {
   const fetchBotOrderOps = useCallback(
     async (opts?: RunOptions) => {
       if (apiOk !== "ok") return;
+      if (!activeTenantKey) {
+        botOrderOpsAbortRef.current?.abort();
+        setBotOrderOps({
+          loading: false,
+          error: null,
+          enabled: false,
+          hint: "Tenant key required. Add API keys (or check keys) to load bot order history.",
+          ops: [],
+          limit: BOT_STATUS_OPS_LIMIT,
+          lastFetchedAtMs: null,
+        });
+        return;
+      }
       const range = botOrderOpsRangeRef.current;
       if (!range) return;
       if (botOrderOpsInFlightRef.current) return;
@@ -6141,7 +6169,7 @@ export function App() {
         const limit = botStatusOpsLimitRef.current;
         const out = await ops(
           apiBase,
-          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs, tenantKey: activeTenantKey ?? undefined },
+          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs, tenantKey: activeTenantKey },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
         const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -6176,6 +6204,22 @@ export function App() {
   const fetchOpsPerformance = useCallback(
     async (opts?: RunOptions) => {
       if (apiOk !== "ok") return;
+      if (!activeTenantKey) {
+        opsPerformanceAbortRef.current?.abort();
+        setOpsPerformanceUi({
+          loading: false,
+          error: null,
+          enabled: false,
+          ready: false,
+          commitsReady: false,
+          combosReady: false,
+          hint: "Tenant key required. Add API keys (or check keys) to load ops performance.",
+          commits: [],
+          combos: [],
+          lastFetchedAtMs: null,
+        });
+        return;
+      }
       if (opsPerformanceInFlightRef.current) return;
       opsPerformanceInFlightRef.current = true;
       opsPerformanceAbortRef.current?.abort();
@@ -6192,7 +6236,7 @@ export function App() {
             comboLimit: opsPerformanceComboLimit,
             comboScope: opsPerformanceComboScope,
             comboOrder: opsPerformanceComboOrder,
-            tenantKey: activeTenantKey ?? undefined,
+            tenantKey: activeTenantKey,
           },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
@@ -6387,6 +6431,7 @@ export function App() {
         market: form.market,
         binanceTestnet: form.binanceTestnet,
         interval: form.interval.trim(),
+        includeMaxPnl: false,
         ...(binanceTradesSymbols.length === 1 ? { symbol: binanceTradesSymbols[0] } : {}),
         ...(binanceTradesSymbols.length > 1 ? { symbols: binanceTradesSymbols } : {}),
         ...(binanceTradesLimitSafe > 0 ? { limit: binanceTradesLimitSafe } : {}),
@@ -6487,6 +6532,7 @@ export function App() {
           interval: form.interval.trim(),
           ...(symbols.length === 1 ? { symbol: symbols[0] } : { symbols }),
           limit: BINANCE_POSITIONS_OPEN_TIME_LIMIT,
+          includeMaxPnl: true,
         };
         const out = await binanceTrades(apiBase, withBinanceKeys(params), {
           headers: authHeaders,

@@ -1740,6 +1740,7 @@ data ApiBinanceTradesRequest = ApiBinanceTradesRequest
     , abrStartTimeMs :: !(Maybe Int64)
     , abrEndTimeMs :: !(Maybe Int64)
     , abrFromId :: !(Maybe Int64)
+    , abrIncludeMaxPnl :: !(Maybe Bool)
     }
     deriving (Eq, Show, Generic)
 
@@ -21342,6 +21343,7 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                 startTime = abrStartTimeMs params
                                                 endTime = abrEndTimeMs params
                                                 fromId = abrFromId params
+                                                includeMaxPnl = fromMaybe True (abrIncludeMaxPnl params)
                                             if allSymbols && market /= MarketFutures
                                                 then respond (jsonError status400 "binance trades require symbol for spot/margin markets")
                                                 else do
@@ -21362,7 +21364,10 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                                             (Just store, Just tenantKey) ->
                                                                                 attachBinanceTradeOriginIps store tenantKey tradesSorted
                                                                             _ -> pure tradesSorted
-                                                                    tradesWithMaxPnl <- attachBinanceTradeMaxPnlFromKlines env interval tradesWithIps
+                                                                    tradesWithMaxPnl <-
+                                                                        if includeMaxPnl
+                                                                            then attachBinanceTradeMaxPnlFromKlines env interval tradesWithIps
+                                                                            else pure (attachBinanceTradeMaxPnl M.empty tradesWithIps)
                                                                     now <- getTimestampMs
                                                                     pure
                                                                         ApiBinanceTradesResponse
