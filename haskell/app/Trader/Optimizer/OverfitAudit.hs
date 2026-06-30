@@ -40,6 +40,7 @@ optimizerOverfitAudit trials =
             _ ->
                 let (bestScore, bestTrial) = maximumByFst scored
                     scoreRankCount = length [s | (s, _) <- scored, s >= bestScore]
+                    scorePValue :: Double
                     scorePValue = fromIntegral (1 + scoreRankCount) / fromIntegral (1 + scoredCount)
                     mBestMetrics = oatMetrics bestTrial
                     selectedSharpe = mBestMetrics >>= (`metricDouble` "sharpe")
