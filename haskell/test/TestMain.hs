@@ -129,6 +129,7 @@ import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, 
 import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
+import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.Optimizer.Optimize (
     CorrelationGuidanceField (..),
     OptimizationTechniqueSummary (..),
@@ -163,6 +164,7 @@ import Trader.Optimizer.Optimize (
  )
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Platform (Platform (..))
+import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
     PredictionMarketFetchConfig (..),
@@ -175,13 +177,14 @@ import Trader.PredictionMarkets (
     selectPredictionMarketSignalWithConfig,
  )
 import Trader.Predictors (RegimeProbs (..))
-import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
+import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel (..), fitConformal, initAdaptiveConformal, predictInterval, updateAdaptiveConformal)
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
+import Trader.Predictors.PatchTST (PatchTSTModel (..), patchTstFeaturesAt, predictPatchTST, trainPatchTST)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
 import Trader.SignalGates (
@@ -502,9 +505,11 @@ main = do
     testLiveGapFeedback
     testAlignToBarsPointInTime
     testAlignToBarsFailClosedOnMalformedInputs
+    testPointInTimeUniverseSelectsHistoricalSnapshot
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
+    testAdaptiveConformalRadiusRespondsToMisses
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testBacktestFreshEntrySizingBoundsFailClosed
     testBacktestPositionSizeFloorCapValidation
@@ -528,6 +533,7 @@ main = do
     testOptimizerPriorParserCarriesFreshEvidenceRegression
     testOptimizerPriorAgeDecayMissingTimestampRegression
     testOptimizerPriorAgeAdjustedScoreRegression
+    testOptimizerOverfitAuditReportsSelectionRisk
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerCorrelationGuidanceParserRegression
     testOptimizerKellyLiteExposureContractRegression
@@ -568,6 +574,7 @@ main = do
     testKNNSanitizesMalformedInputs
     testQuantileSanitizesMalformedInputs
     testTCNSanitizesMalformedInputs
+    testPatchTSTSanitizesMalformedInputs
     testHMMSanitizesMalformedInputs
     runOnlineNeuralTests
     runTechnicalAnalysisTests
