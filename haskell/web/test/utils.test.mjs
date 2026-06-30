@@ -1493,6 +1493,53 @@ const state = summarizeOrderSizing(staleStorageShape);
 assert.equal(state.effective, "orderQuoteFraction");
 assert.equal(state.effectiveLabel, "Fraction 100.00%");
 });
+test("normalizeFormState migrates the persisted fixed-quote sizing preset", () => {
+const staleCurrentStorageShape = normalizeFormState({
+tradeSizingQuoteAmount: "100",
+tradeSizingBaseQuantity: "0",
+tradeSizingQuoteFraction: "0",
+tradeSizingQuoteCap: "0",
+});
+assert.deepEqual(
+{
+orderQuote: staleCurrentStorageShape.orderQuote,
+orderQuantity: staleCurrentStorageShape.orderQuantity,
+orderQuoteFraction: staleCurrentStorageShape.orderQuoteFraction,
+maxOrderQuote: staleCurrentStorageShape.maxOrderQuote,
+},
+{
+orderQuote: defaultForm.orderQuote,
+orderQuantity: defaultForm.orderQuantity,
+orderQuoteFraction: defaultForm.orderQuoteFraction,
+maxOrderQuote: defaultForm.maxOrderQuote,
+},
+);
+const migratedState = summarizeOrderSizing(staleCurrentStorageShape);
+assert.equal(migratedState.effective, "orderQuoteFraction");
+assert.equal(migratedState.effectiveLabel, "Fraction 100.00%");
+
+const explicitQuoteWithCap = normalizeFormState({
+tradeSizingQuoteAmount: 100,
+tradeSizingBaseQuantity: 0,
+tradeSizingQuoteFraction: 0,
+tradeSizingQuoteCap: 25,
+});
+assert.deepEqual(
+{
+orderQuote: explicitQuoteWithCap.orderQuote,
+orderQuantity: explicitQuoteWithCap.orderQuantity,
+orderQuoteFraction: explicitQuoteWithCap.orderQuoteFraction,
+maxOrderQuote: explicitQuoteWithCap.maxOrderQuote,
+},
+{
+orderQuote: 100,
+orderQuantity: 0,
+orderQuoteFraction: 0,
+maxOrderQuote: 25,
+},
+);
+assert.equal(summarizeOrderSizing(explicitQuoteWithCap).effective, "orderQuote");
+});
 test("serializeFormState writes renamed manual sizing fields", () => {
 const form = {
 ...defaultForm,

@@ -496,6 +496,19 @@ function normalizeNonNegativeFiniteNumber(raw: unknown, fallback: number): numbe
   return normalizeFiniteNumber(raw, fallback, 0, Number.MAX_VALUE);
 }
 
+function own(raw: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(raw, key);
+}
+
+function isLegacyFixedQuoteSizingPreset(raw: Record<string, unknown>): boolean {
+  if (!own(raw, "tradeSizingQuoteAmount") || !own(raw, "tradeSizingQuoteFraction")) return false;
+  const orderQuote = normalizeFiniteNumber(raw.tradeSizingQuoteAmount, Number.NaN, 0, 1e9);
+  const orderQuantity = normalizeFiniteNumber(raw.tradeSizingBaseQuantity, 0, 0, 1e9);
+  const orderQuoteFraction = normalizeFiniteNumber(raw.tradeSizingQuoteFraction, Number.NaN, -1e9, 1e9);
+  const maxOrderQuote = normalizeFiniteNumber(raw.tradeSizingQuoteCap, 0, 0, 1e9);
+  return orderQuote === 100 && orderQuantity === 0 && orderQuoteFraction === 0 && maxOrderQuote === 0;
+}
+
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
@@ -544,15 +557,20 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   // canonicalize compatible aliases and otherwise fall back to that platform's default symbol.
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform);
   // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
-  const orderQuote = normalizeFiniteNumber(rawRec.tradeSizingQuoteAmount, defaultForm.orderQuote, 0, 1e9);
-  const orderQuantity = normalizeFiniteNumber(rawRec.tradeSizingBaseQuantity, defaultForm.orderQuantity, 0, 1e9);
-  const orderQuoteFraction = normalizeFiniteNumber(
-    rawRec.tradeSizingQuoteFraction,
-    defaultForm.orderQuoteFraction,
-    -1e9,
-    1e9,
-  );
-  const maxOrderQuote = normalizeFiniteNumber(rawRec.tradeSizingQuoteCap, defaultForm.maxOrderQuote, 0, 1e9);
+  // Older browser state may already use these storage keys while still carrying the prior fixed-quote preset.
+  const legacyFixedQuoteSizing = isLegacyFixedQuoteSizingPreset(rawRec);
+  const orderQuote = legacyFixedQuoteSizing
+    ? defaultForm.orderQuote
+    : normalizeFiniteNumber(rawRec.tradeSizingQuoteAmount, defaultForm.orderQuote, 0, 1e9);
+  const orderQuantity = legacyFixedQuoteSizing
+    ? defaultForm.orderQuantity
+    : normalizeFiniteNumber(rawRec.tradeSizingBaseQuantity, defaultForm.orderQuantity, 0, 1e9);
+  const orderQuoteFraction = legacyFixedQuoteSizing
+    ? defaultForm.orderQuoteFraction
+    : normalizeFiniteNumber(rawRec.tradeSizingQuoteFraction, defaultForm.orderQuoteFraction, -1e9, 1e9);
+  const maxOrderQuote = legacyFixedQuoteSizing
+    ? defaultForm.maxOrderQuote
+    : normalizeFiniteNumber(rawRec.tradeSizingQuoteCap, defaultForm.maxOrderQuote, 0, 1e9);
   // Integer-backed request fields should restore as exact safe integers so the UI state
   // cannot diverge from the values later emitted by the request builder.
   const bars = normalizeWholeNumber(rawRec.bars ?? merged.bars, defaultForm.bars, 0, 1e9);
