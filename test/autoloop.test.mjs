@@ -1074,6 +1074,8 @@ test("CI Fly deploy skips external billing blockers", async () => {
 test("CI Fly deploy reports app-scoped token fixes for unauthorized apps", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /unauthorized\|not authorized\|permission denied\|access denied/);
+  assert.match(workflow, /token validation error\|no verified tokens/);
+  assert.match(workflow, /FLY_API_TOKEN_FRONTEND failed Fly authentication; retrying frontend deploy with FLY_API_TOKEN/);
   assert.match(workflow, /Set GitHub secret \$\{token_secret_name\} to a Fly deploy token scoped to that app/);
   assert.match(workflow, /FLY_API_TOKEN_RESEARCH/);
   assert.match(workflow, /FLY_API_TOKEN_FRONTEND/);

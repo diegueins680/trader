@@ -164,6 +164,7 @@ jobs:
           auth_err_file="$(mktemp)"
           deploy_log="$(mktemp)"
           trap 'rm -f "$auth_err_file" "$deploy_log"' EXIT
+          fly_auth_error_re="missing third-party discharge token|invalid token|must be authenticated|token validation error|no verified tokens"
 
           if [[ -z "${FLY_API_TOKEN:-}" ]]; then
             echo "::warning::FLY_API_TOKEN is not set; skipping Fly deploy."
@@ -171,7 +172,7 @@ jobs:
           fi
 
           if ! flyctl auth whoami >"$auth_err_file" 2>&1; then
-            if grep -qiE "missing third-party discharge token|invalid token|must be authenticated" "$auth_err_file"; then
+            if grep -qiE "$fly_auth_error_re" "$auth_err_file"; then
               echo "::warning::FLY_API_TOKEN is invalid for CI deploy (missing Fly discharge token). Generate a deploy token with 'fly tokens create deploy' and update the FLY_API_TOKEN GitHub secret; skipping Fly deploy."
               exit 0
             fi
@@ -241,7 +242,7 @@ jobs:
                 return 0
               fi
 
-              if grep -qiE "unauthorized|not authorized|permission denied|access denied" "$deploy_log"; then
+              if grep -qiE "unauthorized|not authorized|permission denied|access denied|token validation error|no verified tokens" "$deploy_log"; then
                 echo "::${unauthorized_annotation}::${label} Fly deploy is unauthorized for ${app_display}. Set GitHub secret ${token_secret_name} to a Fly deploy token scoped to that app: fly tokens create deploy -a ${app_display}"
                 cat "$deploy_log"
                 popd >/dev/null
@@ -274,5 +275,22 @@ jobs:
           # If a frontend-specific token is configured (recommended,
           # because Fly app-scoped deploy tokens carry a discharge for
           # only one app), use it; otherwise fall back to the primary
-          # FLY_API_TOKEN and rely on org-level authorization.
-          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}" "${FLY_API_TOKEN_FRONTEND:-${FLY_API_TOKEN}}" "FLY_API_TOKEN_FRONTEND" "error"
+          # FLY_API_TOKEN and rely on org-level authorization. If the
+          # frontend-specific token is present but expired/invalid, retry
+          # with the primary token so a stale optional secret does not block
+          # deploys that the primary token can still perform.
+          frontend_token="${FLY_API_TOKEN_FRONTEND:-${FLY_API_TOKEN}}"
+          if [[ -n "${FLY_API_TOKEN_FRONTEND:-}" ]]; then
+            : > "$auth_err_file"
+            if ! env -u FLY_APP "FLY_API_TOKEN=${FLY_API_TOKEN_FRONTEND}" flyctl auth whoami >"$auth_err_file" 2>&1; then
+              if grep -qiE "$fly_auth_error_re" "$auth_err_file" && [[ "${FLY_API_TOKEN_FRONTEND}" != "${FLY_API_TOKEN}" ]]; then
+                echo "::warning::FLY_API_TOKEN_FRONTEND failed Fly authentication; retrying frontend deploy with FLY_API_TOKEN."
+                frontend_token="${FLY_API_TOKEN}"
+              else
+                echo "::error::FLY_API_TOKEN_FRONTEND failed Fly authentication. Generate a deploy token with 'fly tokens create deploy -a ${FRONTEND_FLY_APP:-trader-web-hs}' and update the FLY_API_TOKEN_FRONTEND GitHub secret."
+                cat "$auth_err_file"
+                exit 1
+              fi
+            fi
+          fi
+          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}" "$frontend_token" "FLY_API_TOKEN_FRONTEND" "error"
