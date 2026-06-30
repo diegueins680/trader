@@ -104,7 +104,7 @@ const BLOCKED_EDIT_PREFIXES = [
 ];
 
 const FOURMOLU_CHECK_COMMAND = "cd haskell && find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check";
-const HLINT_CHECK_COMMAND = "cd haskell && hlint app test bench";
+const HLINT_CHECK_COMMAND = "cd haskell && bash scripts/hlint_check.sh";
 const VERIFY_HASKELL_COMMAND = "bash scripts/verify.sh haskell";
 const VERIFY_WEB_COMMAND = "bash scripts/verify.sh web";
 const VERIFY_AUTOMATION_COMMAND = "bash scripts/verify.sh automation";
@@ -795,7 +795,7 @@ function detectAutomaticRepair(failureContext) {
     }
   }
 
-  const isHlintFailure = /\bhlint app test bench\b/.test(failedLog);
+  const isHlintFailure = /\bhlint\b/.test(failedLog) && /\b(?:app|test|bench)\/[A-Za-z0-9_./-]+\.hs:/.test(failedLog);
   if (!isHlintFailure) return null;
 
   const hlintEntries = parseHlintFailureEntries(failedLog);

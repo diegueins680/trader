@@ -834,11 +834,15 @@ test("autoloop script auto-heals formatting-only CI failures on editable Haskell
 
 test("autoloop script auto-heals hlint-only CI failures on editable Haskell files", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
-  assert.match(script, /const HLINT_CHECK_COMMAND = "cd haskell && hlint app test bench";/);
+  assert.match(script, /const HLINT_CHECK_COMMAND = "cd haskell && bash scripts\/hlint_check\.sh";/);
   assert.match(script, /SAFE_VERIFICATION_COMMANDS = new Set\(\[[\s\S]*HLINT_CHECK_COMMAND/);
   assert.match(script, /function stripHlintBlockIndent\(blockText\)/);
   assert.match(script, /function parseHlintFailureEntries\(failedLog\)/);
-  assert.match(script, /const isHlintFailure = \/\\bhlint app test bench\\b\/\.test\(failedLog\);/);
+  assert.ok(
+    script.includes(
+      'const isHlintFailure = /\\bhlint\\b/.test(failedLog) && /\\b(?:app|test|bench)\\/[A-Za-z0-9_./-]+\\.hs:/.test(failedLog);',
+    ),
+  );
   assert.match(script, /type: "hlint"/);
   assert.match(script, /verificationCommands: planVerificationCommands\(hlintPaths, \[HLINT_CHECK_COMMAND\]\),/);
   assert.match(script, /suggestions: hlintEntries/);

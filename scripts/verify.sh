@@ -57,7 +57,7 @@ verify_haskell() {
   # the autoloop merge build gate.
   run_haskell_shell "cabal build"
   run_haskell_shell "find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check"
-  run_haskell_shell "hlint app test bench"
+  run_haskell_shell "bash scripts/hlint_check.sh"
   run_haskell_shell "bash scripts/ci_smoke.sh"
   run_haskell_shell "cabal test --test-show-details=direct"
 }
