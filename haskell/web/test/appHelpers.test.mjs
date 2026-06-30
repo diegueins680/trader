@@ -228,6 +228,7 @@ test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite nu
     backtestRatio: "0.2",
     tuneRatio: "0.25",
     survivorParentAnnualizedReturnFloor: "0.75",
+    correlationGuidanceJson: " {\"fields\":[]} ",
   });
 
   assert.equal(request.source, "coinbase");
@@ -237,6 +238,7 @@ test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite nu
   assert.equal(request.backtestRatio, 0.2);
   assert.equal(request.tuneRatio, 0.25);
   assert.equal(request.survivorParentAnnualizedReturnFloor, 0.75);
+  assert.equal(request.correlationGuidanceJson, "{\"fields\":[]}");
   assert.equal(typeof request.timeoutSec, "number");
   assert.equal(typeof request.backtestRatio, "number");
   assert.equal(typeof request.tuneRatio, "number");
@@ -303,6 +305,12 @@ test("buildOptimizerCorrelationGuess narrows visible optimizer ranges from high-
   assert.ok(Number(guess.patch.stopMax) <= 0.12);
   assert.ok(Number(guess.patch.stopMax) >= Number(guess.patch.stopMin));
   assert.ok(guess.basis.some((item) => item.startsWith("Stop Loss r ")));
+  assert.equal(typeof guess.extras.correlationGuidanceJson, "string");
+  const guidance = JSON.parse(guess.extras.correlationGuidanceJson);
+  assert.equal(guidance.version, 1);
+  assert.equal(guidance.source, "web-top-combos");
+  assert.equal(guidance.sampleCount, combos.length);
+  assert.ok(guidance.fields.some((field) => field.key === "stopLoss" && field.stable === true));
 });
 
 test("buildOptimizerCorrelationGuess emits advanced optimizer knobs through extra JSON fields", () => {

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.Optimizer.Optimize (
+    CorrelationGuidanceField (..),
     OptimizerEdgeScoreConfig (..),
     OptimizerArgs (..),
     OptimizerRecordsSummary (..),
@@ -27,6 +28,7 @@ module Trader.Optimizer.Optimize (
     optimizerRecordsSummaryJson,
     optimizerTechniqueSummaryJson,
     optimizerTopJsonSortKey,
+    parseOptimizerCorrelationGuidance,
     ageAdjustedPriorScore,
     ageAdjustedPriorScoreWithMissingMultiplier,
     defaultPriorMissingAgeMultiplier,
@@ -35,6 +37,7 @@ module Trader.Optimizer.Optimize (
     priorTrialsFromValue,
     priorAgeDecayMultiplier,
     priorAgeDecayMultiplierWithMissingMultiplier,
+    applyOptimizerCorrelationGuidance,
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
@@ -66,7 +69,7 @@ import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (foldl', group, intercalate, isPrefixOf, sort, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
 import Data.Scientific (Scientific, toBoundedInteger, toRealFloat)
 import qualified Data.Set as Set
@@ -1473,6 +1476,294 @@ data PriorTrial = PriorTrial
     }
     deriving (Eq, Show)
 
+data CorrelationGuidanceField = CorrelationGuidanceField
+    { cgfKey :: !String
+    , cgfTarget :: !Double
+    , cgfLo :: !(Maybe Double)
+    , cgfHi :: !(Maybe Double)
+    , cgfStrength :: !Double
+    , cgfSampleCount :: !Int
+    , cgfStable :: !Bool
+    , cgfMetric :: !(Maybe String)
+    , cgfSource :: !(Maybe String)
+    }
+    deriving (Eq, Show)
+
+parseOptimizerCorrelationGuidance :: String -> Either String [CorrelationGuidanceField]
+parseOptimizerCorrelationGuidance raw
+    | null trimmed = Right []
+    | otherwise =
+        case Aeson.eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack trimmed))) of
+            Left err -> Left err
+            Right value -> Right (correlationGuidanceFieldsFromValue value)
+  where
+    trimmed = trim raw
+
+correlationGuidanceFieldsFromValue :: Value -> [CorrelationGuidanceField]
+correlationGuidanceFieldsFromValue value =
+    case value of
+        Array xs -> mapMaybe correlationGuidanceFieldFromValue (V.toList xs)
+        Object obj ->
+            let fields =
+                    case KM.lookup (Key.fromString "fields") obj of
+                        Just (Array xs) -> mapMaybe correlationGuidanceFieldFromValue (V.toList xs)
+                        _ -> maybeToList (correlationGuidanceFieldFromObject obj)
+                interactionFields =
+                    case KM.lookup (Key.fromString "interactions") obj of
+                        Just (Array xs) -> concatMap correlationGuidanceInteractionFieldsFromValue (V.toList xs)
+                        _ -> []
+             in fields ++ interactionFields
+        _ -> []
+
+correlationGuidanceFieldFromValue :: Value -> Maybe CorrelationGuidanceField
+correlationGuidanceFieldFromValue value =
+    case value of
+        Object obj -> correlationGuidanceFieldFromObject obj
+        _ -> Nothing
+
+correlationGuidanceFieldFromObject :: KM.KeyMap Value -> Maybe CorrelationGuidanceField
+correlationGuidanceFieldFromObject obj = do
+    key <- stringField ["key", "param", "name"] obj
+    target <- doubleField ["target", "value", "median"] obj
+    let strength =
+            abs $
+                fromMaybe
+                    0
+                    (doubleField ["strength", "correlation", "score"] obj)
+        sampleCount =
+            max 0 $
+                fromMaybe
+                    0
+                    (intField ["sampleCount", "samples", "support"] obj)
+        stable = fromMaybe False (boolField "stable" obj)
+        mLo = doubleField ["lo", "min", "lower"] obj
+        mHi = doubleField ["hi", "max", "upper"] obj
+        metric = stringField ["metric", "objective"] obj
+        source = stringField ["source", "context"] obj
+    if finite target && finite strength
+        then
+            Just
+                CorrelationGuidanceField
+                    { cgfKey = key
+                    , cgfTarget = target
+                    , cgfLo = mLo
+                    , cgfHi = mHi
+                    , cgfStrength = strength
+                    , cgfSampleCount = sampleCount
+                    , cgfStable = stable
+                    , cgfMetric = metric
+                    , cgfSource = source
+                    }
+        else Nothing
+  where
+    finite x = not (isNaN x || isInfinite x)
+
+correlationGuidanceInteractionFieldsFromValue :: Value -> [CorrelationGuidanceField]
+correlationGuidanceInteractionFieldsFromValue value =
+    case value of
+        Object obj ->
+            let strength =
+                    abs $
+                        fromMaybe
+                            0
+                            ( doubleField ["strength", "lift", "score"] obj
+                                <|> doubleField ["correlation"] obj
+                            )
+                sampleCount =
+                    max 0 $
+                        fromMaybe
+                            0
+                            (intField ["sampleCount", "samples", "support"] obj)
+                stable = fromMaybe False (boolField "stable" obj)
+                mk keyNames targetNames =
+                    case (stringField keyNames obj, doubleField targetNames obj) of
+                        (Just key, Just target)
+                            | not (isNaN target || isInfinite target) ->
+                                Just
+                                    CorrelationGuidanceField
+                                        { cgfKey = key
+                                        , cgfTarget = target
+                                        , cgfLo = Nothing
+                                        , cgfHi = Nothing
+                                        , cgfStrength = strength
+                                        , cgfSampleCount = sampleCount
+                                        , cgfStable = stable
+                                        , cgfMetric = Just "roi"
+                                        , cgfSource = Just "interaction"
+                                        }
+                        _ -> Nothing
+             in catMaybes
+                    [ mk ["keyA", "leftKey", "a"] ["targetA", "leftTarget", "target1"]
+                    , mk ["keyB", "rightKey", "b"] ["targetB", "rightTarget", "target2"]
+                    ]
+        _ -> []
+
+applyOptimizerCorrelationGuidance :: [CorrelationGuidanceField] -> TrialParams -> Rng -> (TrialParams, Rng, Bool)
+applyOptimizerCorrelationGuidance rawFields params rng0 =
+    let fields =
+            take
+                8
+                ( sortOn
+                    (Data.Ord.Down . correlationGuidanceScore)
+                    (filter correlationGuidanceFieldUsable rawFields)
+                )
+        (params', rng', applied) = foldl' applyOne (params, rng0, False) fields
+     in (normalizeTrialParams params', rng', applied)
+  where
+    applyOne (acc, rng, applied) field =
+        let (mNext, rng') = applyCorrelationGuidanceField field acc rng
+         in case mNext of
+                Nothing -> (acc, rng', applied)
+                Just next -> (next, rng', True)
+
+correlationGuidanceFieldUsable :: CorrelationGuidanceField -> Bool
+correlationGuidanceFieldUsable field =
+    cgfStable field
+        && cgfSampleCount field >= 4
+        && cgfStrength field >= 0.18
+        && not (isNaN (cgfTarget field) || isInfinite (cgfTarget field))
+
+correlationGuidanceScore :: CorrelationGuidanceField -> Double
+correlationGuidanceScore field =
+    let sampleScore = min 1 (fromIntegral (cgfSampleCount field) / 24)
+     in cgfStrength field * (0.35 + 0.65 * sampleScore)
+
+applyCorrelationGuidanceField :: CorrelationGuidanceField -> TrialParams -> Rng -> (Maybe TrialParams, Rng)
+applyCorrelationGuidanceField field params rng0 =
+    let (roll, rng1) = nextDouble rng0
+        probability = correlationGuidanceApplyProbability field
+     in if roll >= probability
+            then (Nothing, rng1)
+            else case guidedDoubleValue field rng1 of
+                Nothing -> (Nothing, rng1)
+                Just (value, rng2) ->
+                    let intValue = max 0 (round value)
+                        maybeIntValue = Just intValue
+                        maybeDoubleValue = Just (max 0 value)
+                        tech = tpTechnicalParams params
+                        updateTech f = params{tpTechnicalParams = normalizeTechnicalTrialParams (f tech)}
+                        key = canonicalGuidanceKey (cgfKey field)
+                        next =
+                            case key of
+                                "bars" -> Just params{tpBars = intValue}
+                                "openThreshold" -> Just params{tpBaseOpenThreshold = max 0 value}
+                                "baseOpenThreshold" -> Just params{tpBaseOpenThreshold = max 0 value}
+                                "closeThreshold" -> Just params{tpBaseCloseThreshold = max 0 value}
+                                "baseCloseThreshold" -> Just params{tpBaseCloseThreshold = max 0 value}
+                                "blendWeight" -> Just params{tpBlendWeight = clamp value 0 1}
+                                "routerScorePnlWeight" -> Just params{tpRouterScorePnlWeight = clamp value 0 1}
+                                "minHoldBars" -> Just params{tpMinHoldBars = intValue}
+                                "cooldownBars" -> Just params{tpCooldownBars = intValue}
+                                "maxHoldBars" -> Just params{tpMaxHoldBars = maybeIntValue}
+                                "minEdge" -> Just params{tpMinEdge = max venueMinEdgeFloor value}
+                                "minSignalToNoise" -> Just params{tpMinSignalToNoise = max 0 value}
+                                "edgeBuffer" -> Just params{tpEdgeBuffer = max 0 value}
+                                "trendLookback" -> Just params{tpTrendLookback = intValue}
+                                "maxPositionSize" -> Just params{tpMaxPositionSize = max 0 value}
+                                "volTarget" -> Just params{tpVolTarget = maybeDoubleValue}
+                                "volLookback" -> Just params{tpVolLookback = max 1 intValue}
+                                "volEwmaAlpha" -> Just params{tpVolEwmaAlpha = Just (clamp value 0 1)}
+                                "volFloor" -> Just params{tpVolFloor = max 0 value}
+                                "volScaleMax" -> Just params{tpVolScaleMax = max 0 value}
+                                "maxVolatility" -> Just params{tpMaxVolatility = maybeDoubleValue}
+                                "periodsPerYear" -> Just params{tpPeriodsPerYear = maybeDoubleValue}
+                                "kalmanMarketTopN" -> Just params{tpKalmanMarketTopN = max 1 intValue}
+                                "epochs" -> Just params{tpEpochs = max 1 intValue}
+                                "hiddenSize" -> Just params{tpHiddenSize = max 1 intValue}
+                                "learningRate" -> Just params{tpLearningRate = max 1e-12 value}
+                                "patience" -> Just params{tpPatience = intValue}
+                                "walkForwardFolds" -> Just params{tpWalkForwardFolds = max 1 intValue}
+                                "walkForwardEmbargoBars" -> Just params{tpWalkForwardEmbargoBars = intValue}
+                                "gradClip" -> Just params{tpGradClip = maybeDoubleValue}
+                                "stopLoss" -> Just params{tpStopLoss = maybeDoubleValue}
+                                "takeProfit" -> Just params{tpTakeProfit = maybeDoubleValue}
+                                "trailingStop" -> Just params{tpTrailingStop = maybeDoubleValue}
+                                "stopLossVolMult" -> Just params{tpStopLossVolMult = maybeDoubleValue}
+                                "takeProfitVolMult" -> Just params{tpTakeProfitVolMult = maybeDoubleValue}
+                                "trailingStopVolMult" -> Just params{tpTrailingStopVolMult = maybeDoubleValue}
+                                "riskPerTrade" -> Just params{tpRiskPerTrade = Just (clamp value 1e-6 0.999999)}
+                                "maxDrawdown" -> Just params{tpMaxDrawdown = maybeDoubleValue}
+                                "maxDailyLoss" -> Just params{tpMaxDailyLoss = maybeDoubleValue}
+                                "maxWeeklyLoss" -> Just params{tpMaxWeeklyLoss = maybeDoubleValue}
+                                "maxOrderErrors" -> Just params{tpMaxOrderErrors = maybeIntValue}
+                                "maxTradesPerDay" -> Just params{tpMaxTradesPerDay = maybeIntValue}
+                                "lossStreakMax" -> Just params{tpLossStreakMax = maybeIntValue}
+                                "lossStreakCooldownBars" -> Just params{tpLossStreakCooldownBars = maybeIntValue}
+                                "maxOpenPositions" -> Just params{tpMaxOpenPositions = maybeIntValue}
+                                "maxGrossExposure" -> Just params{tpMaxGrossExposure = maybeDoubleValue}
+                                "maxNetExposure" -> Just params{tpMaxNetExposure = maybeDoubleValue}
+                                "maxExposurePerBase" -> Just params{tpMaxExposurePerBase = maybeDoubleValue}
+                                "maxOpenPerBase" -> Just params{tpMaxOpenPerBase = maybeIntValue}
+                                "routerLookback" -> Just params{tpRouterLookback = max 2 intValue}
+                                "routerRegimeMinBars" -> Just params{tpRouterRegimeMinBars = intValue}
+                                "routerRegimeMinFraction" -> Just params{tpRouterRegimeMinFraction = clamp value 0 1}
+                                "routerMinScore" -> Just params{tpRouterMinScore = value}
+                                "maxHighVolProb" -> Just params{tpMaxHighVolProb = Just (clamp value 0 1)}
+                                "maxConformalWidth" -> Just params{tpMaxConformalWidth = maybeDoubleValue}
+                                "maxQuantileWidth" -> Just params{tpMaxQuantileWidth = maybeDoubleValue}
+                                "minPositionSize" -> Just params{tpMinPositionSize = clamp value 0 1}
+                                "protectionMinConfidence" -> Just params{tpProtectionMinConfidence = clamp value 0 1}
+                                "taEntryOpenThreshold" -> Just (updateTech (\t -> t{ttpTaEntryOpenThreshold = max 0 value}))
+                                "taTrendAdxThreshold" -> Just (updateTech (\t -> t{ttpTaTrendAdxThreshold = clamp value 0 100}))
+                                "taTrendStopAtrMult" -> Just (updateTech (\t -> t{ttpTaTrendStopAtrMult = max 1e-12 value}))
+                                "taTrendTakeProfitAtrMult" -> Just (updateTech (\t -> t{ttpTaTrendTakeProfitAtrMult = max 1e-12 value}))
+                                "taReversionRsiLower" -> Just (updateTech (\t -> t{ttpTaReversionRsiLower = clamp value 0 100}))
+                                "taReversionRsiUpper" -> Just (updateTech (\t -> t{ttpTaReversionRsiUpper = clamp value 0 100}))
+                                "taReversionStochLower" -> Just (updateTech (\t -> t{ttpTaReversionStochLower = clamp value 0 100}))
+                                "taReversionStochUpper" -> Just (updateTech (\t -> t{ttpTaReversionStochUpper = clamp value 0 100}))
+                                "taReversionEnvelopeLowerMult" -> Just (updateTech (\t -> t{ttpTaReversionEnvelopeLowerMult = max 1e-12 value}))
+                                "taReversionEnvelopeUpperMult" -> Just (updateTech (\t -> t{ttpTaReversionEnvelopeUpperMult = max 1e-12 value}))
+                                "taReversionStopAtrMult" -> Just (updateTech (\t -> t{ttpTaReversionStopAtrMult = max 1e-12 value}))
+                                "taBreakoutMfiThreshold" -> Just (updateTech (\t -> t{ttpTaBreakoutMfiThreshold = clamp value 0 100}))
+                                "taBreakoutStopAtrMult" -> Just (updateTech (\t -> t{ttpTaBreakoutStopAtrMult = max 1e-12 value}))
+                                "taBreakoutTakeProfitAtrMult" -> Just (updateTech (\t -> t{ttpTaBreakoutTakeProfitAtrMult = max 1e-12 value}))
+                                "taSmaCrossStopAtrMult" -> Just (updateTech (\t -> t{ttpTaSmaCrossStopAtrMult = max 1e-12 value}))
+                                "taSmaCrossTakeProfitAtrMult" -> Just (updateTech (\t -> t{ttpTaSmaCrossTakeProfitAtrMult = max 1e-12 value}))
+                                "taRegimeSwitchAdxThreshold" -> Just (updateTech (\t -> t{ttpTaRegimeSwitchAdxThreshold = clamp value 0 100}))
+                                "taBestCandidateMinConfidence" -> Just (updateTech (\t -> t{ttpTaBestCandidateMinConfidence = clamp value 0 1}))
+                                "predictorTransformerMaxExamples" -> Just (updateTech (\t -> t{ttpPredictorTransformerMaxExamples = intValue}))
+                                _ -> Nothing
+                     in (next, rng2)
+
+canonicalGuidanceKey :: String -> String
+canonicalGuidanceKey raw =
+    case filter isAlphaNum raw of
+        "" -> ""
+        chars -> lowerFirst chars
+  where
+    lowerFirst [] = []
+    lowerFirst (x : xs) = toLower x : xs
+
+correlationGuidanceApplyProbability :: CorrelationGuidanceField -> Double
+correlationGuidanceApplyProbability field =
+    let score = correlationGuidanceScore field
+        samplePenalty
+            | cgfSampleCount field < 8 = 0.12
+            | cgfSampleCount field < 16 = 0.06
+            | otherwise = 0
+     in clamp (0.28 + 0.55 * score - samplePenalty) 0.1 0.82
+
+guidedDoubleValue :: CorrelationGuidanceField -> Rng -> Maybe (Double, Rng)
+guidedDoubleValue field rng =
+    let target = cgfTarget field
+        baseRadius = max 1e-12 (max (abs target * 0.05) 0.000001)
+        lo0 = fromMaybe (target - baseRadius) (cgfLo field)
+        hi0 = fromMaybe (target + baseRadius) (cgfHi field)
+        lo1 = min lo0 hi0
+        hi1 = max lo0 hi0
+        span = max 1e-12 (hi1 - lo1)
+        widen
+            | cgfSampleCount field < 8 = 2.4
+            | cgfSampleCount field < 16 = 1.7
+            | cgfStrength field < 0.35 = 1.45
+            | otherwise = 1.0
+        radius = span * widen * 0.5
+        lo = target - radius
+        hi = target + radius
+     in if isNaN target || isInfinite target || isNaN lo || isInfinite lo || isNaN hi || isInfinite hi
+            then Nothing
+            else Just (nextUniform lo hi rng)
+
 readOptimizerPriorTrials :: FilePath -> IO [PriorTrial]
 readOptimizerPriorTrials rawPath = do
     let raw = trim rawPath
@@ -2539,6 +2830,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorMissingAgeMultiplier :: !Double
     , oaPriorDiversityMaxPerBucket :: !Int
     , oaPriorSeedCount :: !Int
+    , oaCorrelationGuidanceJson :: !String
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -6082,6 +6374,10 @@ runOptimizer args0 = do
                                                                             else readOptimizerPriorTrials (oaPriorJson args)
                                                                     priorNowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
                                                                     let rngStart = seedRng (oaSeed args)
+                                                                        correlationGuidance =
+                                                                            case parseOptimizerCorrelationGuidance (oaCorrelationGuidanceJson args) of
+                                                                                Right fields -> fields
+                                                                                Left _ -> []
                                                                         dataSource = if isNothing (oaData args) then "binance" else "csv"
                                                                         sourceOverride = map toLower (trim (oaSourceLabel args))
                                                                         symbolLabel = normalizeSymbol (Just (oaSymbolLabel args))
@@ -6164,6 +6460,13 @@ runOptimizer args0 = do
                                                                                 ++ oaPriorJson args
                                                                                 ++ priorTrialDistributionSummary edgeScoreConfig priorTrials
                                                                             )
+                                                                    unless (null correlationGuidance) $
+                                                                        hPutStrLn
+                                                                            stderr
+                                                                            ( "Correlation guidance: using "
+                                                                                ++ show (length correlationGuidance)
+                                                                                ++ " stable fields"
+                                                                            )
                                                                     outHandle <-
                                                                         if null (trim (oaOutput args))
                                                                             then pure Nothing
@@ -6177,6 +6480,7 @@ runOptimizer args0 = do
                                                                             emptyTechniqueSummary
                                                                                 { otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1
                                                                                 , otsAppliedEmpiricalPriors = priorSampleProb > 0 && not (null priorTrials)
+                                                                                , otsAppliedCorrelationGuidance = not (null correlationGuidance)
                                                                                 }
                                                                         seedTrialsDefault = max 1 (min trials (max 3 (trials `div` 2)))
                                                                         seedTrials =
@@ -6479,21 +6783,23 @@ runOptimizer args0 = do
                                                                                     baseParams
                                                                                     rng'
                                                                         samplePriorSeedParams prior rng =
-                                                                            let (baseParams, _) = sampleParamsWithRng rng
+                                                                            let (baseParams, rng') = sampleParamsWithRng rng
                                                                                 overlaid =
                                                                                     clampPriorParamsToBounds priorOverlayBounds $
                                                                                         applyPriorMethodIfEnabled True prior $
                                                                                             applyPriorOverlay intervals priorOverlayBounds prior baseParams
-                                                                             in normalizeTrialParams overlaid
+                                                                             in (normalizeTrialParams overlaid, rng')
                                                                         runTrialWith idx rng mPriorSeed mBase mParents best recordsRev = do
-                                                                            let (params, origin) =
+                                                                            let (params0, guidanceRng, origin0) =
                                                                                     case mPriorSeed of
-                                                                                        Just prior -> (samplePriorSeedParams prior rng, "prior-seed")
+                                                                                        Just prior ->
+                                                                                            let (paramsSeed, rngSeed) = samplePriorSeedParams prior rng
+                                                                                             in (paramsSeed, rngSeed, "prior-seed")
                                                                                         Nothing ->
                                                                                             case mBase of
                                                                                                 Nothing ->
-                                                                                                    let (params0, _, mOrigin) = sampleParamsMaybePrior rng
-                                                                                                     in (params0, fromMaybe "sobol-seed" mOrigin)
+                                                                                                    let (paramsSample, rngSample, mOrigin) = sampleParamsMaybePrior rng
+                                                                                                     in (paramsSample, rngSample, fromMaybe "sobol-seed" mOrigin)
                                                                                                 Just base ->
                                                                                                     case mParents of
                                                                                                         Just parents@(_ : _ : _) ->
@@ -6502,14 +6808,16 @@ runOptimizer args0 = do
                                                                                                                     let crossover = crossoverTrialParams p1 p2 rng1
                                                                                                                         child = fst crossover
                                                                                                                         rng2 = snd crossover
-                                                                                                                        params0 = fst (perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2)
-                                                                                                                     in (params0, "survivor-crossover")
+                                                                                                                        (params0, rng3) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                                     in (params0, rng3, "survivor-crossover")
                                                                                                                 Nothing ->
-                                                                                                                    let (params0, _) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
-                                                                                                                     in (params0, "survivor-perturb")
+                                                                                                                    let (params0, rng1) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                                     in (params0, rng1, "survivor-perturb")
                                                                                                         _ ->
-                                                                                                            let (params0, _) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
-                                                                                                             in (params0, "survivor-perturb")
+                                                                                                            let (params0, rng1) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                             in (params0, rng1, "survivor-perturb")
+                                                                                (params, _, guided) = applyOptimizerCorrelationGuidance correlationGuidance params0 guidanceRng
+                                                                                origin = if guided then origin0 ++ "+correlation-guidance" else origin0
                                                                             tr0 <-
                                                                                 runTrial
                                                                                     traderBinPath
@@ -7333,6 +7641,7 @@ data OptimizationTechniqueSummary = OptimizationTechniqueSummary
     , otsAppliedSurvivorPruning :: !Bool
     , otsAppliedSurvivorExploitation :: !Bool
     , otsAppliedEmpiricalPriors :: !Bool
+    , otsAppliedCorrelationGuidance :: !Bool
     , otsAppliedWalkForward :: !Bool
     , otsAppliedTopPerformerSummary :: !Bool
     }
@@ -7345,6 +7654,7 @@ emptyTechniqueSummary =
         , otsAppliedSurvivorPruning = False
         , otsAppliedSurvivorExploitation = False
         , otsAppliedEmpiricalPriors = False
+        , otsAppliedCorrelationGuidance = False
         , otsAppliedWalkForward = False
         , otsAppliedTopPerformerSummary = False
         }
@@ -8649,6 +8959,7 @@ optimizerTechniqueSummaryJson t =
         , "survivorPruning" .= otsAppliedSurvivorPruning t
         , "rankBiasedSurvivorExploitation" .= otsAppliedSurvivorExploitation t
         , "empiricalPriorSampling" .= otsAppliedEmpiricalPriors t
+        , "correlationGuidance" .= otsAppliedCorrelationGuidance t
         , "walkForwardCrossValidation" .= otsAppliedWalkForward t
         , "topPerformerSummary" .= otsAppliedTopPerformerSummary t
         , -- Compatibility fields for older readers. These techniques are not

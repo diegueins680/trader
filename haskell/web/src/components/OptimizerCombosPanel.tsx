@@ -28,7 +28,7 @@ type ComboFilterOptions = {
 type OptimizerRunExtras = { value: Record<string, unknown> | null; error: string | null };
 type ComboImportSummary = { comboCount: number; generatedAtMs: number | null; source: string | null };
 
-function mergeOptimizerGuessExtraJson(raw: string, extras: Record<string, number>): string {
+function mergeOptimizerGuessExtraJson(raw: string, extras: Record<string, number | string>): string {
   const extraKeys = Object.keys(extras);
   if (extraKeys.length === 0) return raw;
   const trimmed = raw.trim();

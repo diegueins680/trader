@@ -95,6 +95,36 @@ type MethodSymbolHeatmap = {
   roiMaxAbs: number;
 };
 
+type ConditionalCorrelationSignal = {
+  key: string;
+  label: string;
+  correlation: number;
+  sampleCount: number;
+  stableContexts: number;
+  checkedContexts: number;
+  strongestContext: string | null;
+  strongestCorrelation: number | null;
+};
+
+type MetricCorrelationSignal = {
+  key: string;
+  label: string;
+  metric: "annualizedReturn" | "sharpe" | "maxDrawdown";
+  correlation: number;
+  sampleCount: number;
+};
+
+type InteractionSignal = {
+  key: string;
+  leftLabel: string;
+  rightLabel: string;
+  lift: number;
+  avgRoi: number;
+  sampleCount: number;
+  sideA: "high" | "low";
+  sideB: "high" | "low";
+};
+
 type Props = {
   combos: OptimizationCombo[];
   loading: boolean;
@@ -711,6 +741,200 @@ export function buildComboRoiCorrelations(combos: OptimizationCombo[]): ComboRoi
   return correlations.slice(0, MAX_CORRELATION_CHARTS);
 }
 
+function comboParamValue(combo: OptimizationCombo, key: string): number | null {
+  if (key === "openThreshold") return paramNumber(combo.openThreshold);
+  if (key === "closeThreshold") return paramNumber(combo.closeThreshold);
+  const rawParams = (combo.params ?? {}) as Record<string, unknown>;
+  return paramNumber(rawParams[key]);
+}
+
+function comboContextLabel(combo: OptimizationCombo, dimension: ComboGroupDimension): string {
+  switch (dimension) {
+    case "method":
+      return comboMethodLabel(combo);
+    case "symbol":
+      return comboSymbolLabel(combo);
+    case "interval":
+      return comboIntervalLabel(combo);
+    case "strategy":
+      return comboStrategyLabel(combo);
+    default:
+      return "Unknown";
+  }
+}
+
+function buildConditionalCorrelationSignals(
+  correlations: ComboRoiCorrelation[],
+  comboById: Map<number, OptimizationCombo>,
+): ConditionalCorrelationSignal[] {
+  const signals: ConditionalCorrelationSignal[] = [];
+  const dimensions: ComboGroupDimension[] = ["symbol", "interval", "method", "strategy"];
+
+  for (const chart of correlations) {
+    const conditional: Array<{ label: string; correlation: number; sampleCount: number }> = [];
+    for (const dimension of dimensions) {
+      const grouped = new Map<string, ComboRoiPoint[]>();
+      for (const point of chart.points) {
+        const combo = comboById.get(point.comboId);
+        if (!combo) continue;
+        const key = `${dimension}:${comboContextLabel(combo, dimension)}`;
+        const group = grouped.get(key) ?? [];
+        group.push(point);
+        grouped.set(key, group);
+      }
+      for (const [key, points] of grouped) {
+        if (points.length < MIN_CORRELATION_SAMPLES || new Set(points.map((point) => point.x)).size < 2) continue;
+        const stats = pearson(points);
+        if (!stats) continue;
+        conditional.push({
+          label: key.replace(/^[^:]+:/, ""),
+          correlation: stats.correlation,
+          sampleCount: points.length,
+        });
+      }
+    }
+    if (conditional.length === 0) continue;
+    const sign = Math.sign(chart.correlation) || 1;
+    const stable = conditional.filter((item) => Math.sign(item.correlation) === sign && Math.abs(item.correlation) >= 0.18);
+    const strongest = conditional.reduce((best, item) => (Math.abs(item.correlation) > Math.abs(best.correlation) ? item : best), conditional[0]!);
+    signals.push({
+      key: chart.key,
+      label: chart.label,
+      correlation: chart.correlation,
+      sampleCount: chart.sampleCount,
+      stableContexts: stable.length,
+      checkedContexts: conditional.length,
+      strongestContext: strongest.label,
+      strongestCorrelation: strongest.correlation,
+    });
+  }
+
+  signals.sort((a, b) => {
+    const stable = b.stableContexts / Math.max(1, b.checkedContexts) - a.stableContexts / Math.max(1, a.checkedContexts);
+    if (stable !== 0) return stable;
+    return Math.abs(b.correlation) - Math.abs(a.correlation);
+  });
+  return signals.slice(0, 6);
+}
+
+function metricCorrelationPoints(
+  chart: ComboRoiCorrelation,
+  comboById: Map<number, OptimizationCombo>,
+  metric: MetricCorrelationSignal["metric"],
+): Array<{ x: number; y: number }> {
+  const points: Array<{ x: number; y: number }> = [];
+  for (const point of chart.points) {
+    const combo = comboById.get(point.comboId);
+    if (!combo) continue;
+    const value =
+      metric === "annualizedReturn"
+        ? comboAnnualizedReturn(combo)
+        : metric === "sharpe"
+          ? comboSharpe(combo)
+          : comboMaxDrawdown(combo);
+    if (value == null) continue;
+    points.push({ x: point.x, y: value });
+  }
+  return points;
+}
+
+function pearsonXY(points: Array<{ x: number; y: number }>): number | null {
+  if (points.length < MIN_CORRELATION_SAMPLES) return null;
+  const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+  const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  let cov = 0;
+  let varX = 0;
+  let varY = 0;
+  for (const point of points) {
+    const dx = point.x - meanX;
+    const dy = point.y - meanY;
+    cov += dx * dy;
+    varX += dx * dx;
+    varY += dy * dy;
+  }
+  if (varX <= 0 || varY <= 0) return null;
+  const corr = cov / Math.sqrt(varX * varY);
+  return Number.isFinite(corr) ? corr : null;
+}
+
+function buildMetricCorrelationSignals(
+  correlations: ComboRoiCorrelation[],
+  comboById: Map<number, OptimizationCombo>,
+): MetricCorrelationSignal[] {
+  const metrics: MetricCorrelationSignal["metric"][] = ["annualizedReturn", "sharpe", "maxDrawdown"];
+  const signals: MetricCorrelationSignal[] = [];
+  for (const chart of correlations) {
+    for (const metric of metrics) {
+      const points = metricCorrelationPoints(chart, comboById, metric);
+      const correlation = pearsonXY(points);
+      if (correlation == null || Math.abs(correlation) < 0.18) continue;
+      signals.push({
+        key: `${chart.key}:${metric}`,
+        label: chart.label,
+        metric,
+        correlation,
+        sampleCount: points.length,
+      });
+    }
+  }
+  signals.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+  return signals.slice(0, 6);
+}
+
+function buildInteractionSignals(correlations: ComboRoiCorrelation[], combos: OptimizationCombo[]): InteractionSignal[] {
+  const candidates = correlations.slice(0, 8);
+  const roiValues = combos.map((combo) => comboRoi(combo)).filter((roi): roi is number => roi != null);
+  const baseAvg = average(roiValues);
+  if (candidates.length < 2 || baseAvg == null) return [];
+  const targetFor = (chart: ComboRoiCorrelation) => {
+    const topCount = Math.max(2, Math.ceil(chart.points.length * 0.25));
+    return median([...chart.points].sort((a, b) => b.roi - a.roi).slice(0, topCount).map((point) => point.x));
+  };
+  const targets = new Map(candidates.map((chart) => [chart.key, targetFor(chart)]));
+  const matches = (combo: OptimizationCombo, chart: ComboRoiCorrelation): boolean => {
+    const target = targets.get(chart.key);
+    const value = comboParamValue(combo, chart.key);
+    if (target == null || value == null) return false;
+    return chart.correlation >= 0 ? value >= target : value <= target;
+  };
+  const interactions: InteractionSignal[] = [];
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const left = candidates[i];
+    if (!left) continue;
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const right = candidates[j];
+      if (!right) continue;
+      const matchedRois = combos
+        .filter((combo) => matches(combo, left) && matches(combo, right))
+        .map((combo) => comboRoi(combo))
+        .filter((roi): roi is number => roi != null);
+      if (matchedRois.length < 3) continue;
+      const avgRoi = average(matchedRois);
+      if (avgRoi == null) continue;
+      const lift = avgRoi - baseAvg;
+      if (!Number.isFinite(lift) || lift <= 0) continue;
+      interactions.push({
+        key: `${left.key}:${right.key}`,
+        leftLabel: left.label,
+        rightLabel: right.label,
+        lift,
+        avgRoi,
+        sampleCount: matchedRois.length,
+        sideA: left.correlation >= 0 ? "high" : "low",
+        sideB: right.correlation >= 0 ? "high" : "low",
+      });
+    }
+  }
+
+  interactions.sort((a, b) => {
+    const lift = b.lift - a.lift;
+    if (lift !== 0) return lift;
+    return b.sampleCount - a.sampleCount;
+  });
+  return interactions.slice(0, 5);
+}
+
 function fmtCompact(value: number): string {
   const abs = Math.abs(value);
   if (!Number.isFinite(value)) return "-";
@@ -831,6 +1055,107 @@ function ComboGroupBars({ title, groups }: { title: string; groups: ComboGroupSt
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function metricSignalLabel(metric: MetricCorrelationSignal["metric"]): string {
+  switch (metric) {
+    case "annualizedReturn":
+      return "Annualized";
+    case "sharpe":
+      return "Sharpe";
+    case "maxDrawdown":
+      return "MaxDD";
+    default:
+      return metric;
+  }
+}
+
+function ComboSignalPanels({
+  conditionalSignals,
+  metricSignals,
+  interactionSignals,
+}: {
+  conditionalSignals: ConditionalCorrelationSignal[];
+  metricSignals: MetricCorrelationSignal[];
+  interactionSignals: InteractionSignal[];
+}) {
+  return (
+    <div className="comboAnalyticsSignalGrid">
+      <div className="comboAnalyticsPanel">
+        <div className="comboAnalyticsPanelHeader">
+          <div className="comboRoiParam">Stable signals</div>
+          {conditionalSignals.length > 0 ? <span className="badge">{conditionalSignals.length}</span> : null}
+        </div>
+        {conditionalSignals.length === 0 ? (
+          <div className="hint">No stable context signals.</div>
+        ) : (
+          <div className="comboSignalList">
+            {conditionalSignals.map((signal) => (
+              <div key={signal.key} className="comboSignalRow">
+                <div>
+                  <span>{signal.label}</span>
+                  <small>
+                    {signal.stableContexts}/{signal.checkedContexts} contexts
+                  </small>
+                </div>
+                <strong>r {fmtCorrelation(signal.correlation)}</strong>
+                <small>
+                  {signal.strongestContext ?? "mixed"}{" "}
+                  {signal.strongestCorrelation == null ? "" : `r ${fmtCorrelation(signal.strongestCorrelation)}`}
+                </small>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="comboAnalyticsPanel">
+        <div className="comboAnalyticsPanelHeader">
+          <div className="comboRoiParam">Risk signals</div>
+          {metricSignals.length > 0 ? <span className="badge">{metricSignals.length}</span> : null}
+        </div>
+        {metricSignals.length === 0 ? (
+          <div className="hint">No secondary metric signals.</div>
+        ) : (
+          <div className="comboSignalList">
+            {metricSignals.map((signal) => (
+              <div key={signal.key} className="comboSignalRow">
+                <div>
+                  <span>{signal.label}</span>
+                  <small>{metricSignalLabel(signal.metric)}</small>
+                </div>
+                <strong>r {fmtCorrelation(signal.correlation)}</strong>
+                <small>{signal.sampleCount} points</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="comboAnalyticsPanel">
+        <div className="comboAnalyticsPanelHeader">
+          <div className="comboRoiParam">Interactions</div>
+          {interactionSignals.length > 0 ? <span className="badge">{interactionSignals.length}</span> : null}
+        </div>
+        {interactionSignals.length === 0 ? (
+          <div className="hint">No lifted parameter pairs.</div>
+        ) : (
+          <div className="comboSignalList">
+            {interactionSignals.map((signal) => (
+              <div key={signal.key} className="comboSignalRow">
+                <div>
+                  <span>
+                    {signal.leftLabel} {signal.sideA} + {signal.rightLabel} {signal.sideB}
+                  </span>
+                  <small>{signal.sampleCount} combos</small>
+                </div>
+                <strong>{fmtPct(signal.lift, 1)}</strong>
+                <small>Avg {fmtPct(signal.avgRoi, 1)}</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1281,21 +1606,27 @@ function ComboRoiExpandedDialog({
 
 export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelationCharts({ combos, loading }: Props) {
   const [expandedChartKey, setExpandedChartKey] = useState<string | null>(null);
+  const comboById = useMemo(() => new Map(combos.map((combo) => [combo.id, combo])), [combos]);
   const analytics = useMemo(
-    () => ({
-      summary: buildProfitabilitySummary(combos),
-      methodGroups: buildGroupStats(combos, "method"),
-      symbolGroups: buildGroupStats(combos, "symbol"),
-      intervalGroups: buildGroupStats(combos, "interval"),
-      strategyGroups: buildGroupStats(combos, "strategy"),
-      riskReturnPoints: buildRiskReturnPoints(combos),
-      heatmap: buildMethodSymbolHeatmap(combos),
-      correlations: buildComboRoiCorrelations(combos),
-    }),
-    [combos],
+    () => {
+      const correlations = buildComboRoiCorrelations(combos);
+      return {
+        summary: buildProfitabilitySummary(combos),
+        methodGroups: buildGroupStats(combos, "method"),
+        symbolGroups: buildGroupStats(combos, "symbol"),
+        intervalGroups: buildGroupStats(combos, "interval"),
+        strategyGroups: buildGroupStats(combos, "strategy"),
+        riskReturnPoints: buildRiskReturnPoints(combos),
+        heatmap: buildMethodSymbolHeatmap(combos),
+        correlations,
+        conditionalSignals: buildConditionalCorrelationSignals(correlations, comboById),
+        metricSignals: buildMetricCorrelationSignals(correlations, comboById),
+        interactionSignals: buildInteractionSignals(correlations, combos),
+      };
+    },
+    [comboById, combos],
   );
   const charts = analytics.correlations;
-  const comboById = useMemo(() => new Map(combos.map((combo) => [combo.id, combo])), [combos]);
   const expandedChart = expandedChartKey ? charts.find((chart) => chart.key === expandedChartKey) ?? null : null;
 
   useEffect(() => {
@@ -1335,6 +1666,11 @@ export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelation
             <ComboGroupBars title="Intervals" groups={analytics.intervalGroups} />
             <ComboGroupBars title="Strategies" groups={analytics.strategyGroups} />
           </div>
+          <ComboSignalPanels
+            conditionalSignals={analytics.conditionalSignals}
+            metricSignals={analytics.metricSignals}
+            interactionSignals={analytics.interactionSignals}
+          />
           <div className="comboRoiSubsection">
             <div className="comboRoiHeader">
               <div>

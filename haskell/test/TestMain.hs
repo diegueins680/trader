@@ -129,6 +129,7 @@ import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerR
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
+    CorrelationGuidanceField (..),
     OptimizationTechniqueSummary (..),
     OptimizerEdgeScoreConfig (..),
     OptimizerRecordsSummary (..),
@@ -149,6 +150,7 @@ import Trader.Optimizer.Optimize (
     optimizerRecordsShouldRetryDiscovery,
     optimizerTechniqueSummaryJson,
     optimizerTopJsonSortKey,
+    parseOptimizerCorrelationGuidance,
     priorAgeDecayMultiplier,
     priorAgeDecayMultiplierWithMissingMultiplier,
     priorTrialEdgeScore,
@@ -498,6 +500,7 @@ main = do
     testCostCalibrationConfigurableRoiKnobs
     testLiveGapFeedback
     testAlignToBarsPointInTime
+    testAlignToBarsFailClosedOnMalformedInputs
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -524,6 +527,7 @@ main = do
     testOptimizerPriorAgeDecayMissingTimestampRegression
     testOptimizerPriorAgeAdjustedScoreRegression
     testOptimizerQualityThresholdArgvExplicitRegression
+    testOptimizerCorrelationGuidanceParserRegression
     testOptimizerKellyLiteExposureContractRegression
     testOptimizerRecordsRetryDiscoveryForWalkForwardFilters
     testOptimizerRecordMetricsCarryWalkForwardSummary
@@ -5256,6 +5260,26 @@ testAlignToBarsPointInTime = do
             == V.fromList [Just 7.0, Just 7.0, Just 7.0, Just 7.0]
         )
 
+testAlignToBarsFailClosedOnMalformedInputs :: IO ()
+testAlignToBarsFailClosedOnMalformedInputs = do
+    let bars = V.fromList [1000, 2000, 3000 :: Int64]
+        malformedObservationSeries = [(500, 7.0), (1500, 0 / 0), (2500, 8.0), (3500, 1 / 0)]
+    assert
+        "alignToBars ignores non-finite observations while preserving point-in-time finite evidence"
+        (alignToBars bars (1000 :: Int64) malformedObservationSeries == V.fromList [Just 7.0, Just 8.0, Just 8.0])
+    assert
+        "alignToBars fails closed for non-positive intervals"
+        (alignToBars bars (0 :: Int64) [(500, 7.0)] == V.fromList [Nothing, Nothing, Nothing])
+    assert
+        "alignToBars fails closed for descending bar grids"
+        (alignToBars (V.fromList [2000, 1000 :: Int64]) (1000 :: Int64) [(500, 7.0)] == V.fromList [Nothing, Nothing])
+    assert
+        "alignToBars fails closed for duplicate bar opens"
+        (alignToBars (V.fromList [1000, 1000 :: Int64]) (1000 :: Int64) [(500, 7.0)] == V.fromList [Nothing, Nothing])
+    assert
+        "alignToBars fails closed when a bar close time would overflow"
+        (alignToBars (V.fromList [maxBound :: Int64]) (2 :: Int64) [(maxBound, 7.0)] == V.fromList [Nothing])
+
 gapComboForTest :: T.Text -> Double -> Double -> Int -> Aeson.Value
 gapComboForTest method backtestAnn liveAnn ops =
     Aeson.object
@@ -6927,6 +6951,7 @@ testOptimizerTechniqueSummaryTruthfulRegression = do
                 , otsAppliedSurvivorPruning = True
                 , otsAppliedSurvivorExploitation = True
                 , otsAppliedEmpiricalPriors = True
+                , otsAppliedCorrelationGuidance = True
                 , otsAppliedWalkForward = True
                 , otsAppliedTopPerformerSummary = True
                 }
@@ -6944,6 +6969,9 @@ testOptimizerTechniqueSummaryTruthfulRegression = do
     assert
         "optimizer reports rank-biased survivor exploitation under its actual mechanism"
         (boolField "rankBiasedSurvivorExploitation" == Just True)
+    assert
+        "optimizer reports correlation-guided sampling when it is applied"
+        (boolField "correlationGuidance" == Just True)
     assert
         "optimizer does not report unimplemented Sobol sampling as applied"
         (boolField "sobolSeeding" == Just False)
@@ -7204,6 +7232,60 @@ testOptimizerQualityThresholdArgvExplicitRegression = do
                     && effectiveCloseCap parsed == qualityExplorationFloor
             _ -> False
         )
+
+testOptimizerCorrelationGuidanceParserRegression :: IO ()
+testOptimizerCorrelationGuidanceParserRegression = do
+    assert
+        "empty optimizer correlation guidance is inert"
+        (parseOptimizerCorrelationGuidance "" == Right [])
+    assert
+        "optimizer correlation guidance accepts stable field targets"
+        ( parseOptimizerCorrelationGuidance "{\"key\":\"stopLoss\",\"target\":0.02,\"strength\":0.4,\"sampleCount\":8,\"stable\":true,\"lo\":0.01,\"hi\":0.03}"
+            == Right
+                [ CorrelationGuidanceField
+                    { cgfKey = "stopLoss"
+                    , cgfTarget = 0.02
+                    , cgfLo = Just 0.01
+                    , cgfHi = Just 0.03
+                    , cgfStrength = 0.4
+                    , cgfSampleCount = 8
+                    , cgfStable = True
+                    , cgfMetric = Nothing
+                    , cgfSource = Nothing
+                    }
+                ]
+        )
+    assert
+        "optimizer correlation guidance accepts interaction fields"
+        ( parseOptimizerCorrelationGuidance "{\"interactions\":[{\"keyA\":\"volEwmaAlpha\",\"targetA\":0.2,\"keyB\":\"maxPositionSize\",\"targetB\":0.25,\"strength\":0.5,\"samples\":12,\"stable\":true}]}"
+            == Right
+                [ CorrelationGuidanceField
+                    { cgfKey = "volEwmaAlpha"
+                    , cgfTarget = 0.2
+                    , cgfLo = Nothing
+                    , cgfHi = Nothing
+                    , cgfStrength = 0.5
+                    , cgfSampleCount = 12
+                    , cgfStable = True
+                    , cgfMetric = Just "roi"
+                    , cgfSource = Just "interaction"
+                    }
+                , CorrelationGuidanceField
+                    { cgfKey = "maxPositionSize"
+                    , cgfTarget = 0.25
+                    , cgfLo = Nothing
+                    , cgfHi = Nothing
+                    , cgfStrength = 0.5
+                    , cgfSampleCount = 12
+                    , cgfStable = True
+                    , cgfMetric = Just "roi"
+                    , cgfSource = Just "interaction"
+                    }
+                ]
+        )
+    assert
+        "optimizer correlation guidance rejects malformed JSON"
+        (isLeft (parseOptimizerCorrelationGuidance "{\"key\":\"stopLoss\""))
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
 -- no-op Kelly-lite rows. A zero uncapped-exposure replay previously produced a

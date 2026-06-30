@@ -1511,6 +1511,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrKellyLiteFloorMax :: !(Maybe Double)
     , arrKellyLiteCapMin :: !(Maybe Double)
     , arrKellyLiteCapMax :: !(Maybe Double)
+    , arrCorrelationGuidanceJson :: !(Maybe String)
     , arrDisableLstmPersistence :: !(Maybe Bool)
     , arrNoSweepThreshold :: !(Maybe Bool)
     }
@@ -17044,6 +17045,12 @@ maybeIntArg :: String -> Maybe Int -> [String]
 maybeIntArg _ Nothing = []
 maybeIntArg flag (Just n) = [flag, show (max 0 n)]
 
+maybeStringArg :: String -> Maybe String -> [String]
+maybeStringArg _ Nothing = []
+maybeStringArg flag (Just raw) =
+    let value = trim raw
+     in if null value then [] else [flag, value]
+
 maybeBoolArg :: String -> Maybe Bool -> [String]
 maybeBoolArg _ Nothing = []
 maybeBoolArg flag (Just True) = [flag]
@@ -17859,6 +17866,8 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ maybeDoubleArg "--kelly-lite-floor-max" (fmap (max 0) (arrKellyLiteFloorMax req))
                         ++ maybeDoubleArg "--kelly-lite-cap-min" (fmap (max 0) (arrKellyLiteCapMin req))
                         ++ maybeDoubleArg "--kelly-lite-cap-max" (fmap (max 0) (arrKellyLiteCapMax req))
+                correlationGuidanceArgs =
+                    maybeStringArg "--correlation-guidance-json" (arrCorrelationGuidanceJson req)
                 normalizationsVal = pickDefaultString defaultOptimizerNormalizations (arrNormalizations req)
                 boolArg flag val = ([flag | val])
                 disableLstm = fromMaybe False (arrDisableLstmPersistence req)
@@ -18119,6 +18128,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                                             ++ ["--binary", exePath]
                                             ++ edgeScoreArgs
                                             ++ priorArgs
+                                            ++ correlationGuidanceArgs
                                             ++ boolArg "--disable-lstm-persistence" disableLstm
                                             ++ boolArg "--no-sweep-threshold" noSweep
                                         )

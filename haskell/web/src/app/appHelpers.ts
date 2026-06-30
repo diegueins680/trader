@@ -1615,6 +1615,7 @@ const OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS = [
   "objective",
   "tuneObjective",
   "normalizations",
+  "correlationGuidanceJson",
 ] as const;
 
 function readOptionalTrimmedStringOverride(raw: unknown): { provided: boolean; value: string | null } {
@@ -2033,6 +2034,15 @@ type OptimizerRunFormTextKey = {
 type OptimizerCorrelationPoint = {
   x: number;
   roi: number;
+  combo: OptimizationCombo;
+};
+
+type OptimizerCorrelationMetric = "roi" | "annualizedReturn" | "sharpe" | "maxDrawdown";
+
+type OptimizerMetricCorrelation = {
+  metric: OptimizerCorrelationMetric;
+  correlation: number;
+  sampleCount: number;
 };
 
 type OptimizerCorrelationRangeConfig = {
@@ -2054,11 +2064,14 @@ type OptimizerCorrelationStat = {
   target: number;
   xMin: number;
   xMax: number;
+  stable: boolean;
+  stabilityScore: number;
+  metricCorrelations: OptimizerMetricCorrelation[];
 };
 
 export type OptimizerCorrelationGuess = {
   patch: Partial<OptimizerRunForm>;
-  extras: Record<string, number>;
+  extras: Record<string, number | string>;
   basis: string[];
   sampleCount: number;
   correlationCount: number;
@@ -2067,6 +2080,8 @@ export type OptimizerCorrelationGuess = {
 const OPTIMIZER_GUESS_MIN_SAMPLES = 4;
 const OPTIMIZER_GUESS_MIN_ABS_CORRELATION = 0.18;
 const OPTIMIZER_GUESS_MAX_FIELDS = 6;
+const OPTIMIZER_GUIDANCE_MAX_FIELDS = 12;
+const OPTIMIZER_GUIDANCE_MAX_INTERACTIONS = 5;
 const OPTIMIZER_GUESS_TOP_ROI_FRACTION = 0.25;
 const OPTIMIZER_GUESS_DEFAULT_WIDTH_RATIO = 0.22;
 
@@ -2131,6 +2146,27 @@ function optimizerGuessRoi(combo: OptimizationCombo): number | null {
   return Number.isFinite(roi) ? roi : null;
 }
 
+function optimizerGuessMetric(combo: OptimizationCombo, metric: OptimizerCorrelationMetric): number | null {
+  switch (metric) {
+    case "roi":
+      return optimizerGuessRoi(combo);
+    case "annualizedReturn": {
+      const value = combo.metrics?.annualizedReturn;
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    }
+    case "sharpe": {
+      const value = combo.metrics?.sharpe;
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    }
+    case "maxDrawdown": {
+      const value = combo.metrics?.maxDrawdown;
+      return typeof value === "number" && Number.isFinite(value) ? Math.abs(value) : null;
+    }
+    default:
+      return null;
+  }
+}
+
 function optimizerGuessParamLabel(key: string): string {
   return key
     .replace(/^base/, "")
@@ -2139,17 +2175,17 @@ function optimizerGuessParamLabel(key: string): string {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-function optimizerGuessPearson(points: OptimizerCorrelationPoint[]): number | null {
+function optimizerGuessPearsonXY(points: Array<{ x: number; y: number }>): number | null {
   const n = points.length;
   if (n < OPTIMIZER_GUESS_MIN_SAMPLES) return null;
   const meanX = points.reduce((sum, p) => sum + p.x, 0) / n;
-  const meanY = points.reduce((sum, p) => sum + p.roi, 0) / n;
+  const meanY = points.reduce((sum, p) => sum + p.y, 0) / n;
   let numerator = 0;
   let denomX = 0;
   let denomY = 0;
   for (const point of points) {
     const dx = point.x - meanX;
-    const dy = point.roi - meanY;
+    const dy = point.y - meanY;
     numerator += dx * dy;
     denomX += dx * dx;
     denomY += dy * dy;
@@ -2157,6 +2193,26 @@ function optimizerGuessPearson(points: OptimizerCorrelationPoint[]): number | nu
   const denom = Math.sqrt(denomX * denomY);
   if (denom <= 0) return null;
   return numerator / denom;
+}
+
+function optimizerGuessPearson(points: OptimizerCorrelationPoint[]): number | null {
+  return optimizerGuessPearsonXY(points.map((point) => ({ x: point.x, y: point.roi })));
+}
+
+function optimizerGuessMetricCorrelations(points: OptimizerCorrelationPoint[]): OptimizerMetricCorrelation[] {
+  const metrics: OptimizerCorrelationMetric[] = ["roi", "annualizedReturn", "sharpe", "maxDrawdown"];
+  const out: OptimizerMetricCorrelation[] = [];
+  for (const metric of metrics) {
+    const metricPoints: Array<{ x: number; y: number }> = [];
+    for (const point of points) {
+      const y = optimizerGuessMetric(point.combo, metric);
+      if (y != null) metricPoints.push({ x: point.x, y });
+    }
+    const correlation = optimizerGuessPearsonXY(metricPoints);
+    if (correlation == null || !Number.isFinite(correlation)) continue;
+    out.push({ metric, correlation, sampleCount: metricPoints.length });
+  }
+  return out;
 }
 
 function optimizerGuessMedian(values: number[]): number | null {
@@ -2171,6 +2227,69 @@ function optimizerGuessMedian(values: number[]): number | null {
   return sorted[mid] ?? null;
 }
 
+function optimizerGuessContextKey(combo: OptimizationCombo, dimension: "symbol" | "interval" | "method" | "strategy"): string {
+  switch (dimension) {
+    case "symbol":
+      return typeof combo.params.binanceSymbol === "string" && combo.params.binanceSymbol.trim()
+        ? combo.params.binanceSymbol.trim().toUpperCase()
+        : combo.source ?? "unknown";
+    case "interval":
+      return combo.params.interval || "unknown";
+    case "method":
+      return String(combo.params.method);
+    case "strategy":
+      return [combo.params.method, combo.params.positioning ?? "", combo.params.normalization ?? ""].join(":");
+    default:
+      return "unknown";
+  }
+}
+
+function optimizerGuessContextCorrelations(points: OptimizerCorrelationPoint[]): number[] {
+  const correlations: number[] = [];
+  const dimensions = ["symbol", "interval", "method", "strategy"] as const;
+  for (const dimension of dimensions) {
+    const grouped = new Map<string, OptimizerCorrelationPoint[]>();
+    for (const point of points) {
+      const key = optimizerGuessContextKey(point.combo, dimension);
+      const group = grouped.get(key) ?? [];
+      group.push(point);
+      grouped.set(key, group);
+    }
+    for (const group of grouped.values()) {
+      const distinctValues = new Set(group.map((point) => point.x));
+      if (group.length < OPTIMIZER_GUESS_MIN_SAMPLES || distinctValues.size < 2) continue;
+      const correlation = optimizerGuessPearson(group);
+      if (correlation != null && Number.isFinite(correlation)) correlations.push(correlation);
+    }
+  }
+  return correlations;
+}
+
+function optimizerGuessStability(
+  points: OptimizerCorrelationPoint[],
+  correlation: number,
+  metricCorrelations: OptimizerMetricCorrelation[],
+): { stable: boolean; score: number } {
+  const contextCorrelations = optimizerGuessContextCorrelations(points);
+  const sign = Math.sign(correlation) || 1;
+  const sameSignCount = contextCorrelations.filter((value) => Math.sign(value) === sign).length;
+  const signAgreement = contextCorrelations.length > 0 ? sameSignCount / contextCorrelations.length : points.length >= 8 ? 0.62 : 0.42;
+  const contextCoverage = Math.min(1, contextCorrelations.length / 4);
+  const sampleScore = Math.min(1, points.length / 18);
+  const drawdownCorrelation = metricCorrelations.find((item) => item.metric === "maxDrawdown")?.correlation ?? null;
+  const sharpeCorrelation = metricCorrelations.find((item) => item.metric === "sharpe")?.correlation ?? null;
+  const riskConflict =
+    drawdownCorrelation != null &&
+    Math.sign(drawdownCorrelation) === sign &&
+    Math.abs(drawdownCorrelation) > 0.5 &&
+    (sharpeCorrelation == null || Math.sign(sharpeCorrelation) !== sign || Math.abs(sharpeCorrelation) < 0.25);
+  const baseScore = 0.5 * signAgreement + 0.25 * contextCoverage + 0.25 * sampleScore;
+  const score = Math.max(0, Math.min(1, riskConflict ? baseScore * 0.72 : baseScore));
+  const strongSmallSample = points.length >= OPTIMIZER_GUESS_MIN_SAMPLES && Math.abs(correlation) >= 0.55 && signAgreement >= 0.75;
+  const stable = !riskConflict && (score >= 0.56 || strongSmallSample);
+  return { stable, score };
+}
+
 function clampOptimizerGuessValue(value: number, config: OptimizerCorrelationRangeConfig): number {
   const lower = config.lowerBound;
   const upper = config.upperBound;
@@ -2180,9 +2299,19 @@ function clampOptimizerGuessValue(value: number, config: OptimizerCorrelationRan
   return out;
 }
 
+function optimizerGuessWidthMultiplier(stat: OptimizerCorrelationStat): number {
+  let multiplier = 1;
+  if (stat.sampleCount < 8) multiplier *= 1.75;
+  else if (stat.sampleCount < 16) multiplier *= 1.35;
+  if (!stat.stable) multiplier *= 1.55;
+  if (Math.abs(stat.correlation) < 0.35) multiplier *= 1.25;
+  if (stat.stabilityScore < 0.55) multiplier *= 1.2;
+  return Math.min(3.2, multiplier);
+}
+
 function optimizerGuessRange(stat: OptimizerCorrelationStat, config: OptimizerCorrelationRangeConfig): { lo: number; hi: number } {
   const span = Math.max(0, stat.xMax - stat.xMin);
-  const widthRatio = config.widthRatio ?? OPTIMIZER_GUESS_DEFAULT_WIDTH_RATIO;
+  const widthRatio = (config.widthRatio ?? OPTIMIZER_GUESS_DEFAULT_WIDTH_RATIO) * optimizerGuessWidthMultiplier(stat);
   const radius = config.integer ? Math.max(1, Math.round((span * widthRatio) / 2)) : Math.max(span * widthRatio * 0.5, Math.abs(stat.target) * 0.03, 1e-12);
   let lo = clampOptimizerGuessValue(stat.target - radius, config);
   let hi = clampOptimizerGuessValue(stat.target + radius, config);
@@ -2226,6 +2355,79 @@ function optimizerSourceFromCombo(combo: OptimizationCombo): Exclude<OptimizerSo
   return null;
 }
 
+type OptimizerGuidanceInteraction = {
+  keyA: string;
+  keyB: string;
+  targetA: number;
+  targetB: number;
+  sideA: "high" | "low";
+  sideB: "high" | "low";
+  lift: number;
+  strength: number;
+  sampleCount: number;
+  stable: boolean;
+};
+
+function optimizerGuidanceParamValue(combo: OptimizationCombo, key: string): number | null {
+  return optimizerGuessParamNumber(combo.params[key]);
+}
+
+function optimizerGuidanceSide(stat: OptimizerCorrelationStat): "high" | "low" {
+  return stat.correlation >= 0 ? "high" : "low";
+}
+
+function optimizerComboMatchesGuidance(combo: OptimizationCombo, stat: OptimizerCorrelationStat): boolean {
+  const value = optimizerGuidanceParamValue(combo, stat.key);
+  if (value == null) return false;
+  return optimizerGuidanceSide(stat) === "high" ? value >= stat.target : value <= stat.target;
+}
+
+function buildOptimizerGuidanceInteractions(
+  stats: OptimizerCorrelationStat[],
+  combos: OptimizationCombo[],
+): OptimizerGuidanceInteraction[] {
+  const candidateStats = stats.filter((stat) => stat.stable).slice(0, 8);
+  const baseRois = combos.map((combo) => optimizerGuessRoi(combo)).filter((roi): roi is number => roi != null);
+  const baseAvg = baseRois.length > 0 ? baseRois.reduce((sum, roi) => sum + roi, 0) / baseRois.length : null;
+  if (candidateStats.length < 2 || baseAvg == null) return [];
+
+  const interactions: OptimizerGuidanceInteraction[] = [];
+  for (let i = 0; i < candidateStats.length; i += 1) {
+    const left = candidateStats[i];
+    if (!left) continue;
+    for (let j = i + 1; j < candidateStats.length; j += 1) {
+      const right = candidateStats[j];
+      if (!right) continue;
+      const matchedRois = combos
+        .filter((combo) => optimizerComboMatchesGuidance(combo, left) && optimizerComboMatchesGuidance(combo, right))
+        .map((combo) => optimizerGuessRoi(combo))
+        .filter((roi): roi is number => roi != null);
+      if (matchedRois.length < 3) continue;
+      const avg = matchedRois.reduce((sum, roi) => sum + roi, 0) / matchedRois.length;
+      const lift = avg - baseAvg;
+      if (!Number.isFinite(lift) || lift <= 0) continue;
+      interactions.push({
+        keyA: left.key,
+        keyB: right.key,
+        targetA: left.target,
+        targetB: right.target,
+        sideA: optimizerGuidanceSide(left),
+        sideB: optimizerGuidanceSide(right),
+        lift,
+        strength: Math.min(1, Math.abs(lift) * 10 + (Math.abs(left.correlation) + Math.abs(right.correlation)) * 0.25),
+        sampleCount: matchedRois.length,
+        stable: matchedRois.length >= 3 && left.stable && right.stable,
+      });
+    }
+  }
+  interactions.sort((a, b) => {
+    const lift = b.lift - a.lift;
+    if (lift !== 0) return lift;
+    return b.sampleCount - a.sampleCount;
+  });
+  return interactions.slice(0, OPTIMIZER_GUIDANCE_MAX_INTERACTIONS);
+}
+
 export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): OptimizerCorrelationGuess | null {
   const finiteCombos = combos.filter((combo) => optimizerGuessRoi(combo) != null);
   if (finiteCombos.length < OPTIMIZER_GUESS_MIN_SAMPLES) return null;
@@ -2238,7 +2440,7 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
       const value = optimizerGuessParamNumber(combo.params[key]);
       if (value == null) continue;
       const points = pointsByKey.get(key) ?? [];
-      points.push({ x: value, roi });
+      points.push({ x: value, roi, combo });
       pointsByKey.set(key, points);
     }
   }
@@ -2255,6 +2457,8 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
     const topPoints = [...points].sort((a, b) => b.roi - a.roi).slice(0, topCount);
     const target = optimizerGuessMedian(topPoints.map((point) => point.x));
     if (target == null || !Number.isFinite(target)) continue;
+    const metricCorrelations = optimizerGuessMetricCorrelations(points);
+    const stability = optimizerGuessStability(points, correlation, metricCorrelations);
     stats.push({
       key,
       label: optimizerGuessParamLabel(key),
@@ -2263,6 +2467,9 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
       target,
       xMin,
       xMax,
+      stable: stability.stable,
+      stabilityScore: stability.score,
+      metricCorrelations,
     });
   }
 
@@ -2281,8 +2488,9 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
     perturbScaleDouble: "0.2",
     perturbScaleInt: "4",
   };
-  const extras: Record<string, number> = {};
+  const extras: Record<string, number | string> = {};
   const basis: string[] = [];
+  const guidanceRanges = new Map<string, { lo: number; hi: number }>();
   let correlationCount = 0;
 
   const topCombo = [...finiteCombos].sort((a, b) => b.finalEquity - a.finalEquity)[0] ?? null;
@@ -2308,6 +2516,7 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
     if (!config) continue;
     const { lo, hi } = optimizerGuessRange(stat, config);
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue;
+    guidanceRanges.set(stat.key, { lo, hi });
     const loText = formatOptimizerGuessNumber(lo, config.integer);
     const hiText = formatOptimizerGuessNumber(hi, config.integer);
     setOptimizerGuessPatch(patch, config.min, loText);
@@ -2319,6 +2528,35 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
   }
 
   if (correlationCount === 0) return null;
+  const guidanceStats = stats.filter((stat) => stat.stable).slice(0, OPTIMIZER_GUIDANCE_MAX_FIELDS);
+  const guidanceFields = guidanceStats.map((stat) => {
+    const config = OPTIMIZER_CORRELATION_RANGE_CONFIGS[stat.key];
+    const range = guidanceRanges.get(stat.key) ?? (config ? optimizerGuessRange(stat, config) : { lo: stat.xMin, hi: stat.xMax });
+    return {
+      key: stat.key,
+      label: stat.label,
+      target: stat.target,
+      lo: range.lo,
+      hi: range.hi,
+      strength: Math.abs(stat.correlation) * Math.max(0.35, stat.stabilityScore),
+      correlation: stat.correlation,
+      sampleCount: stat.sampleCount,
+      stable: stat.stable,
+      stabilityScore: stat.stabilityScore,
+      metric: "roi",
+      metricCorrelations: stat.metricCorrelations,
+    };
+  });
+  const interactions = buildOptimizerGuidanceInteractions(guidanceStats, finiteCombos);
+  extras.correlationGuidanceJson = JSON.stringify({
+    version: 1,
+    source: "web-top-combos",
+    generatedAtMs: Date.now(),
+    sampleCount: finiteCombos.length,
+    fields: guidanceFields,
+    interactions,
+  });
+
   return {
     patch,
     extras,

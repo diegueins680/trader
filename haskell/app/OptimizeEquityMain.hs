@@ -19,6 +19,7 @@ import Trader.Optimizer.Optimize (
     defaultPriorMissingAgeMultiplier,
     normalizeObjectiveCode,
     optimizerOptionPresent,
+    parseOptimizerCorrelationGuidance,
     runOptimizer,
  )
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig)
@@ -108,6 +109,7 @@ optimizerArgsParser =
         <*> option auto (long "prior-missing-age-multiplier" <> value defaultPriorMissingAgeMultiplier <> metavar "FLOAT")
         <*> option auto (long "prior-diversity-max-per-bucket" <> value 8 <> metavar "INT")
         <*> option auto (long "prior-seed-count" <> value 3 <> metavar "INT")
+        <*> strOption (long "correlation-guidance-json" <> value "" <> metavar "JSON")
         <*> switch (long "quality")
         <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
         <*> option auto (long "quality-max-epochs" <> value 50 <> metavar "INT")
@@ -802,6 +804,9 @@ validateArgs args = do
         Left "--prior-diversity-max-per-bucket must be >= 0."
     when (oaPriorSeedCount args < 0) $
         Left "--prior-seed-count must be >= 0."
+    case parseOptimizerCorrelationGuidance (oaCorrelationGuidanceJson args) of
+        Left err -> Left ("--correlation-guidance-json: " ++ err)
+        Right _ -> pure ()
     when (oaSearchMaxWfSharpeStd args < 0 || not (finiteDouble (oaSearchMaxWfSharpeStd args))) $
         Left "--search-max-wf-sharpe-std must be a finite value >= 0."
     when (oaWfSharpeStdScorePenalty args < 0 || not (finiteDouble (oaWfSharpeStdScorePenalty args))) $

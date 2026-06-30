@@ -869,6 +869,7 @@ export type OptimizerRunRequest = {
   routerRegimeMinBarsMax?: number;
   routerRegimeMinFractionMin?: number;
   routerRegimeMinFractionMax?: number;
+  correlationGuidanceJson?: string;
   disableLstmPersistence?: boolean;
   noSweepThreshold?: boolean;
 } & Record<string, unknown>;
