@@ -28,6 +28,8 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Scientific (toRealFloat)
 import qualified Data.Text as T
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client (Request, method, parseRequest, queryString, requestHeaders, responseBody)
 import Network.HTTP.Types (RequestHeaders, renderSimpleQuery)
@@ -35,8 +37,6 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
 import Text.Read (readMaybe)
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import Data.Time.Format (defaultTimeLocale, formatTime)
 
 import Trader.App.Args (parseTimestampMs)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
@@ -583,92 +583,99 @@ parseExternalFeature raw =
 
 featureColumns :: [(ExternalFeature, [String])]
 featureColumns =
-    [ ( ExternalMicrostructure
-      ,
-        [ "bookImbalance"
-        , "orderBookImbalance"
-        , "l2Imbalance"
-        , "depthImbalance"
-        , "tradeImbalance"
-        , "orderFlowImbalance"
-        , "liquidations"
-        , "liquidationUsd"
-        , "openInterestDelta"
-        ]
-      )
-    , ( ExternalOptionsVol
-      ,
-        [ "dvol"
-        , "volatilityIndex"
-        , "iv"
-        , "atmIv"
-        , "impliedVol"
-        , "riskReversal"
-        , "putCallSkew"
-        , "skew"
-        , "optionsOpenInterest"
-        ]
-      )
-    , ( ExternalOnChain
-      ,
-        [ "exchangeNetFlow"
-        , "netflow"
-        , "exchangeBalance"
-        , "stablecoinSupply"
-        , "stablecoinFlows"
-        , "sopr"
-        , "mvrv"
-        , "activeAddresses"
-        , "minerFlow"
-        , "whaleFlow"
-        ]
-      )
-    , ( ExternalMacro
-      ,
-        [ "dxy"
-        , "vix"
-        , "us02y"
-        , "us2y"
-        , "us10y"
-        , "realYield"
-        , "fedLiquidity"
-        , "rrp"
-        , "tga"
-        , "creditSpread"
-        , "macro"
-        ]
-      )
-    , ( ExternalCot
-      ,
-        [ "cot"
-        , "dealerNet"
-        , "assetManagerNet"
-        , "leveragedFundsNet"
-        , "noncommercialNet"
-        , "commercialNet"
-        ]
-      )
-    , ( ExternalNews
-      ,
-        [ "news"
-        , "sentiment"
-        , "tone"
-        , "newsVolume"
-        , "eventScore"
-        , "gdelt"
-        ]
-      )
-    , ( ExternalFilings
-      ,
-        [ "filings"
-        , "filingScore"
-        , "secScore"
-        , "filingsCount"
-        , "etfFlow"
-        , "flows"
-        , "edgar"
-        ]
-      )
+    [
+        ( ExternalMicrostructure
+        ,
+            [ "bookImbalance"
+            , "orderBookImbalance"
+            , "l2Imbalance"
+            , "depthImbalance"
+            , "tradeImbalance"
+            , "orderFlowImbalance"
+            , "liquidations"
+            , "liquidationUsd"
+            , "openInterestDelta"
+            ]
+        )
+    ,
+        ( ExternalOptionsVol
+        ,
+            [ "dvol"
+            , "volatilityIndex"
+            , "iv"
+            , "atmIv"
+            , "impliedVol"
+            , "riskReversal"
+            , "putCallSkew"
+            , "skew"
+            , "optionsOpenInterest"
+            ]
+        )
+    ,
+        ( ExternalOnChain
+        ,
+            [ "exchangeNetFlow"
+            , "netflow"
+            , "exchangeBalance"
+            , "stablecoinSupply"
+            , "stablecoinFlows"
+            , "sopr"
+            , "mvrv"
+            , "activeAddresses"
+            , "minerFlow"
+            , "whaleFlow"
+            ]
+        )
+    ,
+        ( ExternalMacro
+        ,
+            [ "dxy"
+            , "vix"
+            , "us02y"
+            , "us2y"
+            , "us10y"
+            , "realYield"
+            , "fedLiquidity"
+            , "rrp"
+            , "tga"
+            , "creditSpread"
+            , "macro"
+            ]
+        )
+    ,
+        ( ExternalCot
+        ,
+            [ "cot"
+            , "dealerNet"
+            , "assetManagerNet"
+            , "leveragedFundsNet"
+            , "noncommercialNet"
+            , "commercialNet"
+            ]
+        )
+    ,
+        ( ExternalNews
+        ,
+            [ "news"
+            , "sentiment"
+            , "tone"
+            , "newsVolume"
+            , "eventScore"
+            , "gdelt"
+            ]
+        )
+    ,
+        ( ExternalFilings
+        ,
+            [ "filings"
+            , "filingScore"
+            , "secScore"
+            , "filingsCount"
+            , "etfFlow"
+            , "flows"
+            , "edgar"
+            ]
+        )
     ]
 
 timeColumns :: [String]

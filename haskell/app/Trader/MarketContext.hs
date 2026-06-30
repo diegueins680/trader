@@ -169,10 +169,11 @@ buildMarketModel args env targetSymbol fitEnd pricesV mOpenTimes mCoinbaseCloses
             pitCfg <- pointInTimeUniverseConfigFromEnv
             rankedPit <-
                 case mOpenTimesAligned of
-                    Just openTimes | topN > 0 ->
-                        let asOfIdx = max 0 (min (V.length openTimes - 1) (fitEnd - 1))
-                            asOfMs = openTimes V.! asOfIdx
-                         in loadPointInTimeUniverse pitCfg quote (topN + 5) asOfMs
+                    Just openTimes
+                        | topN > 0 ->
+                            let asOfIdx = max 0 (min (V.length openTimes - 1) (fitEnd - 1))
+                                asOfMs = openTimes V.! asOfIdx
+                             in loadPointInTimeUniverse pitCfg quote (topN + 5) asOfMs
                     _ -> pure Nothing
             ranked <-
                 case rankedPit of
