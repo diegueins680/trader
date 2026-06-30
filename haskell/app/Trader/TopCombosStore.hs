@@ -274,14 +274,14 @@ sanitizeTopCombosValue val =
                         combosList = V.toList combos
                         (kept, changed) = foldl' apply ([], 0) combosList
                         apply (acc, count) comboVal =
-                            -- A sub-1.0 combo carrying a refresh stamp is an honest
+                            -- A below-floor combo carrying a refresh stamp is an honest
                             -- re-backtest reading, not junk: it must survive into the
                             -- merge so it can beat the stale, inflated copies peer
                             -- instances still publish (see 'pickBestCombo') and then
-                            -- sink off the capped board by rank. Dropping it here
-                            -- would resurrect the stale copy on every union merge.
+                            -- become a tombstone. Dropping it here would resurrect the
+                            -- stale copy on every union merge.
                             if comboDroppedByTombstones dropTombstones comboVal
-                                || (not (comboEquityAboveOne comboVal) && not (comboCarriesRefreshStamp comboVal))
+                                || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal))
                                 || not (comboOpenThresholdDeployable comboVal)
                                 then (acc, count + 1)
                                 else
@@ -882,10 +882,10 @@ recalculateComboPerformanceFromOperation now mInterval mStoredFinalEq mStoredAnn
                     else fallback
          in max (-1) chosen
 
-comboEquityAboveOne :: Aeson.Value -> Bool
-comboEquityAboveOne val =
+comboEquityMeetsMinimum :: Aeson.Value -> Bool
+comboEquityMeetsMinimum val =
     case comboFinalEquityValue val of
-        Just eq -> eq > 1 && not (isInfinite eq)
+        Just eq -> eq >= topComboMinimumFinalEquity && not (isInfinite eq)
         Nothing -> False
 
 valueStringMaybe :: Aeson.Value -> Maybe String
@@ -1366,19 +1366,24 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
         payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
         payloadMetadata = mergePayloadMetadata sanitized
         mergedMap = foldl' mergeCombo M.empty combos
-        mergedUniqueCount = M.size mergedMap
-        merged = take (max 0 maxItems) (sortBy compareCombos (M.elems mergedMap))
+        mergedValues = M.elems mergedMap
+        belowFloorMerged = filter (not . comboEquityMeetsMinimum) mergedValues
+        eligibleMerged = filter comboEquityMeetsMinimum mergedValues
+        mergedUniqueCount = length eligibleMerged
+        belowFloorTombstones = tombstonesForBelowFloorWinners belowFloorMerged
+        dropTombstones' = M.unionWith max dropTombstones belowFloorTombstones
+        merged = take (max 0 maxItems) (sortBy compareCombos eligibleMerged)
         ranked = zipWith addRank [1 ..] merged
         sourceVal = fromMaybe "top-combos-store" payloadSource
         sanitizedCount = length combos
         stats =
             TopCombosMergeStats
                 { tcmsRawCount = rawCount
-                , tcmsDroppedCount = max 0 (rawCount - sanitizedCount)
-                , tcmsDedupedCount = max 0 (sanitizedCount - mergedUniqueCount)
+                , tcmsDroppedCount = max 0 (rawCount - sanitizedCount) + length belowFloorMerged
+                , tcmsDedupedCount = max 0 (sanitizedCount - M.size mergedMap)
                 }
         mergedObj =
-            insertComboDropTombstones dropTombstones $
+            insertComboDropTombstones dropTombstones' $
                 KM.insert
                     (AK.fromString "generatedAtMs")
                     (toJSON now)
@@ -1393,6 +1398,14 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
   where
     payloadComboCount :: Aeson.Value -> Int
     payloadComboCount = length . extractCombos
+
+    tombstonesForBelowFloorWinners :: [Aeson.Value] -> M.Map BS.ByteString Int64
+    tombstonesForBelowFloorWinners =
+        foldl'
+            ( \acc comboVal ->
+                foldl' (\inner key -> M.insertWith max key now inner) acc (comboDropIdentityKeys comboVal)
+            )
+            M.empty
 
     mergePayloadMetadata :: [Aeson.Value] -> KM.KeyMap Aeson.Value
     mergePayloadMetadata vals =
@@ -1650,7 +1663,7 @@ applyComboUpdatesWithStatsWithPolicy policy = applyComboUpdatesWithStatsPrune po
 refresh keeps the combo with its deflated metrics (and refresh stamp).
 Startup guards use this so an abort blocks the start without deleting the
 selected combo. Scheduled stale refreshes should use
-'applyComboUpdatesWithStats' so a sub-1.0 refreshed combo is pruned and
+'applyComboUpdatesWithStats' so a below-floor refreshed combo is pruned and
 tombstoned against stale replica resurrection.
 -}
 applyComboUpdatesKeepAllWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
@@ -1674,7 +1687,7 @@ applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
                                         mTrades = comboMetricInt "tradeCount" (cbuMetrics upd)
                                         -- A zero-trade update is not a verdict; keep the combo as-is.
                                         zeroTradeUpdate = mTrades == Just 0
-                                        keep = not pruneUnprofitable || maybe True (> cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
+                                        keep = not pruneUnprofitable || maybe True (>= cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
                                      in if keep
                                             then (updated : acc, updCount + 1, pruneCount, pKeys, tKeys)
                                             else case comboIdentityKey comboVal of

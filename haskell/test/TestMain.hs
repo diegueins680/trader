@@ -88,7 +88,7 @@ import Trader.Formal.Risk (
     specRiskHalt,
     verifyFormalRisk,
  )
-import Trader.ExternalData (ExternalFeature (..), alignedExternalFeatureInputs, parseExternalJsonSpec)
+import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, parseExternalJsonSpec)
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import qualified Trader.Kalman3 as Kalman3
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
@@ -484,7 +484,7 @@ main = do
     testMergeRefreshedComboBeatsUntimestampedStaleScore
     testMergeNewerDiscoveryBeatsOlderRefresh
     testMergeUnstampedDuplicatesKeepBestEver
-    testMergeSanitizeKeepsStampedSubOneRefresh
+    testMergeSanitizeTombstonesStampedBelowFloorRefresh
     testLowTradeTopCombosSinkBelowEvidenceFloor
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
@@ -1168,6 +1168,17 @@ testTopComboBacktestPrunesRoiLosers = do
                 , cbuScore = Just 0.005
                 , cbuOperations = Nothing
                 }
+        boundaryUpdate =
+            ComboBacktestUpdate
+                { cbuMetrics =
+                    Aeson.object
+                        [ "finalEquity" Aeson..= topComboMinimumFinalEquity
+                        , "annualizedReturn" Aeson..= (0.01 :: Double)
+                        ]
+                , cbuFinalEquity = Just topComboMinimumFinalEquity
+                , cbuScore = Just 0.01
+                , cbuOperations = Nothing
+                }
     case comboIdentityKey combo of
         Nothing -> assert "top-combo fixture has a stable identity key" False
         Just key ->
@@ -1194,6 +1205,15 @@ testTopComboBacktestPrunesRoiLosers = do
                                 ( topCombosCount keptPayload == 1
                                     && cbasUpdatedCount lenientStats == 1
                                     && cbasPrunedCount lenientStats == 0
+                                )
+                    case applyComboUpdatesWithStats 2 (HM.singleton key boundaryUpdate) payload of
+                        Left err -> assert ("boundary top-combo backtest update succeeds: " ++ err) False
+                        Right (boundaryPayload, boundaryStats) ->
+                            assert
+                                "top-combo backtest keeps refreshed combos at the finalEquity 1.01 boundary"
+                                ( topCombosCount boundaryPayload == 1
+                                    && cbasUpdatedCount boundaryStats == 1
+                                    && cbasPrunedCount boundaryStats == 0
                                 )
 
 testNormalizeBarsForLookbackAutoAdjustsApiInputs :: IO ()
@@ -4729,25 +4749,33 @@ testMergeUnstampedDuplicatesKeepBestEver = do
         "unstamped duplicates keep best-ever score"
         (mergeWinnerScore [older, newer] == Just 5.0)
 
-{- | A refresh that deflates a combo BELOW 1.0 equity must still survive the
-merge's sanitize pass: dropping it there would hand the merge to the stale,
-inflated copy a peer instance still publishes, resurrecting it on every
-union merge. Unstamped sub-1.0 combos remain junk and are still dropped.
+{- | A refresh that deflates a combo below the retained-equity floor must survive
+the sanitize pass long enough to beat the stale inflated copy a peer instance
+still publishes. The final merged payload then drops it with a tombstone, so the
+stale copy cannot resurrect on the next union merge. Unstamped below-floor combos
+remain junk and are still dropped.
 -}
-testMergeSanitizeKeepsStampedSubOneRefresh :: IO ()
-testMergeSanitizeKeepsStampedSubOneRefresh = do
+testMergeSanitizeTombstonesStampedBelowFloorRefresh :: IO ()
+testMergeSanitizeTombstonesStampedBelowFloorRefresh = do
     let stale = freshnessComboForTest 5.0 (Just 1000) Nothing
         refreshedLoss = freshnessComboForTest (-0.15) (Just 1000) (Just 5000)
+        payload combos =
+            Aeson.object
+                [ "combos" .= combos
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+        mergedLoss = mergeTopCombosPayloads 10 9500 [payload [stale, refreshedLoss]]
     assert
-        "stamped sub-1.0 refresh beats the stale inflated copy in the merge"
-        (mergeWinnerScore [stale, refreshedLoss] == Just (-0.15))
+        "stamped below-floor refresh removes the stale inflated copy from the merge"
+        (topCombosCount mergedLoss == 0)
     assert
-        "stamped sub-1.0 winner is order-independent"
-        (mergeWinnerScore [refreshedLoss, stale] == Just (-0.15))
-    let unstampedLoss = freshnessComboForTest (-0.15) (Just 1000) Nothing
+        "stamped below-floor tombstone blocks a stale replica from resurrecting the combo"
+        (topCombosCount (mergeTopCombosPayloads 10 10000 [mergedLoss, payload [stale]]) == 0)
+    let unstampedWeak = freshnessComboForTest 0.005 (Just 1000) Nothing
     assert
-        "unstamped sub-1.0 combo is still sanitized away"
-        (isNothing (mergeWinnerScore [unstampedLoss]))
+        "unstamped sub-1.01 combo is still sanitized away"
+        (isNothing (mergeWinnerScore [unstampedWeak]))
 
 evidenceFloorComboForTest :: T.Text -> Double -> Int -> Aeson.Value
 evidenceFloorComboForTest label annualizedReturn tradeCount =
@@ -5389,6 +5417,26 @@ testAlignToBarsFailClosedOnMalformedInputs = do
         "alignToBars fails closed when a bar close time would overflow"
         (alignToBars (V.fromList [maxBound :: Int64]) (2 :: Int64) [(maxBound, 7.0)] == V.fromList [Nothing])
 
+testPointInTimeUniverseSelectsHistoricalSnapshot :: IO ()
+testPointInTimeUniverseSelectsHistoricalSnapshot = do
+    (path, h) <- openTempFile "/tmp" "pit-universe.csv"
+    hClose h
+    let csv =
+            BL.fromStrict
+                "timestamp,symbol,quoteVolume\n\
+                \2026-01-01,BTCUSDT,100\n\
+                \2026-01-01,ETHUSDT,200\n\
+                \2026-01-03,BTCUSDT,500\n\
+                \2026-01-03,ETHUSDT,50\n\
+                \2026-01-03,USDCUSDT,10000\n"
+        cfg = PointInTimeUniverseConfig{pitUniverseCsv = Just path, pitUniverseRequireHistorical = True}
+    BL.writeFile path csv
+    selectedEarly <- loadPointInTimeUniverse cfg "USDT" 2 1767312000000 -- 2026-01-02
+    selectedLate <- loadPointInTimeUniverse cfg "USDT" 2 1767484800000 -- 2026-01-04
+    removeFile path
+    assert "PIT universe uses latest rows at or before as-of time" (selectedEarly == Just [("ETHUSDT", 200), ("BTCUSDT", 100)])
+    assert "PIT universe updates ranking after newer historical rows" (selectedLate == Just [("BTCUSDT", 500), ("ETHUSDT", 50)])
+
 gapComboForTest :: T.Text -> Double -> Double -> Int -> Aeson.Value
 gapComboForTest method backtestAnn liveAnn ops =
     Aeson.object
@@ -5699,6 +5747,19 @@ testConformalCalibrationResidualsFailClosed = do
         ( and (zipWith (<=) intervalWidths (drop 1 intervalWidths))
             && all (> 0) intervalWidths
         )
+
+testAdaptiveConformalRadiusRespondsToMisses :: IO ()
+testAdaptiveConformalRadiusRespondsToMisses = do
+    let model = fitConformal 0.2 [0.01, 0.02, 0.03, 0.04, 0.05]
+        st0 = initAdaptiveConformal 0.5 model
+        stMiss = updateAdaptiveConformal 0.20 0 st0
+        stHit = updateAdaptiveConformal 0.0 0 stMiss
+        finite x = not (isNaN x || isInfinite x)
+        (lo, hi, sigma) = predictInterval model 0
+    assert "adaptive conformal initializes from the fitted radius" (acsRadius st0 == cmRadius model)
+    assert "adaptive conformal radius inflates after an interval miss" (acsRadius stMiss > acsRadius st0)
+    assert "adaptive conformal radius shrinks after a covered observation" (acsRadius stHit < acsRadius stMiss)
+    assert "recency-aware fitted conformal interval remains finite for valid evidence" (finite lo && finite hi && maybe True finite sigma)
 
 -- CLI sizing invariant: the minimum entry-size floor must never exceed the
 -- max position cap. Equality stays admissible at the boundary so the live and
@@ -7163,6 +7224,38 @@ testOptimizerPriorEdgeScoreRegression = do
     assert
         "zero edge-score weights remove the prior edge boost"
         (priorTrialEdgeScoreWithConfig zeroWeightConfig strongEdge == 0)
+
+testOptimizerOverfitAuditReportsSelectionRisk :: IO ()
+testOptimizerOverfitAuditReportsSelectionRisk = do
+    let metrics sharpe wfMean wfStd =
+            case Aeson.object
+                [ "sharpe" Aeson..= (sharpe :: Double)
+                , "walkForwardSummary"
+                    Aeson..= Aeson.object
+                        [ "sharpeMean" Aeson..= (wfMean :: Double)
+                        , "sharpeStd" Aeson..= (wfStd :: Double)
+                        ]
+                ] of
+                Aeson.Object obj -> obj
+                _ -> KM.empty
+        trials =
+            [ OverfitTrial True True (Just 1.0) (Just (metrics 0.4 0.1 0.2))
+            , OverfitTrial True True (Just 1.5) (Just (metrics 0.8 0.2 0.6))
+            , OverfitTrial True True (Just 3.0) (Just (metrics 2.0 0.4 1.2))
+            , OverfitTrial False False Nothing Nothing
+            ]
+        field key obj =
+            case KM.lookup (AK.fromString key) obj of
+                Just (Aeson.Number n) -> Just (realToFrac n :: Double)
+                _ -> Nothing
+    case optimizerOverfitAudit trials of
+        Just (Aeson.Object obj) -> do
+            assert "overfit audit counts all trials" (field "trialCount" obj == Just 4)
+            assert "overfit audit counts scored trials" (field "scoredTrialCount" obj == Just 3)
+            assert "overfit audit reports empirical winner p-value" (maybe False (> 0) (field "empiricalBestScorePValue" obj))
+            assert "overfit audit reports a positive multiple-testing penalty" (maybe False (> 0) (field "multipleTestingSharpePenalty" obj))
+            assert "overfit audit reports PBO proxy from walk-forward instability" (maybe False (> 0) (field "pboProxy" obj))
+        _ -> assert "overfit audit emits an object for scored trials" False
 
 testOptimizerPriorParserCarriesFreshEvidenceRegression :: IO ()
 testOptimizerPriorParserCarriesFreshEvidenceRegression = do

@@ -303,7 +303,7 @@ combo from the top-combos store and DB?
 As of 2026-06-12 the answer is /no/. The bot-start guard had been pruning
 locally AND deleting from the DB row; that made a noisy startup smoke window
 destructive. Scheduled stale refreshes are the pruning authority instead:
-they can drop sub-1.0 refreshed combos because the top-combos payload now
+they can drop below-floor refreshed combos because the top-combos payload now
 carries a drop tombstone to prevent stale S3/DB replicas from resurrecting
 the old score.
 
