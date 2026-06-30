@@ -88,6 +88,7 @@ import Trader.Formal.Risk (
     specRiskHalt,
     verifyFormalRisk,
  )
+import Trader.ExternalData (ExternalFeature (..), alignedExternalFeatureInputs, parseExternalJsonSpec)
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import qualified Trader.Kalman3 as Kalman3
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
@@ -177,7 +178,7 @@ import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.Exogenous (alignToBars)
-import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
+import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
@@ -237,7 +238,7 @@ import Trader.ThresholdCalibration (
     thresholdAtPercentile,
     validateThresholdCalibrationConfig,
  )
-import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig, topComboFreshnessMultiplier)
+import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig, topComboFreshnessMultiplier, topComboMinimumFinalEquity)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
@@ -560,6 +561,7 @@ main = do
     testSignalGatesFailClosedExhaustive
     testPredictorLivenessDetectsDegenerateForecast
     testCrossExchangeCoinbaseInputs
+    testExternalDataFeatureInputs
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
     testDecisionTreeSanitizesMalformedInputs
@@ -710,6 +712,59 @@ testCrossExchangeCoinbaseInputs = do
                 "basis feature reflects the ~+2% Coinbase premium"
                 (basisNow > 0.015 && basisNow < 0.025)
         _ -> assert "feature vectors should be computable at t" False
+
+testExternalDataFeatureInputs :: IO ()
+testExternalDataFeatureInputs = do
+    let openTimes = V.fromList [0, 60000, 120000, 180000]
+        intervalMs = 60000
+        observations =
+            [ (ExternalMicrostructure, 0, 1.0)
+            , (ExternalMicrostructure, 119999, 2.0)
+            , (ExternalMicrostructure, 180000, 3.0)
+            , (ExternalMacro, 120000, 10.0)
+            ]
+        mExternal = alignedExternalFeatureInputs openTimes intervalMs observations
+    case mExternal of
+        Nothing -> assert "external observations should align to a feature bundle" False
+        Just external -> do
+            assert
+                "microstructure alignment uses only observations known by bar close"
+                (efiMicrostructure external == Just (V.fromList [1, 2, 2, 3]))
+            assert
+                "macro pre-coverage bars neutral-fill to zero"
+                (efiMacro external == Just (V.fromList [0, 0, 10, 10]))
+
+            let n = 60 :: Int
+                closes = V.fromList [100 + fromIntegral i | i <- [0 .. n - 1]]
+                fs = mkFeatureSpec 10
+                baseInputs = mkFeatureInputs closes Nothing Nothing Nothing Nothing
+                extLong =
+                    external
+                        { efiMicrostructure = Just (V.replicate n 0.1)
+                        , efiOptionsVol = Just (V.replicate n 0.2)
+                        , efiOnChain = Just (V.replicate n 0.3)
+                        , efiMacro = Just (V.replicate n 0.4)
+                        , efiCot = Just (V.replicate n 0.5)
+                        , efiNews = Just (V.replicate n 0.6)
+                        , efiFilings = Just (V.replicate n 0.7)
+                        }
+                extInputs = withExternalInputs (Just extLong) baseInputs
+                t = 40
+            case (featuresAtWithInputsWithMarket fs Nothing baseInputs t, featuresAtWithInputsWithMarket fs Nothing extInputs t) of
+                (Just featsBase, Just featsExternal) -> do
+                    assert
+                        "external bundle appends 14 fixed-width family features"
+                        (length featsExternal == length featsBase + 14)
+                    assert
+                        "default-off external data keeps the base feature prefix unchanged"
+                        (take (length featsBase) featsExternal == featsBase)
+                _ -> assert "external feature vectors should be computable at t" False
+
+    assert
+        "generic external JSON specs parse provider family, URL, timestamp key, and value key"
+        (case parseExternalJsonSpec "onchain|https://example.invalid/metric|t|v" of
+            Just spec -> ejsFeature spec == ExternalOnChain
+            Nothing -> False)
 
 {- | Multivariate LSTM: a single channel is byte-identical to the univariate
 model (so the default/live path is unchanged), input dim is recoverable from the
@@ -1063,14 +1118,14 @@ testTopComboBacktestPrunesRoiLosers = do
                 ]
         losingMetrics =
             Aeson.object
-                [ "finalEquity" Aeson..= (1.0 :: Double)
-                , "annualizedReturn" Aeson..= (0.0 :: Double)
+                [ "finalEquity" Aeson..= (1.005 :: Double)
+                , "annualizedReturn" Aeson..= (0.005 :: Double)
                 ]
         update =
             ComboBacktestUpdate
                 { cbuMetrics = losingMetrics
-                , cbuFinalEquity = Just 1.0
-                , cbuScore = Just 0
+                , cbuFinalEquity = Just 1.005
+                , cbuScore = Just 0.005
                 , cbuOperations = Nothing
                 }
     case comboIdentityKey combo of
@@ -1080,7 +1135,7 @@ testTopComboBacktestPrunesRoiLosers = do
                 Left err -> assert ("top-combo backtest update succeeds: " ++ err) False
                 Right (updatedPayload, stats) -> do
                     assert
-                        "top-combo backtest prunes refreshed combos that no longer clear finalEquity > 1"
+                        "top-combo backtest prunes refreshed combos that do not clear finalEquity >= 1.01"
                         ( topCombosCount updatedPayload == 0
                             && cbasUpdatedCount stats == 1
                             && cbasPrunedCount stats == 1
@@ -4904,9 +4959,22 @@ testMergeExecutableAnnotatesProcessingAndDedupe = do
     hClose outputHandle
     let dbCopy = processingComboForTest "same-strategy" "db" True Nothing 2.0 adoptionMinTradeCount
         binanceCopy = processingComboForTest "same-strategy" "binance" False Nothing 2.0 adoptionMinTradeCount
+        weakEquity = topComboMinimumFinalEquity - 0.005
+        weakCopy =
+            case processingComboForTest "weak-strategy" "db" True Nothing 2.0 adoptionMinTradeCount of
+                Aeson.Object o ->
+                    let metrics =
+                            Aeson.object
+                                [ "finalEquity" .= weakEquity
+                                , "annualizedReturn" .= (2.0 :: Double)
+                                , "tradeCount" .= adoptionMinTradeCount
+                                , "maxDrawdown" .= (0.02 :: Double)
+                                ]
+                     in Aeson.Object (KM.insert "finalEquity" (Aeson.toJSON weakEquity) (KM.insert "metrics" metrics o))
+                v -> v
         payload =
             Aeson.object
-                [ "combos" .= [dbCopy, binanceCopy]
+                [ "combos" .= [dbCopy, binanceCopy, weakCopy]
                 , "generatedAtMs" .= (9000 :: Int64)
                 , "source" .= ("test" :: T.Text)
                 ]
@@ -4932,7 +5000,7 @@ testMergeExecutableAnnotatesProcessingAndDedupe = do
                 _ -> []
         mCombo = listToMaybe combos
     assert "merge executable exits successfully" (code == 0)
-    assert "merge executable collapses source/null-equivalent strategy rows" (length combos == 1)
+    assert "merge executable collapses source/null-equivalent strategy rows and drops sub-1.01 yield rows" (length combos == 1)
     assert
         "merge executable emits candidate processing tier"
         ((mCombo >>= comboProcessingTierForTest) == Just "candidate")

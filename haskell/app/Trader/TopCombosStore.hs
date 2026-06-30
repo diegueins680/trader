@@ -107,6 +107,7 @@ import Trader.TopComboScoring (
     topComboEquityTerm,
     topComboLiveBlendWeight,
     topComboLiveQuarantinedByConfig,
+    topComboMinimumFinalEquity,
     topComboValidatedAnnualizedReturn,
     topComboWalkForwardMultiplier,
  )
@@ -704,7 +705,7 @@ defaultComboBacktestRefreshPolicy :: ComboBacktestRefreshPolicy
 defaultComboBacktestRefreshPolicy =
     ComboBacktestRefreshPolicy
         { cbrpStaleAfterMs = 3 * 86400000
-        , cbrpPruneFinalEquityFloor = 1.0
+        , cbrpPruneFinalEquityFloor = topComboMinimumFinalEquity
         }
 
 validateComboBacktestRefreshPolicy :: ComboBacktestRefreshPolicy -> Either String ComboBacktestRefreshPolicy

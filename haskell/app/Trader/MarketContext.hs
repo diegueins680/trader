@@ -21,6 +21,11 @@ import qualified Data.Vector as V
 
 import Trader.App.Args (Args (..))
 import Trader.Binance (BinanceEnv, Kline (..), fetchKlinesBetween, fetchTopSymbolsByQuoteVolume)
+import Trader.PointInTimeUniverse (
+    loadPointInTimeUniverse,
+    pitUniverseRequireHistorical,
+    pointInTimeUniverseConfigFromEnv,
+ )
 import Trader.Symbol (splitSymbol)
 
 data MarketModel = MarketModel
@@ -161,10 +166,22 @@ buildMarketModel args env targetSymbol fitEnd pricesV mOpenTimes mCoinbaseCloses
         then pure Nothing
         else do
             let (_base, quote) = splitSymbol targetSymbol
+            pitCfg <- pointInTimeUniverseConfigFromEnv
+            rankedPit <-
+                case mOpenTimesAligned of
+                    Just openTimes | topN > 0 ->
+                        let asOfIdx = max 0 (min (V.length openTimes - 1) (fitEnd - 1))
+                            asOfMs = openTimes V.! asOfIdx
+                         in loadPointInTimeUniverse pitCfg quote (topN + 5) asOfMs
+                    _ -> pure Nothing
             ranked <-
-                if topN > 0 && isJust mOpenTimesAligned
-                    then fetchTopSymbolsByQuoteVolume env quote (topN + 5)
-                    else pure []
+                case rankedPit of
+                    Just xs | not (null xs) -> pure xs
+                    _ | pitUniverseRequireHistorical pitCfg -> pure []
+                    _ ->
+                        if topN > 0 && isJust mOpenTimesAligned
+                            then fetchTopSymbolsByQuoteVolume env quote (topN + 5)
+                            else pure []
             let targetU = map toUpperAscii targetSymbol
                 ranked' = filter (\(s, _w) -> map toUpperAscii s /= targetU) ranked
 

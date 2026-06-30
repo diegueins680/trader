@@ -1,6 +1,7 @@
 module Trader.TopComboScoring (
     TopComboScoringConfig (..),
     defaultTopComboScoringConfig,
+    topComboMinimumFinalEquity,
     validateTopComboScoringConfig,
     clampLiveAnnualizedReturnWithConfig,
     topComboDrawdownMultiplier,
@@ -30,6 +31,9 @@ data TopComboScoringConfig = TopComboScoringConfig
     , tcscFreshnessFloorMultiplier :: !Double
     }
     deriving (Eq, Show)
+
+topComboMinimumFinalEquity :: Double
+topComboMinimumFinalEquity = 1.01
 
 defaultTopComboScoringConfig :: TopComboScoringConfig
 defaultTopComboScoringConfig =

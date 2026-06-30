@@ -63,6 +63,7 @@ import Trader.TopComboScoring (
     topComboFreshnessMultiplier,
     topComboLiveBlendWeight,
     topComboLiveQuarantinedByConfig,
+    topComboMinimumFinalEquity,
     topComboValidatedAnnualizedReturn,
     topComboWalkForwardMultiplier,
     validateTopComboScoringConfig,
@@ -322,7 +323,7 @@ normalizeComboIdentityField key val
 writeTopJson :: TopComboScoringConfig -> FilePath -> [Combo] -> Int -> IO ()
 writeTopJson scoringConfig path combos maxItems = do
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
-    let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1 && comboOpenThresholdDeployable combo) combos
+    let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) >= topComboMinimumFinalEquity && comboOpenThresholdDeployable combo) combos
         sorted = take maxItems (sortBy (compareCombos scoringConfig nowMs) eligible)
         comboValues = zipWith (comboToValue scoringConfig nowMs) [1 ..] sorted
         exportVal =
@@ -652,7 +653,7 @@ normalizeCombo value =
             let metricsRaw = nestedMetricsObject obj
             finalEqRaw <- comboFloatField "finalEquity" obj metricsRaw
             let finalEq = sanitizeEq finalEqRaw
-            if finalEq <= 1
+            if finalEq < topComboMinimumFinalEquity
                 then Nothing
                 else do
                     let source = normalizeSource (KM.lookup (Key.fromString "source") obj)

@@ -1,8 +1,12 @@
 module Trader.Predictors.Conformal (
+    AdaptiveConformalState (..),
     ConformalModel (..),
+    adaptivePredictInterval,
     fitConformal,
+    initAdaptiveConformal,
     predictInterval,
     sigmaFromInterval,
+    updateAdaptiveConformal,
 ) where
 
 import Data.List (sort)
@@ -12,6 +16,17 @@ data ConformalModel = ConformalModel
     { cmAlpha :: !Double
     , cmRadius :: !Double -- quantile of |residual|, or Infinity when unavailable
     , cmCount :: !Int
+    , cmRecentRadius :: !Double
+    , cmRecentCount :: !Int
+    }
+    deriving (Eq, Show)
+
+data AdaptiveConformalState = AdaptiveConformalState
+    { acsAlpha :: !Double
+    , acsEta :: !Double
+    , acsRadius :: !Double
+    , acsMissEwma :: !Double
+    , acsCount :: !Int
     }
     deriving (Eq, Show)
 
@@ -22,7 +37,15 @@ fitConformal alpha absResiduals =
             Nothing -> unavailableConformal alpha'
             Just cleaned ->
                 let q = conformalRadius alpha' cleaned
-                 in ConformalModel{cmAlpha = alpha', cmRadius = q, cmCount = length cleaned}
+                    recent = recentResiduals cleaned
+                    qRecent = conformalRadius alpha' recent
+                 in ConformalModel
+                        { cmAlpha = alpha'
+                        , cmRadius = max q qRecent
+                        , cmCount = length cleaned
+                        , cmRecentRadius = qRecent
+                        , cmRecentCount = length recent
+                        }
 
 clampAlpha :: Double -> Double
 clampAlpha a = min 0.999999 (max 1e-6 a)
@@ -36,6 +59,52 @@ predictInterval cm mu =
                 let lo = mu - radius
                     hi = mu + radius
                  in (lo, hi, sigmaFromInterval (cmAlpha cm) lo hi)
+
+initAdaptiveConformal :: Double -> ConformalModel -> AdaptiveConformalState
+initAdaptiveConformal eta cm =
+    AdaptiveConformalState
+        { acsAlpha = cmAlpha cm
+        , acsEta = sanitizeEta eta
+        , acsRadius =
+            if isAdmissibleResidual (cmRadius cm)
+                then cmRadius cm
+                else 1 / 0
+        , acsMissEwma = cmAlpha cm
+        , acsCount = cmCount cm
+        }
+
+adaptivePredictInterval :: AdaptiveConformalState -> Double -> (Double, Double, Maybe Double)
+adaptivePredictInterval st mu =
+    let cm =
+            ConformalModel
+                { cmAlpha = acsAlpha st
+                , cmRadius = acsRadius st
+                , cmCount = acsCount st
+                , cmRecentRadius = acsRadius st
+                , cmRecentCount = acsCount st
+                }
+     in predictInterval cm mu
+
+updateAdaptiveConformal :: Double -> Double -> AdaptiveConformalState -> AdaptiveConformalState
+updateAdaptiveConformal realized mu st =
+    if not (isFinite realized && isFinite mu && isAdmissibleResidual (acsRadius st))
+        then st
+        else
+            let resid = abs (realized - mu)
+                miss = (if resid > acsRadius st then 1 else 0) :: Double
+                eta = sanitizeEta (acsEta st)
+                targetMiss = acsAlpha st
+                missEwma' = (1 - eta) * acsMissEwma st + eta * miss
+                baseRadius =
+                    if acsRadius st <= 0 && miss > 0
+                        then max 1e-12 resid
+                        else acsRadius st
+                radius' = max 0 (baseRadius * exp (eta * (miss - targetMiss)))
+             in st
+                    { acsRadius = radius'
+                    , acsMissEwma = missEwma'
+                    , acsCount = acsCount st + 1
+                    }
 
 {- | Approximate sigma from a symmetric interval [lo, hi] assuming it corresponds
 to a Normal (mu, sigma) with central coverage (1 - alpha).
@@ -64,10 +133,18 @@ unavailableConformal alpha =
         { cmAlpha = alpha
         , cmRadius = 1 / 0
         , cmCount = 0
+        , cmRecentRadius = 1 / 0
+        , cmRecentCount = 0
         }
 
 unavailableInterval :: (Double, Double, Maybe Double)
 unavailableInterval = (negate (1 / 0), 1 / 0, Nothing)
+
+recentResiduals :: [Double] -> [Double]
+recentResiduals xs =
+    let n = length xs
+        k = max 1 (min n (ceiling (sqrt (fromIntegral n :: Double))))
+     in drop (n - k) xs
 
 conformalRadius :: Double -> [Double] -> Double
 conformalRadius alpha xs =
@@ -79,6 +156,11 @@ conformalRadius alpha xs =
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)
+
+sanitizeEta :: Double -> Double
+sanitizeEta eta
+    | not (isFinite eta) = 0.02
+    | otherwise = min 1 (max 1e-6 eta)
 
 -- Approximation of the standard normal inverse CDF.
 normalInv :: Double -> Double

@@ -23,6 +23,7 @@ data SensorId
     | SensorKNN
     | SensorDecisionTree
     | SensorTCN
+    | SensorPatchTST
     | SensorTransformer
     | SensorHMM
     | SensorQuantile
@@ -41,6 +42,7 @@ predictorCode sid =
         SensorKNN -> "knn"
         SensorDecisionTree -> "decision_tree"
         SensorTCN -> "tcn"
+        SensorPatchTST -> "patch_tst"
         SensorTransformer -> "transformer"
         SensorHMM -> "hmm"
         SensorQuantile -> "quantile"
@@ -78,6 +80,10 @@ predictorSetFromString raw =
                 "trees" -> Right SensorDecisionTree
                 "dt" -> Right SensorDecisionTree
                 "tcn" -> Right SensorTCN
+                "patchtst" -> Right SensorPatchTST
+                "patchsequence" -> Right SensorPatchTST
+                "patchseq" -> Right SensorPatchTST
+                "patch" -> Right SensorPatchTST
                 "transformer" -> Right SensorTransformer
                 "hmm" -> Right SensorHMM
                 "quantile" -> Right SensorQuantile
@@ -93,14 +99,14 @@ predictorSetFromString raw =
                 Right _ -> False
             ]
      in if null lowered
-            then Left "Predictors list is empty (expected gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)."
+            then Left "Predictors list is empty (expected gbdt,knn,decision_tree,tcn,patch_tst,transformer,hmm,quantile,conformal, all, none)."
             else
                 if not (null bad)
                     then
                         Left
                             ( "Invalid predictors: "
                                 ++ intercalate ", " bad
-                                ++ " (expected gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)."
+                                ++ " (expected gbdt,knn,decision_tree,tcn,patch_tst,transformer,hmm,quantile,conformal, all, none)."
                             )
                     else
                         if hasAll && hasNone

@@ -300,6 +300,11 @@ import Trader.Duration (
     timeWindowCode,
     timeWindowContains,
  )
+import Trader.ExternalData (
+    ExternalDataConfig (..),
+    externalDataConfigFromEnv,
+    fetchExternalFeatureInputs,
+ )
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport,
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -405,7 +410,7 @@ import Trader.Predictors (
     trainPredictorsWithInputsWithMarketConfig,
     updateHMM,
  )
-import Trader.Predictors.Features (FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs)
+import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.OnlineNeural (
     OnlineNeuralConfig,
     OnlineNeuralSignal (..),
@@ -2662,6 +2667,9 @@ argsPublicJson args =
             , "lookbackWindow" .= argLookbackWindow args
             , "lookbackBars" .= argLookbackBars args
             , "lookbackBarsResolved" .= lookback
+            , "externalData" .= argExternalData args
+            , "externalDataCsv" .= argExternalDataCsv args
+            , "externalDataJsonSources" .= length (argExternalDataJson args)
             , "binanceTestnet" .= argBinanceTestnet args
             , "binanceLive" .= argBinanceLive args
             , "binanceTrade" .= argBinanceTrade args
@@ -6208,6 +6216,7 @@ data BotState = BotState
     , botVolumes :: !(V.Vector Double)
     , botOpenTimes :: !(V.Vector Int64)
     , botCoinbaseCloses :: !(Maybe (V.Vector Double))
+    , botExternalInputs :: !(Maybe ExternalFeatureInputs)
     , botKalmanPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
     , botLstmPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
     , botEquityCurve :: !(V.Vector Double)
@@ -6612,13 +6621,14 @@ waitForBotStartStability ctrl tenantKey maxWaitSeconds nextSym = do
 
 botFeatureInputs :: BotState -> FeatureInputs
 botFeatureInputs st =
-    withCoinbaseInputs (botCoinbaseCloses st) $
-        mkFeatureInputs
-            (botPrices st)
-            (Just (botOpens st))
-            (Just (botHighs st))
-            (Just (botLows st))
-            (Just (botVolumes st))
+    withExternalInputs (botExternalInputs st) $
+        withCoinbaseInputs (botCoinbaseCloses st) $
+            mkFeatureInputs
+                (botPrices st)
+                (Just (botOpens st))
+                (Just (botHighs st))
+                (Just (botLows st))
+                (Just (botVolumes st))
 
 newBotController :: IO BotController
 newBotController = BotController <$> newMVar HM.empty
@@ -7505,6 +7515,7 @@ botStateTail tailN st =
                         , botLows = V.drop dropCount (botLows st)
                         , botVolumes = V.drop dropCount (botVolumes st)
                         , botOpenTimes = V.drop dropCount (botOpenTimes st)
+                        , botExternalInputs = dropExternalFeatureInputs dropCount <$> botExternalInputs st
                         , botKalmanPredNext = V.drop dropCount (botKalmanPredNext st)
                         , botLstmPredNext = V.drop dropCount (botLstmPredNext st)
                         , botEquityCurve = V.drop dropCount (botEquityCurve st)
@@ -10185,7 +10196,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         openV = V.fromList openTimes
         n = V.length pricesV
     mCoinbaseCloses0 <- buildCrossExchangeCoinbase args pricesV (Just openTimes)
-    let featureInputs = withCoinbaseInputs mCoinbaseCloses0 featureInputs0
+    mExternalInputs0 <- buildExternalFeatureInputs args (Just sym) pricesV (Just openTimes)
+    let featureInputs =
+            withExternalInputs mExternalInputs0 $
+                withCoinbaseInputs mCoinbaseCloses0 featureInputs0
 
     let method = runtimeMethod (argMethod args)
         methodForCtx =
@@ -10675,6 +10689,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 , botVolumes = volumesV2
                 , botOpenTimes = openV2
                 , botCoinbaseCloses = mCoinbaseCloses2
+                , botExternalInputs = dropExternalFeatureInputs startIndex2 <$> mExternalInputs0
                 , botKalmanPredNext = kalPred2
                 , botLstmPredNext = lstmPred2
                 , botEquityCurve = eq2
@@ -13486,9 +13501,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         volumesV = V.snoc (botVolumes st) (kVolume k)
         openTimesV = V.snoc (botOpenTimes st) openTimeNew
     mCoinbaseCloses1 <- buildCrossExchangeCoinbase args pricesV (Just (V.toList openTimesV))
-    let featureInputs =
-            withCoinbaseInputs mCoinbaseCloses1 $
-                mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
+    mExternalFresh <- buildExternalFeatureInputs args (Just (botSymbol st)) pricesV (Just (V.toList openTimesV))
+    let mExternalInputs1 = mExternalFresh <|> appendExternalLast (botExternalInputs st)
+        featureInputs =
+            withExternalInputs mExternalInputs1 $
+                withCoinbaseInputs mCoinbaseCloses1 $
+                    mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
 
     -- Update Kalman/HMM/sensor variance with the realized return on the last step.
     mKalmanCtx1 <-
@@ -14492,9 +14510,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
         dropCount = max 0 (V.length pricesV - maxPoints)
 
-        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openTimesV2, mCoinbaseCloses2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
+        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openTimesV2, mCoinbaseCloses2, mExternalInputs2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
             if dropCount <= 0
-                then (pricesV, opensV, highsV, lowsV, volumesV, openTimesV, mCoinbaseCloses1, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
+                then (pricesV, opensV, highsV, lowsV, volumesV, openTimesV, mCoinbaseCloses1, mExternalInputs1, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
                 else
                     let shiftTrade tr =
                             tr{trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount}
@@ -14525,6 +14543,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         , V.drop dropCount volumesV
                         , V.drop dropCount openTimesV
                         , V.drop dropCount <$> mCoinbaseCloses1
+                        , dropExternalFeatureInputs dropCount <$> mExternalInputs1
                         , V.drop dropCount kalPred1
                         , V.drop dropCount lstmPred1
                         , V.drop dropCount eqV1
@@ -14563,6 +14582,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botVolumes = volumesV2
                 , botOpenTimes = openTimesV2
                 , botCoinbaseCloses = mCoinbaseCloses2
+                , botExternalInputs = mExternalInputs2
                 , botKalmanPredNext = kalPred2
                 , botLstmPredNext = lstmPred2
                 , botEquityCurve = eqV2
@@ -27833,7 +27853,10 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             )
         )
     mCoinbaseCloses <- buildCrossExchangeCoinbase args pricesV (psOpenTimes series)
-    let featureInputs = withCoinbaseInputs mCoinbaseCloses featureInputs0
+    mExternalInputs <- buildExternalFeatureInputs args (argBinanceSymbol args) pricesV (psOpenTimes series)
+    let featureInputs =
+            withExternalInputs mExternalInputs $
+                withCoinbaseInputs mCoinbaseCloses featureInputs0
 
     mMarketModel <-
         case (method, mBinanceEnv, argBinanceSymbol args) of
@@ -28149,7 +28172,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 _ -> Nothing
     ensureMinPriceRows args 2 prices
     ensureLookbackRows args lookback prices
-    mCoinbaseCloses <- buildCrossExchangeCoinbase args (V.fromList prices) (matchLengthAndTrim (psOpenTimes seriesWindow))
+    let openTimesWindow = matchLengthAndTrim (psOpenTimes seriesWindow)
+    mCoinbaseCloses <- buildCrossExchangeCoinbase args (V.fromList prices) openTimesWindow
+    mExternalInputs <- buildExternalFeatureInputs args (argBinanceSymbol args) (V.fromList prices) openTimesWindow
     when useKalmanPhysics $ do
         when (argOptimizeOperations args || argSweepThreshold args) $
             throwIO (userError "Method kalman_physics_error does not support --optimize-operations/--sweep-threshold.")
@@ -28278,21 +28303,23 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     _ -> methodRequested
         pricesV = V.fromList prices
         allFeatureInputs =
-            withCoinbaseInputs mCoinbaseCloses $
-                featureInputsFromLists
-                    prices
-                    opensAll
-                    (Just highsAll)
-                    (Just lowsAll)
-                    (Just volumesAll)
+            withExternalInputs mExternalInputs $
+                withCoinbaseInputs mCoinbaseCloses $
+                    featureInputsFromLists
+                        prices
+                        opensAll
+                        (Just highsAll)
+                        (Just lowsAll)
+                        (Just volumesAll)
         fitFeatureInputs =
-            withCoinbaseInputs (V.take predStart <$> mCoinbaseCloses) $
-                featureInputsFromLists
-                    fitPrices
-                    (take predStart <$> opensAll)
-                    (Just (take predStart highsAll))
-                    (Just (take predStart lowsAll))
-                    (Just (take predStart volumesAll))
+            withExternalInputs (takeExternalFeatureInputs predStart <$> mExternalInputs) $
+                withCoinbaseInputs (V.take predStart <$> mCoinbaseCloses) $
+                    featureInputsFromLists
+                        fitPrices
+                        (take predStart <$> opensAll)
+                        (Just (take predStart highsAll))
+                        (Just (take predStart lowsAll))
+                        (Just (take predStart volumesAll))
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
         volPerBarForTechnical = volPerBarFromPrices prices
@@ -34047,6 +34074,59 @@ buildCrossExchangeCoinbase args pricesV mOpenTimes
             _ -> pure Nothing
   where
     n = V.length pricesV
+
+buildExternalFeatureInputs :: Args -> Maybe String -> V.Vector Double -> Maybe [Int64] -> IO (Maybe ExternalFeatureInputs)
+buildExternalFeatureInputs args mSymbol pricesV mOpenTimes = do
+    cfg <- externalDataConfigFromEnv (argExternalData args) (argExternalDataCsv args) (argExternalDataJson args)
+    let n = V.length pricesV
+        mIntervalMs = (* 1000) . fromIntegral <$> parseIntervalSeconds (argInterval args)
+    case (edcEnabled cfg, mIntervalMs, mOpenTimes) of
+        (True, Just intervalMs, Just openTimes)
+            | n > 0 && length openTimes == n ->
+                fetchExternalFeatureInputs cfg mSymbol (V.fromList openTimes) intervalMs
+        _ -> pure Nothing
+
+takeExternalFeatureInputs :: Int -> ExternalFeatureInputs -> ExternalFeatureInputs
+takeExternalFeatureInputs n efi =
+    efi
+        { efiMicrostructure = V.take n <$> efiMicrostructure efi
+        , efiOptionsVol = V.take n <$> efiOptionsVol efi
+        , efiOnChain = V.take n <$> efiOnChain efi
+        , efiMacro = V.take n <$> efiMacro efi
+        , efiCot = V.take n <$> efiCot efi
+        , efiNews = V.take n <$> efiNews efi
+        , efiFilings = V.take n <$> efiFilings efi
+        }
+
+dropExternalFeatureInputs :: Int -> ExternalFeatureInputs -> ExternalFeatureInputs
+dropExternalFeatureInputs n efi =
+    efi
+        { efiMicrostructure = V.drop n <$> efiMicrostructure efi
+        , efiOptionsVol = V.drop n <$> efiOptionsVol efi
+        , efiOnChain = V.drop n <$> efiOnChain efi
+        , efiMacro = V.drop n <$> efiMacro efi
+        , efiCot = V.drop n <$> efiCot efi
+        , efiNews = V.drop n <$> efiNews efi
+        , efiFilings = V.drop n <$> efiFilings efi
+        }
+
+appendExternalLast :: Maybe ExternalFeatureInputs -> Maybe ExternalFeatureInputs
+appendExternalLast = fmap go
+  where
+    go efi =
+        efi
+            { efiMicrostructure = appendLast <$> efiMicrostructure efi
+            , efiOptionsVol = appendLast <$> efiOptionsVol efi
+            , efiOnChain = appendLast <$> efiOnChain efi
+            , efiMacro = appendLast <$> efiMacro efi
+            , efiCot = appendLast <$> efiCot efi
+            , efiNews = appendLast <$> efiNews efi
+            , efiFilings = appendLast <$> efiFilings efi
+            }
+    appendLast v =
+        if V.null v
+            then v
+            else V.snoc v (V.last v)
 
 loadPricesCoinbase :: Args -> String -> IO PriceSeries
 loadPricesCoinbase args sym = do

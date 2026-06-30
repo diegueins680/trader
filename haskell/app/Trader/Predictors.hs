@@ -47,6 +47,12 @@ import Trader.Predictors.Features (
 import Trader.Predictors.GBDT (GBDTModel (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), defaultHmmIterations, filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), defaultKnnK, defaultKnnMaxExamples, predictKNN, trainKNN)
+import Trader.Predictors.PatchTST (
+    PatchTSTModel (..),
+    defaultPatchTstRidgeLambda,
+    predictPatchTST,
+    trainPatchTSTWithLambda,
+ )
 import Trader.Predictors.Quantile (
     LinModel (..),
     QuantileModel (..),
@@ -82,6 +88,7 @@ data PredictorBundle = PredictorBundle
     , pbKNN :: !KNNModel
     , pbDecisionTree :: !DecisionTreeModel
     , pbTCN :: !TCNModel
+    , pbPatchTST :: !PatchTSTModel
     , pbTransformer :: !TransformerModel
     , pbQuantile :: !QuantileModel
     , pbConformal :: !ConformalModel
@@ -199,6 +206,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
         useKnn = predictorEnabled enabled SensorKNN
         useDecisionTree = predictorEnabled enabled SensorDecisionTree
         useTcn = predictorEnabled enabled SensorTCN
+        usePatchTst = predictorEnabled enabled SensorPatchTST
         useTransformer = predictorEnabled enabled SensorTransformer
         useHmm = predictorEnabled enabled SensorHMM
         useQuantile = predictorEnabled enabled SensorQuantile
@@ -265,6 +273,12 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 , tmWeights = []
                 , tmSigma = Nothing
                 }
+        emptyPatchTst =
+            PatchTSTModel
+                { pmPatchLengths = []
+                , pmWeights = []
+                , pmSigma = Nothing
+                }
 
         gbdtTrained = useGbdt || useConformal
         gbdt
@@ -321,7 +335,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 then fitConformal (ptcConformalAlpha cfg) absRes
                 else fitConformal (ptcConformalAlpha cfg) []
         tcnTargets =
-            if useTcn
+            if useTcn || usePatchTst
                 then
                     [ (t, y)
                     | t <- [0 .. V.length trainPrices' - 2]
@@ -332,6 +346,10 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
             if useTcn
                 then trainTCNWithLambda (ptcTcnRidgeLambda cfg) lookbackBars trainPrices' tcnTargets
                 else emptyTcn
+        patchTst =
+            if usePatchTst
+                then trainPatchTSTWithLambda defaultPatchTstRidgeLambda lookbackBars trainPrices' tcnTargets
+                else emptyPatchTst
      in PredictorBundle
             { pbEnabled = enabled
             , pbFeatureSpec = fs
@@ -340,6 +358,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
             , pbKNN = knn
             , pbDecisionTree = decisionTree
             , pbTCN = tcn
+            , pbPatchTST = patchTst
             , pbTransformer = transformer
             , pbQuantile = quant
             , pbConformal = conformal
@@ -392,6 +411,7 @@ predictSensorsWithInputs pb inputs hmmFilt t =
         useKnn = predictorEnabled enabled SensorKNN
         useDecisionTree = predictorEnabled enabled SensorDecisionTree
         useTcn = predictorEnabled enabled SensorTCN
+        usePatchTst = predictorEnabled enabled SensorPatchTST
         useTransformer = predictorEnabled enabled SensorTransformer
         useHmm = predictorEnabled enabled SensorHMM
         useQuantile = predictorEnabled enabled SensorQuantile
@@ -448,6 +468,14 @@ predictSensorsWithInputs pb inputs hmmFilt t =
                     Nothing -> []
                     Just (mu, sig) ->
                         [(SensorTCN, SensorOutput{soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing})]
+
+        patchTstOut =
+            if not usePatchTst
+                then []
+                else case predictPatchTST (pbPatchTST pb) prices t of
+                    Nothing -> []
+                    Just (mu, sig) ->
+                        [(SensorPatchTST, SensorOutput{soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing})]
 
         transformerOut =
             case feat of
@@ -517,7 +545,7 @@ predictSensorsWithInputs pb inputs hmmFilt t =
                             ]
                         , predState'
                         )
-     in (gbdtOut ++ knnOut ++ decisionTreeOut ++ tcnOut ++ transformerOut ++ hmmOut ++ quantOut ++ conformalOut, predState)
+     in (gbdtOut ++ knnOut ++ decisionTreeOut ++ tcnOut ++ patchTstOut ++ transformerOut ++ hmmOut ++ quantOut ++ conformalOut, predState)
 
 updateHMM :: PredictorBundle -> [Double] -> Double -> HMMFilter
 updateHMM pb predState realizedReturn =
