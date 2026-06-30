@@ -74,6 +74,8 @@ data SensorVar = SensorVar
     , svDecisionTreeEwma :: !EwmaVar
     , svTCN :: !Welford
     , svTCNEwma :: !EwmaVar
+    , svPatchTST :: !Welford
+    , svPatchTSTEwma :: !EwmaVar
     , svTransformer :: !Welford
     , svTransformerEwma :: !EwmaVar
     , svHMM :: !Welford
@@ -96,6 +98,8 @@ emptySensorVar =
         , svDecisionTreeEwma = emptyEwmaVar
         , svTCN = emptyWelford
         , svTCNEwma = emptyEwmaVar
+        , svPatchTST = emptyWelford
+        , svPatchTSTEwma = emptyEwmaVar
         , svTransformer = emptyWelford
         , svTransformerEwma = emptyEwmaVar
         , svHMM = emptyWelford
@@ -134,6 +138,11 @@ updateResidualWith config sid resid sv =
                     { svTCN = updateWelford resid (svTCN sv)
                     , svTCNEwma = updateEwmaVarWith config resid (svTCNEwma sv)
                     }
+            SensorPatchTST ->
+                sv
+                    { svPatchTST = updateWelford resid (svPatchTST sv)
+                    , svPatchTSTEwma = updateEwmaVarWith config resid (svPatchTSTEwma sv)
+                    }
             SensorTransformer ->
                 sv
                     { svTransformer = updateWelford resid (svTransformer sv)
@@ -166,6 +175,7 @@ varianceFor sid sv =
             SensorKNN -> preferEwma (svKNNEwma sv) (svKNN sv)
             SensorDecisionTree -> preferEwma (svDecisionTreeEwma sv) (svDecisionTree sv)
             SensorTCN -> preferEwma (svTCNEwma sv) (svTCN sv)
+            SensorPatchTST -> preferEwma (svPatchTSTEwma sv) (svPatchTST sv)
             SensorTransformer -> preferEwma (svTransformerEwma sv) (svTransformer sv)
             SensorHMM -> preferEwma (svHMMEwma sv) (svHMM sv)
             SensorQuantile -> preferEwma (svQuantileEwma sv) (svQuantile sv)

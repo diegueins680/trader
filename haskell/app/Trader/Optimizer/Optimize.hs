@@ -129,6 +129,10 @@ import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultL
 import Trader.Method (methodCode, parseMethod)
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
+import Trader.Optimizer.OverfitAudit (
+    OverfitTrial (..),
+    optimizerOverfitAudit,
+ )
 import Trader.Optimizer.Random (
     Rng,
     nextChoice,
@@ -4718,6 +4722,15 @@ trialToRecord tr symbolLabel =
                 Nothing -> []
      in object (baseFields ++ metricsField ++ kellyLiteField ++ opsField)
 
+overfitTrialFromResult :: TrialResult -> OverfitTrial
+overfitTrialFromResult tr =
+    OverfitTrial
+        { oatEligible = trEligible tr
+        , oatSearchEligible = trSearchEligible tr
+        , oatScore = trScore tr
+        , oatMetrics = trMetrics tr
+        }
+
 sampleParams
     rng0
     platforms
@@ -9005,6 +9018,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 (trFinalEquity tr)
         sorted = sortOn (Data.Ord.Down . sortKey) successful
         combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
+        selectionAudit = optimizerOverfitAudit (map overfitTrialFromResult records)
         topMetrics =
             let topN = take 5 sorted
                 extract f = [f tr | tr <- topN, trEligible tr, isJust (trScore tr)]
@@ -9024,6 +9038,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
             object
                 [ "members" .= map (\tr -> object ["objective" .= trObjective tr, "score" .= trScore tr]) (take 3 sorted)
                 , "metrics" .= topMetrics
+                , "selectionAudit" .= fromMaybe Null selectionAudit
                 ]
     path <- expandUser topPath
     createDirectoryIfMissing True (takeDirectory path)
@@ -9036,6 +9051,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 , "optimizerSearchTechniques" .= map optimizationTechniqueToJson optimizerSearchTechniques
                 , "bestOptimizationTechniques" .= map optimizationTechniqueToJson optimizerSearchTechniques
                 , "optimizationTechniquesApplied" .= optimizerTechniqueSummaryJson summary
+                , "selectionAudit" .= fromMaybe Null selectionAudit
                 ]
     BL.writeFile path (encodePretty export')
     putStrLn ("Wrote top combos JSON: " ++ path)

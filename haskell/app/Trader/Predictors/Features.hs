@@ -1,9 +1,11 @@
 module Trader.Predictors.Features (
     FeatureSpec (..),
+    ExternalFeatureInputs (..),
     FeatureInputs (..),
     mkFeatureSpec,
     mkFeatureInputs,
     withExogenousInputs,
+    withExternalInputs,
     withCoinbaseInputs,
     featureInputsFromClose,
     featuresAt,
@@ -52,6 +54,20 @@ data FeatureInputs = FeatureInputs
     -- grid as 'fiClose'. 'Nothing' (the default) leaves the feature vector
     -- byte-identical to the Binance-only behavior; its presence switches on the
     -- cross-exchange feature block.
+    , fiExternal :: !(Maybe ExternalFeatureInputs)
+    -- ^ Optional broader exogenous feature families. Each vector, when present,
+    -- must be aligned point-in-time to the same bar grid as 'fiClose'.
+    }
+    deriving (Eq, Show)
+
+data ExternalFeatureInputs = ExternalFeatureInputs
+    { efiMicrostructure :: !(Maybe (V.Vector Double))
+    , efiOptionsVol :: !(Maybe (V.Vector Double))
+    , efiOnChain :: !(Maybe (V.Vector Double))
+    , efiMacro :: !(Maybe (V.Vector Double))
+    , efiCot :: !(Maybe (V.Vector Double))
+    , efiNews :: !(Maybe (V.Vector Double))
+    , efiFilings :: !(Maybe (V.Vector Double))
     }
     deriving (Eq, Show)
 
@@ -90,6 +106,7 @@ mkFeatureInputs closes opens highs lows volumes =
         , fiBasis = Nothing
         , fiTakerFlow = Nothing
         , fiCoinbaseClose = Nothing
+        , fiExternal = Nothing
         }
 
 featureInputsFromClose :: V.Vector Double -> FeatureInputs
@@ -114,6 +131,13 @@ withExogenousInputs funding oi basis takerFlow inputs =
         , fiBasis = basis
         , fiTakerFlow = takerFlow
         }
+
+{- | Attach broader external feature families. The vectors must already be
+aligned 1:1 with the close grid and point-in-time. An absent bundle leaves the
+feature vector byte-identical to the pre-external-data behavior.
+-}
+withExternalInputs :: Maybe ExternalFeatureInputs -> FeatureInputs -> FeatureInputs
+withExternalInputs external inputs = inputs{fiExternal = external}
 
 {- | Attach (or clear) the same-asset cross-exchange close series. The vector,
 when present, must be aligned to the same bar grid as 'fiClose'.
@@ -181,6 +205,7 @@ featuresAtWithInputsWithMarket fs mMarket inputs t = do
                 volRatio = if abs sigM <= eps then 0 else sigS / sigM
                 trendSlope = muS - muM
                 exoFeats = exogenousFeatures inputs t
+                externalFeats = externalFeatures inputs t
                 crossFeats =
                     if isJust (fiCoinbaseClose inputs)
                         then crossExchangeFeatures inputs t ret1 shortB
@@ -204,6 +229,7 @@ featuresAtWithInputsWithMarket fs mMarket inputs t = do
                         ++ marketFeats
                         ++ psych
                         ++ exoFeats
+                        ++ externalFeats
                         ++ crossFeats
             if all isFiniteDouble feats
                 then pure feats
@@ -246,6 +272,40 @@ exogenousFeatures inputs t
         a <- valAt mv (t - 1)
         b <- valAt mv t
         pure (if abs a <= 1e-12 then 0 else (b - a) / abs a)
+
+{- | External source families are consumed as standardized, aligned numeric
+signals. Each family contributes a level and momentum term. The bundle is
+all-or-nothing for feature-dimension stability: when any external data source is
+attached, every family gets two slots, neutral-filled to 0 when absent.
+-}
+externalFeatures :: FeatureInputs -> Int -> [Double]
+externalFeatures inputs t =
+    case fiExternal inputs of
+        Nothing -> []
+        Just efi ->
+            concatMap
+                familyFeatures
+                [ efiMicrostructure efi
+                , efiOptionsVol efi
+                , efiOnChain efi
+                , efiMacro efi
+                , efiCot efi
+                , efiNews efi
+                , efiFilings efi
+                ]
+  where
+    familyFeatures mv =
+        [levelAt mv, deltaAt mv]
+    valAt mv i = case mv of
+        Just v
+            | i >= 0 && i < V.length v ->
+                let x = v V.! i in if isFiniteDouble x then Just x else Nothing
+        _ -> Nothing
+    levelAt mv = fromMaybe 0 (valAt mv t)
+    deltaAt mv = fromMaybe 0 $ do
+        a <- valAt mv (t - 1)
+        b <- valAt mv t
+        pure (b - a)
 
 {- | Build a supervised dataset (features at t, target forward return at t) with bar indices.
 Uses t in [lookbackBars-1 .. n-2].

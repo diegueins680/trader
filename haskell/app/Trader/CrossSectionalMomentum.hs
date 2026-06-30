@@ -4,6 +4,8 @@ module Trader.CrossSectionalMomentum (
     crossSectionalMomentumPredictionsRange,
 ) where
 
+import Data.List (sort)
+import Data.Maybe (mapMaybe)
 import qualified Data.Vector as V
 
 import Trader.MarketContext (MarketModel (..))
@@ -14,6 +16,7 @@ data CrossSectionalMomentumSignal = CrossSectionalMomentumSignal
     , csmExpectedReturn :: !Double
     , csmConfidence :: !Double
     , csmResidualMomentum :: !Double
+    , csmSelectedSpeedBars :: !Int
     }
     deriving (Eq, Show)
 
@@ -44,33 +47,26 @@ crossSectionalMomentumPredictionAt lookback mMarket inputs t = do
     let prices = fiClose inputs
         n = V.length prices
         lookback' = max 12 lookback
-        shortBars = clampInt 4 36 (lookback' `div` 3)
-        midBars = max (shortBars + 1) (clampInt 12 96 lookback')
+        shortBars = clampInt 4 36 (lookback' `div` 4)
+        midBars = max (shortBars + 1) (clampInt 12 96 (lookback' `div` 2))
+        longBars = max (midBars + 1) (clampInt 24 192 lookback')
         volBars = max 12 (min 144 lookback')
-    if t < midBars || t < volBars || t < 0 || t >= n
+        maxBars = maximum [shortBars, midBars, longBars, volBars]
+    if t < maxBars || t < 0 || t >= n
         then Nothing
         else do
             currentPrice <- validAt prices t
             if currentPrice <= 0
                 then Nothing
                 else do
-                    retShort <- retOver prices t shortBars
-                    retMid <- retOver prices t midBars
                     rs <- returnsEndingAt prices t volBars
                     let vol = stddev rs
                     if vol <= 1.0e-12
                         then Nothing
                         else do
-                            let marketShort = marketReturnOver mMarket t shortBars
-                                marketMid = marketReturnOver mMarket t midBars
-                                beta = maybe 1 mmBeta mMarket
-                                residualShort = retShort - beta * marketShort
-                                residualMid = retMid - beta * marketMid
-                                signScale =
-                                    if sameSign residualShort residualMid
-                                        then 1
-                                        else 0.35
-                                residualMomentum = signScale * (0.65 * residualShort + 0.35 * residualMid)
+                            selected <- dynamicMomentumSpeed mMarket prices t vol [shortBars, midBars, longBars]
+                            let residualMomentum = dmsResidual selected
+                                selectedBars = dmsBars selected
                                 z = residualMomentum / max 1.0e-12 vol
                                 rawEdge =
                                     if abs z < 0.65
@@ -101,7 +97,64 @@ crossSectionalMomentumPredictionAt lookback mMarket inputs t = do
                                             , csmExpectedReturn = scaledEdge
                                             , csmConfidence = clamp confidence 0 1
                                             , csmResidualMomentum = residualMomentum
+                                            , csmSelectedSpeedBars = selectedBars
                                             }
+
+data DynamicMomentumSpeed = DynamicMomentumSpeed
+    { dmsBars :: !Int
+    , dmsResidual :: !Double
+    , dmsScore :: !Double
+    }
+    deriving (Eq, Show)
+
+dynamicMomentumSpeed :: Maybe MarketModel -> V.Vector Double -> Int -> Double -> [Int] -> Maybe DynamicMomentumSpeed
+dynamicMomentumSpeed mMarket prices t vol barsRaw =
+    let bars = dedupeSorted (sort (filter (> 1) barsRaw))
+        beta = maybe 1 mmBeta mMarket
+        residualFor barsN = do
+            r <- retOver prices t barsN
+            let marketR = marketReturnOver mMarket t barsN
+                residual = r - beta * marketR
+            if isFiniteDouble residual
+                then Just (barsN, residual)
+                else Nothing
+        residuals = mapMaybe residualFor bars
+        neighborsAgree residual idx =
+            let nearby =
+                    [ r
+                    | (j, (_b, r)) <- zip [0 ..] residuals
+                    , abs (j - idx) == 1
+                    ]
+             in case nearby of
+                    [] -> 1
+                    xs ->
+                        if any (sameSign residual) xs
+                            then 1
+                            else 0.45
+        candidate idx (barsN, residual) =
+            let z = abs residual / max 1e-12 vol
+                speedPenalty = 1 / sqrt (fromIntegral (max 1 barsN))
+                agreement = neighborsAgree residual idx
+                score = z * agreement + 0.10 * speedPenalty
+             in DynamicMomentumSpeed barsN (residual * agreement) score
+        candidates = zipWith candidate [0 ..] residuals
+     in case candidates of
+            [] -> Nothing
+            c : cs -> Just (foldl pick c cs)
+  where
+    pick best cand =
+        if dmsScore cand > dmsScore best then cand else best
+
+dedupeSorted :: [Int] -> [Int]
+dedupeSorted xs =
+    case xs of
+        [] -> []
+        y : ys -> y : go y ys
+  where
+    go _ [] = []
+    go prev (y : ys)
+        | y == prev = go prev ys
+        | otherwise = y : go y ys
 
 edgeCap :: Double -> Double
 edgeCap vol =

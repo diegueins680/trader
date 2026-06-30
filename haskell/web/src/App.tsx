@@ -150,6 +150,8 @@ import {
   normalizeFormState,
   parseDurationSeconds,
   platformIntervalSeconds,
+  serializeFormProfiles,
+  serializeFormState,
   type FormState,
   type FormStateJson,
 } from "./app/formState";
@@ -2182,7 +2184,7 @@ export function App() {
   const tradeRef = useRef<HTMLDetailsElement>(null!);
 
   useEffect(() => {
-    writeJson(STORAGE_KEY, form);
+    writeJson(STORAGE_KEY, serializeFormState(form));
   }, [form]);
 
   useEffect(() => {
@@ -2231,7 +2233,7 @@ export function App() {
   }, [platform, normalizedSymbol, symbolIsCustom]);
 
   useEffect(() => {
-    writeJson(STORAGE_PROFILES_KEY, profiles);
+    writeJson(STORAGE_PROFILES_KEY, serializeFormProfiles(profiles));
   }, [profiles]);
 
   useEffect(() => {

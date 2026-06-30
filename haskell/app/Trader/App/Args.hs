@@ -19,7 +19,7 @@ module Trader.App.Args (
     validateArgs,
 ) where
 
-import Control.Applicative ((<|>))
+import Control.Applicative (many, (<|>))
 import Control.Monad (forM_, when)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower, toUpper)
 import Data.Int (Int64)
@@ -199,6 +199,9 @@ data Args = Args
     , argSweepThreshold :: Bool
     , argCrossExchangeCoinbase :: Bool
     , argCrossExchangeSymbol :: Maybe String
+    , argExternalData :: Bool
+    , argExternalDataCsv :: [FilePath]
+    , argExternalDataJson :: [String]
     , argTradeOnly :: Bool
     , argFee :: Double
     , argSlippage :: Double
@@ -1015,7 +1018,7 @@ opts = do
             ( long "predictors"
                 <> value allPredictors
                 <> showDefaultWith predictorSetToCsv
-                <> help "Comma-separated predictors to train/use (gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)"
+                <> help "Comma-separated predictors to train/use (gbdt,knn,decision_tree,tcn,patch_tst,transformer,hmm,quantile,conformal, all, none)"
             )
     argPredictorGbdtTrees <- option auto (long "predictor-gbdt-trees" <> value 60 <> showDefault <> help "GBDT tree count used by predictor sensor training")
     argPredictorGbdtLearningRate <- option auto (long "predictor-gbdt-learning-rate" <> value 0.1 <> showDefault <> help "GBDT learning rate used by predictor sensor training")
@@ -1079,6 +1082,9 @@ opts = do
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     argCrossExchangeCoinbase <- switch (long "cross-exchange-coinbase" <> help "Enrich LSTM features and Kalman market-context with same-asset Coinbase data (e.g. BTCUSDT<->BTC-USD basis/lead-lag). Applies to backtests, latest signals, trades, and live bots; fail-open to Binance-only if Coinbase is unavailable or the interval is unsupported")
     argCrossExchangeSymbol <- optional (strOption (long "cross-exchange-symbol" <> metavar "SYMBOL" <> help "Binance symbol to map to a Coinbase product for cross-exchange enrichment when the price data comes from --data (CSV), where --symbol cannot be used. Falls back to --symbol when omitted."))
+    argExternalData <- switch (long "external-data" <> help "Attach optional exogenous data families (microstructure/options/on-chain/macro/COT/news/filings) from configured CSV, JSON, FRED, Deribit, Glassnode, GDELT, and SEC sources. Fetches fail open and are point-in-time aligned.")
+    argExternalDataCsv <- many (strOption (long "external-data-csv" <> metavar "PATH" <> help "Normalized external-data CSV. Recognized timestamp plus family columns feed microstructure/options/on-chain/macro/COT/news/filings features. Can be repeated."))
+    argExternalDataJson <- many (strOption (long "external-data-json" <> metavar "FAMILY|URL|TIME_KEY|VALUE_KEY" <> help "Generic external JSON source spec for APIs such as provider archives, CryptoQuant, COT mirrors, GDELT, or SEC-derived feeds. FAMILY is microstructure|options|onchain|macro|cot|news|filings. Can be repeated."))
     argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
     argSlippage <- option auto (long "slippage" <> value 0.0002 <> help "Slippage per side (fractional, e.g. 0.0002)")

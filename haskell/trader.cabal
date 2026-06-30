@@ -31,6 +31,7 @@ executable trader-hs
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration
+                     , Trader.ExternalData
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
                      , Trader.Formal.Execution
@@ -53,12 +54,14 @@ executable trader-hs
                      , Trader.Optimization
                      , Trader.Optimizer.Common
                      , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.OverfitAudit
                      , Trader.Optimizer.Random
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
+                     , Trader.PointInTimeUniverse
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
@@ -67,6 +70,7 @@ executable trader-hs
                      , Trader.Predictors.KNN
                      , Trader.Predictors.DecisionTree
                      , Trader.Predictors.GBDT
+                     , Trader.Predictors.PatchTST
                      , Trader.Predictors.TCN
                      , Trader.Predictors.Transformer
                      , Trader.Predictors.Quantile
@@ -147,6 +151,7 @@ executable optimize-equity
                      , Trader.Platform
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.OverfitAudit
                      , Trader.Optimizer.Random
                      , Trader.OnlineStats
                      , Trader.Optimization
@@ -259,6 +264,7 @@ test-suite trader-tests
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration
+                     , Trader.ExternalData
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
                      , Trader.Formal.Execution
@@ -284,9 +290,11 @@ test-suite trader-tests
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Merge
                      , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.OverfitAudit
                      , Trader.Optimizer.Random
                      , Trader.OnlineStats
                      , Trader.Poloniex
+                     , Trader.PointInTimeUniverse
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
@@ -295,6 +303,7 @@ test-suite trader-tests
                      , Trader.Predictors.KNN
                      , Trader.Predictors.DecisionTree
                      , Trader.Predictors.GBDT
+                     , Trader.Predictors.PatchTST
                      , Trader.Predictors.TCN
                      , Trader.Predictors.Transformer
                      , Trader.Predictors.Quantile
@@ -385,12 +394,14 @@ benchmark trader-bench
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
+                     , Trader.PointInTimeUniverse
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
                      , Trader.Predictors.Exogenous
                      , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.GBDT
+                     , Trader.Predictors.PatchTST
                      , Trader.Predictors.TCN
                      , Trader.Predictors.Transformer
                      , Trader.Predictors.Quantile
