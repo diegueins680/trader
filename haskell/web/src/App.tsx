@@ -1734,9 +1734,9 @@ export function App() {
     error: null,
     response: null,
   });
-  const [binancePositionsBars, setBinancePositionsBars] = useState(200);
-  const [binancePositionsSortKey, setBinancePositionsSortKey] = useState<BinancePositionSortKey>("symbol");
-  const [binancePositionsSortDirection, setBinancePositionsSortDirection] = useState<BinancePositionSortDirection>("asc");
+  const [binancePositionsBars, setBinancePositionsBars] = useState(20);
+  const [binancePositionsSortKey, setBinancePositionsSortKey] = useState<BinancePositionSortKey>("pnl");
+  const [binancePositionsSortDirection, setBinancePositionsSortDirection] = useState<BinancePositionSortDirection>("desc");
   const [binanceClosePositionKey, setBinanceClosePositionKey] = useState<string | null>(null);
   const binancePositionsAutoKeyRef = useRef<string | null>(null);
 

@@ -259,6 +259,24 @@ test("repo contract routes trade sizing validation targets to trade config page"
   );
 });
 
+test("repo contract keeps open-position controls on the live-monitoring defaults", () => {
+  assert.match(
+    appSource,
+    /const \[binancePositionsBars,\s*setBinancePositionsBars\] = useState\(20\);/,
+    "open positions should default to 20 chart bars",
+  );
+  assert.match(
+    appSource,
+    /const \[binancePositionsSortKey,\s*setBinancePositionsSortKey\] = useState<BinancePositionSortKey>\("pnl"\);/,
+    "open positions should default to PNL ordering",
+  );
+  assert.match(
+    appSource,
+    /const \[binancePositionsSortDirection,\s*setBinancePositionsSortDirection\] = useState<BinancePositionSortDirection>\("desc"\);/,
+    "open positions should default to descending ordering",
+  );
+});
+
 test("repo contract keeps frontend valRatio strictly below the backend upper bound", () => {
   assert.match(
     appSource,
