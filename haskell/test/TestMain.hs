@@ -42,7 +42,7 @@ import Trader.CapitalPreservation (
     defaultPortfolioCapitalPreservationCooldownMs,
     portfolioCapitalPreservationReport,
  )
-import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
+import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, buildRanges, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
     CostCalibrationConfig (..),
     calibratedSlippagePerSide,
@@ -511,6 +511,7 @@ main = do
     testBacktestCostAttributionNonFiniteComponentsRegression
     testOrderExecutionFillSanitizationInvariant
     testOrderExecutionCorruptedInputInvariant
+    testCoinbaseBuildRangesOverflowRegression
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
     testAutoOptimizerCappedLookbackScopes
@@ -6097,6 +6098,21 @@ testOrderExecutionCorruptedInputInvariant = do
                     assert (label ++ " closeQty is bounded by sanitized prior size") (closeQty <= abs prevSigned + eps)
                     assert (label ++ " openQty is bounded by sanitized executed qty") (openQty <= qty + eps)
                     assert (label ++ " signed exposure is conserved after sanitization") (closeEnough expectedSigned actualSigned)
+
+-- Coinbase candle pagination must never wrap large requested spans into
+-- inverted ranges.
+testCoinbaseBuildRangesOverflowRegression :: IO ()
+testCoinbaseBuildRangesOverflowRegression = do
+    let normal = buildRanges 36000 60 301
+        huge = buildRanges 1000 (maxBound :: Int64) 600
+        validRange (startSec, endSec) =
+            startSec >= 0 && endSec >= 0 && startSec <= endSec && endSec <= 36000
+    assert
+        "Coinbase range paging keeps normal ranges bounded and non-inverted"
+        (length normal == 2 && all validRange normal)
+    assert
+        "Coinbase range paging saturates overflowing spans to the Unix origin"
+        (huge == [(0, 1000)])
 
 -- Coinbase live market orders must expose fill evidence to the shared
 -- execution-state reconciler; an accepted nested response without fill/status

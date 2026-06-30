@@ -71,6 +71,27 @@ Proof sketch:
 - Strictly ascending bar opens and a positive interval are checked before scanning; if they fail, the function returns an all-`Nothing` vector with the same length as the requested grid.
 - The close-time overflow guard rejects any bar whose computed close precedes its open, preserving the same fail-closed absence semantics for arithmetic corruption.
 
+## Formal Coinbase candle range contract
+
+`buildRanges` in `haskell/app/Trader/Coinbase.hs` constructs paged historical candle windows before HTTP requests are issued.
+
+Clauses:
+
+1. Every emitted range has non-negative seconds and satisfies `start <= end`.
+2. Requested page spans are computed with saturating arithmetic, so `bars * granularity` overflow cannot wrap into a negative or forward-moving range.
+3. If a requested span reaches or exceeds the requested end time, the first page starts at the Unix origin and range construction terminates.
+4. The Coinbase per-request page cap remains the upper bound for ordinary non-overflowing pages.
+
+Bounded executable obligation:
+
+- `testCoinbaseBuildRangesOverflowRegression` witnesses ordinary two-page construction and an overflowing `granularitySec` request saturating to `(0,end)` instead of emitting an inverted range.
+
+Proof sketch:
+
+- Each page span is clamped through `Integer` arithmetic to `maxBound :: Int64` before returning to `Int64`.
+- Range subtraction compares through `Integer`; a span greater than or equal to the current end time returns `0`, otherwise ordinary subtraction is safe because `span < end`.
+- The recursive step stops whenever the next start reaches `0`, so saturated spans cannot produce extra malformed pages.
+
 ## Formal backtest cost-attribution contract
 
 The backtest JSON `costAttribution` and `costs.attribution` surfaces emitted by `haskell/app/Trader/Trading.hs` are treated as the accounting reconciliation contract for realized trading costs in one emitted simulation run.

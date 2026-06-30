@@ -389,8 +389,8 @@ buildRanges endSec granularitySec bars =
                 then reverse acc
                 else
                     let chunkBars = min coinbaseMaxBarsPerRequest remaining
-                        spanSec = fromIntegral chunkBars * g
-                        startTime = max 0 (endTime - spanSec)
+                        spanSec = saturatedSecondsProduct chunkBars g
+                        startTime = subtractSecondsFloor0 endTime spanSec
                         acc' = (startTime, endTime) : acc
                      in if remaining - chunkBars <= 0 || startTime <= 0
                             then reverse acc'
@@ -398,6 +398,18 @@ buildRanges endSec granularitySec bars =
                             -- downstream dedup still removes the single overlap safely.
                             else go acc' (remaining - chunkBars) startTime
      in go [] bars' endSec'
+
+saturatedSecondsProduct :: Int -> Int64 -> Int64
+saturatedSecondsProduct count seconds =
+    fromInteger (min int64Max (toInteger (max 0 count) * toInteger (max 0 seconds)))
+  where
+    int64Max = toInteger (maxBound :: Int64)
+
+subtractSecondsFloor0 :: Int64 -> Int64 -> Int64
+subtractSecondsFloor0 endSec spanSec =
+    if toInteger spanSec >= toInteger endSec
+        then 0
+        else endSec - spanSec
 
 formatIso :: Int64 -> BS.ByteString
 formatIso sec =
