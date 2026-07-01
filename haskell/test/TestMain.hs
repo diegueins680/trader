@@ -28,7 +28,7 @@ import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnov
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -351,10 +351,12 @@ main = do
     testComboTradeCountMeetsAdoptionFloorMonotonicity
     testComboTradeCountMeetsAdoptionFloorHonorsConfig
     testComboTradeCountMeetsAdoptionFloorMatchesProductionRegressionEvidence
+    testComboMinEdgeMeetsAdoptionFloor
     testAdoptionMinWalkForwardSharpeMatchesOptimizerDefault
     testComboWalkForwardSharpeMeetsAdoptionFloorFailsClosed
     testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity
     testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig
+    testComboWalkForwardSharpeStdMeetsAdoptionCeiling
     testFuturesPositionRiskLeverageSaneCap
     testBinanceTradeMaxPnlLongUsesHigh
     testBinanceTradeMaxPnlShortUsesLow
@@ -8659,8 +8661,10 @@ testComboTradeCountMeetsAdoptionFloorHonorsConfig :: IO ()
 testComboTradeCountMeetsAdoptionFloorHonorsConfig = do
     let strictConfig =
             AdoptionEvidenceConfig
-                { aecMinTradeCount = adoptionMinTradeCount + 10
+                { aecMinEdgeFloor = adoptionMinEdgeFloor
+                , aecMinTradeCount = adoptionMinTradeCount + 10
                 , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean
+                , aecMaxWalkForwardSharpeStd = adoptionMaxWalkForwardSharpeStd
                 }
         disabledFloorConfig = strictConfig{aecMinTradeCount = 0}
     assert
@@ -8685,6 +8689,31 @@ testComboTradeCountMeetsAdoptionFloorMatchesProductionRegressionEvidence = do
     assert
         "the median tradeCount observed on prod 2026-06-14 fails the adoption floor"
         (not (comboTradeCountMeetsAdoptionFloor (Just observedProdMedianTradeCount)))
+
+testComboMinEdgeMeetsAdoptionFloor :: IO ()
+testComboMinEdgeMeetsAdoptionFloor = do
+    assert
+        "missing minEdge fails closed"
+        (not (comboMinEdgeMeetsAdoptionFloor Nothing))
+    assert
+        "NaN minEdge fails closed"
+        (not (comboMinEdgeMeetsAdoptionFloor (Just (0 / 0))))
+    assert
+        "below-floor minEdge fails"
+        (not (comboMinEdgeMeetsAdoptionFloor (Just (adoptionMinEdgeFloor / 2))))
+    assert
+        "at-floor minEdge passes"
+        (comboMinEdgeMeetsAdoptionFloor (Just adoptionMinEdgeFloor))
+    let relaxedConfig =
+            AdoptionEvidenceConfig
+                { aecMinEdgeFloor = adoptionMinEdgeFloor / 2
+                , aecMinTradeCount = adoptionMinTradeCount
+                , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean
+                , aecMaxWalkForwardSharpeStd = adoptionMaxWalkForwardSharpeStd
+                }
+    assert
+        "configured relaxed minEdge floor accepts the relaxed value"
+        (comboMinEdgeMeetsAdoptionFloorWithConfig relaxedConfig (Just (adoptionMinEdgeFloor / 2)))
 
 -- 2026-06-14: invariants for the adoption-time walk-forward Sharpe gate.
 -- The optimizer's default `minWfSharpeMean` was turned on at 0.3 by the
@@ -8736,8 +8765,10 @@ testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig :: IO ()
 testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig = do
     let strictConfig =
             AdoptionEvidenceConfig
-                { aecMinTradeCount = adoptionMinTradeCount
+                { aecMinEdgeFloor = adoptionMinEdgeFloor
+                , aecMinTradeCount = adoptionMinTradeCount
                 , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean + 0.4
+                , aecMaxWalkForwardSharpeStd = adoptionMaxWalkForwardSharpeStd
                 }
         relaxedConfig = strictConfig{aecMinWalkForwardSharpeMean = -0.1}
     assert
@@ -8750,4 +8781,38 @@ testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig = do
         "relaxed walk-forward Sharpe floor still fails closed on missing evidence"
         ( comboWalkForwardSharpeMeetsAdoptionFloorWithConfig relaxedConfig (Just 0.0)
             && not (comboWalkForwardSharpeMeetsAdoptionFloorWithConfig relaxedConfig Nothing)
+        )
+
+testComboWalkForwardSharpeStdMeetsAdoptionCeiling :: IO ()
+testComboWalkForwardSharpeStdMeetsAdoptionCeiling = do
+    assert
+        "default walk-forward std ceiling mirrors optimizer default"
+        (abs (adoptionMaxWalkForwardSharpeStd - 1.5) < 1.0e-12)
+    assert
+        "missing walk-forward std fails closed"
+        (not (comboWalkForwardSharpeStdMeetsAdoptionCeiling Nothing))
+    assert
+        "NaN walk-forward std fails closed"
+        (not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just (0 / 0))))
+    assert
+        "above-ceiling walk-forward std fails"
+        (not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just (adoptionMaxWalkForwardSharpeStd + 0.1))))
+    assert
+        "at-ceiling walk-forward std passes"
+        (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just adoptionMaxWalkForwardSharpeStd))
+    let relaxedConfig =
+            AdoptionEvidenceConfig
+                { aecMinEdgeFloor = adoptionMinEdgeFloor
+                , aecMinTradeCount = adoptionMinTradeCount
+                , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean
+                , aecMaxWalkForwardSharpeStd = adoptionMaxWalkForwardSharpeStd + 10
+                }
+        disabledConfig = relaxedConfig{aecMaxWalkForwardSharpeStd = 0}
+    assert
+        "configured relaxed std ceiling accepts the relaxed value"
+        (comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig relaxedConfig (Just (adoptionMaxWalkForwardSharpeStd + 10)))
+    assert
+        "disabled std ceiling still requires present evidence"
+        ( comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig disabledConfig (Just 100)
+            && not (comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig disabledConfig Nothing)
         )

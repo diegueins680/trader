@@ -23,7 +23,9 @@ class TradeRecord:
     exit_reason: str
     pnl_pct: float
     pnl: float
+    quantity: float
     trade_id: str
+    source: str
 
 
 @dataclass
@@ -94,21 +96,51 @@ def parse_trade(payload: dict[str, Any], line_no: int) -> TradeRecord | None:
     if pnl_pct is None:
         return None
     pnl = maybe_float(first_value(payload, ["pnl", "pnl_quote", "realizedPnl"])) or 0.0
+    quantity = maybe_float(first_value(payload, ["quantity", "quantity_text", "qty"])) or 0.0
+    symbol = normalized_text(payload, ["symbol"], "unknown").upper()
+    method = normalized_text(payload, ["method", "signal_method"], "unknown")
+    timestamp = normalized_text(payload, ["timestamp", "time", "closedAt"], "")
+    source = classify_trade_source(method, symbol, quantity, timestamp)
     return TradeRecord(
         line_no=line_no,
-        timestamp=normalized_text(payload, ["timestamp", "time", "closedAt"], ""),
-        symbol=normalized_text(payload, ["symbol"], "unknown").upper(),
+        timestamp=timestamp,
+        symbol=symbol,
         side=normalized_text(payload, ["side"], "unknown").upper(),
-        method=normalized_text(payload, ["method", "signal_method"], "unknown"),
+        method=method,
         vol_conf_gate=normalized_text(payload, ["volConfGate", "vol_conf_gate"], "unknown"),
         exit_reason=normalized_text(payload, ["exitReason", "exit_reason"], "unknown"),
         pnl_pct=pnl_pct,
         pnl=pnl,
+        quantity=quantity,
         trade_id=normalized_text(payload, ["tradeId", "trade_id"], ""),
+        source=source,
     )
 
 
-def load_trades(path: Path, dedupe: bool = True) -> tuple[list[TradeRecord], int, int]:
+def classify_trade_source(method: str, symbol: str, quantity: float, timestamp: str) -> str:
+    method_key = method.strip().lower()
+    if method_key == "live":
+        return "live_fill" if quantity > 0 else "live_zero_event"
+    if symbol in {"", "UNKNOWN", "STRESS", "TMP", "SAMPLE_PRICES"}:
+        return "backtest"
+    if timestamp.startswith("2020-") or timestamp.startswith("2021-"):
+        return "backtest"
+    return "paper_or_backtest"
+
+
+def source_filter_accepts(source_filter: str, record: TradeRecord) -> bool:
+    if source_filter == "all":
+        return True
+    if source_filter == "live":
+        return record.source in {"live_fill", "live_zero_event"}
+    if source_filter == "live-fill":
+        return record.source == "live_fill"
+    if source_filter == "nonzero":
+        return record.quantity > 0
+    return record.source == source_filter
+
+
+def load_trades(path: Path, dedupe: bool = True, source_filter: str = "all") -> tuple[list[TradeRecord], int, int]:
     records: list[TradeRecord] = []
     seen: set[tuple[Any, ...]] = set()
     skipped = 0
@@ -128,6 +160,8 @@ def load_trades(path: Path, dedupe: bool = True) -> tuple[list[TradeRecord], int
         record = parse_trade(payload, line_no)
         if record is None:
             skipped += 1
+            continue
+        if not source_filter_accepts(source_filter, record):
             continue
         key = dedupe_key(record)
         if dedupe and key in seen:
@@ -173,6 +207,8 @@ def summarize_dimension(records: list[TradeRecord], dimension: str) -> list[Grou
             key = f"{trade.method}|{trade.symbol}"
         elif dimension == "methodVolGateSide":
             key = f"{trade.method}|{trade.vol_conf_gate}|{trade.side}"
+        elif dimension == "source":
+            key = trade.source
         else:
             raise ValueError(f"unknown dimension: {dimension}")
         add_group(groups, key, trade)
@@ -198,8 +234,8 @@ def ranked(rows: list[GroupStats], top: int, reverse: bool, positive: bool) -> l
     ]
 
 
-def build_report(records: list[TradeRecord], skipped: int, duplicates: int, min_group_trades: int, top: int) -> dict[str, Any]:
-    dimensions = ["method", "symbol", "side", "exitReason", "methodSymbol", "methodVolGateSide"]
+def build_report(records: list[TradeRecord], skipped: int, duplicates: int, min_group_trades: int, top: int, source_filter: str = "all") -> dict[str, Any]:
+    dimensions = ["source", "method", "symbol", "side", "exitReason", "methodSymbol", "methodVolGateSide"]
     groups = {dimension: summarize_dimension(records, dimension) for dimension in dimensions}
     method_rows = groups["method"]
     symbol_rows = groups["symbol"]
@@ -224,6 +260,8 @@ def build_report(records: list[TradeRecord], skipped: int, duplicates: int, min_
             "trades": len(records),
             "skippedLines": skipped,
             "duplicateTrades": duplicates,
+            "sourceFilter": source_filter,
+            "sourceCounts": {row.key: row.trades for row in groups["source"]},
             "totalPnlPct": sum(trade.pnl_pct for trade in records),
             "totalPnl": sum(trade.pnl for trade in records),
             "minGroupTrades": min_group_trades,
@@ -281,6 +319,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Trades analyzed: {summary['trades']}",
         f"- Duplicate trades ignored: {summary['duplicateTrades']}",
         f"- Skipped lines: {summary['skippedLines']}",
+        f"- Source filter: {summary['sourceFilter']}",
+        f"- Source counts: {json.dumps(summary['sourceCounts'], sort_keys=True)}",
         f"- Total return contribution: {fmt_pct(summary['totalPnlPct'])}",
         f"- Total PnL: {fmt_money(summary['totalPnl'])}",
         "",
@@ -294,7 +334,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
     ]
     groups = report["groups"]
-    for dimension in ["method", "symbol", "exitReason", "methodVolGateSide"]:
+    for dimension in ["source", "method", "symbol", "exitReason", "methodVolGateSide"]:
         lines.extend(render_table(f"Biggest Gains By {dimension}", groups[dimension]["gainers"]))
         lines.extend(render_table(f"Biggest Losses By {dimension}", groups[dimension]["losers"]))
     return "\n".join(lines).rstrip() + "\n"
@@ -307,6 +347,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of markdown.")
     parser.add_argument("--top", type=int, default=10, help="Rows per gain/loss table.")
     parser.add_argument("--min-group-trades", type=int, default=5, help="Minimum trades before a group can be recommended.")
+    parser.add_argument(
+        "--source-filter",
+        choices=["all", "live", "live-fill", "live_zero_event", "paper_or_backtest", "backtest", "nonzero"],
+        default="all",
+        help="Analyze only a classified trade source. Use live-fill for real nonzero live fills.",
+    )
     parser.add_argument("--no-dedupe", action="store_true", help="Do not drop duplicate trade ids or identical logical rows.")
     return parser.parse_args(argv)
 
@@ -317,8 +363,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--top must be > 0")
     if args.min_group_trades <= 0:
         raise SystemExit("--min-group-trades must be > 0")
-    records, skipped, duplicates = load_trades(args.input, dedupe=not args.no_dedupe)
-    report = build_report(records, skipped, duplicates, args.min_group_trades, args.top)
+    records, skipped, duplicates = load_trades(args.input, dedupe=not args.no_dedupe, source_filter=args.source_filter)
+    report = build_report(records, skipped, duplicates, args.min_group_trades, args.top, source_filter=args.source_filter)
     output = json.dumps(report, indent=2, sort_keys=True) + "\n" if args.json else render_markdown(report)
     if args.output:
         args.output.write_text(output)

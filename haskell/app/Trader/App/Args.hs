@@ -32,7 +32,7 @@ import Text.Read (readMaybe)
 import Options.Applicative
 
 import Trader.Binance (BinanceMarket (..))
-import Trader.BotStartSemantics (adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean)
+import Trader.BotStartSemantics (adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), defaultCapitalPreservationConfig)
 import Trader.CostCalibration (CostCalibrationConfig (..), defaultCostCalibrationConfig)
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
@@ -299,8 +299,12 @@ data Args = Args
     , argTrendLookback :: Int
     , argMaxPositionSize :: Double
     , argAdoptionMaxPositionSizeCap :: Double
+    , argAdoptionMinEdgeFloor :: Double
     , argAdoptionMinTradeCount :: Int
     , argAdoptionMinWalkForwardSharpeMean :: Double
+    , argAdoptionMaxWalkForwardSharpeStd :: Double
+    , argAdoptionRelaxGates :: Bool
+    , argAdoptionRelaxTargetCount :: Int
     , argVolTarget :: Maybe Double
     , argVolLookback :: Int
     , argVolEwmaAlpha :: Maybe Double
@@ -1288,8 +1292,17 @@ opts = do
     argTrendLookback <- option auto (long "trend-lookback" <> value 30 <> help "SMA lookback for trend filter (0 disables)")
     argMaxPositionSize <- option auto (long "max-position-size" <> value 0.8 <> help "Cap position size/leverage (1 = full size)")
     argAdoptionMaxPositionSizeCap <- option auto (long "adoption-max-position-size-cap" <> value adoptionMaxPositionSizeCap <> showDefault <> help "Live top-combo adoption cap applied to adopted max position size")
+    argAdoptionMinEdgeFloor <- option auto (long "adoption-min-edge-floor" <> value adoptionMinEdgeFloor <> showDefault <> help "Minimum stored minEdge required before live top-combo adoption")
     argAdoptionMinTradeCount <- option auto (long "adoption-min-trade-count" <> value adoptionMinTradeCount <> showDefault <> help "Minimum stored backtest trade count required before live top-combo adoption")
     argAdoptionMinWalkForwardSharpeMean <- option auto (long "adoption-min-wf-sharpe-mean" <> value adoptionMinWalkForwardSharpeMean <> showDefault <> help "Minimum stored walk-forward mean Sharpe required before live top-combo adoption")
+    argAdoptionMaxWalkForwardSharpeStd <- option auto (long "adoption-max-wf-sharpe-std" <> value adoptionMaxWalkForwardSharpeStd <> showDefault <> help "Maximum stored walk-forward Sharpe standard deviation allowed before live top-combo adoption (0 disables)")
+    argAdoptionRelaxGates <-
+        defaultOffSwitch
+            "adoption-relax-gates"
+            "no-adoption-relax-gates"
+            "If no combo clears the configured live-adoption gates, relax evidence thresholds to the PnL-best fully evidenced combo."
+            "Keep live-adoption gates fixed."
+    argAdoptionRelaxTargetCount <- option auto (long "adoption-relax-target-count" <> value 1 <> showDefault <> help "Minimum fully evidenced combos the adaptive adoption gate should admit when --adoption-relax-gates is enabled")
     argVolTarget <-
         optional
             ( option
@@ -2020,7 +2033,9 @@ validateArgs args0 = do
             , ("--edge-buffer", argEdgeBuffer args)
             , ("--max-position-size", argMaxPositionSize args)
             , ("--adoption-max-position-size-cap", argAdoptionMaxPositionSizeCap args)
+            , ("--adoption-min-edge-floor", argAdoptionMinEdgeFloor args)
             , ("--adoption-min-wf-sharpe-mean", argAdoptionMinWalkForwardSharpeMean args)
+            , ("--adoption-max-wf-sharpe-std", argAdoptionMaxWalkForwardSharpeStd args)
             , ("--vol-floor", argVolFloor args)
             , ("--vol-scale-max", argVolScaleMax args)
             , ("--rebalance-threshold", argRebalanceThreshold args)
@@ -2466,7 +2481,10 @@ validateArgs args0 = do
     ensure "--max-position-size must be <= 10" (argMaxPositionSize args <= 10)
     ensure "--adoption-max-position-size-cap must be >= 0" (argAdoptionMaxPositionSizeCap args >= 0)
     ensure "--adoption-max-position-size-cap must be <= 10" (argAdoptionMaxPositionSizeCap args <= 10)
+    ensure "--adoption-min-edge-floor must be >= 0" (argAdoptionMinEdgeFloor args >= 0)
     ensure "--adoption-min-trade-count must be >= 0" (argAdoptionMinTradeCount args >= 0)
+    ensure "--adoption-max-wf-sharpe-std must be >= 0" (argAdoptionMaxWalkForwardSharpeStd args >= 0)
+    ensure "--adoption-relax-target-count must be >= 1" (argAdoptionRelaxTargetCount args >= 1)
     let market = argBinanceMarket args
     when (market /= MarketFutures) $
         ensure "--max-position-size must be <= 5 for spot/margin markets" (argMaxPositionSize args <= 5)

@@ -20,17 +20,24 @@ module Trader.BotStartSemantics (
     capAdoptedMaxPositionSizeWithCap,
     AdoptionEvidenceConfig (..),
     defaultAdoptionEvidenceConfig,
+    adoptionMinEdgeFloor,
     adoptionMinTradeCount,
     adoptionMinWalkForwardSharpeMean,
+    adoptionMaxWalkForwardSharpeStd,
+    comboMinEdgeMeetsAdoptionFloor,
+    comboMinEdgeMeetsAdoptionFloorWithConfig,
     comboTradeCountMeetsAdoptionFloor,
     comboTradeCountMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeMeetsAdoptionFloor,
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
+    comboWalkForwardSharpeStdMeetsAdoptionCeiling,
+    comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
 ) where
 
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
+import Trader.CostCalibration (venueMinEdgeFloor)
 import Trader.Text (dedupeStable)
 
 {- | Hard cap on the 'maxPositionSize' the bot will accept when adopting an
@@ -96,17 +103,38 @@ adoptionMinTradeCount :: Int
 adoptionMinTradeCount = 20
 
 data AdoptionEvidenceConfig = AdoptionEvidenceConfig
-    { aecMinTradeCount :: !Int
+    { aecMinEdgeFloor :: !Double
+    , aecMinTradeCount :: !Int
     , aecMinWalkForwardSharpeMean :: !Double
+    , aecMaxWalkForwardSharpeStd :: !Double
     }
     deriving (Eq, Show)
 
 defaultAdoptionEvidenceConfig :: AdoptionEvidenceConfig
 defaultAdoptionEvidenceConfig =
     AdoptionEvidenceConfig
-        { aecMinTradeCount = adoptionMinTradeCount
+        { aecMinEdgeFloor = adoptionMinEdgeFloor
+        , aecMinTradeCount = adoptionMinTradeCount
         , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean
+        , aecMaxWalkForwardSharpeStd = adoptionMaxWalkForwardSharpeStd
         }
+
+{- | Minimum edge a live-adopted top combo must carry. This mirrors the venue
+cost floor used by optimizer deployability: a combo whose edge does not beat
+the modeled round-trip cost is not a candidate for live capital.
+-}
+adoptionMinEdgeFloor :: Double
+adoptionMinEdgeFloor = venueMinEdgeFloor
+
+comboMinEdgeMeetsAdoptionFloor :: Maybe Double -> Bool
+comboMinEdgeMeetsAdoptionFloor =
+    comboMinEdgeMeetsAdoptionFloorWithConfig defaultAdoptionEvidenceConfig
+
+comboMinEdgeMeetsAdoptionFloorWithConfig :: AdoptionEvidenceConfig -> Maybe Double -> Bool
+comboMinEdgeMeetsAdoptionFloorWithConfig _ Nothing = False
+comboMinEdgeMeetsAdoptionFloorWithConfig config (Just edge)
+    | isNaN edge || isInfinite edge = False
+    | otherwise = edge >= max 0 (aecMinEdgeFloor config)
 
 {- | Adoption-time predicate: does the combo's backtest report at least
 'adoptionMinTradeCount' trades? A 'Nothing' reading fails closed because
@@ -153,6 +181,15 @@ Falsifiable invariants:
 adoptionMinWalkForwardSharpeMean :: Double
 adoptionMinWalkForwardSharpeMean = 0.3
 
+{- | Maximum cross-fold standard deviation of walk-forward Sharpe accepted by
+live adoption. The optimizer defaults to @maxWfSharpeStd = 1.5@; adoption uses
+the same ceiling so a combo that is profitable in one fold and unstable across
+the rest does not become deployable merely because its mean clears the floor.
+Set to 0 in an explicit config to disable this ceiling.
+-}
+adoptionMaxWalkForwardSharpeStd :: Double
+adoptionMaxWalkForwardSharpeStd = 1.5
+
 {- | Adoption-time predicate: does the combo's walk-forward summary report a
 mean Sharpe that clears 'adoptionMinWalkForwardSharpeMean'? Missing and
 non-finite readings fail closed.
@@ -166,6 +203,20 @@ comboWalkForwardSharpeMeetsAdoptionFloorWithConfig _ Nothing = False
 comboWalkForwardSharpeMeetsAdoptionFloorWithConfig config (Just s)
     | isNaN s || isInfinite s = False
     | otherwise = s >= aecMinWalkForwardSharpeMean config
+
+comboWalkForwardSharpeStdMeetsAdoptionCeiling :: Maybe Double -> Bool
+comboWalkForwardSharpeStdMeetsAdoptionCeiling =
+    comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig defaultAdoptionEvidenceConfig
+
+comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig :: AdoptionEvidenceConfig -> Maybe Double -> Bool
+comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig config mStd
+    | aecMaxWalkForwardSharpeStd config <= 0 = isJust mStd
+    | otherwise =
+        case mStd of
+            Nothing -> False
+            Just s
+                | isNaN s || isInfinite s -> False
+                | otherwise -> s <= aecMaxWalkForwardSharpeStd config
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = fromMaybe True
