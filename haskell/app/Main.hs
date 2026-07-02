@@ -8575,6 +8575,11 @@ botStartQueueMaxWaitSecondsFromEnv :: IO Int
 botStartQueueMaxWaitSecondsFromEnv =
     readBoundedIntEnv "TRADER_BOT_START_QUEUE_MAX_WAIT_SEC" 0 86400 defaultBotStartQueueMaxWaitSeconds
 
+botStartTopComboAdoptionEnabledFromEnv :: IO Bool
+botStartTopComboAdoptionEnabledFromEnv = do
+    raw <- lookupEnv "TRADER_BOT_START_TOP_COMBO_ADOPTION"
+    pure (readEnvBool raw True)
+
 {- | Environment-tunable auto-start backoff policy. The defaults come from
 'defaultBackoffPolicy' but can be overridden so operators can shrink the
 circuit-open window during incident response without redeploying.
@@ -8719,15 +8724,19 @@ selectCompatibleTopComboArgs now limits sym args req export =
 
 applyLatestTopCombo :: Maybe OpsStore -> TopCombosStore -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
 applyLatestTopCombo mOps topCombosStore limits sym args req = do
-    combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
-    now <- getTimestampMs
     let baseArgs = applyAdoptRequirementArgs args req
-    case combosOrErr of
-        Left _ -> pure (baseArgs, Nothing)
-        Right export ->
-            case selectCompatibleTopComboArgs now limits sym baseArgs req export of
-                Nothing -> pure (baseArgs, Nothing)
-                Just (args', mUuid) -> pure (args', mUuid)
+    topComboAdoptionEnabled <- botStartTopComboAdoptionEnabledFromEnv
+    if not topComboAdoptionEnabled
+        then pure (baseArgs, Nothing)
+        else do
+            combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+            now <- getTimestampMs
+            case combosOrErr of
+                Left _ -> pure (baseArgs, Nothing)
+                Right export ->
+                    case selectCompatibleTopComboArgs now limits sym baseArgs req export of
+                        Nothing -> pure (baseArgs, Nothing)
+                        Just (args', mUuid) -> pure (args', mUuid)
 
 topComboValueByUuid :: Text -> Aeson.Value -> Maybe Aeson.Value
 topComboValueByUuid uuid val =
@@ -9737,10 +9746,17 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         disabledSymbols <- botDisabledSymbolsFromEnv
                         maxBots <- botAutoStartMaxBotsFromEnv
                         maxStartsPerCycle <- botAutoStartMaxStartsPerCycleFromEnv
+                        topComboAdoptionEnabled <- botStartTopComboAdoptionEnabledFromEnv
                         topComboBotCountRaw <- topComboBotCountFromEnv
-                        let topComboBotCount = min maxBots topComboBotCountRaw
+                        let topComboBotCount =
+                                if topComboAdoptionEnabled
+                                    then min maxBots topComboBotCountRaw
+                                    else 0
                         topComboStartupBotCountRaw <- topComboStartupBotCountFromEnv topComboBotCount
-                        let topComboStartupBotCount = min maxBots topComboStartupBotCountRaw
+                        let topComboStartupBotCount =
+                                if topComboAdoptionEnabled
+                                    then min maxBots topComboStartupBotCountRaw
+                                    else 0
                         pollSec <- comboPollSecondsFromEnv
                         let topJsonPath = tcsPath topCombosStore
                         errRef <- newIORef HM.empty
@@ -9781,6 +9797,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 ++ ". Top combos path: "
                                 ++ topJsonPath
                             )
+                        unless topComboAdoptionEnabled $
+                            putStrLn "Live bot auto-start top-combo adoption disabled (TRADER_BOT_START_TOP_COMBO_ADOPTION=false)."
 
                         let sleepSec s = threadDelay (max 1 s * 1000000)
                             recordError sym msg = do
@@ -14802,14 +14820,128 @@ placeBotCloseOrder args sym sig env manageProtection =
         sig' = sig{lsChosenDir = Just (-1)}
      in placeOrderForSignalEx args' sym sig' env Nothing manageProtection
 
+data BotStartupEnvPreset = BotStartupEnvPreset
+    { bsepArgs :: !Args
+    , bsepApplied :: !Bool
+    }
+
+lookupTrimmedEnv :: String -> IO (Maybe String)
+lookupTrimmedEnv name = do
+    raw <- lookupEnv name
+    pure $
+        case trim <$> raw of
+            Just value | not (null value) -> Just value
+            _ -> Nothing
+
+readBotStartupDoubleEnv :: String -> Maybe String -> IO (Maybe Double)
+readBotStartupDoubleEnv name mRaw =
+    case mRaw of
+        Nothing -> pure Nothing
+        Just raw ->
+            case readMaybe raw of
+                Just n | isFiniteDouble n -> pure (Just n)
+                _ -> ioError (userError (name ++ " must be a finite number"))
+
+readBotStartupNonNegativeDoubleEnv :: String -> Maybe String -> IO (Maybe Double)
+readBotStartupNonNegativeDoubleEnv name mRaw = do
+    mValue <- readBotStartupDoubleEnv name mRaw
+    case mValue of
+        Nothing -> pure Nothing
+        Just n
+            | n >= 0 -> pure (Just n)
+            | otherwise -> ioError (userError (name ++ " must be >= 0"))
+
+readBotStartupThresholdEnv :: String -> Maybe String -> IO (Maybe Double)
+readBotStartupThresholdEnv name mRaw = do
+    mValue <- readBotStartupNonNegativeDoubleEnv name mRaw
+    case mValue of
+        Nothing -> pure Nothing
+        Just n
+            | n <= 1 -> pure (Just n)
+            | otherwise -> ioError (userError (name ++ " must be <= 1"))
+
+readBotStartupBoolEnv :: String -> Maybe String -> IO (Maybe Bool)
+readBotStartupBoolEnv name mRaw =
+    case fmap (map toLower) mRaw of
+        Nothing -> pure Nothing
+        Just "true" -> pure (Just True)
+        Just "1" -> pure (Just True)
+        Just "yes" -> pure (Just True)
+        Just "on" -> pure (Just True)
+        Just "false" -> pure (Just False)
+        Just "0" -> pure (Just False)
+        Just "no" -> pure (Just False)
+        Just "off" -> pure (Just False)
+        Just _ -> ioError (userError (name ++ " must be true/false/1/0"))
+
+applyBotStartupEnvPreset :: Args -> IO BotStartupEnvPreset
+applyBotStartupEnvPreset args = do
+    methodRaw <- lookupTrimmedEnv "TRADER_BOT_START_METHOD"
+    volConfGateRaw <- lookupTrimmedEnv "TRADER_BOT_START_VOL_CONF_GATE"
+    costAwareEdgeRaw <- lookupTrimmedEnv "TRADER_BOT_START_COST_AWARE_EDGE"
+    minEdgeRaw <- lookupTrimmedEnv "TRADER_BOT_START_MIN_EDGE"
+    minSignalToNoiseRaw <- lookupTrimmedEnv "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE"
+    openThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_OPEN_THRESHOLD"
+    closeThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_CLOSE_THRESHOLD"
+
+    method <-
+        case methodRaw of
+            Nothing -> pure (argMethod args)
+            Just raw ->
+                case parseMethod raw of
+                    Left err -> ioError (userError ("TRADER_BOT_START_METHOD: " ++ err))
+                    Right parsed -> pure parsed
+    volConfGate <-
+        case volConfGateRaw of
+            Nothing -> pure (argVolConfGate args)
+            Just raw ->
+                case parseVolConfGatePreset raw of
+                    Left err -> ioError (userError ("TRADER_BOT_START_VOL_CONF_GATE: " ++ err))
+                    Right parsed -> pure parsed
+    mCostAwareEdge <- readBotStartupBoolEnv "TRADER_BOT_START_COST_AWARE_EDGE" costAwareEdgeRaw
+    mMinEdge <- readBotStartupNonNegativeDoubleEnv "TRADER_BOT_START_MIN_EDGE" minEdgeRaw
+    mMinSignalToNoise <- readBotStartupNonNegativeDoubleEnv "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE" minSignalToNoiseRaw
+    mOpenThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_OPEN_THRESHOLD" openThresholdRaw
+    mCloseThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_CLOSE_THRESHOLD" closeThresholdRaw
+
+    let openThreshold = fromMaybe (argOpenThreshold args) mOpenThreshold
+        closeThreshold =
+            fromMaybe
+                (if isJust mOpenThreshold then openThreshold else argCloseThreshold args)
+                mCloseThreshold
+        applied =
+            any
+                isJust
+                [ methodRaw
+                , volConfGateRaw
+                , costAwareEdgeRaw
+                , minEdgeRaw
+                , minSignalToNoiseRaw
+                , openThresholdRaw
+                , closeThresholdRaw
+                ]
+        args' =
+            args
+                { argMethod = method
+                , argVolConfGate = volConfGate
+                , argCostAwareEdge = fromMaybe (argCostAwareEdge args) mCostAwareEdge
+                , argMinEdge = fromMaybe (argMinEdge args) mMinEdge
+                , argMinSignalToNoise = fromMaybe (argMinSignalToNoise args) mMinSignalToNoise
+                , argOpenThreshold = openThreshold
+                , argCloseThreshold = closeThreshold
+                }
+    pure BotStartupEnvPreset{bsepArgs = args', bsepApplied = applied}
+
 runRestApi :: Args -> Maybe Webhook -> IO ()
 runRestApi cliArgs mWebhook = do
     -- REST requests should default to mainnet unless callers explicitly set binanceTestnet=true.
     -- This keeps production-safe defaults even if the process was started with --binance-testnet.
     crossExchangeEnv <- lookupEnv "TRADER_CROSS_EXCHANGE_COINBASE"
-    let crossExchangeCoinbase = argCrossExchangeCoinbase cliArgs || readEnvBool crossExchangeEnv False
+    startupPreset <- applyBotStartupEnvPreset cliArgs
+    let cliArgsWithStartupPreset = bsepArgs startupPreset
+        crossExchangeCoinbase = argCrossExchangeCoinbase cliArgsWithStartupPreset || readEnvBool crossExchangeEnv False
         baseArgs =
-            cliArgs
+            cliArgsWithStartupPreset
                 { argBinanceTestnet = False
                 , argCrossExchangeCoinbase = crossExchangeCoinbase
                 }
@@ -14963,6 +15095,18 @@ runRestApi cliArgs mWebhook = do
             (arlMaxOptimizerOutputBytes reqLimits)
             (arlMaxBotStatusTail reqLimits)
         )
+    when (bsepApplied startupPreset) $
+        putStrLn
+            ( printf
+                "Bot start env preset: method=%s volConfGate=%s costAwareEdge=%s minEdge=%.8f minSignalToNoise=%.8f openThreshold=%.8f closeThreshold=%.8f"
+                (methodCode (argMethod baseArgs))
+                (volConfGateCode (argVolConfGate baseArgs))
+                (show (argCostAwareEdge baseArgs))
+                (argMinEdge baseArgs)
+                (argMinSignalToNoise baseArgs)
+                (argOpenThreshold baseArgs)
+                (argCloseThreshold baseArgs)
+            )
     if ccAllowAnyOrigin corsConfig
         then putStrLn "CORS: allowed origin *"
         else case ccAllowedOrigins corsConfig of

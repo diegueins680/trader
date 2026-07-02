@@ -511,3 +511,16 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended; evidence lines Args
 - Next owner: trader-firm-haskell (verify Main.hs threads `argVolConfGate` to runner and TestMain.hs exercises preset).
 
 FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate flag confirmed wired in Args.hs L925.
+
+## Result — 2026-07-01 21:06 UTC — vol-conf-gate slice
+- Command: git status + grep on Args.hs/Main.hs/TestMain.hs (vol-conf-gate|vol_conf_gate|VolConfGatePreset|argVolConfGatePreset|confidence|realized)
+- git status: clean on all three targeted files (no local modifications)
+- Args.hs: `VolConfGatePreset(..)`+`parseVolConfGatePreset` imported (L83-84); `argVolConfGate :: VolConfGatePreset` field (L314); CLI wired at L1332-1337 via `eitherReader parseVolConfGatePreset` under `--vol-conf-gate` with `volConfGateChoicesCsv`
+- Override knobs present L1346-1358: weak/strong confidence thresholds + low/med/high × med/strong size multipliers
+- Related seams: `--meta-label-min-confidence` (L1238), `--confidence-sizing` toggle (L1548), `--lstm-confidence-soft/hard` (L1568-1569), `--vol-lookback` realized-vol sizing (L1316), `--protection-min-confidence` (L1555)
+- Main.hs / TestMain.hs: 0 matches for the pattern set — no execution-path or test coverage referencing `argVolConfGate`, `VolConfGatePreset`, confidence, or realized on those files
+- Preset is parsed and stored on `AppArgs` but not consumed via these entrypoints; downstream use lives outside audited surface
+- Status: data-blocking: test/TestMain.hs (no vol-conf-gate preset coverage) & app/Main.hs (no visible consumer of argVolConfGate in top-level dispatch)
+- Next owner: trader-firm-engineering (wire `argVolConfGate` into Main.hs sizing pipeline) → then trader-firm-qa (add TestMain.hs preset round-trip)
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice proof (Args.hs L83-84/314/1332-1358; Main.hs+TestMain.hs 0 matches)

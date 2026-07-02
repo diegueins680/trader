@@ -17,6 +17,7 @@
 #   TRADER_API_BASE_URL        default: http://127.0.0.1:8090   (used only for the post-restart probe)
 #   TRADER_TRADE_LOG           default: .tmp/trader/live_trades.ndjson
 #   TRADER_LOCAL_STACK_QUIET=1 suppress non-error output
+#   TRADER_BOT_START_*         live bot startup preset written into the API LaunchAgent
 
 set -uo pipefail
 
@@ -114,6 +115,65 @@ ensure_api_trade_log_arg() {
 }
 
 ensure_api_trade_log_arg "${API_PLIST}"
+
+ensure_api_env_var() {
+  local plist="$1"
+  local key="$2"
+  local value="$3"
+
+  if [[ ! -f "${plist}" ]]; then
+    return 0
+  fi
+  if [[ ! -x /usr/libexec/PlistBuddy ]]; then
+    warn "PlistBuddy not found; cannot ensure API LaunchAgent ${key}."
+    return 0
+  fi
+
+  if ! /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables" "${plist}" >/dev/null 2>&1; then
+    if /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "${plist}" >/dev/null 2>&1; then
+      API_PLIST_CHANGED=1
+    else
+      warn "failed to add EnvironmentVariables to ${plist}"
+      return 0
+    fi
+  fi
+
+  local current=""
+  current="$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:${key}" "${plist}" 2>/dev/null || true)"
+  if [[ "${current}" == "${value}" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${current}" ]]; then
+    if /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:${key} ${value}" "${plist}" >/dev/null 2>&1; then
+      API_PLIST_CHANGED=1
+      log "set ${key}=${value} in ${plist}"
+    else
+      warn "failed to set ${key} in ${plist}"
+    fi
+  else
+    if /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:${key} string ${value}" "${plist}" >/dev/null 2>&1; then
+      API_PLIST_CHANGED=1
+      log "added ${key}=${value} to ${plist}"
+    else
+      warn "failed to add ${key} to ${plist}"
+    fi
+  fi
+}
+
+ensure_api_startup_preset_env() {
+  local plist="$1"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_METHOD" "${TRADER_BOT_START_METHOD:-ta_regime_switch}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_VOL_CONF_GATE" "${TRADER_BOT_START_VOL_CONF_GATE:-disabled}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_COST_AWARE_EDGE" "${TRADER_BOT_START_COST_AWARE_EDGE:-false}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_MIN_EDGE" "${TRADER_BOT_START_MIN_EDGE:-0}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE" "${TRADER_BOT_START_MIN_SIGNAL_TO_NOISE:-0}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_OPEN_THRESHOLD" "${TRADER_BOT_START_OPEN_THRESHOLD:-0.001}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_CLOSE_THRESHOLD" "${TRADER_BOT_START_CLOSE_THRESHOLD:-0.001}"
+  ensure_api_env_var "${plist}" "TRADER_BOT_START_TOP_COMBO_ADOPTION" "${TRADER_BOT_START_TOP_COMBO_ADOPTION:-true}"
+}
+
+ensure_api_startup_preset_env "${API_PLIST}"
 
 if [[ "${API_PLIST_CHANGED}" == "1" ]]; then
   if launchctl print "${GUI_DOMAIN}/${API_LABEL}" >/dev/null 2>&1; then
