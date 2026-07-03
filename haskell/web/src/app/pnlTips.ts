@@ -5,28 +5,28 @@ const TRADE_PNL_EPS_LABEL = fmtNum(TRADE_PNL_EPS, 9);
 
 export const ACCOUNT_TRADE_PNL_TIPS = {
   outcomes: [
-    "Counts trades by exchange realized P&L (realizedPnl).",
-    `Win/loss if |P&L| > ${TRADE_PNL_EPS_LABEL}; otherwise flat.`,
-    "Win rate = wins / total trades (after filters).",
+    "Counts non-zero exchange realized P&L rows as closed outcomes.",
+    `Win/loss if |P&L| > ${TRADE_PNL_EPS_LABEL}.`,
+    "Zero-PNL fills are usually opens and are excluded from win rate.",
   ],
   avgWinLoss: [
-    "Average realized P&L per winning/losing trade.",
+    "Average realized P&L per winning/losing outcome.",
     "Payoff ratio = avg win / |avg loss|.",
     "Fees are shown separately.",
   ],
   bestWorst: [
-    "Largest positive/negative realized P&L in this set.",
-    "Avg P&L = mean realized P&L across all trades.",
+    "Largest positive/negative realized P&L outcome in this set.",
+    "Avg outcome P&L = mean realized P&L across scored outcomes.",
   ],
   totalPnl: [
-    "Total P&L = sum of realized P&L across trades.",
+    "Total P&L = sum of realized P&L across scored outcomes.",
     "Total win/loss = sum of positive/negative realized P&L.",
     "Profit factor = gross wins / |gross losses|.",
     "Fees are listed by asset (not subtracted from totals).",
   ],
   totals: [
-    "Qty = sum of trade quantities.",
-    "Quote = sum of quote quantities.",
+    "Qty = sum of filtered fill quantities.",
+    "Quote = sum of filtered fill quote quantities.",
     "Scope follows the current filters/symbol selection.",
   ],
 };

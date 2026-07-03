@@ -474,6 +474,8 @@ export type BinancePnlRow = {
 
 export type BinancePnlAnalysis = {
   count: number;
+  fillCount: number;
+  excludedFlatFills: number;
   wins: number;
   losses: number;
   breakeven: number;
@@ -1212,6 +1214,7 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
 
   if (rows.length === 0) return null;
 
+  const outcomeRows = rows.filter((row) => Math.abs(row.realizedPnl) > TRADE_PNL_EPS);
   let wins = 0;
   let losses = 0;
   let breakeven = 0;
@@ -1228,6 +1231,9 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
     if (Number.isFinite(qty)) sumQty += qty;
     const quoteQty = row.quoteQty;
     if (Number.isFinite(quoteQty)) sumQuoteQty += quoteQty;
+  }
+
+  for (const row of outcomeRows) {
     const pnl = row.realizedPnl;
     sumPnl += pnl;
     if (pnl > TRADE_PNL_EPS) {
@@ -1243,18 +1249,20 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
     }
   }
 
-  const count = rows.length;
+  const count = outcomeRows.length;
+  const fillCount = rows.length;
+  const excludedFlatFills = fillCount - count;
   const avgWin = wins > 0 ? sumWin / wins : null;
   const avgLoss = losses > 0 ? sumLoss / losses : null;
   const avgPnl = count > 0 ? sumPnl / count : null;
   const winRate = count > 0 ? wins / count : null;
   const profitFactor = sumLoss < 0 ? sumWin / Math.abs(sumLoss) : sumWin > 0 ? Infinity : null;
   const payoffRatio = avgWin !== null && avgLoss !== null && avgLoss !== 0 ? avgWin / Math.abs(avgLoss) : null;
-  const topWins = rows
+  const topWins = outcomeRows
     .filter((row) => row.realizedPnl > TRADE_PNL_EPS)
     .sort((a, b) => b.realizedPnl - a.realizedPnl)
     .slice(0, TRADE_PNL_TOP_N);
-  const topLosses = rows
+  const topLosses = outcomeRows
     .filter((row) => row.realizedPnl < -TRADE_PNL_EPS)
     .sort((a, b) => a.realizedPnl - b.realizedPnl)
     .slice(0, TRADE_PNL_TOP_N);
@@ -1262,6 +1270,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
 
   return {
     count,
+    fillCount,
+    excludedFlatFills,
     wins,
     losses,
     breakeven,

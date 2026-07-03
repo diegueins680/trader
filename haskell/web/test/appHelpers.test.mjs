@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   adjustBacktestParamsForSplit,
   autoFitLookbackToBars,
+  buildBinanceTradePnlAnalysis,
   buildOpenBinancePositionSymbolSet,
   buildDefaultOptimizerRunForm,
   buildOptimizerCorrelationGuess,
@@ -694,5 +695,83 @@ test("sortBinancePositions keeps missing metric values at the bottom and preserv
   assert.deepEqual(
     sortBinancePositions(positions, "symbol", "desc").map((position) => position.symbol),
     ["ETHUSDT", "BNBUSDT", "ADAUSDT"],
+  );
+});
+
+test("buildBinanceTradePnlAnalysis scores non-zero realized PNL closes without diluting win rate by opening fills", () => {
+  const analysis = buildBinanceTradePnlAnalysis([
+    {
+      symbol: "BTCUSDT",
+      tradeId: 1,
+      price: 100,
+      qty: 1,
+      quoteQty: 100,
+      commission: 0.01,
+      commissionAsset: "USDT",
+      time: 1000,
+      side: "BUY",
+      realizedPnl: 0,
+    },
+    {
+      symbol: "BTCUSDT",
+      tradeId: 2,
+      price: 98.5,
+      qty: 1,
+      quoteQty: 98.5,
+      commission: 0.01,
+      commissionAsset: "USDT",
+      time: 2000,
+      side: "SELL",
+      realizedPnl: -1.5,
+    },
+    {
+      symbol: "ETHUSDT",
+      tradeId: 3,
+      price: 20,
+      qty: 2,
+      quoteQty: 40,
+      commission: 0.02,
+      commissionAsset: "USDT",
+      time: 3000,
+      side: "SELL",
+      realizedPnl: 0,
+    },
+    {
+      symbol: "ETHUSDT",
+      tradeId: 4,
+      price: 19,
+      qty: 2,
+      quoteQty: 38,
+      commission: 0.02,
+      commissionAsset: "USDT",
+      time: 4000,
+      side: "BUY",
+      realizedPnl: 2,
+    },
+  ]);
+
+  assert.ok(analysis);
+  assert.equal(analysis.fillCount, 4);
+  assert.equal(analysis.count, 2);
+  assert.equal(analysis.excludedFlatFills, 2);
+  assert.equal(analysis.wins, 1);
+  assert.equal(analysis.losses, 1);
+  assert.equal(analysis.breakeven, 0);
+  assert.equal(analysis.winRate, 0.5);
+  assert.equal(analysis.totalPnl, 0.5);
+  assert.equal(analysis.avgPnl, 0.25);
+  assert.equal(analysis.totalQty, 6);
+  assert.equal(analysis.totalQuoteQty, 276.5);
+  assert.equal(analysis.commissionTotals.length, 1);
+  assert.equal(analysis.commissionTotals[0].asset, "USDT");
+  assert.ok(Math.abs(analysis.commissionTotals[0].total - 0.06) < 1e-12);
+  assert.equal(analysis.commissionTotals[0].count, 4);
+  assert.deepEqual(
+    analysis.topWins.map((row) => row.tradeId),
+    [4],
+  );
+  assert.deepEqual(
+    analysis.topLosses.map((row) => row.tradeId),
+    [2],
   );
 });

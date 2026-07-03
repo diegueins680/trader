@@ -594,6 +594,12 @@ export function BinanceTradesPanel({
               const response = binanceTradesUi.response;
               if (!response) return null;
               const winRateLabel = stats.winRate != null && Number.isFinite(stats.winRate) ? fmtPct(stats.winRate, 1) : "—";
+              const outcomeScopeLabel =
+                stats.fillCount > stats.count
+                  ? `closed outcomes ${stats.count} • fills ${stats.fillCount}`
+                  : `closed outcomes ${stats.count}`;
+              const flatFillLabel =
+                stats.excludedFlatFills > 0 ? `${stats.excludedFlatFills} zero-PNL fills` : `${stats.breakeven} flat`;
               const avgWinLabel = stats.avgWin != null && Number.isFinite(stats.avgWin) ? fmtMoney(stats.avgWin, 4) : "—";
               const avgLossLabel = stats.avgLoss != null && Number.isFinite(stats.avgLoss) ? fmtMoney(stats.avgLoss, 4) : "—";
               const avgPnlLabel = stats.avgPnl != null && Number.isFinite(stats.avgPnl) ? fmtMoney(stats.avgPnl, 4) : "—";
@@ -640,8 +646,8 @@ export function BinanceTradesPanel({
                       <div className="summaryValue">
                         <span className="badge badgeStrong badgeLong">{stats.wins} wins</span>
                         <span className="badge badgeStrong badgeFlat">{stats.losses} losses</span>
-                        <span className="badge">{stats.breakeven} flat</span>
-                        <span className="summaryMeta">Win rate {winRateLabel} • trades {stats.count}</span>
+                        <span className="badge">{flatFillLabel}</span>
+                        <span className="summaryMeta">Win rate {winRateLabel} • {outcomeScopeLabel}</span>
                       </div>
                     </div>
                     <div className="summaryItem">
@@ -659,15 +665,15 @@ export function BinanceTradesPanel({
                     </div>
                     <div className="summaryItem">
                       <div className="labelRow">
-                        <div className="summaryLabel">Best / worst trade</div>
-                        <InfoPopover label="Best/worst trade">
+                        <div className="summaryLabel">Best / worst outcome</div>
+                        <InfoPopover label="Best/worst outcome">
                           <InfoList items={ACCOUNT_TRADE_PNL_TIPS.bestWorst} />
                         </InfoPopover>
                       </div>
                       <div className="summaryValue">
                         <span className={pnlBadgeClass(stats.maxWin)}>{maxWinLabel}</span>
                         <span className={pnlBadgeClass(stats.maxLoss)}>{maxLossLabel}</span>
-                        <span className="summaryMeta">Avg P&amp;L {avgPnlLabel}</span>
+                        <span className="summaryMeta">Avg outcome P&amp;L {avgPnlLabel}</span>
                       </div>
                     </div>
                     <div className="summaryItem">
