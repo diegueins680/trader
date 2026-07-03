@@ -48,6 +48,7 @@ executable trader-hs
                      , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
+                     , Trader.MarketGovernor
                      , Trader.MarketContext
                      , Trader.MarketDataIntegrity
                      , Trader.Normalization
@@ -281,6 +282,7 @@ test-suite trader-tests
                      , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
+                     , Trader.MarketGovernor
                      , Trader.MarketContext
                      , Trader.MarketDataIntegrity
                      , Trader.Normalization

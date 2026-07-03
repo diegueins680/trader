@@ -123,6 +123,16 @@ import Trader.MarketDataIntegrity (
     normalizeClosedMarketSeries,
     validateMarketSeriesBars,
  )
+import Trader.MarketGovernor (
+    MarketGovernorConfig (..),
+    MarketGovernorDecision (..),
+    MarketGovernorInputs (..),
+    MarketGovernorProfile (..),
+    defaultMarketGovernorConfig,
+    marketGovernorDecision,
+    marketGovernorFreshEntryBlockReason,
+    marketGovernorIsEntryOnlyReason,
+ )
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
@@ -429,6 +439,7 @@ main = do
     testPerfLookbackRejectsNegativeValue
     testCapitalPreservationReport
     testPortfolioCapitalPreservationReport
+    testMarketGovernorPolicy
     testLiveMaxPnlCloseTimingRecommendation
     testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence
     testOptimizerCloseTimingMetricsRecordAppliedRecommendation
@@ -2893,6 +2904,91 @@ testPortfolioCapitalPreservationReport = do
             && pcprTrades timestampedReport == 3
             && pcprNewestClosedAtMs timestampedReport == Just 1120000
             && pcprOpenUntilMs timestampedReport == Just (1120000 + defaultPortfolioCapitalPreservationCooldownMs)
+        )
+
+testMarketGovernorPolicy :: IO ()
+testMarketGovernorPolicy = do
+    let cfg = defaultMarketGovernorConfig
+        base =
+            MarketGovernorInputs
+                { mgiMarketDataStale = False
+                , mgiVolatility = Just 0.8
+                , mgiConfidence = Just 0.9
+                , mgiTrendProbability = Just 0.7
+                , mgiMeanReversionProbability = Just 0.2
+                , mgiHighVolProbability = Just 0.1
+                , mgiDrawdown = 0.01
+                , mgiLossStreak = 0
+                , mgiRollingLoss = Nothing
+                , mgiCapitalPreservationReason = Nothing
+                }
+        decide = marketGovernorDecision cfg
+        approx a b = abs (a - b) < 1e-12
+        trendDecision = decide base
+        rangeDecision =
+            decide
+                base
+                    { mgiTrendProbability = Just 0.2
+                    , mgiMeanReversionProbability = Just 0.7
+                    }
+        highVolLowConfidence =
+            decide
+                base
+                    { mgiHighVolProbability = Just 0.8
+                    , mgiConfidence = Just 0.5
+                    }
+        highVolStrongConfidence =
+            decide
+                base
+                    { mgiHighVolProbability = Just 0.8
+                    , mgiConfidence = Just 0.9
+                    }
+        deRiskDecision = decide base{mgiDrawdown = 0.07}
+        stressDecision = decide base{mgiCapitalPreservationReason = Just "CAPITAL_PRESERVATION_DRAWDOWN"}
+        staleDecision = decide base{mgiMarketDataStale = True}
+        disabledDecision = marketGovernorDecision cfg{mgcEnabled = False} base
+    assert
+        "market governor admits risk-on trend conditions without shrinking"
+        ( mgdProfile trendDecision == MarketGovernorRiskOnTrend
+            && not (mgdBlockFreshEntries trendDecision)
+            && approx (mgdEntrySizeMultiplier trendDecision) 1
+        )
+    assert
+        "market governor identifies range conditions and de-risks size"
+        ( mgdProfile rangeDecision == MarketGovernorRange
+            && not (mgdBlockFreshEntries rangeDecision)
+            && approx (mgdEntrySizeMultiplier rangeDecision) 0.70
+        )
+    assert
+        "market governor blocks high-volatility low-confidence entries as reduce-only"
+        ( mgdProfile highVolLowConfidence == MarketGovernorHighVol
+            && mgdBlockFreshEntries highVolLowConfidence
+            && mgdReduceOnly highVolLowConfidence
+            && marketGovernorFreshEntryBlockReason highVolLowConfidence == Just "MARKET_GOVERNOR_HIGH_VOL_LOW_CONFIDENCE"
+            && marketGovernorIsEntryOnlyReason "MARKET_GOVERNOR_HIGH_VOL_LOW_CONFIDENCE"
+        )
+    assert
+        "market governor permits high-volatility strong-confidence entries at reduced size"
+        ( mgdProfile highVolStrongConfidence == MarketGovernorHighVol
+            && not (mgdBlockFreshEntries highVolStrongConfidence)
+            && approx (mgdEntrySizeMultiplier highVolStrongConfidence) 0.35
+        )
+    assert
+        "market governor de-risks before stress and blocks on stress or unsafe data"
+        ( mgdProfile deRiskDecision == MarketGovernorDeRisk
+            && not (mgdBlockFreshEntries deRiskDecision)
+            && approx (mgdEntrySizeMultiplier deRiskDecision) 0.50
+            && mgdProfile stressDecision == MarketGovernorStress
+            && mgdBlockFreshEntries stressDecision
+            && mgdProfile staleDecision == MarketGovernorDataUnsafe
+            && mgdBlockFreshEntries staleDecision
+        )
+    assert
+        "market governor disabled profile is pass-through"
+        ( mgdProfile disabledDecision == MarketGovernorOff
+            && not (mgdEnabled disabledDecision)
+            && not (mgdBlockFreshEntries disabledDecision)
+            && approx (mgdEntrySizeMultiplier disabledDecision) 1
         )
 
 testLiveMaxPnlCloseTimingRecommendation :: IO ()

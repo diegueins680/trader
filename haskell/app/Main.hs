@@ -355,6 +355,16 @@ import Trader.MarketDataIntegrity (
     validateMarketSeriesBars,
     validateMarketSeriesContinuity,
  )
+import Trader.MarketGovernor (
+    MarketGovernorDecision (..),
+    MarketGovernorInputs (..),
+    defaultMarketGovernorConfig,
+    marketGovernorDecision,
+    marketGovernorDecisionJson,
+    marketGovernorFreshEntryBlockReason,
+    marketGovernorIsEntryOnlyReason,
+    marketGovernorProfileCode,
+ )
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
@@ -6828,6 +6838,57 @@ capitalPreservationJson report =
         , "reason" .= cprReason report
         ]
 
+marketGovernorInputsForBot ::
+    Bool ->
+    Double ->
+    Int ->
+    CapitalPreservationReport ->
+    LatestSignal ->
+    MarketGovernorInputs
+marketGovernorInputsForBot marketDataStale drawdown lossStreak capitalPreservation latest =
+    MarketGovernorInputs
+        { mgiMarketDataStale = marketDataStale
+        , mgiVolatility = lsVolatility latest
+        , mgiConfidence = lsConfidence latest
+        , mgiTrendProbability = rpTrend <$> lsRegimes latest
+        , mgiMeanReversionProbability = rpMR <$> lsRegimes latest
+        , mgiHighVolProbability = rpHighVol <$> lsRegimes latest
+        , mgiDrawdown = drawdown
+        , mgiLossStreak = lossStreak
+        , mgiRollingLoss = cprRollingLoss capitalPreservation
+        , mgiCapitalPreservationReason = cprReason capitalPreservation
+        }
+
+marketGovernorForBot ::
+    Bool ->
+    Double ->
+    Int ->
+    CapitalPreservationReport ->
+    LatestSignal ->
+    MarketGovernorDecision
+marketGovernorForBot marketDataStale drawdown lossStreak capitalPreservation latest =
+    marketGovernorDecision
+        defaultMarketGovernorConfig
+        (marketGovernorInputsForBot marketDataStale drawdown lossStreak capitalPreservation latest)
+
+applyMarketGovernorSizing :: MarketGovernorDecision -> LatestSignal -> LatestSignal
+applyMarketGovernorSizing decision sig
+    | not (mgdEnabled decision) = sig
+    | mgdEntrySizeMultiplier decision >= 0.999999 && not (mgdBlockFreshEntries decision) = sig
+    | otherwise =
+        let baseSize = max 0 (fromMaybe 1 (lsPositionSize sig))
+            governedSize =
+                if mgdBlockFreshEntries decision
+                    then 0
+                    else baseSize * max 0 (mgdEntrySizeMultiplier decision)
+            warning =
+                "MARKET_GOVERNOR:"
+                    ++ marketGovernorProfileCode (mgdProfile decision)
+         in sig
+                { lsPositionSize = Just governedSize
+                , lsAuditWarnings = dedupeStable (lsAuditWarnings sig ++ [warning])
+                }
+
 positiveFiniteMaybe :: Double -> Maybe Double
 positiveFiniteMaybe value =
     if value > 0 && isFiniteDouble value
@@ -6952,6 +7013,7 @@ entryOnlyGateReason reason =
         || reason == "TRADE_METHOD_RESULT_BLOCKED"
         || reason == "TRADE_SYMBOL_NOT_ALLOWED"
         || capitalPreservationIsEntryOnlyReason reason
+        || marketGovernorIsEntryOnlyReason reason
 
 tradeMethodEvidenceUnavailableReason :: String
 tradeMethodEvidenceUnavailableReason = "TRADE_METHOD_EVIDENCE_UNAVAILABLE"
@@ -7388,8 +7450,11 @@ botStatusJson st =
                 , "close" .= kClose k
                 , "volume" .= kVolume k
                 ]
+        marketDataFreshnessMaybe =
+            marketDataFreshness (argInterval (botArgs st)) (botPolledAtMs st) (botLastOpenTime st)
+        marketDataStale = maybe True mdfStale marketDataFreshnessMaybe
         marketDataJson =
-            case marketDataFreshness (argInterval (botArgs st)) (botPolledAtMs st) (botLastOpenTime st) of
+            case marketDataFreshnessMaybe of
                 Nothing ->
                     object
                         [ "lastProcessedOpenTimeMs" .= botLastOpenTime st
@@ -7406,6 +7471,13 @@ botStatusJson st =
                         , "ageMs" .= mdfAgeMs freshness
                         , "stale" .= mdfStale freshness
                         ]
+        marketGovernor =
+            marketGovernorForBot
+                marketDataStale
+                (botStateDrawdown st)
+                (botLossStreak st)
+                capitalPreservation
+                (botLatestSignal st)
      in object $
             [ "running" .= True
             , "symbol" .= botSymbol st
@@ -7464,6 +7536,7 @@ botStatusJson st =
             , "closeTimingSamples" .= map botCloseTimingSampleJson (botCloseTimingSamples st)
             , "openTrade" .= fmap botOpenTradeJson (botOpenTrade st)
             , "performance" .= perfJson
+            , "marketGovernor" .= marketGovernorDecisionJson marketGovernor
             , "adaptive" .= adaptiveJson
             , "costCalibration"
                 .= let obs = botSlippageObservations st
@@ -13887,7 +13960,6 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     (T.pack (botSymbol st'))
                 )
         baseAssetNow = baseAssetFor st
-        entrySizePre = entryScaleForSignal args (beMarket (botEnv st)) latest2
         openPositionsTotal = length [s | s <- allStates, positionNow s /= 0]
         openPositionsBase =
             case baseAssetNow of
@@ -13925,27 +13997,6 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         , positionNow s /= 0
                         , baseAssetFor s == Just base
                         ]
-        desiredSize =
-            if desiredPosWanted2 /= 0
-                then entrySizePre
-                else 0
-        currentSigned = fromIntegral prevPos * prevSize
-        desiredSigned = fromIntegral desiredPosWanted2 * desiredSize
-        grossExposureAfter = grossExposureNow - abs currentSigned + abs desiredSigned
-        netExposureAfter = netExposureNow - currentSigned + desiredSigned
-        baseExposureAfter = baseExposureNow - abs currentSigned + abs desiredSigned
-        grossExposureBlocked =
-            case argMaxGrossExposure args of
-                Just lim | lim > 0 -> grossExposureAfter > lim
-                _ -> False
-        netExposureBlocked =
-            case argMaxNetExposure args of
-                Just lim | lim > 0 -> abs netExposureAfter > lim
-                _ -> False
-        baseExposureBlocked =
-            case argMaxExposurePerBase args of
-                Just lim | lim > 0 -> baseExposureAfter > lim
-                _ -> False
 
         (latest1, desiredPosWanted1, mExitReason1) =
             if prevPos /= 0 && desiredPosWanted0b /= prevPos && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
@@ -14010,6 +14061,37 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 allStates
                 prospectiveCloseTrade
         portfolioCapitalPreservationReasonMaybe = pcprReason portfolioCapitalPreservation
+        marketGovernor =
+            marketGovernorForBot
+                False
+                drawdown
+                (botLossStreak st)
+                capitalPreservation
+                latest2
+        marketGovernorReasonMaybe = marketGovernorFreshEntryBlockReason marketGovernor
+        latest2GovernorSized = applyMarketGovernorSizing marketGovernor latest2
+        entrySizeForExposure = entryScaleForSignal args (beMarket (botEnv st)) latest2GovernorSized
+        desiredSize =
+            if desiredPosWanted2 /= 0
+                then entrySizeForExposure
+                else 0
+        currentSigned = fromIntegral prevPos * prevSize
+        desiredSigned = fromIntegral desiredPosWanted2 * desiredSize
+        grossExposureAfter = grossExposureNow - abs currentSigned + abs desiredSigned
+        netExposureAfter = netExposureNow - currentSigned + desiredSigned
+        baseExposureAfter = baseExposureNow - abs currentSigned + abs desiredSigned
+        grossExposureBlocked =
+            case argMaxGrossExposure args of
+                Just lim | lim > 0 -> grossExposureAfter > lim
+                _ -> False
+        netExposureBlocked =
+            case argMaxNetExposure args of
+                Just lim | lim > 0 -> abs netExposureAfter > lim
+                _ -> False
+        baseExposureBlocked =
+            case argMaxExposurePerBase args of
+                Just lim | lim > 0 -> baseExposureAfter > lim
+                _ -> False
 
     tradeGateReasonMaybe <-
         if bsTradeEnabled settings && entryAttempt
@@ -14024,8 +14106,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     else Nothing
         latest2TradeSized =
             case tradeGateReasonMaybe of
-                Just reason -> applyTradeDeploymentSizingPolicy reason latest2
-                Nothing -> latest2
+                Just reason -> applyTradeDeploymentSizingPolicy reason latest2GovernorSized
+                Nothing -> latest2GovernorSized
         entryBlockReason
             | entryAttemptFromFlat && countBlocked = Just "MAX_OPEN_POSITIONS"
             | entryAttemptFromFlat && baseCountBlocked = Just "MAX_OPEN_PER_BASE"
@@ -14036,6 +14118,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
             | entryAttempt =
                 tradeGateHardReasonMaybe
+                    <|> marketGovernorReasonMaybe
                     <|> portfolioCapitalPreservationReasonMaybe
                     <|> capitalPreservationReasonMaybe
                     <|> perfGateReasonMaybe
@@ -14051,11 +14134,11 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                 then "EXIT_" ++ reason
                                 else "HOLD_" ++ reason
                      in if prevPos == 0
-                            then (latest2{lsAction = action}, 0, Nothing)
+                            then (latest2TradeSized{lsAction = action}, 0, Nothing)
                             else
                                 if isEntryOnlyGate && flipAttempt
-                                    then (latest2{lsAction = action}, 0, Just reason)
-                                    else (latest2{lsAction = action}, prevPos, Nothing)
+                                    then (latest2TradeSized{lsAction = action}, 0, Just reason)
+                                    else (latest2TradeSized{lsAction = action}, prevPos, Nothing)
                 Nothing -> (latest2TradeSized, desiredPosWanted2, mExitReason2)
 
         (latest2c, desiredPosWanted2c, mExitReason2c)
