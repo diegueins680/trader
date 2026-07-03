@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { comboMarketLabel, comboMarketValue } from "../app/comboMarket";
 import { methodLabelFromMeta } from "../app/methodMeta";
 import { fmtPct, fmtRatio } from "../lib/format";
@@ -1339,6 +1340,113 @@ function comboPointTitle(
   return `${comboLabel} · ${chart.label} ${fmtCompact(point.x)} · ROI ${fmtPct(point.roi, 2)} · Sharpe ${fmtMaybeNumber(sharpe, 2)}`;
 }
 
+type ComboRoiTooltipLine = {
+  label: string;
+  value: string;
+  tone?: "gain" | "loss" | "neutral";
+};
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function truncateTooltipText(value: string, maxChars: number): string {
+  return value.length > maxChars ? `${value.slice(0, Math.max(0, maxChars - 3))}...` : value;
+}
+
+function comboPointTooltipLines(
+  chart: ComboRoiCorrelation,
+  point: ComboRoiPoint,
+  combo: OptimizationCombo | null | undefined,
+  detailed: boolean,
+): ComboRoiTooltipLine[] {
+  const lines: ComboRoiTooltipLine[] = [
+    { label: chart.label, value: fmtParamValue(point.x) },
+    { label: "ROI", value: fmtPct(point.roi, 2), tone: point.roi >= 0 ? "gain" : "loss" },
+    { label: "Final eq", value: combo ? fmtRatio(combo.finalEquity, 4) : "-" },
+    { label: "Sharpe", value: combo ? fmtMaybeNumber(comboSharpe(combo), 2) : "-" },
+    { label: "MaxDD", value: combo ? fmtMaybePct(comboMaxDrawdown(combo), 2) : "-", tone: "loss" },
+  ];
+
+  if (detailed) {
+    lines.splice(3, 0, { label: "Annual", value: combo ? fmtMaybePct(comboAnnualizedReturn(combo), 2) : "-" });
+    lines.push(
+      { label: "Win rate", value: combo ? fmtMaybePct(comboWinRate(combo), 0) : "-" },
+      { label: "Trips", value: combo ? fmtMaybeCount(comboRoundTrips(combo)) : "-" },
+    );
+  }
+
+  return lines;
+}
+
+function ComboRoiPointTooltip({
+  chart,
+  point,
+  combo,
+  x,
+  y,
+  width,
+  height,
+}: {
+  chart: ComboRoiCorrelation;
+  point: ComboRoiPoint;
+  combo: OptimizationCombo | null | undefined;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}) {
+  const detailed = width >= 700;
+  const boxWidth = detailed ? 250 : 190;
+  const lineHeight = detailed ? 18 : 16;
+  const headerHeight = detailed ? 42 : 36;
+  const lines = comboPointTooltipLines(chart, point, combo, detailed);
+  const boxHeight = headerHeight + lines.length * lineHeight + 12;
+  const boxX =
+    x > width - boxWidth - 24
+      ? clampNumber(x - boxWidth - 13, 6, width - boxWidth - 6)
+      : clampNumber(x + 13, 6, width - boxWidth - 6);
+  const boxY =
+    y > height * 0.55
+      ? clampNumber(y - boxHeight - 13, 6, height - boxHeight - 6)
+      : clampNumber(y + 13, 6, height - boxHeight - 6);
+  const title = combo ? `#${combo.rank ?? combo.id} ${comboSymbolLabel(combo)}` : `#${point.comboId}`;
+  const subtitle = combo
+    ? `${comboMethodLabel(combo)} · ${comboIntervalLabel(combo)}`
+    : chart.label;
+  const maxLabelChars = detailed ? 18 : 13;
+  const maxValueChars = detailed ? 18 : 12;
+
+  return (
+    <g className="comboRoiTooltip" aria-hidden="true">
+      <rect x={boxX} y={boxY} width={boxWidth} height={boxHeight} rx="8" className="comboRoiTooltipBox" />
+      <text x={boxX + 12} y={boxY + 18} className="comboRoiTooltipTitle">
+        {truncateTooltipText(title, detailed ? 28 : 20)}
+      </text>
+      <text x={boxX + 12} y={boxY + 34} className="comboRoiTooltipSubtitle">
+        {truncateTooltipText(subtitle, detailed ? 32 : 23)}
+      </text>
+      {lines.map((line, idx) => (
+        <React.Fragment key={`${line.label}-${idx}`}>
+          <text x={boxX + 12} y={boxY + headerHeight + idx * lineHeight + 11} className="comboRoiTooltipLabel">
+            {truncateTooltipText(line.label, maxLabelChars)}
+          </text>
+          <text
+            x={boxX + boxWidth - 12}
+            y={boxY + headerHeight + idx * lineHeight + 11}
+            textAnchor="end"
+            className={`comboRoiTooltipValue${
+              line.tone === "gain" ? " comboRoiTooltipValueGain" : line.tone === "loss" ? " comboRoiTooltipValueLoss" : ""
+            }`}
+          >
+            {truncateTooltipText(line.value, maxValueChars)}
+          </text>
+        </React.Fragment>
+      ))}
+    </g>
+  );
+}
+
 function ComboRoiScatter({
   chart,
   points,
@@ -1352,6 +1460,7 @@ function ComboRoiScatter({
   onPointSelect,
   comboById,
 }: ComboRoiScatterProps) {
+  const [tooltipPointKey, setTooltipPointKey] = useState<string | null>(null);
   const renderedPoints = points ?? downsamplePoints(chart.points);
   const x1 = pad.l;
   const x2 = width - pad.r;
@@ -1362,6 +1471,13 @@ function ComboRoiScatter({
   const trendStartY = chart.slope * chart.xMin + chart.intercept;
   const trendEndY = chart.slope * chart.xMax + chart.intercept;
   const zeroY = chart.roiMin <= 0 && chart.roiMax >= 0 ? yFor(0) : null;
+  const tooltipPoint = tooltipPointKey
+    ? renderedPoints.find((point) => comboRoiPointKey(point) === tooltipPointKey) ?? null
+    : null;
+  const showPoint = (point: ComboRoiPoint | null) => {
+    setTooltipPointKey(point ? comboRoiPointKey(point) : null);
+    onPointHover?.(point);
+  };
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className={className} role="img" aria-label={`${chart.label} ROI correlation`}>
@@ -1381,7 +1497,7 @@ function ComboRoiScatter({
         const combo = comboById?.get(point.comboId);
         const pointClass = [
           point.roi >= 0 ? "comboRoiPointGain" : "comboRoiPointLoss",
-          interactive ? "comboRoiPointInteractive" : "",
+          interactive ? "comboRoiPointInteractive" : "comboRoiPointHoverable",
           selected ? "comboRoiPointSelected" : "",
         ]
           .filter(Boolean)
@@ -1396,10 +1512,10 @@ function ComboRoiScatter({
             role={interactive ? "button" : undefined}
             tabIndex={interactive ? 0 : undefined}
             aria-label={interactive ? comboPointTitle(chart, point, combo) : undefined}
-            onMouseEnter={interactive ? () => onPointHover?.(point) : undefined}
-            onMouseLeave={interactive ? () => onPointHover?.(null) : undefined}
-            onFocus={interactive ? () => onPointHover?.(point) : undefined}
-            onBlur={interactive ? () => onPointHover?.(null) : undefined}
+            onMouseEnter={() => showPoint(point)}
+            onMouseLeave={() => showPoint(null)}
+            onFocus={interactive ? () => showPoint(point) : undefined}
+            onBlur={interactive ? () => showPoint(null) : undefined}
             onClick={interactive ? () => onPointSelect?.(point) : undefined}
             onKeyDown={
               interactive
@@ -1428,6 +1544,17 @@ function ComboRoiScatter({
       <text x={x1 - 8} y={y2 + 5} className="comboRoiAxisLabel" textAnchor="end">
         {fmtPct(chart.roiActualMin, 0)}
       </text>
+      {tooltipPoint ? (
+        <ComboRoiPointTooltip
+          chart={chart}
+          point={tooltipPoint}
+          combo={comboById?.get(tooltipPoint.comboId)}
+          x={xFor(tooltipPoint.x)}
+          y={yFor(tooltipPoint.roi)}
+          width={width}
+          height={height}
+        />
+      ) : null}
     </svg>
   );
 }
@@ -1542,9 +1669,19 @@ function ComboRoiExpandedDialog({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
+    if (typeof window === "undefined") return undefined;
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   const activePointKey = hoveredPointKey ?? selectedPointKey;
   const activePoint =
@@ -1553,7 +1690,7 @@ function ComboRoiExpandedDialog({
   const activeCombo = activePoint ? comboById.get(activePoint.comboId) ?? null : null;
   const chartSelectedPointKey = activePoint ? comboRoiPointKey(activePoint) : selectedPointKey;
 
-  return (
+  const dialog = (
     <div
       className="comboRoiModalBackdrop"
       onMouseDown={(event) => {
@@ -1602,6 +1739,8 @@ function ComboRoiExpandedDialog({
       </div>
     </div>
   );
+
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 }
 
 export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelationCharts({ combos, loading }: Props) {
@@ -1708,7 +1847,7 @@ export const ComboRoiCorrelationCharts = React.memo(function ComboRoiCorrelation
                         ROI {fmtPct(chart.roiActualMin, 0)} to {fmtPct(chart.roiActualMax, 0)}
                       </span>
                     </div>
-                    <ComboRoiScatter chart={chart} />
+                    <ComboRoiScatter chart={chart} comboById={comboById} />
                   </div>
                 ))}
               </div>

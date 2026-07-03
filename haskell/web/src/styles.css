@@ -2645,13 +2645,15 @@ body.panelMaximized .cardMaximized {
   stroke-width: 1;
 }
 
-.comboRoiPointInteractive {
+.comboRoiPointInteractive,
+.comboRoiPointHoverable {
   cursor: pointer;
   transition: r 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
 }
 
 .comboRoiPointInteractive:hover,
 .comboRoiPointInteractive:focus,
+.comboRoiPointHoverable:hover,
 .comboRoiPointSelected {
   stroke: var(--text);
   stroke-width: 2.4;
@@ -2662,6 +2664,46 @@ body.panelMaximized .cardMaximized {
   fill: var(--muted);
   font-family: var(--mono);
   font-size: 12px;
+}
+
+.comboRoiTooltip {
+  pointer-events: none;
+}
+
+.comboRoiTooltipBox {
+  fill: var(--card-solid);
+  stroke: rgba(var(--accent-rgb), 0.38);
+  stroke-width: 1;
+  filter: drop-shadow(0 12px 22px rgba(2, 6, 23, 0.22));
+}
+
+.comboRoiTooltipTitle {
+  fill: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.comboRoiTooltipSubtitle,
+.comboRoiTooltipLabel {
+  fill: var(--muted);
+  font-family: var(--sans);
+  font-size: 10px;
+}
+
+.comboRoiTooltipValue {
+  fill: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.comboRoiTooltipValueGain {
+  fill: rgba(var(--accent-alt-rgb), 0.95);
+}
+
+.comboRoiTooltipValueLoss {
+  fill: rgba(239, 68, 68, 0.94);
 }
 
 .comboRoiModalBackdrop {
