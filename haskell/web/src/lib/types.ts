@@ -549,6 +549,29 @@ export type BotKline = {
   close: number;
 };
 
+export type BotMarketGovernor = {
+  enabled: boolean;
+  profile: string;
+  entrySizeMultiplier: number;
+  blockFreshEntries: boolean;
+  reduceOnly: boolean;
+  reason?: string | null;
+  recommendedVolConfGate?: string | null;
+  methodBias?: string[];
+  inputs?: {
+    marketDataStale?: boolean;
+    volatility?: number | null;
+    confidence?: number | null;
+    trendProbability?: number | null;
+    meanReversionProbability?: number | null;
+    highVolProbability?: number | null;
+    drawdown?: number | null;
+    lossStreak?: number;
+    rollingLoss?: number | null;
+    capitalPreservationReason?: string | null;
+  };
+};
+
 export type BotStatusRunning = {
   running: true;
   symbol: string;
@@ -595,6 +618,7 @@ export type BotStatusRunning = {
   trades: Trade[];
   latestSignal: LatestSignal;
   decisionTrace?: DecisionTrace;
+  marketGovernor?: BotMarketGovernor;
   lastOrder?: ApiOrderResult;
   error?: string;
 };

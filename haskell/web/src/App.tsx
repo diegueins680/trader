@@ -9674,6 +9674,27 @@ export function App() {
                       <div className="v">{Math.max(0, Math.trunc(botDisplay.cooldownLeft))} bar(s) remaining</div>
                     </div>
                   ) : null}
+                  {botDisplay.marketGovernor ? (
+                    <div className="kv">
+                      <div className="k">Market governor</div>
+                      <div className="v">
+                        {(() => {
+                          const governor = botDisplay.marketGovernor;
+                          const size =
+                            typeof governor.entrySizeMultiplier === "number" && Number.isFinite(governor.entrySizeMultiplier)
+                              ? fmtPct(governor.entrySizeMultiplier, 1)
+                              : "—";
+                          const mode = governor.blockFreshEntries
+                            ? governor.reduceOnly
+                              ? "reduce-only"
+                              : "blocked"
+                            : "entries allowed";
+                          const reason = governor.reason ? ` • ${governor.reason}` : "";
+                          return `${governor.profile} • size ${size} • ${mode}${reason}`;
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="kv">
                     <div className="k">Latest signal</div>
                     <div className="v">{botDisplayLatestSignal?.action ?? "—"}</div>
