@@ -14,6 +14,7 @@
     "lint:web": "npm --workspaces=false --prefix haskell/web run typecheck",
     "smoke": "bash scripts/verify.sh smoke",
     "monitor:fly-postgres-disk": "node scripts/check-fly-postgres-disk.mjs",
+    "radio:maintain": "node scripts/maintain-radio-stations.mjs",
     "test": "npm run test:haskell && npm run test:web && npm run test:autoloop",
     "test:autoloop": "node --test test/autoloop.test.mjs",
     "test:haskell": "cd haskell && CABAL_DIR=$(cd .. && pwd)/.cabal cabal test",

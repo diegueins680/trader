@@ -1,4 +1,6 @@
 ## Unreleased
+- Deploy/Fly: install the radio station maintenance job as a dedicated low-resource `radio` process group that refreshes `/var/lib/trader/state/radio-stations.json` every 15 minutes from Radio Browser discoveries.
+- Automation: add `npm run radio:maintain`, a cron-friendly radio station maintenance job that checks stream liveness, purges repeatedly failing stations, and imports only live discoveries from configured JSON sources.
 - Trading/CLI: reject `--max-position-size` values `<= 0` instead of allowing zero; the error message now reads `must be > 0` instead of `must be >= 0`, matching the existing `--initial-balance` and `--trailing-stop` strict-positive contracts.
 - Trading/TA: add `ta_regime_switch`, a regime-conditioned technical-analysis method that uses ADX/EMA200 to select long-biased trend following, narrow Bollinger bandwidth to select reversion, and breakout otherwise.
 - Planning: add next-generation architecture RFC (`artifacts/planning/trader-firm-nextgen-architecture-2026-05-20.md`) synthesizing 12 transformative trading-system ideas into a phased implementation plan.

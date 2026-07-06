@@ -42,6 +42,16 @@
   - Local helper startup uses paper/test order mode unless `TRADER_BINANCE_LIVE=true` is set before `haskell/scripts/start_api_bg.sh` launches the API. With live mode and autostart/trading enabled, bot workers can send real Binance orders.
   - State sync uses compact top-combo payloads for outbound `/state/sync` writes, does not synchronously re-post inbound `/state/sync` imports to the configured sync target, and supports `TRADER_STATE_SYNC_TIMEOUT_SEC` (default 15, max 300) for slower cross-deployment sync links.
 
+## Radio Station Maintenance
+- `npm run radio:maintain` runs the cron-safe radio station maintenance job. It reads `RADIO_STATIONS_FILE` (default `.tmp/radio-stations.json`), checks each station stream URL, removes stations whose consecutive failures reach `RADIO_STATION_MAX_FAILURES` (default `2`), and adds only live stations discovered from `RADIO_STATION_DISCOVERY_URLS` or `RADIO_STATION_DISCOVERY_FILES`.
+- Discovery JSON may be either an array of station objects or an object with `stations`, `data`, or `results`. Supported station URL fields include `url`, `url_resolved`, `streamUrl`, `stream_url`, `listenUrl`, and `listen_url`.
+- Fly deploys include a dedicated `radio` process group that runs the maintenance job every `RADIO_STATION_INTERVAL_SECONDS` seconds (default `900`) against `/var/lib/trader/state/radio-stations.json`, using Radio Browser's top-clicked working stations as the discovery source. The HTTP service remains scoped to the `app` process group.
+- Example cron entry is available in `scripts/radio-stations.cron.example`. A typical 15-minute command is:
+
+```cron
+*/15 * * * * cd /path/to/trader && RADIO_STATIONS_FILE=/var/lib/trader/radio-stations.json RADIO_STATION_DISCOVERY_URLS=https://example.com/radio-stations.json npm run radio:maintain -- --json >> /var/log/trader/radio-stations.log 2>&1
+```
+
 ## Autoloop
 - The bounded auto-loop now polls recent GitHub pull requests for unresolved Copilot/Codex review threads before choosing a new autonomous idea. It asks the planner to validate whether each review is correct, prioritizes valid actionable review fixes, and falls back to the normal improvement selection when no review feedback is worth changing. Set `AUTOLOOP_DISABLE_AI_REVIEW_POLL=1` to disable the review pass, or tune `AUTOLOOP_AI_REVIEW_LOOKBACK_PRS`, `AUTOLOOP_AI_REVIEW_MAX_THREADS`, and `AUTOLOOP_AI_REVIEW_THREAD_MAX_CHARS` to adjust scan breadth and prompt size.
 - The repo autoloop now treats merged local branches that are still attached to Git worktrees as prune skips instead of blocking the forever runner before any bounded repair cycle starts.

@@ -11,6 +11,11 @@ import {
   parseFlyChecksJson,
 } from "../scripts/check-fly-postgres-disk.mjs";
 import {
+  maintainStations,
+  normalizeStation,
+  parseArgs as parseRadioStationArgs,
+} from "../scripts/maintain-radio-stations.mjs";
+import {
   buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
   buildActionsRunsApiPath,
@@ -154,6 +159,131 @@ test("parseFlyPostgresDiskArgs validates alert thresholds", () => {
     () => parseFlyPostgresDiskArgs(["--warn", "90", "--critical", "80"], {}),
     /--warn must be lower than --critical/,
   );
+});
+
+test("parseRadioStationArgs accepts cron-oriented discovery settings", () => {
+  const args = parseRadioStationArgs(
+    ["--stations-file", "state/radio.json", "--discovery-url", "https://example.test/more.json", "--max-failures", "1"],
+    {
+      RADIO_STATION_DISCOVERY_URLS: "https://example.test/base.json",
+      RADIO_STATION_CHECK_TIMEOUT_MS: "1500",
+      RADIO_STATION_CHECK_CONCURRENCY: "3",
+    },
+  );
+
+  assert.equal(args.stationsFile, "state/radio.json");
+  assert.deepEqual(args.discoveryUrls, ["https://example.test/base.json", "https://example.test/more.json"]);
+  assert.equal(args.timeoutMs, 1500);
+  assert.equal(args.concurrency, 3);
+  assert.equal(args.maxFailures, 1);
+});
+
+test("normalizeStation accepts radio-browser style fields", () => {
+  const station = normalizeStation(
+    {
+      stationuuid: "ABC 123",
+      name: " Example FM ",
+      url_resolved: "https://stream.example.test/live.mp3",
+      homepage: "https://example.test",
+      tags: "news, talk,news",
+      bitrate: "128",
+    },
+    "fixture",
+  );
+
+  assert.equal(station.id, "abc-123");
+  assert.equal(station.name, "Example FM");
+  assert.equal(station.url, "https://stream.example.test/live.mp3");
+  assert.deepEqual(station.tags, ["news", "talk"]);
+  assert.equal(station.bitrate, 128);
+  assert.equal(normalizeStation({ name: "bad", url: "ftp://example.test/stream" }, "fixture"), null);
+});
+
+test("radio station maintenance purges failed stations and adds live discoveries", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "radio-stations-test-"));
+  try {
+    const stationsFile = path.join(dir, "radio-stations.json");
+    const discoveryFile = path.join(dir, "discovery.json");
+    await fs.writeFile(
+      stationsFile,
+      JSON.stringify({
+        stations: [
+          { id: "keep", name: "Keep Live", url: "https://stream.example.test/keep-live.mp3" },
+          { id: "retry", name: "Retry Later", url: "https://stream.example.test/retry-down.mp3" },
+          {
+            id: "purge",
+            name: "Purge Down",
+            url: "https://stream.example.test/purge-down.mp3",
+            consecutiveFailures: 1,
+          },
+        ],
+      }),
+    );
+    await fs.writeFile(
+      discoveryFile,
+      JSON.stringify({
+        stations: [
+          { id: "keep-dupe", name: "Keep Duplicate", url: "https://stream.example.test/keep-live.mp3" },
+          { stationuuid: "new-live", name: "New Live", url_resolved: "https://stream.example.test/new-live.mp3" },
+          { stationuuid: "new-down", name: "New Down", url_resolved: "https://stream.example.test/new-down.mp3" },
+        ],
+      }),
+    );
+
+    const result = await maintainStations({
+      stationsFile,
+      discoveryFiles: [discoveryFile],
+      maxFailures: 2,
+      concurrency: 2,
+      now: new Date("2026-07-06T12:00:00.000Z"),
+      checkLive: async (station) => ({ live: station.url.includes("live"), status: station.url.includes("live") ? 200 : 503 }),
+    });
+
+    assert.equal(result.checked, 3);
+    assert.equal(result.live, 1);
+    assert.equal(result.failed, 2);
+    assert.deepEqual(
+      result.purged.map((station) => station.id),
+      ["purge"],
+    );
+    assert.equal(result.discovered, 3);
+    assert.equal(result.newCandidates, 2);
+    assert.deepEqual(
+      result.added.map((station) => station.id),
+      ["new-live"],
+    );
+    assert.deepEqual(
+      result.skippedDiscoveryDown.map((station) => station.id),
+      ["new-down"],
+    );
+
+    const persisted = JSON.parse(await fs.readFile(stationsFile, "utf8"));
+    assert.deepEqual(
+      persisted.stations.map((station) => station.id),
+      ["keep", "retry", "new-live"],
+    );
+    assert.equal(persisted.stations.find((station) => station.id === "retry").consecutiveFailures, 1);
+    assert.equal(persisted.lastMaintenance.purged, 1);
+    assert.equal(persisted.lastMaintenance.added, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Fly config installs the radio maintenance process group", async () => {
+  const flyConfig = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
+  const dockerfile = await fs.readFile(new URL("../Dockerfile", import.meta.url), "utf8");
+
+  assert.match(flyConfig, /\[processes\][\s\S]*app = "trader-hs --serve --port 8080"/);
+  assert.match(flyConfig, /\[processes\][\s\S]*radio = "sh \/usr\/local\/bin\/fly-radio-stations-loop"/);
+  assert.match(flyConfig, /RADIO_STATIONS_FILE = "\/var\/lib\/trader\/state\/radio-stations\.json"/);
+  assert.match(flyConfig, /RADIO_STATION_DISCOVERY_URLS = "https:\/\/all\.api\.radio-browser\.info\/json\/stations\/topclick\/500\?hidebroken=true"/);
+  assert.match(flyConfig, /\[\[vm\]\][\s\S]*size = "performance-8x"[\s\S]*processes = \["app"\]/);
+  assert.match(flyConfig, /\[\[vm\]\][\s\S]*size = "shared-cpu-1x"[\s\S]*processes = \["radio"\]/);
+
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends[^\n]*nodejs/);
+  assert.match(dockerfile, /COPY scripts\/autoloop-lib\.mjs scripts\/maintain-radio-stations\.mjs \/opt\/trader\/scripts\//);
+  assert.match(dockerfile, /COPY scripts\/fly-radio-stations-loop\.sh \/usr\/local\/bin\/fly-radio-stations-loop/);
 });
 
 test("buildBranchMergeCandidates ignores autoloop recovery branches", () => {
