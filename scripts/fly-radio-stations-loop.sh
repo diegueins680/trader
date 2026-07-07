@@ -17,7 +17,7 @@ mkdir -p "$(dirname "$stations_file")"
 while true; do
   started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   echo "radio-stations loop started_at=$started_at interval_seconds=$interval stations_file=$stations_file"
-  if ! node /opt/trader/scripts/maintain-radio-stations.mjs --stations-file "$stations_file" --json; then
+  if ! node /opt/trader/scripts/maintain-radio-stations.mjs --stations-file "$stations_file"; then
     echo "radio-stations maintenance failed; retrying after ${interval}s" >&2
   fi
   sleep "$interval"

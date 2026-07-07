@@ -352,6 +352,7 @@ test("radio station maintenance purges failed stations and adds live discoveries
 test("Fly config installs the radio maintenance process group", async () => {
   const flyConfig = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
   const dockerfile = await fs.readFile(new URL("../Dockerfile", import.meta.url), "utf8");
+  const radioLoop = await fs.readFile(new URL("../scripts/fly-radio-stations-loop.sh", import.meta.url), "utf8");
 
   assert.match(flyConfig, /\[processes\][\s\S]*app = "trader-hs --serve --port 8080"/);
   assert.match(flyConfig, /\[processes\][\s\S]*radio = "sh \/usr\/local\/bin\/fly-radio-stations-loop"/);
@@ -363,6 +364,9 @@ test("Fly config installs the radio maintenance process group", async () => {
   assert.match(dockerfile, /apt-get install -y --no-install-recommends[^\n]*nodejs/);
   assert.match(dockerfile, /COPY scripts\/autoloop-lib\.mjs scripts\/maintain-radio-stations\.mjs \/opt\/trader\/scripts\//);
   assert.match(dockerfile, /COPY scripts\/fly-radio-stations-loop\.sh \/usr\/local\/bin\/fly-radio-stations-loop/);
+
+  assert.match(radioLoop, /maintain-radio-stations\.mjs --stations-file "\$stations_file"/);
+  assert.doesNotMatch(radioLoop, /--json/);
 });
 
 test("buildBranchMergeCandidates ignores autoloop recovery branches", () => {
