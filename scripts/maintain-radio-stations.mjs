@@ -367,7 +367,6 @@ export async function checkStationLive(station, options = {}) {
     return { live: false, status: 0, error: error?.name === "AbortError" ? "timeout" : String(error?.message ?? error) };
   } finally {
     clearTimeout(timeout);
-    controller.abort();
   }
 }
 
@@ -407,6 +406,8 @@ async function readFirstBodyChunk(response) {
   if (!body) return false;
   if (typeof body.getReader !== "function") return true;
 
+  // Node 18's undici can throw ERR_INVALID_STATE asynchronously when radio
+  // stream bodies are canceled or aborted after a successful probe.
   const reader = body.getReader();
   const { done, value } = await reader.read();
   return !done && Boolean(value) && Number(value.byteLength ?? value.length ?? 0) > 0;

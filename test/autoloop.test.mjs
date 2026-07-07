@@ -200,7 +200,7 @@ test("normalizeStation accepts radio-browser style fields", () => {
   assert.equal(normalizeStation({ name: "bad", url: "ftp://example.test/stream" }, "fixture"), null);
 });
 
-test("checkStationLive accepts stream headers without canceling the response body", async () => {
+test("checkStationLive accepts stream headers without closing the response body", async () => {
   let signal;
   let bodyRead = false;
   const result = await checkStationLive(
@@ -226,10 +226,10 @@ test("checkStationLive accepts stream headers without canceling the response bod
 
   assert.deepEqual(result, { live: true, status: 200 });
   assert.equal(bodyRead, false);
-  assert.equal(signal.aborted, true);
+  assert.equal(signal.aborted, false);
 });
 
-test("checkStationLive aborts first-chunk probes instead of canceling the reader", async () => {
+test("checkStationLive leaves first-chunk probes open instead of canceling the reader", async () => {
   let signal;
   let cancelCalled = false;
   const result = await checkStationLive(
@@ -257,7 +257,7 @@ test("checkStationLive aborts first-chunk probes instead of canceling the reader
 
   assert.deepEqual(result, { live: true, status: 200 });
   assert.equal(cancelCalled, false);
-  assert.equal(signal.aborted, true);
+  assert.equal(signal.aborted, false);
 });
 
 test("radio station maintenance purges failed stations and adds live discoveries", async () => {
