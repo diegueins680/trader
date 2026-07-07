@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
+import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeJsonFileAtomic } from "./autoloop-lib.mjs";
@@ -9,6 +11,7 @@ const DEFAULT_STATIONS_FILE = path.join(".tmp", "radio-stations.json");
 const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_CONCURRENCY = 8;
 const DEFAULT_MAX_FAILURES = 2;
+const MAX_STREAM_REDIRECTS = 5;
 const USER_AGENT = "trader-radio-maintenance/1.0";
 
 function usage() {
@@ -328,6 +331,14 @@ async function loadDiscoveryStations({ discoveryFiles, discoveryUrls, fetchImpl,
 }
 
 export async function checkStationLive(station, options = {}) {
+  if (!options.fetchImpl) {
+    return checkStationLiveWithHttp(station, options);
+  }
+
+  return checkStationLiveWithFetch(station, options);
+}
+
+async function checkStationLiveWithFetch(station, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") {
     throw new Error("fetch is not available; use Node 20+ or pass fetchImpl");
@@ -370,6 +381,96 @@ export async function checkStationLive(station, options = {}) {
   }
 }
 
+async function checkStationLiveWithHttp(station, options = {}) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let url = station.url;
+
+  for (let redirectCount = 0; redirectCount <= MAX_STREAM_REDIRECTS; redirectCount += 1) {
+    const result = await probeStreamUrlOnce(url, timeoutMs);
+    if (!result.redirectUrl) return result;
+    url = result.redirectUrl;
+  }
+
+  return { live: false, status: 0, error: "too many redirects" };
+}
+
+function probeStreamUrlOnce(rawUrl, timeoutMs) {
+  let parsedUrl;
+  try {
+    parsedUrl = assertHttpUrl(rawUrl, "Station stream URL");
+  } catch {
+    return Promise.resolve({ live: false, status: 0, error: "invalid stream URL" });
+  }
+
+  return new Promise((resolve) => {
+    const client = parsedUrl.protocol === "https:" ? https : http;
+    let settled = false;
+    let response;
+    let request;
+    let timeout;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      response?.destroy();
+      request?.destroy();
+      resolve(result);
+    };
+
+    request = client.request(
+      parsedUrl,
+      {
+        method: "GET",
+        headers: {
+          accept: "audio/*,application/ogg,application/octet-stream,*/*;q=0.4",
+          "icy-metadata": "0",
+          range: "bytes=0-1023",
+          "user-agent": USER_AGENT,
+        },
+      },
+      (incoming) => {
+        response = incoming;
+        const status = response.statusCode ?? 0;
+
+        if (status >= 300 && status < 400 && response.headers.location) {
+          let redirectUrl;
+          try {
+            redirectUrl = new URL(response.headers.location, parsedUrl).href;
+          } catch {
+            finish({ live: false, status, error: "invalid redirect location" });
+            return;
+          }
+          finish({ redirectUrl, status });
+          return;
+        }
+
+        if (status < 200 || status >= 300) {
+          finish({ live: false, status, error: `HTTP ${status || "unknown"}` });
+          return;
+        }
+
+        if (looksLikeStreamHeaders(response.headers)) {
+          finish({ live: true, status });
+          return;
+        }
+
+        response.once("data", (chunk) => {
+          const length = Number(chunk?.byteLength ?? chunk?.length ?? 0);
+          finish(length > 0 ? { live: true, status } : { live: false, status, error: "no stream data received" });
+        });
+        response.once("end", () => finish({ live: false, status, error: "no stream data received" }));
+        response.once("error", (error) => finish({ live: false, status, error: String(error?.message ?? error) }));
+      },
+    );
+
+    timeout = setTimeout(() => finish({ live: false, status: 0, error: "timeout" }), timeoutMs);
+    timeout.unref?.();
+    request.once("error", (error) => finish({ live: false, status: 0, error: String(error?.message ?? error) }));
+    request.end();
+  });
+}
+
 function looksLikeStreamHeaders(headers) {
   if (!headers) return false;
   const contentType = headerValue(headers, "content-type").toLowerCase();
@@ -392,13 +493,21 @@ function looksLikeStreamHeaders(headers) {
         streamHeader = true;
       }
     });
+  } else if (typeof headers === "object") {
+    for (const key of Object.keys(headers)) {
+      const lower = key.toLowerCase();
+      if (lower.startsWith("icy-") || lower.startsWith("x-audiocast-") || lower.startsWith("x-ogg-")) {
+        streamHeader = true;
+      }
+    }
   }
   return streamHeader;
 }
 
 function headerValue(headers, name) {
-  if (typeof headers.get === "function") return headers.get(name) || "";
-  return headers[name] || headers[name.toLowerCase()] || "";
+  const raw = typeof headers.get === "function" ? headers.get(name) : headers[name] || headers[name.toLowerCase()] || "";
+  if (Array.isArray(raw)) return raw.join(",");
+  return String(raw ?? "");
 }
 
 async function readFirstBodyChunk(response) {
@@ -439,11 +548,11 @@ export async function maintainStations(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const checkLive =
     options.checkLive ||
-    ((station) =>
-      checkStationLive(station, {
-        fetchImpl,
-        timeoutMs,
-      }));
+    ((station) => {
+      const liveOptions = { timeoutMs };
+      if (options.fetchImpl) liveOptions.fetchImpl = fetchImpl;
+      return checkStationLive(station, liveOptions);
+    });
   const now = options.now instanceof Date ? options.now : new Date();
   const nowIso = now.toISOString();
   const warnings = [];

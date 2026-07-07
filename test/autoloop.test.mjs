@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -198,6 +199,23 @@ test("normalizeStation accepts radio-browser style fields", () => {
   assert.deepEqual(station.tags, ["news", "talk"]);
   assert.equal(station.bitrate, 128);
   assert.equal(normalizeStation({ name: "bad", url: "ftp://example.test/stream" }, "fixture"), null);
+});
+
+test("checkStationLive probes streams with native HTTP by default", async () => {
+  const server = http.createServer((request, response) => {
+    assert.equal(request.headers.range, "bytes=0-1023");
+    response.writeHead(200, { "content-type": "audio/mpeg" });
+    response.write(Buffer.from([1, 2, 3]));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  try {
+    const { port } = server.address();
+    const result = await checkStationLive({ url: `http://127.0.0.1:${port}/stream` }, { timeoutMs: 1000 });
+    assert.deepEqual(result, { live: true, status: 200 });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("checkStationLive accepts stream headers without closing the response body", async () => {
