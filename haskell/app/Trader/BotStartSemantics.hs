@@ -1,4 +1,5 @@
 module Trader.BotStartSemantics (
+    applyBackendAutostartSizingDefault,
     botTradeEnabledFromApi,
     botStartSymbolDisabled,
     prioritizeBotStartSymbols,
@@ -12,7 +13,17 @@ module Trader.BotStartSemantics (
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
+import Trader.App.Args (Args (..))
 import Trader.Text (dedupeStable)
+
+applyBackendAutostartSizingDefault :: Args -> Args
+applyBackendAutostartSizingDefault args
+    | hasSizing (argOrderQuantity args) = args
+    | hasSizing (argOrderQuote args) = args
+    | hasSizing (argOrderQuoteFraction args) = args
+    | otherwise = args{argOrderQuoteFraction = Just 1}
+  where
+    hasSizing = maybe False (> 0)
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = fromMaybe True

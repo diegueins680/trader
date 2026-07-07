@@ -186,6 +186,7 @@ import Trader.Binance (
  )
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
+    applyBackendAutostartSizingDefault,
     botStartSymbolDisabled,
     botTradeEnabledFromApi,
     prioritizeBotStartSymbols,
@@ -7694,7 +7695,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                 else case argData baseArgs of
                     Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
                     Nothing -> do
-                        let argsBase = baseArgs{argTradeOnly = True}
+                        let argsBase = applyBackendAutostartSizingDefault baseArgs{argTradeOnly = True}
                             settings = defaultBotSettings argsBase
                         disabledSymbols <- botDisabledSymbolsFromEnv
                         maxBots <- botAutoStartMaxBotsFromEnv
@@ -7839,7 +7840,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                         else do
                                                                             recordError sym "Top combo market mismatch; falling back to latest compatible combo."
                                                                             applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                        case validateApiComputeLimits limits argsCombo of
+                                        let argsComboSized = applyBackendAutostartSizingDefault argsCombo
+                                        case validateApiComputeLimits limits argsComboSized of
                                             Left err -> recordError sym err
                                             Right argsOk -> do
                                                 r <-
@@ -11799,9 +11801,9 @@ runRestApi cliArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
-                IO (Either IOException ())
-            )
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+            IO (Either IOException ())
+        )
     case res of
         Right () -> pure ()
         Left e ->
