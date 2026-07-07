@@ -355,7 +355,6 @@ export async function checkStationLive(station, options = {}) {
     }
 
     if (looksLikeStreamHeaders(response.headers)) {
-      await cancelBody(response);
       return { live: true, status: response.status };
     }
 
@@ -368,6 +367,7 @@ export async function checkStationLive(station, options = {}) {
     return { live: false, status: 0, error: error?.name === "AbortError" ? "timeout" : String(error?.message ?? error) };
   } finally {
     clearTimeout(timeout);
+    controller.abort();
   }
 }
 
@@ -408,19 +408,8 @@ async function readFirstBodyChunk(response) {
   if (typeof body.getReader !== "function") return true;
 
   const reader = body.getReader();
-  try {
-    const { done, value } = await reader.read();
-    return !done && Boolean(value) && Number(value.byteLength ?? value.length ?? 0) > 0;
-  } finally {
-    await reader.cancel().catch(() => {});
-  }
-}
-
-async function cancelBody(response) {
-  const body = response.body;
-  if (!body || typeof body.getReader !== "function") return;
-  const reader = body.getReader();
-  await reader.cancel().catch(() => {});
+  const { done, value } = await reader.read();
+  return !done && Boolean(value) && Number(value.byteLength ?? value.length ?? 0) > 0;
 }
 
 export async function mapWithConcurrency(items, limit, mapper) {

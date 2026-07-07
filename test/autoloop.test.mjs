@@ -11,6 +11,7 @@ import {
   parseFlyChecksJson,
 } from "../scripts/check-fly-postgres-disk.mjs";
 import {
+  checkStationLive,
   maintainStations,
   normalizeStation,
   parseArgs as parseRadioStationArgs,
@@ -197,6 +198,66 @@ test("normalizeStation accepts radio-browser style fields", () => {
   assert.deepEqual(station.tags, ["news", "talk"]);
   assert.equal(station.bitrate, 128);
   assert.equal(normalizeStation({ name: "bad", url: "ftp://example.test/stream" }, "fixture"), null);
+});
+
+test("checkStationLive accepts stream headers without canceling the response body", async () => {
+  let signal;
+  let bodyRead = false;
+  const result = await checkStationLive(
+    { url: "https://stream.example.test/live.mp3" },
+    {
+      fetchImpl: async (_url, options) => {
+        signal = options.signal;
+        return {
+          status: 200,
+          headers: {
+            get: (name) => (name.toLowerCase() === "content-type" ? "audio/mpeg" : ""),
+          },
+          body: {
+            getReader: () => {
+              bodyRead = true;
+              throw new Error("body should not be read when stream headers identify the response");
+            },
+          },
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(result, { live: true, status: 200 });
+  assert.equal(bodyRead, false);
+  assert.equal(signal.aborted, true);
+});
+
+test("checkStationLive aborts first-chunk probes instead of canceling the reader", async () => {
+  let signal;
+  let cancelCalled = false;
+  const result = await checkStationLive(
+    { url: "https://stream.example.test/live" },
+    {
+      fetchImpl: async (_url, options) => {
+        signal = options.signal;
+        return {
+          status: 200,
+          headers: {
+            get: () => "text/plain",
+          },
+          body: {
+            getReader: () => ({
+              read: async () => ({ done: false, value: new Uint8Array([1, 2, 3]) }),
+              cancel: async () => {
+                cancelCalled = true;
+              },
+            }),
+          },
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(result, { live: true, status: 200 });
+  assert.equal(cancelCalled, false);
+  assert.equal(signal.aborted, true);
 });
 
 test("radio station maintenance purges failed stations and adds live discoveries", async () => {
