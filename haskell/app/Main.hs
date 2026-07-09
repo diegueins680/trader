@@ -85,6 +85,7 @@ import qualified Wuss
 import Trader.Api.Routes (apiEndpointDocs, apiRouteLabel)
 import Trader.App.Args (
     Args (..),
+    applyBackendAutostartSizingDefault,
     argBinanceMarket,
     argLookback,
     intrabarFillCode,
@@ -9814,7 +9815,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                 else case argData baseArgs of
                     Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
                     Nothing -> do
-                        let argsBase = baseArgs{argTradeOnly = True}
+                        let argsBase = applyBackendAutostartSizingDefault baseArgs{argTradeOnly = True}
                         settings <- defaultBotSettingsFromEnv argsBase
                         disabledSymbols <- botDisabledSymbolsFromEnv
                         maxBots <- botAutoStartMaxBotsFromEnv
@@ -10023,7 +10024,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                             else do
                                                                                 recordError sym "Top combo market mismatch; falling back to latest compatible combo."
                                                                                 applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                        case validateApiComputeLimits limits argsCombo of
+                                        let argsComboSized = applyBackendAutostartSizingDefault argsCombo
+                                        case validateApiComputeLimits limits argsComboSized of
                                             Left err -> recordError sym err
                                             Right argsOk -> do
                                                 r <-
@@ -12845,15 +12847,17 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcCandleQueue :: !(TBQueue ())
     , tcbcEnabled :: !Bool
     , tcbcMinTradesForAbort :: !Int
-    -- ^ Minimum trade count for a sub-threshold smoke backtest to be
-    -- treated as 'BacktestAbort'. Below this, the verdict is
-    -- 'BacktestNoVerdict' (fail open, no prune). Tunable via
-    -- @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
-    -- 'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
+    {- ^ Minimum trade count for a sub-threshold smoke backtest to be
+    treated as 'BacktestAbort'. Below this, the verdict is
+    'BacktestNoVerdict' (fail open, no prune). Tunable via
+    @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
+    'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
+    -}
     , tcbcRefreshPolicy :: !ComboBacktestRefreshPolicy
-    -- ^ Policy for periodic top-combo backtest refresh selection and
-    -- pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
-    -- @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
+    {- ^ Policy for periodic top-combo backtest refresh selection and
+    pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
+    @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
+    -}
     }
 
 withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
@@ -15336,9 +15340,9 @@ runRestApi cliArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
-                IO (Either IOException ())
-            )
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+            IO (Either IOException ())
+        )
     case res of
         Right () -> pure ()
         Left e ->

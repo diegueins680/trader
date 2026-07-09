@@ -1,0 +1,14 @@
+# Example crontab for the radio station maintenance job.
+# Replace /path/to/trader, RADIO_STATION_DISCOVERY_URLS, and log paths before installing.
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+RADIO_STATIONS_FILE=/var/lib/trader/radio-stations.json
+RADIO_STATION_DISCOVERY_URLS=https://example.com/radio-stations.json
+RADIO_STATION_INTERVAL_SECONDS=900
+RADIO_STATION_MAX_FAILURES=2
+RADIO_STATION_CHECK_TIMEOUT_MS=8000
+RADIO_STATION_CHECK_CONCURRENCY=8
+
+*/15 * * * * cd /path/to/trader && npm run radio:maintain -- --json >> /var/log/trader/radio-stations.log 2>&1

@@ -50,13 +50,15 @@ data FeatureInputs = FeatureInputs
     , fiBasis :: !(Maybe (V.Vector Double)) -- (mark - index) / index
     , fiTakerFlow :: !(Maybe (V.Vector Double)) -- taker buy/sell volume ratio (CVD proxy)
     , fiCoinbaseClose :: !(Maybe (V.Vector Double))
-    -- ^ Same-asset cross-exchange (Coinbase) closes, aligned to the same bar
-    -- grid as 'fiClose'. 'Nothing' (the default) leaves the feature vector
-    -- byte-identical to the Binance-only behavior; its presence switches on the
-    -- cross-exchange feature block.
+    {- ^ Same-asset cross-exchange (Coinbase) closes, aligned to the same bar
+    grid as 'fiClose'. 'Nothing' (the default) leaves the feature vector
+    byte-identical to the Binance-only behavior; its presence switches on the
+    cross-exchange feature block.
+    -}
     , fiExternal :: !(Maybe ExternalFeatureInputs)
-    -- ^ Optional broader exogenous feature families. Each vector, when present,
-    -- must be aligned point-in-time to the same bar grid as 'fiClose'.
+    {- ^ Optional broader exogenous feature families. Each vector, when present,
+    must be aligned point-in-time to the same bar grid as 'fiClose'.
+    -}
     }
     deriving (Eq, Show)
 

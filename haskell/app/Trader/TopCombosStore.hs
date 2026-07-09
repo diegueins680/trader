@@ -437,8 +437,9 @@ data ComboLiveStats = ComboLiveStats
     { clsFinalEquity :: !Double
     -- ^ Compounded product of per-order equity ratios; 1.0 = break-even.
     , clsAnnualizedReturn :: !(Maybe Double)
-    -- ^ Annualized from the observed live span; Nothing until the span is
-    -- long enough to annualize without exploding.
+    {- ^ Annualized from the observed live span; Nothing until the span is
+    long enough to annualize without exploding.
+    -}
     , clsOperationCount :: !Int
     , clsFirstAtMs :: !(Maybe Int64)
     , clsLastAtMs :: !(Maybe Int64)

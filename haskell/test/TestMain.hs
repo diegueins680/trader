@@ -24,7 +24,7 @@ import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parse
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
 import System.Directory (removeFile)
 import System.IO (hClose, openTempFile)
-import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
@@ -397,6 +397,7 @@ main = do
     testPredictionMarketHerdTtlRejectsInvalidValues
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
+    testBackendAutostartSizingDefault
     testMaxOrderQuoteRejectsAbsurdValue
     testFromMustBeLessThanOrEqualToTo
     testValRatioRejectsInvalidValues
@@ -1899,6 +1900,37 @@ testOrderQuoteFractionRejectsInvalidValues = do
         "order-quote-fraction accepts 0.5 (valid fraction)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5"] of
             Right args -> argOrderQuoteFraction args == Just 0.5
+            Left _ -> False
+        )
+
+testBackendAutostartSizingDefault :: IO ()
+testBackendAutostartSizingDefault = do
+    assert
+        "backend autostart defaults unsized workers to full quote-fraction sizing"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argOrderQuoteFraction (applyBackendAutostartSizingDefault args) == Just 1
+            Left _ -> False
+        )
+    assert
+        "backend autostart preserves explicit order quantity sizing"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quantity", "0.25"] of
+            Right args ->
+                let args' = applyBackendAutostartSizingDefault args
+                 in argOrderQuantity args' == Just 0.25 && isNothing (argOrderQuoteFraction args')
+            Left _ -> False
+        )
+    assert
+        "backend autostart preserves explicit order quote sizing"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote", "100"] of
+            Right args ->
+                let args' = applyBackendAutostartSizingDefault args
+                 in argOrderQuote args' == Just 100 && isNothing (argOrderQuoteFraction args')
+            Left _ -> False
+        )
+    assert
+        "backend autostart preserves explicit quote-fraction sizing"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5"] of
+            Right args -> argOrderQuoteFraction (applyBackendAutostartSizingDefault args) == Just 0.5
             Left _ -> False
         )
 

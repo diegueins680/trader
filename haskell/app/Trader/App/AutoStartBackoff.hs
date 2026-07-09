@@ -76,12 +76,14 @@ import Trader.App.BinanceProbe (
 data ErrorClass
     = -- | Network/DNS, 5xx, 429, timeouts — retry with exponential backoff.
       ErrTransient
-    | -- | Binance rejected with @-2015@/@-2014@/@-1022@/@-1021@ or HTTP 401/403.
-      --   Permanent until operator rotates keys or fixes IP allow-list.
+    | {- | Binance rejected with @-2015@/@-2014@/@-1022@/@-1021@ or HTTP 401/403.
+      Permanent until operator rotates keys or fixes IP allow-list.
+      -}
       ErrAuth
-    | -- | Binance order/account rejection that will not heal without a config
-      --   change (e.g. @-1013@ LOT_SIZE, @-1100@ illegal characters). Per-symbol
-      --   permanent until operator intervention.
+    | {- | Binance order/account rejection that will not heal without a config
+      change (e.g. @-1013@ LOT_SIZE, @-1100@ illegal characters). Per-symbol
+      permanent until operator intervention.
+      -}
       ErrPermanent
     | -- | Unrecognized error. Treated like a long-but-finite transient.
       ErrUnknown
@@ -131,8 +133,9 @@ defaultBackoffPolicy =
 
 data CircuitPolicy = CircuitPolicy
     { cpAuthThreshold :: !Int
-    -- ^ Open the global circuit once at least this many symbols are
-    --   classified as auth-failed.
+    {- ^ Open the global circuit once at least this many symbols are
+    classified as auth-failed.
+    -}
     , cpOpenDurationSec :: !Int
     -- ^ How long to keep the global circuit open before re-probing.
     }

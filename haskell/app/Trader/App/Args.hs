@@ -7,6 +7,7 @@ module Trader.App.Args (
     resolveBarsForBinance,
     resolveBarsForPlatform,
     normalizeBarsForLookback,
+    applyBackendAutostartSizingDefault,
     positioningCode,
     parsePositioning,
     intrabarFillCode,
@@ -1675,6 +1676,15 @@ normalizeBarsForLookback args =
             else args
   where
     present = maybe False (not . null . trim)
+
+applyBackendAutostartSizingDefault :: Args -> Args
+applyBackendAutostartSizingDefault args
+    | hasSizing (argOrderQuantity args) = args
+    | hasSizing (argOrderQuote args) = args
+    | hasSizing (argOrderQuoteFraction args) = args
+    | otherwise = args{argOrderQuoteFraction = Just 1}
+  where
+    hasSizing = maybe False (> 0)
 
 defaultServeTradeLogPath :: FilePath
 defaultServeTradeLogPath = ".tmp/trader/live_trades.ndjson"

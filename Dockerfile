@@ -40,13 +40,15 @@ RUN --mount=type=cache,target=/root/.cabal \
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl libgmp10 libpq5 libtinfo6 \
+  && apt-get install -y --no-install-recommends ca-certificates curl libgmp10 libpq5 libtinfo6 nodejs \
   && rm -rf /var/lib/apt/lists/* \
   && rm -rf /tmp/*
 
 COPY --from=build /opt/trader/trader-hs /usr/local/bin/
 COPY --from=build /opt/trader/optimize-equity /usr/local/bin/
 COPY --from=build /opt/trader/merge-top-combos /usr/local/bin/
+COPY scripts/autoloop-lib.mjs scripts/maintain-radio-stations.mjs /opt/trader/scripts/
+COPY scripts/fly-radio-stations-loop.sh /usr/local/bin/fly-radio-stations-loop
 
 WORKDIR /opt/trader/haskell
 COPY haskell/web/public /opt/trader/haskell/web/public

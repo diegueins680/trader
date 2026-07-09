@@ -131,8 +131,7 @@ main = do
                         , "decisionIntegration"
                             .= Aeson.object
                                 [ "rule"
-                                    .= ( "Close when the position age reaches the 50th-75th percentile of the tm/td ratio per combo, using a robust band [Q25, Q75]. Only widen maxHoldBars when the longer-hold bucket has sufficient positive-lift support and materially stronger lift than the modeled current hold; otherwise fail closed." :: String
-                                       )
+                                    .= ("Close when the position age reaches the 50th-75th percentile of the tm/td ratio per combo, using a robust band [Q25, Q75]. Only widen maxHoldBars when the longer-hold bucket has sufficient positive-lift support and materially stronger lift than the modeled current hold; otherwise fail closed." :: String)
                                 ]
                         ]
                 encoded = Aeson.encode payload
