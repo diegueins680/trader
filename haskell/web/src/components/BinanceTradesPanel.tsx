@@ -344,26 +344,30 @@ export function BinanceTradesPanel({
 <div className="row" style={{ marginTop: 10 }}>
   <div className="field">
     <label className="label" htmlFor="binanceTradesStart">
-      Start time (optional)
+      Start date (optional)
     </label>
     <input
       id="binanceTradesStart"
       className="input"
+      type="date"
       value={binanceTradesStartInput}
       onChange={(e) => setBinanceTradesStartInput(e.target.value)}
-      placeholder="2025-12-23T00:00:00Z or 1700000000000"
+      max={binanceTradesEndInput || undefined}
+      aria-label="Start date"
     />
   </div>
   <div className="field">
     <label className="label" htmlFor="binanceTradesEnd">
-      End time (optional)
+      End date (optional)
     </label>
     <input
       id="binanceTradesEnd"
       className="input"
+      type="date"
       value={binanceTradesEndInput}
       onChange={(e) => setBinanceTradesEndInput(e.target.value)}
-      placeholder="2025-12-23T23:59:59Z"
+      min={binanceTradesStartInput || undefined}
+      aria-label="End date"
     />
   </div>
   <div className="field">

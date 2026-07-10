@@ -455,6 +455,8 @@ const STATE_SYNC_CHUNK_MAX_BYTES = 50_000_000;
 const MIN_BACKTEST_PNL_ROWS_PER_PAGE = 1;
 const MAX_BACKTEST_PNL_ROWS_PER_PAGE = 1000;
 const DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE = 50;
+const DATE_ONLY_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 const textByteLength = (raw: string): number => {
   if (textEncoder) return textEncoder.encode(raw).length;
@@ -468,6 +470,14 @@ const jsonByteLength = (value: unknown): number => {
     return 0;
   }
 };
+
+function parseDateRangeEndMs(raw: string): number | null {
+  const trimmed = raw.trim();
+  const parsed = parseTimeInputMs(trimmed);
+  if (parsed === null) return null;
+  return DATE_ONLY_INPUT_PATTERN.test(trimmed) ? parsed + MS_PER_DAY - 1 : parsed;
+}
+
 type BotChartOverlay = {
   operations: BotOperation[];
   positions: number[];
@@ -4555,15 +4565,7 @@ export function App() {
     [binanceTradesFilterSymbolsInput],
   );
   const binanceTradesFilterStartMs = useMemo(() => parseTimeInputMs(binanceTradesFilterStartInput), [binanceTradesFilterStartInput]);
-  const binanceTradesFilterEndMs = useMemo(() => {
-    const trimmed = binanceTradesFilterEndInput.trim();
-    if (!trimmed) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      const parsed = parseTimeInputMs(trimmed);
-      return parsed === null ? null : parsed + 24 * 60 * 60 * 1000 - 1;
-    }
-    return parseTimeInputMs(trimmed);
-  }, [binanceTradesFilterEndInput]);
+  const binanceTradesFilterEndMs = useMemo(() => parseDateRangeEndMs(binanceTradesFilterEndInput), [binanceTradesFilterEndInput]);
   const binanceTradesFilterError = useMemo(() => {
     if (binanceTradesFilterStartInput.trim() && binanceTradesFilterStartMs === null) {
       return "Filter start date must be a valid date (YYYY-MM-DD).";
@@ -6358,7 +6360,7 @@ export function App() {
     [binanceTradesSymbols],
   );
   const binanceTradesStartMs = useMemo(() => parseTimeInputMs(binanceTradesStartInput), [binanceTradesStartInput]);
-  const binanceTradesEndMs = useMemo(() => parseTimeInputMs(binanceTradesEndInput), [binanceTradesEndInput]);
+  const binanceTradesEndMs = useMemo(() => parseDateRangeEndMs(binanceTradesEndInput), [binanceTradesEndInput]);
   const binanceTradesFromId = useMemo(() => parseMaybeInt(binanceTradesFromIdInput), [binanceTradesFromIdInput]);
   const binanceTradesLimitSafe = useMemo(
     () => clamp(Math.trunc(binanceTradesLimit), 1, 1000),
@@ -6373,12 +6375,10 @@ export function App() {
         binanceTradesSymbolsInvalid.length > 0
           ? `Symbols must match Binance format (e.g., ${symbolFormatExample("binance")}). Invalid: ${binanceTradesSymbolsInvalid.join(", ")}.`
           : null,
-        binanceTradesStartInput.trim() && binanceTradesStartMs === null
-          ? "Start time must be a unix ms timestamp or ISO date."
-          : null,
-        binanceTradesEndInput.trim() && binanceTradesEndMs === null ? "End time must be a unix ms timestamp or ISO date." : null,
+        binanceTradesStartInput.trim() && binanceTradesStartMs === null ? "Start date must be a valid date (YYYY-MM-DD)." : null,
+        binanceTradesEndInput.trim() && binanceTradesEndMs === null ? "End date must be a valid date (YYYY-MM-DD)." : null,
         binanceTradesStartMs !== null && binanceTradesEndMs !== null && binanceTradesEndMs < binanceTradesStartMs
-          ? "End time must be after start time."
+          ? "End date must be after start date."
           : null,
         binanceTradesFromIdInput.trim() && binanceTradesFromId === null ? "From ID must be a non-negative integer." : null,
       ),
