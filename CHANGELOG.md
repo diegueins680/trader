@@ -1,6 +1,6 @@
 ## Unreleased
 - Web/Binance: use native date selectors for the Binance account-trades request range, treating the selected end date as inclusive through the end of the day.
-- Bot/Live Trading: backend live-bot autostart now defaults unsized workers to `orderQuoteFraction=1`, while preserving explicit `orderQuantity`, `orderQuote`, or `orderQuoteFraction` sizing.
+- Bot/Live Trading: backend live-bot starts now default unsized workers to `orderQuoteFraction=1`, including ordinary `/bot/start` requests and autostart workers, while preserving explicit `orderQuantity`, `orderQuote`, or `orderQuoteFraction` sizing.
 - Deploy/Fly: install the radio station maintenance job as a dedicated low-resource `radio` process group that refreshes `/var/lib/trader/state/radio-stations.json` every 15 minutes from Radio Browser discoveries.
 - Automation: add `npm run radio:maintain`, a cron-friendly radio station maintenance job that checks stream liveness, purges repeatedly failing stations, and imports only live discoveries from configured JSON sources.
 - Web/Binance: score account-trade outcomes from non-zero futures `realizedPnl` close rows instead of all exchange fills, so opening/zero-PNL fills no longer appear as flat trades or dilute the displayed win rate; the panel now reports closed outcomes separately from raw fills.

@@ -22161,7 +22161,9 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                 case requireTenantKey "bot/start" mTenant of
                                     Left e -> respond (jsonError status400 e)
                                     Right tenantKey -> do
-                                        let argsBase = normalizeBarsForLookback args0{argTradeOnly = True}
+                                        let argsBase =
+                                                applyBackendAutostartSizingDefault $
+                                                    normalizeBarsForLookback args0{argTradeOnly = True}
                                             tradeEnabled = botTradeEnabledFromApi (apBotTrade params)
                                         symbolsOrErr <- resolveBotSymbols argsBase params
                                         let requestedSymbols =
