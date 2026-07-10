@@ -43,9 +43,8 @@ data S3State = S3State
     , s3Prefix :: !String
     , s3Creds :: !AwsCredentials
     , s3EndpointHost :: !(Maybe String)
-    {- ^ Custom S3-compatible host (no scheme), e.g. "fly.storage.tigris.dev".
-    Nothing => AWS virtual-hosted addressing.
-    -}
+    -- ^ Custom S3-compatible host (no scheme), e.g. "fly.storage.tigris.dev".
+    --     Nothing => AWS virtual-hosted addressing.
     , s3UseTls :: !Bool
     -- ^ Request scheme (https unless the endpoint was given as http://).
     , s3PathStyle :: !Bool

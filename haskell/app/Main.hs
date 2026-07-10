@@ -12847,17 +12847,15 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcCandleQueue :: !(TBQueue ())
     , tcbcEnabled :: !Bool
     , tcbcMinTradesForAbort :: !Int
-    {- ^ Minimum trade count for a sub-threshold smoke backtest to be
-    treated as 'BacktestAbort'. Below this, the verdict is
-    'BacktestNoVerdict' (fail open, no prune). Tunable via
-    @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
-    'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
-    -}
+    -- ^ Minimum trade count for a sub-threshold smoke backtest to be
+    --     treated as 'BacktestAbort'. Below this, the verdict is
+    --     'BacktestNoVerdict' (fail open, no prune). Tunable via
+    --     @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
+    --     'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
     , tcbcRefreshPolicy :: !ComboBacktestRefreshPolicy
-    {- ^ Policy for periodic top-combo backtest refresh selection and
-    pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
-    @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
-    -}
+    -- ^ Policy for periodic top-combo backtest refresh selection and
+    --     pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
+    --     @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
     }
 
 withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
@@ -15340,9 +15338,9 @@ runRestApi cliArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
-            IO (Either IOException ())
-        )
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+                IO (Either IOException ())
+            )
     case res of
         Right () -> pure ()
         Left e ->

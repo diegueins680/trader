@@ -861,9 +861,8 @@ data PredictorLiveness = PredictorLiveness
     , plMaxStepReturn :: !Double
     -- ^ max |p[t+1] - p[t]| / |p[t]| over consecutive finite forecasts (telemetry)
     , plPriceTrackingRatio :: !Double
-    {- ^ plDynamicRangePct / priceDynamicRangePct; ~1 means the forecast moves as
-    much as price, ~0 means a near-constant (dead) forecast
-    -}
+    -- ^ plDynamicRangePct / priceDynamicRangePct; ~1 means the forecast moves as
+    --     much as price, ~0 means a near-constant (dead) forecast
     }
     deriving (Eq, Show)
 
