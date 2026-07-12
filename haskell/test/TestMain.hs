@@ -135,6 +135,18 @@ import Trader.MarketGovernor (
  )
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
+import Trader.NeuralGovernor (
+    NeuralGovernorConfig (..),
+    NeuralGovernorDecision (..),
+    NeuralGovernorFeatures (..),
+    NeuralGovernorPendingEntry (..),
+    defaultNeuralGovernorConfig,
+    initNeuralGovernorState,
+    neuralGovernorDecide,
+    neuralGovernorObserveTrade,
+    neuralGovernorReward,
+    neuralGovernorSizingMultiplier,
+ )
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
 import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
 import qualified Trader.Optimizer.Common as OptimizerCommon
@@ -441,6 +453,7 @@ main = do
     testCapitalPreservationReport
     testPortfolioCapitalPreservationReport
     testMarketGovernorPolicy
+    testNeuralGovernorPolicy
     testLiveMaxPnlCloseTimingRecommendation
     testOptimizerCloseTimingRecommendationRequiresAcceptedEvidence
     testOptimizerCloseTimingMetricsRecordAppliedRecommendation
@@ -3021,6 +3034,76 @@ testMarketGovernorPolicy = do
             && not (mgdEnabled disabledDecision)
             && not (mgdBlockFreshEntries disabledDecision)
             && approx (mgdEntrySizeMultiplier disabledDecision) 1
+        )
+
+testNeuralGovernorPolicy :: IO ()
+testNeuralGovernorPolicy = do
+    let cfg =
+            defaultNeuralGovernorConfig
+                { ngcMinTrades = 2
+                , ngcLearningRate = 0.2
+                , ngcInfluence = 10
+                , ngcMinMultiplier = 0.5
+                , ngcMaxMultiplier = 1.5
+                , ngcRewardClip = 0.10
+                , ngcLossPenaltyScale = 3
+                }
+        activeCfg = cfg{ngcMinTrades = 0}
+        baseFeatures =
+            NeuralGovernorFeatures
+                { ngfVolatility = Just 0.4
+                , ngfConfidence = Just 0.8
+                , ngfTrendProbability = Just 0.7
+                , ngfMeanReversionProbability = Just 0.2
+                , ngfHighVolProbability = Just 0.1
+                , ngfDrawdown = 0.01
+                , ngfLossStreak = 0
+                , ngfRollingLoss = Just 0.0
+                , ngfDirection = 1
+                , ngfBasePositionSize = 0.2
+                , ngfMarketGovernorMultiplier = 1
+                , ngfMarketGovernorBlocked = False
+                , ngfSymbolFeature = 0.12
+                , ngfMethodFeature = -0.25
+                , ngfIntervalFeature = 0.4
+                }
+        blockedFeatures = baseFeatures{ngfMarketGovernorBlocked = True}
+        state0 = initNeuralGovernorState cfg
+        warmup = neuralGovernorDecide cfg state0 baseFeatures
+        blocked = neuralGovernorDecide activeCfg state0 blockedFeatures
+        pending0 = NeuralGovernorPendingEntry baseFeatures (neuralGovernorDecide activeCfg state0 baseFeatures)
+        stateWin = neuralGovernorObserveTrade activeCfg state0 pending0 0.03
+        stateLoss = neuralGovernorObserveTrade activeCfg state0 pending0 (-0.03)
+        before = ngdScore (neuralGovernorDecide activeCfg state0 baseFeatures)
+        afterWin = ngdScore (neuralGovernorDecide activeCfg stateWin baseFeatures)
+        afterLoss = ngdScore (neuralGovernorDecide activeCfg stateLoss baseFeatures)
+        lossReward = neuralGovernorReward cfg (-0.03)
+        winReward = neuralGovernorReward cfg 0.03
+        trainedDecision =
+            neuralGovernorDecide
+                activeCfg
+                (neuralGovernorObserveTrade activeCfg stateWin pending0 0.03)
+                baseFeatures
+    assert
+        "neural governor is warmup pass-through before enough examples"
+        (not (ngdReady warmup) && neuralGovernorSizingMultiplier warmup == 1 && ngdReason warmup == "NEURAL_GOVERNOR_WARMUP")
+    assert
+        "neural governor does not alter hard-gated market-governor decisions"
+        (not (ngdReady blocked) && neuralGovernorSizingMultiplier blocked == 1 && ngdReason blocked == "NEURAL_GOVERNOR_HARD_GATE")
+    assert
+        "neural governor rewards wins and penalizes losses asymmetrically"
+        (winReward == Just 0.03 && lossReward == Just (-0.09))
+    assert
+        "winning trade raises the learned score for the same context"
+        (afterWin > before)
+    assert
+        "losing trade lowers the learned score for the same context"
+        (afterLoss < before)
+    assert
+        "ready neural governor returns a bounded sizing multiplier"
+        ( ngdReady trainedDecision
+            && neuralGovernorSizingMultiplier trainedDecision >= ngcMinMultiplier activeCfg
+            && neuralGovernorSizingMultiplier trainedDecision <= ngcMaxMultiplier activeCfg
         )
 
 testLiveMaxPnlCloseTimingRecommendation :: IO ()

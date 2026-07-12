@@ -368,6 +368,20 @@ import Trader.MarketGovernor (
  )
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
+import Trader.NeuralGovernor (
+    NeuralGovernorConfig (..),
+    NeuralGovernorDecision (..),
+    NeuralGovernorFeatures (..),
+    NeuralGovernorPendingEntry (..),
+    NeuralGovernorState (..),
+    defaultNeuralGovernorConfig,
+    initNeuralGovernorState,
+    neuralGovernorDecide,
+    neuralGovernorEnsureState,
+    neuralGovernorObserveTrade,
+    neuralGovernorSizingMultiplier,
+    neuralGovernorTextFeature,
+ )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
@@ -1090,6 +1104,17 @@ data ApiParams = ApiParams
     , apBotOutcomeWeightWinScale :: Maybe Double
     , apBotOutcomeWeightLossScale :: Maybe Double
     , apBotOutcomeWeightCap :: Maybe Double
+    , apBotNeuralGovernorEnabled :: Maybe Bool
+    , apBotNeuralGovernorHiddenSize :: Maybe Int
+    , apBotNeuralGovernorLearningRate :: Maybe Double
+    , apBotNeuralGovernorL2 :: Maybe Double
+    , apBotNeuralGovernorRewardClip :: Maybe Double
+    , apBotNeuralGovernorLossPenaltyScale :: Maybe Double
+    , apBotNeuralGovernorMinTrades :: Maybe Int
+    , apBotNeuralGovernorMinMultiplier :: Maybe Double
+    , apBotNeuralGovernorMaxMultiplier :: Maybe Double
+    , apBotNeuralGovernorInfluence :: Maybe Double
+    , apBotNeuralGovernorSeed :: Maybe Int
     , apBotTrade :: Maybe Bool
     , apBotProtectionOrders :: Maybe Bool
     , apProtectionMinConfidence :: Maybe Double
@@ -5476,6 +5501,7 @@ botOpenTradeJson trade =
         , "holdingPeriods" .= botOpenHoldingPeriods trade
         , "entryPrice" .= botOpenEntryPrice trade
         , "entrySource" .= tradeEntrySourceCode (botOpenEntrySource trade)
+        , "neuralGovernorEntry" .= botOpenNeuralGovernorEntry trade
         , "trail" .= botOpenTrail trade
         , "bestPnlReturn" .= finiteMaybe (Just (botOpenBestPnlReturn trade))
         , "bestPnlHoldingPeriods" .= botOpenBestPnlHoldingPeriods trade
@@ -6022,6 +6048,7 @@ data BotSettings = BotSettings
     , bsMaxPoints :: !Int
     , bsOptimizeTrainBarsCap :: !Int
     , bsOutcomeWeightConfig :: !OutcomeWeightConfig
+    , bsNeuralGovernorConfig :: !NeuralGovernorConfig
     , bsTradeEnabled :: !Bool
     , bsProtectionOrders :: !Bool
     , bsAdoptExistingPosition :: !Bool
@@ -6182,6 +6209,7 @@ data BotOpenTrade = BotOpenTrade
     , botOpenHoldingPeriods :: !Int
     , botOpenEntryPrice :: !Double
     , botOpenEntrySource :: !TradeEntrySource
+    , botOpenNeuralGovernorEntry :: !(Maybe NeuralGovernorPendingEntry)
     , botOpenSize :: !Double
     , botOpenTrail :: !Double
     , botOpenBestPnlReturn :: !Double
@@ -6249,6 +6277,7 @@ data BotState = BotState
     , botRestoredSlippages :: ![Double] -- fill-slippage observations restored from the previous session's snapshot
     , botTrades :: ![Trade]
     , botCloseTimingSamples :: ![BotCloseTimingSample]
+    , botNeuralGovernorState :: !NeuralGovernorState
     , botPerfStats :: !BotPerfStats
     , botAdjustments :: !BotAdjustments
     , botLossStreak :: !Int
@@ -6890,6 +6919,93 @@ applyMarketGovernorSizing decision sig
                 , lsAuditWarnings = dedupeStable (lsAuditWarnings sig ++ [warning])
                 }
 
+neuralGovernorFeaturesForBot ::
+    Args ->
+    String ->
+    Double ->
+    Int ->
+    MarketGovernorDecision ->
+    LatestSignal ->
+    NeuralGovernorFeatures
+neuralGovernorFeaturesForBot args sym drawdown lossStreak marketGovernor latest =
+    let inputs = mgdInputs marketGovernor
+        direction = fromMaybe 0 (lsChosenDir latest <|> lsCloseDir latest)
+     in NeuralGovernorFeatures
+            { ngfVolatility = lsVolatility latest
+            , ngfConfidence = lsConfidence latest
+            , ngfTrendProbability = mgiTrendProbability inputs
+            , ngfMeanReversionProbability = mgiMeanReversionProbability inputs
+            , ngfHighVolProbability = mgiHighVolProbability inputs
+            , ngfDrawdown = drawdown
+            , ngfLossStreak = lossStreak
+            , ngfRollingLoss = mgiRollingLoss inputs
+            , ngfDirection = direction
+            , ngfBasePositionSize = max 0 (fromMaybe 1 (lsPositionSize latest))
+            , ngfMarketGovernorMultiplier = mgdEntrySizeMultiplier marketGovernor
+            , ngfMarketGovernorBlocked = mgdBlockFreshEntries marketGovernor
+            , ngfSymbolFeature = neuralGovernorTextFeature (normalizeSymbol sym)
+            , ngfMethodFeature = neuralGovernorTextFeature (methodCode (argMethod args))
+            , ngfIntervalFeature = neuralGovernorTextFeature (argInterval args)
+            }
+
+neuralGovernorDecisionForBot ::
+    Args ->
+    BotSettings ->
+    String ->
+    Double ->
+    Int ->
+    MarketGovernorDecision ->
+    LatestSignal ->
+    NeuralGovernorState ->
+    (NeuralGovernorFeatures, NeuralGovernorDecision)
+neuralGovernorDecisionForBot args settings sym drawdown lossStreak marketGovernor latest state =
+    let features = neuralGovernorFeaturesForBot args sym drawdown lossStreak marketGovernor latest
+        cfg = bsNeuralGovernorConfig settings
+     in (features, neuralGovernorDecide cfg state features)
+
+applyNeuralGovernorSizing :: NeuralGovernorDecision -> LatestSignal -> LatestSignal
+applyNeuralGovernorSizing decision sig =
+    let multiplier = neuralGovernorSizingMultiplier decision
+     in if multiplier >= 0.999999 && multiplier <= 1.000001
+            then sig
+            else
+                let baseSize = max 0 (fromMaybe 1 (lsPositionSize sig))
+                    governedSize = baseSize * multiplier
+                    warning = "NEURAL_GOVERNOR:" ++ ngdReason decision
+                 in sig
+                        { lsPositionSize = Just governedSize
+                        , lsAuditWarnings = dedupeStable (lsAuditWarnings sig ++ [warning])
+                        }
+
+neuralGovernorPendingEntry ::
+    NeuralGovernorFeatures ->
+    NeuralGovernorDecision ->
+    Maybe NeuralGovernorPendingEntry
+neuralGovernorPendingEntry features decision =
+    if ngdEnabled decision && ngdReason decision /= "NEURAL_GOVERNOR_HARD_GATE"
+        then Just NeuralGovernorPendingEntry{ngpeFeatures = features, ngpeDecision = decision}
+        else Nothing
+
+neuralGovernorStatusJson ::
+    NeuralGovernorConfig ->
+    NeuralGovernorState ->
+    NeuralGovernorDecision ->
+    Aeson.Value
+neuralGovernorStatusJson cfg state decision =
+    object
+        [ "enabled" .= ngcEnabled cfg
+        , "mode" .= ngcMode cfg
+        , "examples" .= ngdExamples decision
+        , "ready" .= ngdReady decision
+        , "score" .= ngdScore decision
+        , "multiplier" .= ngdMultiplier decision
+        , "reason" .= ngdReason decision
+        , "lastReward" .= ngsLastReward state
+        , "config" .= cfg
+        , "state" .= state
+        , "decision" .= decision
+        ]
+
 positiveFiniteMaybe :: Double -> Maybe Double
 positiveFiniteMaybe value =
     if value > 0 && isFiniteDouble value
@@ -7255,6 +7371,7 @@ defaultBotSettings args =
         , bsMaxPoints = defaultBotMaxPoints
         , bsOptimizeTrainBarsCap = defaultBotOptimizeTrainBarsCap
         , bsOutcomeWeightConfig = defaultOutcomeWeightConfig
+        , bsNeuralGovernorConfig = defaultNeuralGovernorConfig
         , bsTradeEnabled = True
         , bsProtectionOrders = False
         , bsAdoptExistingPosition = True
@@ -7271,6 +7388,19 @@ defaultBotSettingsFromEnv args = do
     outcomeWeightWinScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_WIN_SCALE" 0 1000 (owcWinScale defaultOutcomeWeightConfig)
     outcomeWeightLossScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_LOSS_SCALE" 0 1000 (owcLossScale defaultOutcomeWeightConfig)
     outcomeWeightCap <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_CAP" 1 100 (owcCap defaultOutcomeWeightConfig)
+    neuralEnabledRaw <- lookupEnv "TRADER_BOT_NEURAL_GOVERNOR_ENABLED"
+    let neuralDefaults = defaultNeuralGovernorConfig
+        neuralEnabled = readEnvBool neuralEnabledRaw (ngcEnabled neuralDefaults)
+    neuralHiddenSize <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_HIDDEN_SIZE" 2 256 (ngcHiddenSize neuralDefaults)
+    neuralLearningRate <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_LEARNING_RATE" 1e-9 10 (ngcLearningRate neuralDefaults)
+    neuralL2 <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_L2" 0 10 (ngcL2 neuralDefaults)
+    neuralRewardClip <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_REWARD_CLIP" 1e-9 1 (ngcRewardClip neuralDefaults)
+    neuralLossPenaltyScale <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_LOSS_PENALTY_SCALE" 0 100 (ngcLossPenaltyScale neuralDefaults)
+    neuralMinTrades <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_MIN_TRADES" 0 10000 (ngcMinTrades neuralDefaults)
+    neuralMinMultiplier <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_MIN_MULTIPLIER" 0 10 (ngcMinMultiplier neuralDefaults)
+    neuralMaxMultiplier <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_MAX_MULTIPLIER" 0 10 (ngcMaxMultiplier neuralDefaults)
+    neuralInfluence <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_INFLUENCE" 0 100 (ngcInfluence neuralDefaults)
+    neuralSeed <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_SEED" 0 maxBound (ngcSeed neuralDefaults)
     pure
         (defaultBotSettings args)
             { bsOnlineEpochs = onlineEpochs
@@ -7284,6 +7414,20 @@ defaultBotSettingsFromEnv args = do
                     { owcWinScale = outcomeWeightWinScale
                     , owcLossScale = outcomeWeightLossScale
                     , owcCap = outcomeWeightCap
+                    }
+            , bsNeuralGovernorConfig =
+                neuralDefaults
+                    { ngcEnabled = neuralEnabled
+                    , ngcHiddenSize = neuralHiddenSize
+                    , ngcLearningRate = neuralLearningRate
+                    , ngcL2 = neuralL2
+                    , ngcRewardClip = neuralRewardClip
+                    , ngcLossPenaltyScale = neuralLossPenaltyScale
+                    , ngcMinTrades = neuralMinTrades
+                    , ngcMinMultiplier = neuralMinMultiplier
+                    , ngcMaxMultiplier = neuralMaxMultiplier
+                    , ngcInfluence = neuralInfluence
+                    , ngcSeed = neuralSeed
                     }
             }
 
@@ -7299,6 +7443,18 @@ botSettingsFromApi args p = do
         outcomeWeightWinScale = fromMaybe (owcWinScale defaultOutcomeWeightConfig) (apBotOutcomeWeightWinScale p)
         outcomeWeightLossScale = fromMaybe (owcLossScale defaultOutcomeWeightConfig) (apBotOutcomeWeightLossScale p)
         outcomeWeightCap = fromMaybe (owcCap defaultOutcomeWeightConfig) (apBotOutcomeWeightCap p)
+        neuralDefaults = defaultNeuralGovernorConfig
+        neuralEnabled = fromMaybe (ngcEnabled neuralDefaults) (apBotNeuralGovernorEnabled p)
+        neuralHiddenSize = fromMaybe (ngcHiddenSize neuralDefaults) (apBotNeuralGovernorHiddenSize p)
+        neuralLearningRate = fromMaybe (ngcLearningRate neuralDefaults) (apBotNeuralGovernorLearningRate p)
+        neuralL2 = fromMaybe (ngcL2 neuralDefaults) (apBotNeuralGovernorL2 p)
+        neuralRewardClip = fromMaybe (ngcRewardClip neuralDefaults) (apBotNeuralGovernorRewardClip p)
+        neuralLossPenaltyScale = fromMaybe (ngcLossPenaltyScale neuralDefaults) (apBotNeuralGovernorLossPenaltyScale p)
+        neuralMinTrades = fromMaybe (ngcMinTrades neuralDefaults) (apBotNeuralGovernorMinTrades p)
+        neuralMinMultiplier = fromMaybe (ngcMinMultiplier neuralDefaults) (apBotNeuralGovernorMinMultiplier p)
+        neuralMaxMultiplier = fromMaybe (ngcMaxMultiplier neuralDefaults) (apBotNeuralGovernorMaxMultiplier p)
+        neuralInfluence = fromMaybe (ngcInfluence neuralDefaults) (apBotNeuralGovernorInfluence p)
+        neuralSeed = fromMaybe (ngcSeed neuralDefaults) (apBotNeuralGovernorSeed p)
         tradeEnabled = fromMaybe True (apBotTrade p)
         protectionOrders = fromMaybe False (apBotProtectionOrders p)
         adoptExistingPosition = True
@@ -7313,6 +7469,17 @@ botSettingsFromApi args p = do
     ensure "botOutcomeWeightWinScale must be between 0 and 1000" (isFiniteDouble outcomeWeightWinScale && outcomeWeightWinScale >= 0 && outcomeWeightWinScale <= 1000)
     ensure "botOutcomeWeightLossScale must be between 0 and 1000" (isFiniteDouble outcomeWeightLossScale && outcomeWeightLossScale >= 0 && outcomeWeightLossScale <= 1000)
     ensure "botOutcomeWeightCap must be between 1 and 100" (isFiniteDouble outcomeWeightCap && outcomeWeightCap >= 1 && outcomeWeightCap <= 100)
+    ensure "botNeuralGovernorHiddenSize must be between 2 and 256" (neuralHiddenSize >= 2 && neuralHiddenSize <= 256)
+    ensure "botNeuralGovernorLearningRate must be > 0 and <= 10" (isFiniteDouble neuralLearningRate && neuralLearningRate > 0 && neuralLearningRate <= 10)
+    ensure "botNeuralGovernorL2 must be between 0 and 10" (isFiniteDouble neuralL2 && neuralL2 >= 0 && neuralL2 <= 10)
+    ensure "botNeuralGovernorRewardClip must be > 0 and <= 1" (isFiniteDouble neuralRewardClip && neuralRewardClip > 0 && neuralRewardClip <= 1)
+    ensure "botNeuralGovernorLossPenaltyScale must be between 0 and 100" (isFiniteDouble neuralLossPenaltyScale && neuralLossPenaltyScale >= 0 && neuralLossPenaltyScale <= 100)
+    ensure "botNeuralGovernorMinTrades must be between 0 and 10000" (neuralMinTrades >= 0 && neuralMinTrades <= 10000)
+    ensure "botNeuralGovernorMinMultiplier must be between 0 and 10" (isFiniteDouble neuralMinMultiplier && neuralMinMultiplier >= 0 && neuralMinMultiplier <= 10)
+    ensure "botNeuralGovernorMaxMultiplier must be between 0 and 10" (isFiniteDouble neuralMaxMultiplier && neuralMaxMultiplier >= 0 && neuralMaxMultiplier <= 10)
+    ensure "botNeuralGovernorMinMultiplier must be <= botNeuralGovernorMaxMultiplier" (neuralMinMultiplier <= neuralMaxMultiplier)
+    ensure "botNeuralGovernorInfluence must be between 0 and 100" (isFiniteDouble neuralInfluence && neuralInfluence >= 0 && neuralInfluence <= 100)
+    ensure "botNeuralGovernorSeed must be >= 0" (neuralSeed >= 0)
 
     pure
         BotSettings
@@ -7328,6 +7495,20 @@ botSettingsFromApi args p = do
                     { owcWinScale = outcomeWeightWinScale
                     , owcLossScale = outcomeWeightLossScale
                     , owcCap = outcomeWeightCap
+                    }
+            , bsNeuralGovernorConfig =
+                neuralDefaults
+                    { ngcEnabled = neuralEnabled
+                    , ngcHiddenSize = neuralHiddenSize
+                    , ngcLearningRate = neuralLearningRate
+                    , ngcL2 = neuralL2
+                    , ngcRewardClip = neuralRewardClip
+                    , ngcLossPenaltyScale = neuralLossPenaltyScale
+                    , ngcMinTrades = neuralMinTrades
+                    , ngcMinMultiplier = neuralMinMultiplier
+                    , ngcMaxMultiplier = neuralMaxMultiplier
+                    , ngcInfluence = neuralInfluence
+                    , ngcSeed = neuralSeed
                     }
             , bsTradeEnabled = tradeEnabled
             , bsProtectionOrders = protectionOrders
@@ -7479,6 +7660,16 @@ botStatusJson st =
                 (botLossStreak st)
                 capitalPreservation
                 (botLatestSignal st)
+        (_, neuralGovernorDecision) =
+            neuralGovernorDecisionForBot
+                argsBase
+                (botSettings st)
+                (botSymbol st)
+                (botStateDrawdown st)
+                (botLossStreak st)
+                marketGovernor
+                (botLatestSignal st)
+                (botNeuralGovernorState st)
      in object $
             [ "running" .= True
             , "symbol" .= botSymbol st
@@ -7503,6 +7694,7 @@ botStatusJson st =
                     , "outcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig (botSettings st))
                     , "outcomeWeightLossScale" .= owcLossScale (bsOutcomeWeightConfig (botSettings st))
                     , "outcomeWeightCap" .= owcCap (bsOutcomeWeightConfig (botSettings st))
+                    , "neuralGovernor" .= bsNeuralGovernorConfig (botSettings st)
                     , "tradeEnabled" .= bsTradeEnabled (botSettings st)
                     , "protectionOrders" .= bsProtectionOrders (botSettings st)
                     , "adoptExistingPosition" .= bsAdoptExistingPosition (botSettings st)
@@ -7538,6 +7730,7 @@ botStatusJson st =
             , "openTrade" .= fmap botOpenTradeJson (botOpenTrade st)
             , "performance" .= perfJson
             , "marketGovernor" .= marketGovernorDecisionJson marketGovernor
+            , "neuralGovernor" .= neuralGovernorStatusJson (bsNeuralGovernorConfig (botSettings st)) (botNeuralGovernorState st) neuralGovernorDecision
             , "adaptive" .= adaptiveJson
             , "costCalibration"
                 .= let obs = botSlippageObservations st
@@ -8092,6 +8285,24 @@ restoreTradeMemoryFromSnapshotMaybe mDir tenantKey args sym = do
                                     _ -> []
                             _ -> []
     pure restored
+
+restoreNeuralGovernorStateFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> NeuralGovernorConfig -> IO NeuralGovernorState
+restoreNeuralGovernorStateFromSnapshotMaybe mDir tenantKey args sym cfg = do
+    mSnap <- readBotStatusSnapshotMaybe mDir tenantKey sym
+    let restored =
+            case mSnap of
+                Nothing -> Nothing
+                Just snap ->
+                    if not (botSnapshotMatchesTradeMemoryContext args sym (bssStatus snap))
+                        then Nothing
+                        else case bssStatus snap of
+                            Aeson.Object o ->
+                                case KM.lookup "neuralGovernor" o of
+                                    Just (Aeson.Object ng) ->
+                                        KM.lookup "state" ng >>= AT.parseMaybe Aeson.parseJSON
+                                    _ -> Nothing
+                            _ -> Nothing
+    pure (maybe (initNeuralGovernorState cfg) (neuralGovernorEnsureState cfg) restored)
 
 restoreCloseTimingSamplesFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> IO [BotCloseTimingSample]
 restoreCloseTimingSamplesFromSnapshotMaybe mDir tenantKey args sym = do
@@ -9451,6 +9662,7 @@ logBotStartRequestOutcome mOps mJournal tenantKey params outcome =
                             , "botOutcomeWeightWinScale" .= owcWinScale (bsOutcomeWeightConfig settings)
                             , "botOutcomeWeightLossScale" .= owcLossScale (bsOutcomeWeightConfig settings)
                             , "botOutcomeWeightCap" .= owcCap (bsOutcomeWeightConfig settings)
+                            , "botNeuralGovernor" .= bsNeuralGovernorConfig settings
                             ]
                         )
                     )
@@ -10262,6 +10474,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
     restoredTrades <- restoreTradeMemoryFromSnapshotMaybe mBotStateDir tenantKey args sym
     restoredCloseTimingSamples <- restoreCloseTimingSamplesFromSnapshotMaybe mBotStateDir tenantKey args sym
     restoredSlippages <- restoreSlippageObservationsFromSnapshotMaybe mBotStateDir tenantKey args sym
+    restoredNeuralGovernorState <- restoreNeuralGovernorStateFromSnapshotMaybe mBotStateDir tenantKey args sym (bsNeuralGovernorConfig settings)
     unless (null restoredSlippages) $
         putStrLn
             ( printf
@@ -10498,6 +10711,34 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 Right sig -> applyPredictionMarketHerdMaybe argsStartSignal (Just sym) sig
 
     let
+        startupCapitalPreservation =
+            capitalPreservationReportForBot
+                argsStartSignal
+                settings
+                0
+                restoredLossStreak
+                restoredTrades
+        startupMarketGovernor =
+            marketGovernorForBot
+                False
+                0
+                restoredLossStreak
+                startupCapitalPreservation
+                latestStartRaw
+        startupMarketGovernorReasonMaybe = marketGovernorFreshEntryBlockReason startupMarketGovernor
+        latestStartGovernorSized = applyMarketGovernorSizing startupMarketGovernor latestStartRaw
+        (startupNeuralGovernorFeatures, startupNeuralGovernorDecision) =
+            neuralGovernorDecisionForBot
+                argsStartSignal
+                settings
+                sym
+                0
+                restoredLossStreak
+                startupMarketGovernor
+                latestStartGovernorSized
+                restoredNeuralGovernorState
+        latestStartPolicySized = applyNeuralGovernorSizing startupNeuralGovernorDecision latestStartGovernorSized
+
         -- Startup decision:
         -- - Adopted positions are kept only if the open-threshold signal still agrees.
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
@@ -10505,15 +10746,15 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
             desiredPositionForSignal
                 (argPositioning args)
                 startPos0
-                (lsChosenDir latestStartRaw)
-                (lsCloseDir latestStartRaw)
+                (lsChosenDir latestStartPolicySized)
+                (lsCloseDir latestStartPolicySized)
 
         startupPortfolioReasonMaybe = mStartupPortfolioCapitalPreservation >>= pcprReason
         startupEntryAttempt = desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
 
     startupTradeGateReasonMaybe <-
         if bsTradeEnabled settings && startupEntryAttempt
-            then tradeDeploymentGateReasonIO argsWithKeys sym latestStartRaw
+            then tradeDeploymentGateReasonIO argsWithKeys sym latestStartPolicySized
             else pure Nothing
 
     let
@@ -10524,9 +10765,9 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                     else Nothing
         latestStart =
             case startupTradeGateReasonMaybe of
-                Just reason -> applyTradeDeploymentSizingPolicy reason latestStartRaw
-                Nothing -> latestStartRaw
-        startupGateReasonMaybe = startupTradeHardGateReasonMaybe <|> startupPortfolioReasonMaybe
+                Just reason -> applyTradeDeploymentSizingPolicy reason latestStartPolicySized
+                Nothing -> latestStartPolicySized
+        startupGateReasonMaybe = startupTradeHardGateReasonMaybe <|> startupMarketGovernorReasonMaybe <|> startupPortfolioReasonMaybe
         (desiredPosSignal, startupGateAction) =
             case startupGateReasonMaybe of
                 Just reason ->
@@ -10658,6 +10899,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                     if startPos0 /= 0 && desiredPos == startPos0
                         then TradeEntryAdopted
                         else TradeEntrySignal
+                startupNeuralEntryForOpen =
+                    if entrySource == TradeEntrySignal
+                        then neuralGovernorPendingEntry startupNeuralGovernorFeatures startupNeuralGovernorDecision
+                        else Nothing
              in case desiredPos of
                     1 ->
                         let px = lastPrice
@@ -10677,6 +10922,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                     , botOpenHoldingPeriods = 0
                                     , botOpenEntryPrice = px
                                     , botOpenEntrySource = entrySource
+                                    , botOpenNeuralGovernorEntry = startupNeuralEntryForOpen
                                     , botOpenSize = openSize
                                     , botOpenTrail = px
                                     , botOpenBestPnlReturn = 0
@@ -10703,6 +10949,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                     , botOpenHoldingPeriods = 0
                                     , botOpenEntryPrice = px
                                     , botOpenEntrySource = entrySource
+                                    , botOpenNeuralGovernorEntry = startupNeuralEntryForOpen
                                     , botOpenSize = openSize
                                     , botOpenTrail = px
                                     , botOpenBestPnlReturn = 0
@@ -10810,6 +11057,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 , botRestoredSlippages = restoredSlippages
                 , botTrades = restoredTrades
                 , botCloseTimingSamples = restoredCloseTimingSamples
+                , botNeuralGovernorState = restoredNeuralGovernorState
                 , botPerfStats = restoredPerfStats
                 , botAdjustments = restoredAdjustments
                 , botLossStreak = restoredLossStreak
@@ -13367,6 +13615,7 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
                             then pure st
                             else do
                                 let setLastPos p = V.update (botPositions st) (V.singleton (n - 1, p))
+                                    closedTradeReturn ot = lastEq / max 1e-12 (botOpenEntryEquity ot) - 1
                                     closedTrades =
                                         case botOpenTrade st of
                                             Just ot ->
@@ -13376,7 +13625,7 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
                                                             , trExitIndex = n - 1
                                                             , trEntryEquity = botOpenEntryEquity ot
                                                             , trExitEquity = lastEq
-                                                            , trReturn = lastEq / max 1e-12 (botOpenEntryEquity ot) - 1
+                                                            , trReturn = closedTradeReturn ot
                                                             , trHoldingPeriods = botOpenHoldingPeriods ot
                                                             , trEntryHighVolProb = botOpenEntryHighVolProb ot
                                                             , trEntrySource = botOpenEntrySource ot
@@ -13394,10 +13643,22 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
                                                     ( botCloseTimingSampleFromOpenTrade
                                                         (botOpenTimes st)
                                                         (kOpenTime k)
-                                                        (lastEq / max 1e-12 (botOpenEntryEquity ot) - 1)
+                                                        (closedTradeReturn ot)
                                                         ot
                                                     )
                                             Nothing -> []
+                                    neuralGovernorStateAfterClose =
+                                        case botOpenTrade st of
+                                            Just ot ->
+                                                case botOpenNeuralGovernorEntry ot of
+                                                    Just pending ->
+                                                        neuralGovernorObserveTrade
+                                                            (bsNeuralGovernorConfig settings)
+                                                            (botNeuralGovernorState st)
+                                                            pending
+                                                            (closedTradeReturn ot)
+                                                    Nothing -> botNeuralGovernorState st
+                                            Nothing -> botNeuralGovernorState st
                                 stAfterClose <-
                                     if localPos /= 0
                                         then do
@@ -13409,6 +13670,7 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
                                                     , botTrades = closedTrades
                                                     , botCloseTimingSamples =
                                                         trimBotCloseTimingSamples (botCloseTimingSamples st ++ closedCloseTimingSamples)
+                                                    , botNeuralGovernorState = neuralGovernorStateAfterClose
                                                     }
                                         else pure st
                                 stFinal <-
@@ -13431,6 +13693,7 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
                                                         , botOpenHoldingPeriods = 0
                                                         , botOpenEntryPrice = if entryPx > 0 then entryPx else lastPrice
                                                         , botOpenEntrySource = TradeEntryAdopted
+                                                        , botOpenNeuralGovernorEntry = Nothing
                                                         , botOpenSize = fromMaybe 1 mSize
                                                         , botOpenTrail = if entryPx > 0 then entryPx else lastPrice
                                                         , botOpenBestPnlReturn = 0
@@ -14072,7 +14335,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 latest2
         marketGovernorReasonMaybe = marketGovernorFreshEntryBlockReason marketGovernor
         latest2GovernorSized = applyMarketGovernorSizing marketGovernor latest2
-        entrySizeForExposure = entryScaleForSignal args (beMarket (botEnv st)) latest2GovernorSized
+        (neuralGovernorFeatures, neuralGovernorDecision) =
+            neuralGovernorDecisionForBot
+                args
+                settings
+                (botSymbol st)
+                drawdown
+                (botLossStreak st)
+                marketGovernor
+                latest2GovernorSized
+                (botNeuralGovernorState st)
+        latest2NeuralSized = applyNeuralGovernorSizing neuralGovernorDecision latest2GovernorSized
+        entrySizeForExposure = entryScaleForSignal args (beMarket (botEnv st)) latest2NeuralSized
         desiredSize =
             if desiredPosWanted2 /= 0
                 then entrySizeForExposure
@@ -14108,8 +14382,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     else Nothing
         latest2TradeSized =
             case tradeGateReasonMaybe of
-                Just reason -> applyTradeDeploymentSizingPolicy reason latest2GovernorSized
-                Nothing -> latest2GovernorSized
+                Just reason -> applyTradeDeploymentSizingPolicy reason latest2NeuralSized
+                Nothing -> latest2NeuralSized
         entryBlockReason
             | entryAttemptFromFlat && countBlocked = Just "MAX_OPEN_POSITIONS"
             | entryAttemptFromFlat && baseCountBlocked = Just "MAX_OPEN_PER_BASE"
@@ -14202,6 +14476,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         entryServerRole = mOps >>= siServerRole . osServerIdentity
         entryServerProvider = mOps >>= siServerProvider . osServerIdentity
         entryExecutorIp = mOps >>= osServerEgressIp
+        neuralEntryForOpen = neuralGovernorPendingEntry neuralGovernorFeatures neuralGovernorDecision
         openTradeFor side pxEntry eqEntry size =
             BotOpenTrade
                 { botOpenEntryIndex = nPrev
@@ -14216,6 +14491,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botOpenHoldingPeriods = 0
                 , botOpenEntryPrice = pxEntry
                 , botOpenEntrySource = TradeEntrySignal
+                , botOpenNeuralGovernorEntry = neuralEntryForOpen
                 , botOpenSize = size
                 , botOpenTrail = pxEntry
                 , botOpenBestPnlReturn = 0
@@ -14588,6 +14864,19 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             if newTradeCount > oldTradeCount
                 then lastMaybe trades'
                 else Nothing
+        mClosedNeuralGovernorEntry =
+            case mNewTrade of
+                Nothing -> Nothing
+                Just _ -> openTrade1 >>= botOpenNeuralGovernorEntry
+        neuralGovernorStateNext =
+            case (mNewTrade, mClosedNeuralGovernorEntry) of
+                (Just tr, Just pending) ->
+                    neuralGovernorObserveTrade
+                        (bsNeuralGovernorConfig settings)
+                        (botNeuralGovernorState st)
+                        pending
+                        (trReturn tr)
+                _ -> botNeuralGovernorState st
         (perfStatsNext, adjustmentsNext, lossStreakNext, lossStreakTriggered) =
             case mNewTrade of
                 Nothing -> (botPerfStats st, botAdjustments st, botLossStreak st, False)
@@ -14713,6 +15002,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 , botOrders = orders2
                 , botTrades = trades2
                 , botCloseTimingSamples = closeTimingSamples2
+                , botNeuralGovernorState = neuralGovernorStateNext
                 , botPerfStats = perfStatsNext
                 , botAdjustments = adjustmentsNext
                 , botLossStreak = lossStreakNext
@@ -14757,6 +15047,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     if immediateOutcomeLstmUpdate
                         then "yes"
                         else "no"
+                neuralGovernorOutcomeUpdate = isJust mClosedNeuralGovernorEntry
+                neuralGovernorOutcomeUpdateLabel :: String
+                neuralGovernorOutcomeUpdateLabel =
+                    if neuralGovernorOutcomeUpdate
+                        then "yes"
+                        else "no"
                 pfLabel :: String
                 pfLabel =
                     case bpsProfitFactor perfStatsNext of
@@ -14764,7 +15060,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         Just pf -> printf "%.3f" pf
                 msg =
                     printf
-                        "bot.adjust symbol=%s return=%.4f winRate=%.2f pf=%s edgeBuffer=%.6f minSNR=%.3f kalmanZMin=%.3f trendLookback=%d lossStreak=%d outcomeWeight=%s lstmOutcomeUpdate=%s"
+                        "bot.adjust symbol=%s return=%.4f winRate=%.2f pf=%s edgeBuffer=%.6f minSNR=%.3f kalmanZMin=%.3f trendLookback=%d lossStreak=%d outcomeWeight=%s lstmOutcomeUpdate=%s neuralGovernorUpdate=%s"
                         (botSymbol stOut)
                         (trReturn tr)
                         (bpsWinRate perfStatsNext)
@@ -14776,6 +15072,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         lossStreakNext
                         outcomeWeightLabel
                         immediateOutcomeLstmUpdateLabel
+                        neuralGovernorOutcomeUpdateLabel
             putStrLn msg
             journalWriteMaybe
                 mJournal
@@ -14814,6 +15111,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             [ "lstmImmediateOutcomeUpdate" .= immediateOutcomeLstmUpdate
                             , "onlineEpochs" .= bsOnlineEpochs settings
                             , "outcomeWeight" .= outcomeWeight
+                            , "neuralGovernorUpdate" .= neuralGovernorOutcomeUpdate
+                            , "neuralGovernorLastReward" .= ngsLastReward neuralGovernorStateNext
                             ]
                     ]
                 )
@@ -14849,6 +15148,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                 [ "lstmImmediateOutcomeUpdate" .= immediateOutcomeLstmUpdate
                                 , "onlineEpochs" .= bsOnlineEpochs settings
                                 , "outcomeWeight" .= outcomeWeight
+                                , "neuralGovernorUpdate" .= neuralGovernorOutcomeUpdate
+                                , "neuralGovernorLastReward" .= ngsLastReward neuralGovernorStateNext
                                 ]
                         ]
                     )

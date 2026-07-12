@@ -9695,6 +9695,35 @@ export function App() {
                       </div>
                     </div>
                   ) : null}
+                  {botDisplay.neuralGovernor ? (
+                    <div className="kv">
+                      <div className="k">Neural governor</div>
+                      <div className="v">
+                        {(() => {
+                          const governor = botDisplay.neuralGovernor;
+                          const multiplier =
+                            typeof governor.multiplier === "number" && Number.isFinite(governor.multiplier)
+                              ? fmtPct(governor.multiplier, 1)
+                              : "—";
+                          const score =
+                            typeof governor.score === "number" && Number.isFinite(governor.score)
+                              ? fmtPct(governor.score, 2)
+                              : "—";
+                          const examples =
+                            typeof governor.examples === "number" && Number.isFinite(governor.examples)
+                              ? Math.max(0, Math.trunc(governor.examples))
+                              : 0;
+                          const reward =
+                            typeof governor.lastReward === "number" && Number.isFinite(governor.lastReward)
+                              ? ` • reward ${fmtPct(governor.lastReward, 2)}`
+                              : "";
+                          const state = governor.enabled ? (governor.ready ? "ready" : "warming") : "off";
+                          const reason = governor.reason ? ` • ${governor.reason}` : "";
+                          return `${state} • size ${multiplier} • score ${score} • ${examples} trade(s)${reward}${reason}`;
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="kv">
                     <div className="k">Latest signal</div>
                     <div className="v">{botDisplayLatestSignal?.action ?? "—"}</div>

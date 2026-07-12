@@ -51,6 +51,7 @@ executable trader-hs
                      , Trader.MarketGovernor
                      , Trader.MarketContext
                      , Trader.MarketDataIntegrity
+                     , Trader.NeuralGovernor
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.Optimizer.Common
@@ -285,6 +286,7 @@ test-suite trader-tests
                      , Trader.MarketGovernor
                      , Trader.MarketContext
                      , Trader.MarketDataIntegrity
+                     , Trader.NeuralGovernor
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OrderExecution

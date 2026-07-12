@@ -164,6 +164,17 @@ export type ApiParams = {
   botOnlineEpochs?: number;
   botTrainBars?: number;
   botMaxPoints?: number;
+  botNeuralGovernorEnabled?: boolean;
+  botNeuralGovernorHiddenSize?: number;
+  botNeuralGovernorLearningRate?: number;
+  botNeuralGovernorL2?: number;
+  botNeuralGovernorRewardClip?: number;
+  botNeuralGovernorLossPenaltyScale?: number;
+  botNeuralGovernorMinTrades?: number;
+  botNeuralGovernorMinMultiplier?: number;
+  botNeuralGovernorMaxMultiplier?: number;
+  botNeuralGovernorInfluence?: number;
+  botNeuralGovernorSeed?: number;
   botTrade?: boolean;
   botProtectionOrders?: boolean;
   botAdoptExistingPosition?: boolean;
@@ -572,6 +583,32 @@ export type BotMarketGovernor = {
   };
 };
 
+export type BotNeuralGovernorConfig = {
+  enabled?: boolean;
+  mode?: string;
+  hiddenSize?: number;
+  learningRate?: number;
+  minTrades?: number;
+  minMultiplier?: number;
+  maxMultiplier?: number;
+  rewardClip?: number;
+  lossPenaltyScale?: number;
+  influence?: number;
+};
+
+export type BotNeuralGovernor = {
+  enabled: boolean;
+  mode?: string;
+  examples?: number;
+  ready?: boolean;
+  score?: number;
+  multiplier?: number;
+  reason?: string | null;
+  lastReward?: number | null;
+  config?: BotNeuralGovernorConfig;
+  state?: Record<string, unknown>;
+};
+
 export type BotStatusRunning = {
   running: true;
   symbol: string;
@@ -586,6 +623,7 @@ export type BotStatusRunning = {
     onlineEpochs: number;
     trainBars: number;
     maxPoints: number;
+    neuralGovernor?: BotNeuralGovernorConfig;
     tradeEnabled: boolean;
     protectionOrders?: boolean;
     adoptExistingPosition?: boolean;
@@ -619,6 +657,7 @@ export type BotStatusRunning = {
   latestSignal: LatestSignal;
   decisionTrace?: DecisionTrace;
   marketGovernor?: BotMarketGovernor;
+  neuralGovernor?: BotNeuralGovernor;
   lastOrder?: ApiOrderResult;
   error?: string;
 };
