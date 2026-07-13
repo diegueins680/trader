@@ -17,7 +17,7 @@ jobs:
           cabal: "3.12.1.0"
 
       - name: Restore Cabal cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cabal/store
