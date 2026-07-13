@@ -12372,6 +12372,14 @@ autoOptimizerBaseMethodWeightDefaults =
     , AutoOptimizerMethodWeight "--method-weight-regime-switch" "regime_switch" "TRADER_OPTIMIZER_METHOD_WEIGHT_REGIME_SWITCH" 0.0
     , AutoOptimizerMethodWeight "--method-weight-bandit-router" "bandit_router" "TRADER_OPTIMIZER_METHOD_WEIGHT_BANDIT_ROUTER" 0.0
     , AutoOptimizerMethodWeight "--method-weight-cross-sectional-momentum" "cross_sectional_momentum" "TRADER_OPTIMIZER_METHOD_WEIGHT_CROSS_SECTIONAL_MOMENTUM" 1.5
+    , AutoOptimizerMethodWeight "--method-weight-online-nn" "online_nn" "TRADER_OPTIMIZER_METHOD_WEIGHT_ONLINE_NN" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-ta-trend" "ta_trend" "TRADER_OPTIMIZER_METHOD_WEIGHT_TA_TREND" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-ta-reversion" "ta_reversion" "TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REVERSION" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-ta-breakout" "ta_breakout" "TRADER_OPTIMIZER_METHOD_WEIGHT_TA_BREAKOUT" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-ta-best" "ta_best" "TRADER_OPTIMIZER_METHOD_WEIGHT_TA_BEST" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-ta-regime-switch" "ta_regime_switch" "TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-sma-cross" "sma_cross" "TRADER_OPTIMIZER_METHOD_WEIGHT_SMA_CROSS" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-sma-cross-regime" "sma_cross_regime" "TRADER_OPTIMIZER_METHOD_WEIGHT_SMA_CROSS_REGIME" 0.0
     ]
 
 readAutoOptimizerBaseMethodWeights :: IO [AutoOptimizerMethodWeight]
@@ -12520,6 +12528,15 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     routerRegimeMinBarsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_BARS_MAX"
                                     routerRegimeMinFractionMinEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_FRACTION_MIN"
                                     routerRegimeMinFractionMaxEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_FRACTION_MAX"
+                                    hyperbandEnv <- lookupEnv "TRADER_OPTIMIZER_HYPERBAND"
+                                    hyperbandSeedBudgetEnv <- lookupEnv "TRADER_OPTIMIZER_HYPERBAND_SEED_BUDGET"
+                                    surrogateGuidanceEnv <- lookupEnv "TRADER_OPTIMIZER_SURROGATE_GUIDANCE"
+                                    surrogateSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_SURROGATE_SAMPLE_PROB"
+                                    activeSubspaceEnv <- lookupEnv "TRADER_OPTIMIZER_ACTIVE_SUBSPACE"
+                                    activeSubspaceParamFractionEnv <- lookupEnv "TRADER_OPTIMIZER_ACTIVE_SUBSPACE_PARAM_FRACTION"
+                                    mapElitesEnv <- lookupEnv "TRADER_OPTIMIZER_MAP_ELITES"
+                                    mapElitesPerBucketEnv <- lookupEnv "TRADER_OPTIMIZER_MAP_ELITES_PER_BUCKET"
+                                    cmaLocalSearchEnv <- lookupEnv "TRADER_OPTIMIZER_CMA_LOCAL_SEARCH"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
                                     minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
                                     minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
@@ -12635,6 +12652,16 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 ++ maybeDoubleArg "--survivor-parent-annualized-return-floor" (readFiniteDoubleMaybe survivorParentAnnualizedReturnFloorEnv)
                                                 ++ maybeDoubleArg "--survivor-edge-weight" (fmap (max 0) (readFiniteDoubleMaybe survivorEdgeWeightEnv))
                                                 ++ maybeDoubleArg "--survivor-rank-bias" (fmap (max 0) (readFiniteDoubleMaybe survivorRankBiasEnv))
+                                        researchSearchArgs =
+                                            ["--hyperband" | readEnvBool hyperbandEnv False]
+                                                ++ maybeDoubleArg "--hyperband-seed-budget" (fmap clamp01 (readFiniteDoubleMaybe hyperbandSeedBudgetEnv))
+                                                ++ ["--surrogate-guidance" | readEnvBool surrogateGuidanceEnv False]
+                                                ++ maybeDoubleArg "--surrogate-sample-prob" (fmap clamp01 (readFiniteDoubleMaybe surrogateSampleProbEnv))
+                                                ++ ["--active-subspace" | readEnvBool activeSubspaceEnv False]
+                                                ++ maybeDoubleArg "--active-subspace-param-fraction" (fmap clamp01 (readFiniteDoubleMaybe activeSubspaceParamFractionEnv))
+                                                ++ ["--map-elites" | readEnvBool mapElitesEnv False]
+                                                ++ maybeIntArg "--map-elites-per-bucket" (readNonNegativeIntArg mapElitesPerBucketEnv)
+                                                ++ ["--cma-local-search" | readEnvBool cmaLocalSearchEnv False]
                                         pLongShortArgs =
                                             maybeDoubleArg "--p-long-short" (fmap clamp01 (readFiniteDoubleMaybe pLongShortEnv))
                                         pCostAwareEdgeArgs =
@@ -12944,6 +12971,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                             ++ lstmAdamRangeArgs
                                                                                             ++ routerRegimeArgs
                                                                                             ++ survivorParentArgs
+                                                                                            ++ researchSearchArgs
                                                                                             ++ edgeScoreArgs
                                                                                             ++ priorArgs
                                                                                             ++ extraArgs
@@ -15337,6 +15365,11 @@ readBotStartupBoolEnv name mRaw =
         Just "no" -> pure (Just False)
         Just "off" -> pure (Just False)
         Just _ -> ioError (userError (name ++ " must be true/false/1/0"))
+
+botStartForceEnvPresetFromEnv :: IO Bool
+botStartForceEnvPresetFromEnv = do
+    raw <- lookupTrimmedEnv "TRADER_BOT_START_FORCE_ENV_PRESET"
+    fromMaybe False <$> readBotStartupBoolEnv "TRADER_BOT_START_FORCE_ENV_PRESET" raw
 
 applyBotStartupEnvPreset :: Args -> IO BotStartupEnvPreset
 applyBotStartupEnvPreset args = do
@@ -19025,6 +19058,7 @@ mergeTopComboScoringArgsFromEnv = do
         ]
     intSpecs =
         [ ("TRADER_TOP_COMBO_SCORE_LIVE_QUARANTINE_MIN_OPERATIONS", "--score-live-quarantine-min-operations", tcscLiveQuarantineMinOperations def)
+        , ("TRADER_TOP_COMBO_SCORE_MAP_ELITE_MAX_PER_BUCKET", "--score-map-elite-max-per-bucket", tcscMapEliteMaxPerBucket def)
         ]
     readDoubleArg (envName, flagName, fallback) = do
         raw <- lookupEnv envName
@@ -19613,8 +19647,37 @@ readTopCombosValue path =
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
     case val of
-        Aeson.Object o -> KM.lookup (AK.fromString "metrics") o
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString "metrics") o of
+                Just (Aeson.Object metricsObj) ->
+                    Just (Aeson.Object (insertBacktestWalkForwardSummary val metricsObj))
+                Just metricsVal -> Just metricsVal
         _ -> Nothing
+
+insertBacktestWalkForwardSummary :: Aeson.Value -> Aeson.Object -> Aeson.Object
+insertBacktestWalkForwardSummary backtestVal metricsObj =
+    case extractBacktestWalkForwardSummary backtestVal of
+        Nothing -> metricsObj
+        Just summary -> KM.insert (AK.fromString "walkForwardSummary") summary metricsObj
+
+extractBacktestWalkForwardSummary :: Aeson.Value -> Maybe Aeson.Value
+extractBacktestWalkForwardSummary backtestVal =
+    rootSummary <|> wrappedSummary
+  where
+    objectAt key (Aeson.Object obj) =
+        case KM.lookup (AK.fromString key) obj of
+            Just v@(Aeson.Object _) -> Just v
+            _ -> Nothing
+    objectAt _ _ = Nothing
+
+    summaryFrom raw = do
+        wf <- objectAt "walkForward" raw
+        objectAt "summary" wf
+
+    rootSummary = summaryFrom backtestVal
+    wrappedSummary = do
+        backtest <- objectAt "backtest" backtestVal
+        summaryFrom backtest
 
 extractBacktestOperations :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestOperations val =
@@ -22531,8 +22594,14 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                 originIp = requestOriginIp req
              in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right args0 ->
-                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
+                    Right args0 -> do
+                        forceEnvPreset <- botStartForceEnvPresetFromEnv
+                        startupPreset <-
+                            if forceEnvPreset
+                                then applyBotStartupEnvPreset args0
+                                else pure BotStartupEnvPreset{bsepArgs = args0, bsepApplied = False}
+                        let argsRequested = bsepArgs startupPreset
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint argsRequested params of
                             Left e -> respond (jsonError status400 e)
                             Right mTenant ->
                                 case requireTenantKey "bot/start" mTenant of
@@ -22540,7 +22609,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                     Right tenantKey -> do
                                         let argsBase =
                                                 applyBackendAutostartSizingDefault $
-                                                    normalizeBarsForLookback args0{argTradeOnly = True}
+                                                    normalizeBarsForLookback argsRequested{argTradeOnly = True}
                                             tradeEnabled = botTradeEnabledFromApi (apBotTrade params)
                                         symbolsOrErr <- resolveBotSymbols argsBase params
                                         let requestedSymbols =

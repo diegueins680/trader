@@ -21,7 +21,7 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace, toLower)
-import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, sort, sortBy)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sort, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toBoundedInteger, toRealFloat)
@@ -324,12 +324,14 @@ writeTopJson :: TopComboScoringConfig -> FilePath -> [Combo] -> Int -> IO ()
 writeTopJson scoringConfig path combos maxItems = do
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
     let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) >= topComboMinimumFinalEquity && comboOpenThresholdDeployable combo) combos
-        sorted = take maxItems (sortBy (compareCombos scoringConfig nowMs) eligible)
+        sortedRaw = sortBy (compareCombos scoringConfig nowMs) eligible
+        sorted = selectMapEliteCombos scoringConfig maxItems sortedRaw
         comboValues = zipWith (comboToValue scoringConfig nowMs) [1 ..] sorted
         exportVal =
             object
                 [ "generatedAtMs" .= nowMs
                 , "source" .= ("merge_top_combos.py" :: String)
+                , "mapElites" .= object ["maxPerBucket" .= tcscMapEliteMaxPerBucket scoringConfig]
                 , "combos" .= comboValues
                 ]
     let dir = takeDirectory path
@@ -344,6 +346,46 @@ writeTopJson scoringConfig path combos maxItems = do
 compareCombos :: TopComboScoringConfig -> Int -> Combo -> Combo -> Ordering
 compareCombos config nowMs a b =
     compare (comboPerformanceKey config nowMs a) (comboPerformanceKey config nowMs b)
+
+selectMapEliteCombos :: TopComboScoringConfig -> Int -> [Combo] -> [Combo]
+selectMapEliteCombos config maxItemsRaw sorted =
+    let maxItems = max 0 maxItemsRaw
+        perBucket = max 0 (tcscMapEliteMaxPerBucket config)
+     in if maxItems <= 0
+            then []
+            else
+                if perBucket <= 0
+                    then take maxItems sorted
+                    else
+                        let (pickedRev, counts, pickedKeys) =
+                                foldl'
+                                    ( \(acc, bucketCounts, keys) combo ->
+                                        let bucket = comboMapEliteBucket combo
+                                            count = fromMaybe 0 (M.lookup bucket bucketCounts)
+                                            key = comboUuid combo
+                                         in if length acc < maxItems && count < perBucket && M.notMember key keys
+                                                then
+                                                    ( combo : acc
+                                                    , M.insert bucket (count + 1) bucketCounts
+                                                    , M.insert key () keys
+                                                    )
+                                                else (acc, bucketCounts, keys)
+                                    )
+                                    ([], M.empty, M.empty)
+                                    sorted
+                            picked = reverse pickedRev
+                            need = maxItems - length picked
+                            backfill =
+                                if need <= 0
+                                    then []
+                                    else
+                                        take
+                                            need
+                                            [ combo
+                                            | combo <- sorted
+                                            , M.notMember (comboUuid combo) pickedKeys
+                                            ]
+                         in picked ++ backfill
 
 comboPerformanceKey :: TopComboScoringConfig -> Int -> Combo -> (Int, Double, Double, Double, Double)
 comboPerformanceKey config nowMs combo =
@@ -381,6 +423,97 @@ comboWalkForwardSharpeMean combo = do
     case wf of
         Object obj -> KM.lookup (Key.fromString "sharpeMean") obj >>= AT.parseMaybe Aeson.parseJSON
         _ -> Nothing
+
+comboOverfitMetricDouble :: String -> Combo -> Maybe Double
+comboOverfitMetricDouble key combo = do
+    metrics <- comboMetrics combo
+    overfit <- KM.lookup (Key.fromString "overfit") metrics
+    case overfit of
+        Object obj -> KM.lookup (Key.fromString key) obj >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboOverfitMultiplier :: Combo -> Double
+comboOverfitMultiplier combo =
+    pboMultiplier * deflatedSharpeMultiplier
+  where
+    pboMultiplier =
+        case comboOverfitMetricDouble "pboProxy" combo of
+            Just pbo
+                | pbo >= 0.85 -> 0.25
+                | pbo >= 0.70 -> 0.50
+                | pbo >= 0.55 -> 0.75
+                | otherwise -> 1.0
+            Nothing -> 1.0
+    deflatedSharpeMultiplier =
+        case comboOverfitMetricDouble "deflatedSharpeProxy" combo of
+            Just sharpe
+                | sharpe < 0 -> 0.50
+                | sharpe < 0.25 -> 0.80
+                | otherwise -> 1.0
+            Nothing -> 1.0
+
+comboMapEliteBucket :: Combo -> String
+comboMapEliteBucket combo =
+    intercalate
+        "|"
+        [ fromMaybe "-" (comboParamString "binanceSymbol" combo <|> comboParamString "symbol" combo)
+        , fromMaybe "-" (comboParamString "interval" combo)
+        , fromMaybe "-" (comboParamString "method" combo)
+        , comboRegimeBucket combo
+        , comboActivityBucket combo
+        , comboDrawdownBucket combo
+        ]
+
+comboParamString :: String -> Combo -> Maybe String
+comboParamString key combo =
+    case KM.lookup (Key.fromString key) (comboParams combo) of
+        Just (String s) ->
+            let raw = trim (T.unpack s)
+             in if null raw then Nothing else Just raw
+        _ -> Nothing
+
+comboRegimeBucket :: Combo -> String
+comboRegimeBucket combo =
+    let method = map toLower (fromMaybe "" (comboParamString "method" combo))
+        maxDd = fromMaybe 0 (comboMetricDouble "maxDrawdown" combo)
+     in if maxDd >= 0.18
+            then "stress"
+            else
+                if "breakout" `isPrefixOf` method || "breakout" `isInfixOf` method
+                    then "breakout"
+                    else
+                        if "reversion" `isInfixOf` method || "mean" `isInfixOf` method || "mr" `isInfixOf` method
+                            then "range"
+                            else
+                                if "trend" `isInfixOf` method || "momentum" `isInfixOf` method
+                                    then "trend"
+                                    else
+                                        if "regime" `isInfixOf` method
+                                            then "adaptive"
+                                            else "mixed"
+
+comboActivityBucket :: Combo -> String
+comboActivityBucket combo =
+    let trades =
+            max
+                (fromMaybe 0 (comboMetricInt "roundTrips" combo))
+                (fromMaybe 0 (comboMetricInt "tradeCount" combo))
+     in if trades < 20
+            then "activity-low"
+            else
+                if trades < 60
+                    then "activity-med"
+                    else "activity-high"
+
+comboDrawdownBucket :: Combo -> String
+comboDrawdownBucket combo =
+    let drawdown = fromMaybe 0 (comboMetricDouble "maxDrawdown" combo)
+     in if drawdown < 0.04
+            then "dd-low"
+            else
+                if drawdown < 0.12
+                    then "dd-med"
+                    else "dd-high"
 
 comboProcessingTier :: TopComboScoringConfig -> Combo -> String
 comboProcessingTier config combo
@@ -436,8 +569,9 @@ comboValidatedScore config combo =
                 (comboWalkForwardSharpeMeetsAdoptionFloor . Just <$> comboWalkForwardSharpeMean combo)
         drawdown = max 0 (fromMaybe 0 (comboMetricDouble "maxDrawdown" combo))
         drawdownMultiplier = topComboDrawdownMultiplier config drawdown
+        overfitMultiplier = comboOverfitMultiplier combo
         equityTerm = topComboEquityTerm config (sanitizeEq (comboFinalEquity combo))
-     in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
+     in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier * overfitMultiplier + equityTerm
 
 comboFreshnessAgeDays :: Int -> Combo -> Maybe Double
 comboFreshnessAgeDays nowMs combo = do
@@ -459,6 +593,8 @@ comboProcessingValue config nowMs combo =
         , "tierRank" .= comboProcessingTierRank config combo
         , "validatedScore" .= comboValidatedScore config combo
         , "freshnessMultiplier" .= topComboFreshnessMultiplier config (comboFreshnessAgeDays nowMs combo)
+        , "overfitMultiplier" .= comboOverfitMultiplier combo
+        , "mapEliteBucket" .= comboMapEliteBucket combo
         , "rankScore" .= comboRankScore config nowMs combo
         , "reasons" .= comboProcessingReasons config combo
         ]

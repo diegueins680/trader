@@ -67,7 +67,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (foldl', group, intercalate, isPrefixOf, sort, sortOn, stripPrefix)
+import Data.List (foldl', group, intercalate, isInfixOf, isPrefixOf, sort, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
@@ -2835,6 +2835,15 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorDiversityMaxPerBucket :: !Int
     , oaPriorSeedCount :: !Int
     , oaCorrelationGuidanceJson :: !String
+    , oaHyperbandEnabled :: !Bool
+    , oaHyperbandSeedBudget :: !Double
+    , oaSurrogateGuidanceEnabled :: !Bool
+    , oaSurrogateSampleProb :: !Double
+    , oaActiveSubspaceEnabled :: !Bool
+    , oaActiveSubspaceParamFraction :: !Double
+    , oaMapElitesEnabled :: !Bool
+    , oaMapElitesPerBucket :: !Int
+    , oaCmaLocalSearchEnabled :: !Bool
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -6382,7 +6391,7 @@ runOptimizer args0 = do
                                                                     pure 2
                                                                 Right baseArgs -> do
                                                                     priorTrialsRaw <-
-                                                                        if oaPriorSampleProb args <= 0
+                                                                        if oaPriorSampleProb args <= 0 && not (oaSurrogateGuidanceEnabled args)
                                                                             then pure []
                                                                             else readOptimizerPriorTrials (oaPriorJson args)
                                                                     priorNowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
@@ -6424,6 +6433,21 @@ runOptimizer args0 = do
                                                                         perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
                                                                         perturbScaleInt = max 0 (oaPerturbScaleInt args)
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
+                                                                        hyperbandEnabled = oaHyperbandEnabled args
+                                                                        hyperbandSeedBudget = clamp (oaHyperbandSeedBudget args) 0.05 1
+                                                                        surrogateGuidanceEnabled = oaSurrogateGuidanceEnabled args
+                                                                        surrogateSampleProb =
+                                                                            if surrogateGuidanceEnabled
+                                                                                then clamp (oaSurrogateSampleProb args) 0 1
+                                                                                else 0
+                                                                        activeSubspaceEnabled = oaActiveSubspaceEnabled args
+                                                                        activeSubspaceParamFraction = clamp (oaActiveSubspaceParamFraction args) 0 1
+                                                                        mapElitesEnabled = oaMapElitesEnabled args
+                                                                        mapElitesPerBucket =
+                                                                            if mapElitesEnabled
+                                                                                then max 1 (oaMapElitesPerBucket args)
+                                                                                else 0
+                                                                        cmaLocalSearchEnabled = oaCmaLocalSearchEnabled args
                                                                         priorSampleProb = clamp (oaPriorSampleProb args) 0 1
                                                                         priorMethodSampleProb = clamp (oaPriorMethodSampleProb args) 0 1
                                                                         priorRankBias = max 1 (oaPriorRankBias args)
@@ -6473,6 +6497,14 @@ runOptimizer args0 = do
                                                                                 ++ oaPriorJson args
                                                                                 ++ priorTrialDistributionSummary edgeScoreConfig priorTrials
                                                                             )
+                                                                    when (surrogateSampleProb > 0 && not (null priorTrials)) $
+                                                                        hPutStrLn
+                                                                            stderr
+                                                                            ( "Surrogate optimizer guidance: using "
+                                                                                ++ show (length priorTrials)
+                                                                                ++ " prior rows with sample probability "
+                                                                                ++ printf "%.3f" surrogateSampleProb
+                                                                            )
                                                                     unless (null correlationGuidance) $
                                                                         hPutStrLn
                                                                             stderr
@@ -6494,6 +6526,13 @@ runOptimizer args0 = do
                                                                                 { otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1
                                                                                 , otsAppliedEmpiricalPriors = priorSampleProb > 0 && not (null priorTrials)
                                                                                 , otsAppliedCorrelationGuidance = not (null correlationGuidance)
+                                                                                , otsAppliedSuccessiveHalving = hyperbandEnabled
+                                                                                , otsAppliedSurrogateGuidance = surrogateSampleProb > 0 && not (null priorTrials)
+                                                                                , otsAppliedActiveSubspace = activeSubspaceEnabled && surrogateSampleProb > 0 && not (null priorTrials)
+                                                                                , otsAppliedMapElites = mapElitesEnabled
+                                                                                , otsAppliedOverfitAdjustedScoring = True
+                                                                                , otsAppliedRegimeConditionedBuckets = True
+                                                                                , otsAppliedCmaLocalSearch = cmaLocalSearchEnabled
                                                                                 }
                                                                         seedTrialsDefault = max 1 (min trials (max 3 (trials `div` 2)))
                                                                         seedTrials =
@@ -6784,17 +6823,32 @@ runOptimizer args0 = do
                                                                                 }
                                                                         sampleParamsMaybePrior rng =
                                                                             let (baseParams, rng') = sampleParamsWithRng rng
-                                                                             in samplePriorParams
-                                                                                    priorSampleProb
-                                                                                    intervals
-                                                                                    priorOverlayBounds
-                                                                                    priorPerturbScaleDouble
-                                                                                    priorPerturbScaleInt
-                                                                                    priorMethodSampleProb
-                                                                                    priorRankBias
-                                                                                    priorTrials
-                                                                                    baseParams
-                                                                                    rng'
+                                                                                (priorParams, rng'', priorOrigin) =
+                                                                                    samplePriorParams
+                                                                                        priorSampleProb
+                                                                                        intervals
+                                                                                        priorOverlayBounds
+                                                                                        priorPerturbScaleDouble
+                                                                                        priorPerturbScaleInt
+                                                                                        priorMethodSampleProb
+                                                                                        priorRankBias
+                                                                                        priorTrials
+                                                                                        baseParams
+                                                                                        rng'
+                                                                             in case priorOrigin of
+                                                                                    Just _ -> (priorParams, rng'', priorOrigin)
+                                                                                    Nothing ->
+                                                                                        sampleSurrogateParams
+                                                                                            surrogateSampleProb
+                                                                                            activeSubspaceEnabled
+                                                                                            activeSubspaceParamFraction
+                                                                                            intervals
+                                                                                            priorOverlayBounds
+                                                                                            priorMethodSampleProb
+                                                                                            priorRankBias
+                                                                                            priorTrials
+                                                                                            baseParams
+                                                                                            rng''
                                                                         samplePriorSeedParams prior rng =
                                                                             let (baseParams, rng') = sampleParamsWithRng rng
                                                                                 overlaid =
@@ -6802,7 +6856,7 @@ runOptimizer args0 = do
                                                                                         applyPriorMethodIfEnabled True prior $
                                                                                             applyPriorOverlay intervals priorOverlayBounds prior baseParams
                                                                              in (normalizeTrialParams overlaid, rng')
-                                                                        runTrialWith idx rng mPriorSeed mBase mParents best recordsRev = do
+                                                                        runTrialWith idx rng mPriorSeed mBase mParents mTransform mPerturbScale best recordsRev = do
                                                                             let (params0, guidanceRng, origin0) =
                                                                                     case mPriorSeed of
                                                                                         Just prior ->
@@ -6821,16 +6875,25 @@ runOptimizer args0 = do
                                                                                                                     let crossover = crossoverTrialParams p1 p2 rng1
                                                                                                                         child = fst crossover
                                                                                                                         rng2 = snd crossover
-                                                                                                                        (params0, rng3) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                                        (scaleDouble, scaleInt) = fromMaybe (perturbScaleDouble, perturbScaleInt) mPerturbScale
+                                                                                                                        (params0, rng3) = perturbTrialParams barsMin barsMax scaleDouble scaleInt child rng2
                                                                                                                      in (params0, rng3, "survivor-crossover")
                                                                                                                 Nothing ->
-                                                                                                                    let (params0, rng1) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                                    let (scaleDouble, scaleInt) = fromMaybe (perturbScaleDouble, perturbScaleInt) mPerturbScale
+                                                                                                                        (params0, rng1) = perturbTrialParams barsMin barsMax scaleDouble scaleInt base rng
                                                                                                                      in (params0, rng1, "survivor-perturb")
                                                                                                         _ ->
-                                                                                                            let (params0, rng1) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                            let (scaleDouble, scaleInt) = fromMaybe (perturbScaleDouble, perturbScaleInt) mPerturbScale
+                                                                                                                (params0, rng1) = perturbTrialParams barsMin barsMax scaleDouble scaleInt base rng
                                                                                                              in (params0, rng1, "survivor-perturb")
-                                                                                (params, _, guided) = applyOptimizerCorrelationGuidance correlationGuidance params0 guidanceRng
-                                                                                origin = if guided then origin0 ++ "+correlation-guidance" else origin0
+                                                                                (paramsGuided, _, guided) = applyOptimizerCorrelationGuidance correlationGuidance params0 guidanceRng
+                                                                                (params, transformedLabel) =
+                                                                                    case mTransform of
+                                                                                        Nothing -> (paramsGuided, Nothing)
+                                                                                        Just (label, transform) -> (normalizeTrialParams (transform paramsGuided), Just label)
+                                                                                originGuided = if guided then origin0 ++ "+correlation-guidance" else origin0
+                                                                                originTransformed = maybe originGuided (\label -> originGuided ++ "+" ++ label) transformedLabel
+                                                                                origin = if isJust mPerturbScale then originTransformed ++ "+cma-local" else originTransformed
                                                                             tr0 <-
                                                                                 runTrial
                                                                                     traderBinPath
@@ -7020,7 +7083,11 @@ runOptimizer args0 = do
                                                                         foldM
                                                                             ( \(b, recs, res) (idx, rng) -> do
                                                                                 let mPriorSeed = listToMaybe (drop (idx - 1) priorSeedTrials)
-                                                                                (b', recs', tr) <- runTrialWith idx rng mPriorSeed Nothing Nothing b recs
+                                                                                    mSeedTransform =
+                                                                                        if hyperbandEnabled
+                                                                                            then Just ("hyperband-low-budget", scaleTrialBudget hyperbandSeedBudget epochsMax hiddenMax walkForwardFoldsMax)
+                                                                                            else Nothing
+                                                                                (b', recs', tr) <- runTrialWith idx rng mPriorSeed Nothing Nothing mSeedTransform Nothing b recs
                                                                                 pure (b', recs', tr : res)
                                                                             )
                                                                             (Nothing, [], [])
@@ -7046,16 +7113,20 @@ runOptimizer args0 = do
                                                                                 . sortOn (Data.Ord.Down . eliteScore)
                                                                                 . filter eligibleElite
                                                                         initialElitePool = trimElitePool survivorsRaw
-                                                                        fallbackSurvivorParams = map trParams survivorsRaw
+                                                                        promoteParams =
+                                                                            if hyperbandEnabled
+                                                                                then promoteTrialBudget barsMax epochsMax hiddenMax
+                                                                                else id
+                                                                        fallbackSurvivorParams = map (promoteParams . trParams) survivorsRaw
                                                                         hasExploitationBase = not (null initialElitePool) || not (null fallbackSurvivorParams)
                                                                         eliteBaseParams elitePool =
-                                                                            case map trParams elitePool of
+                                                                            case map (promoteParams . trParams) elitePool of
                                                                                 [] -> fallbackSurvivorParams
                                                                                 params -> params
                                                                         updateElitePool tr elitePool = trimElitePool (tr : elitePool)
                                                                         gaParentPoolFrom elitePool =
                                                                             let gaParents =
-                                                                                    [ trParams tr
+                                                                                    [ promoteParams (trParams tr)
                                                                                     | tr <- elitePool
                                                                                     , let opCount =
                                                                                             max
@@ -7084,7 +7155,17 @@ runOptimizer args0 = do
                                                                                                              in (listToMaybe (drop ix survivorParams), rng)
                                                                                                         else rankBiasedChoice survivorParams survivorRankBias rng
                                                                                         prevScore = bestScore best
-                                                                                    (best', recs', tr) <- runTrialWith idx trialRng Nothing baseParam gaParentPool best recs
+                                                                                        progress =
+                                                                                            if remainingTrials <= 1
+                                                                                                then 0
+                                                                                                else fromIntegral survivorsIx / fromIntegral (max 1 (remainingTrials - 1))
+                                                                                        mLocalScale =
+                                                                                            if cmaLocalSearchEnabled
+                                                                                                then
+                                                                                                    let scaleMult = max 0.20 (1 - 0.75 * clamp progress 0 1)
+                                                                                                     in Just (perturbScaleDouble * scaleMult, max 1 (round (fromIntegral perturbScaleInt * scaleMult :: Double)))
+                                                                                                else Nothing
+                                                                                    (best', recs', tr) <- runTrialWith idx trialRng Nothing baseParam gaParentPool Nothing mLocalScale best recs
                                                                                     let survivorsIx' = survivorsIx + 1
                                                                                         bestScore' = bestScore best'
                                                                                         stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
@@ -7138,6 +7219,8 @@ runOptimizer args0 = do
                                                                                     symbolFinal
                                                                                     records
                                                                                     techniqueSummaryFinal
+                                                                                    mapElitesEnabled
+                                                                                    mapElitesPerBucket
                                                                             pure 0
   where
     resolveStressRanges baseVol baseShock baseWeight volRange shockRange weightRange =
@@ -7655,6 +7738,13 @@ data OptimizationTechniqueSummary = OptimizationTechniqueSummary
     , otsAppliedSurvivorExploitation :: !Bool
     , otsAppliedEmpiricalPriors :: !Bool
     , otsAppliedCorrelationGuidance :: !Bool
+    , otsAppliedSuccessiveHalving :: !Bool
+    , otsAppliedSurrogateGuidance :: !Bool
+    , otsAppliedActiveSubspace :: !Bool
+    , otsAppliedMapElites :: !Bool
+    , otsAppliedOverfitAdjustedScoring :: !Bool
+    , otsAppliedRegimeConditionedBuckets :: !Bool
+    , otsAppliedCmaLocalSearch :: !Bool
     , otsAppliedWalkForward :: !Bool
     , otsAppliedTopPerformerSummary :: !Bool
     }
@@ -7668,6 +7758,13 @@ emptyTechniqueSummary =
         , otsAppliedSurvivorExploitation = False
         , otsAppliedEmpiricalPriors = False
         , otsAppliedCorrelationGuidance = False
+        , otsAppliedSuccessiveHalving = False
+        , otsAppliedSurrogateGuidance = False
+        , otsAppliedActiveSubspace = False
+        , otsAppliedMapElites = False
+        , otsAppliedOverfitAdjustedScoring = False
+        , otsAppliedRegimeConditionedBuckets = False
+        , otsAppliedCmaLocalSearch = False
         , otsAppliedWalkForward = False
         , otsAppliedTopPerformerSummary = False
         }
@@ -7690,9 +7787,44 @@ optimizerSearchTechniques =
         , otWhyItHelps = "Balances local exploitation of high-scoring regions with limited mutation and crossover exploration."
         }
     , OptimizationTechnique
+        { otName = "Successive-halving budget promotion"
+        , otSummary = "Evaluate the seed phase with a reduced bar/model/walk-forward budget, prune weak trials, and exploit survivors at full budget."
+        , otWhyItHelps = "Spends expensive validation only near candidates that already show activity and edge under a cheaper first pass."
+        }
+    , OptimizationTechnique
         { otName = "Empirical prior sampling"
         , otSummary = "Bias new trials toward validated historical parameter neighborhoods before broad survivor exploitation."
         , otWhyItHelps = "Spends more budget near symbol, interval, and method contexts that already cleared live-relevant evidence gates."
+        }
+    , OptimizationTechnique
+        { otName = "Surrogate-guided prior interpolation"
+        , otSummary = "Sample score-biased blends of strong prior parameter rows as a lightweight expected-improvement proxy."
+        , otWhyItHelps = "Uses the accumulated optimizer archive as a cheap response surface instead of restarting from scratch every run."
+        }
+    , OptimizationTechnique
+        { otName = "Active-subspace sampling"
+        , otSummary = "Restrict surrogate interpolation to a random subset of high-impact parameters while leaving the rest broadly sampled."
+        , otWhyItHelps = "Preserves exploration in high-dimensional spaces where only a few knobs usually drive the result."
+        }
+    , OptimizationTechnique
+        { otName = "MAP-Elites diversity archive"
+        , otSummary = "Bucket candidates by symbol, interval, method, regime, activity, and drawdown before exporting leaderboard slots."
+        , otWhyItHelps = "Keeps one market/timeframe family from crowding out qualitatively different deployable candidates."
+        }
+    , OptimizationTechnique
+        { otName = "Overfit-adjusted evidence"
+        , otSummary = "Attach deflated-Sharpe and PBO-style proxy fields derived from the run population and walk-forward stability."
+        , otWhyItHelps = "Makes selection bias from large optimizer searches visible to merge and adoption tooling."
+        }
+    , OptimizationTechnique
+        { otName = "Regime-conditioned buckets"
+        , otSummary = "Annotate candidates with coarse trend/range/breakout/adaptive/stress buckets."
+        , otWhyItHelps = "Lets the archive retain edges that are conditional on market state instead of averaging them away."
+        }
+    , OptimizationTechnique
+        { otName = "CMA-inspired adaptive local search"
+        , otSummary = "Anneal survivor perturbation radius during exploitation while retaining crossover among strong parents."
+        , otWhyItHelps = "Searches locally around promising neighborhoods without keeping mutation radius fixed for the whole run."
         }
     , OptimizationTechnique
         { otName = "Walk-forward / blocked cross-validation"
@@ -8637,6 +8769,438 @@ samplePriorParams priorProb allowedIntervals priorBounds scaleDouble scaleInt pr
                                                         else "prior-sample"
                                              in (params, rng3, Just origin)
 
+sampleSurrogateParams ::
+    Double ->
+    Bool ->
+    Double ->
+    [String] ->
+    PriorOverlayBounds ->
+    Double ->
+    Double ->
+    [PriorTrial] ->
+    TrialParams ->
+    Rng ->
+    (TrialParams, Rng, Maybe String)
+sampleSurrogateParams surrogateProb activeSubspace activeFraction allowedIntervals priorBounds priorMethodProb priorRankBias priors base rng0
+    | null priors = (base, rng0, Nothing)
+    | surrogateProb <= 0 = (base, rng0, Nothing)
+    | otherwise =
+        let (r, rng1) = nextDouble rng0
+         in if r >= clamp surrogateProb 0 1
+                then (base, rng1, Nothing)
+                else
+                    let pool0 = priorPoolForBase base priors
+                        pool = if null pool0 then priors else pool0
+                        (mPriorA, rng2) = pickRankBiasedPrior priorRankBias pool rng1
+                        (mPriorB, rng3) = pickRankBiasedPrior (priorRankBias * 0.75) pool rng2
+                        (alpha, rng4) = nextUniform 0.25 0.75 rng3
+                        (methodRoll, rng5) = nextDouble rng4
+                        usePriorMethod = methodRoll < clamp priorMethodProb 0 1
+                     in case (mPriorA, mPriorB) of
+                            (Just priorA, Just priorB) ->
+                                let paramsA =
+                                        clampPriorParamsToBounds priorBounds $
+                                            applyPriorMethodIfEnabled usePriorMethod priorA $
+                                                applyPriorOverlay allowedIntervals priorBounds priorA base
+                                    paramsB =
+                                        clampPriorParamsToBounds priorBounds $
+                                            applyPriorMethodIfEnabled usePriorMethod priorB $
+                                                applyPriorOverlay allowedIntervals priorBounds priorB base
+                                    blended0 = interpolateTrialParams alpha paramsA paramsB
+                                    (blended, rng6) =
+                                        if activeSubspace
+                                            then activeSubspaceTrialParams activeFraction base blended0 rng5
+                                            else (blended0, rng5)
+                                    params = clampPriorParamsToBounds priorBounds blended
+                                    origin =
+                                        if activeSubspace
+                                            then "surrogate-active-subspace"
+                                            else "surrogate-interpolate"
+                                 in (normalizeTrialParams params, rng6, Just origin)
+                            _ -> (base, rng5, Nothing)
+
+interpolateTrialParams :: Double -> TrialParams -> TrialParams -> TrialParams
+interpolateTrialParams alphaRaw a b =
+    let alpha = clamp alphaRaw 0 1
+        mix x y = alpha * x + (1 - alpha) * y
+        mixInt x y = max 0 (round (mix (fromIntegral x) (fromIntegral y)))
+        mixMaybeInt ma mb =
+            case (ma, mb) of
+                (Just x, Just y) -> Just (mixInt x y)
+                (Just x, Nothing) -> Just x
+                (Nothing, Just y) -> Just y
+                _ -> Nothing
+        mixMaybeDouble ma mb =
+            case (ma, mb) of
+                (Just x, Just y) -> Just (mix x y)
+                (Just x, Nothing) -> Just x
+                (Nothing, Just y) -> Just y
+                _ -> Nothing
+     in normalizeTrialParams $
+            a
+                { tpBars = mixInt (tpBars a) (tpBars b)
+                , tpBlendWeight = clamp (mix (tpBlendWeight a) (tpBlendWeight b)) 0 1
+                , tpRouterScorePnlWeight = clamp (mix (tpRouterScorePnlWeight a) (tpRouterScorePnlWeight b)) 0 1
+                , tpBaseOpenThreshold = max 0 (mix (tpBaseOpenThreshold a) (tpBaseOpenThreshold b))
+                , tpBaseCloseThreshold = max 0 (mix (tpBaseCloseThreshold a) (tpBaseCloseThreshold b))
+                , tpMinHoldBars = mixInt (tpMinHoldBars a) (tpMinHoldBars b)
+                , tpCooldownBars = mixInt (tpCooldownBars a) (tpCooldownBars b)
+                , tpMaxHoldBars = mixMaybeInt (tpMaxHoldBars a) (tpMaxHoldBars b)
+                , tpMinEdge = max venueMinEdgeFloor (mix (tpMinEdge a) (tpMinEdge b))
+                , tpMinSignalToNoise = max 0 (mix (tpMinSignalToNoise a) (tpMinSignalToNoise b))
+                , tpSnrSizeWeight = clamp (mix (tpSnrSizeWeight a) (tpSnrSizeWeight b)) 0 1
+                , tpEdgeBuffer = max 0 (mix (tpEdgeBuffer a) (tpEdgeBuffer b))
+                , tpTrendLookback = max 1 (mixInt (tpTrendLookback a) (tpTrendLookback b))
+                , tpMaxPositionSize = clamp (mix (tpMaxPositionSize a) (tpMaxPositionSize b)) 0 1
+                , tpVolTarget = mixMaybeDouble (tpVolTarget a) (tpVolTarget b)
+                , tpVolLookback = max 1 (mixInt (tpVolLookback a) (tpVolLookback b))
+                , tpVolEwmaAlpha = fmap (\v -> clamp v 0 1) (mixMaybeDouble (tpVolEwmaAlpha a) (tpVolEwmaAlpha b))
+                , tpVolFloor = max 0 (mix (tpVolFloor a) (tpVolFloor b))
+                , tpVolScaleMax = max 0 (mix (tpVolScaleMax a) (tpVolScaleMax b))
+                , tpMaxVolatility = mixMaybeDouble (tpMaxVolatility a) (tpMaxVolatility b)
+                , tpEpochs = mixInt (tpEpochs a) (tpEpochs b)
+                , tpHiddenSize = max 1 (mixInt (tpHiddenSize a) (tpHiddenSize b))
+                , tpLearningRate = max 1e-12 (mix (tpLearningRate a) (tpLearningRate b))
+                , tpValRatio = clamp (mix (tpValRatio a) (tpValRatio b)) 0 0.9
+                , tpPatience = mixInt (tpPatience a) (tpPatience b)
+                , tpWalkForwardFolds = max 1 (mixInt (tpWalkForwardFolds a) (tpWalkForwardFolds b))
+                , tpWalkForwardEmbargoBars = mixInt (tpWalkForwardEmbargoBars a) (tpWalkForwardEmbargoBars b)
+                , tpStopLoss = mixMaybeDouble (tpStopLoss a) (tpStopLoss b)
+                , tpTakeProfit = mixMaybeDouble (tpTakeProfit a) (tpTakeProfit b)
+                , tpTrailingStop = mixMaybeDouble (tpTrailingStop a) (tpTrailingStop b)
+                , tpRiskPerTrade = fmap (\v -> clamp v 1e-6 0.999999) (mixMaybeDouble (tpRiskPerTrade a) (tpRiskPerTrade b))
+                , tpRouterLookback = max 2 (mixInt (tpRouterLookback a) (tpRouterLookback b))
+                , tpRouterRegimeMinBars = mixInt (tpRouterRegimeMinBars a) (tpRouterRegimeMinBars b)
+                , tpRouterRegimeMinFraction = clamp (mix (tpRouterRegimeMinFraction a) (tpRouterRegimeMinFraction b)) 0 1
+                , tpRouterMinScore = mix (tpRouterMinScore a) (tpRouterMinScore b)
+                , tpTakeProfitPartial = fmap (\v -> clamp v 0 0.999999) (mixMaybeDouble (tpTakeProfitPartial a) (tpTakeProfitPartial b))
+                , tpAdaptiveEdgeBufferMax = max 0 (mix (tpAdaptiveEdgeBufferMax a) (tpAdaptiveEdgeBufferMax b))
+                , tpAdaptiveMinSignalToNoiseMax = max 0 (mix (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b))
+                , tpAdaptiveTrendLookbackMax = max 1 (mixInt (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b))
+                , tpRegimeBankHysteresis = clamp (mix (tpRegimeBankHysteresis a) (tpRegimeBankHysteresis b)) 0 1
+                , tpRegimeTrendOpenMult = max 0 (mix (tpRegimeTrendOpenMult a) (tpRegimeTrendOpenMult b))
+                , tpRegimeMrOpenMult = max 0 (mix (tpRegimeMrOpenMult a) (tpRegimeMrOpenMult b))
+                , tpRegimeHighVolOpenMult = max 0 (mix (tpRegimeHighVolOpenMult a) (tpRegimeHighVolOpenMult b))
+                , tpRegimeTrendSizeMult = clamp (mix (tpRegimeTrendSizeMult a) (tpRegimeTrendSizeMult b)) 0 1
+                , tpRegimeMrSizeMult = clamp (mix (tpRegimeMrSizeMult a) (tpRegimeMrSizeMult b)) 0 1
+                , tpRegimeHighVolSizeMult = clamp (mix (tpRegimeHighVolSizeMult a) (tpRegimeHighVolSizeMult b)) 0 1
+                }
+
+activeSubspaceTrialParams :: Double -> TrialParams -> TrialParams -> Rng -> (TrialParams, Rng)
+activeSubspaceTrialParams fractionRaw base candidate rng0 =
+    let fraction = clamp fractionRaw 0 1
+        keep rng =
+            let (r, rng') = nextDouble rng
+             in (r < fraction, rng')
+        chooseDouble getter setter acc rng =
+            let (enabled, rng') = keep rng
+             in (if enabled then setter acc (getter candidate) else acc, rng')
+        chooseInt getter setter acc rng =
+            let (enabled, rng') = keep rng
+             in (if enabled then setter acc (getter candidate) else acc, rng')
+        chooseMaybeDouble getter setter acc rng =
+            let (enabled, rng') = keep rng
+             in (if enabled then setter acc (getter candidate) else acc, rng')
+        (p01, r01) = chooseInt tpBars (\p v -> p{tpBars = v}) base rng0
+        (p02, r02) = chooseDouble tpBaseOpenThreshold (\p v -> p{tpBaseOpenThreshold = v}) p01 r01
+        (p03, r03) = chooseDouble tpBaseCloseThreshold (\p v -> p{tpBaseCloseThreshold = v}) p02 r02
+        (p04, r04) = chooseInt tpMinHoldBars (\p v -> p{tpMinHoldBars = v}) p03 r03
+        (p05, r05) = chooseInt tpCooldownBars (\p v -> p{tpCooldownBars = v}) p04 r04
+        (p06, r06) = chooseDouble tpMinEdge (\p v -> p{tpMinEdge = v}) p05 r05
+        (p07, r07) = chooseDouble tpMinSignalToNoise (\p v -> p{tpMinSignalToNoise = v}) p06 r06
+        (p08, r08) = chooseDouble tpEdgeBuffer (\p v -> p{tpEdgeBuffer = v}) p07 r07
+        (p09, r09) = chooseInt tpTrendLookback (\p v -> p{tpTrendLookback = v}) p08 r08
+        (p10, r10) = chooseDouble tpMaxPositionSize (\p v -> p{tpMaxPositionSize = v}) p09 r09
+        (p11, r11) = chooseMaybeDouble tpVolTarget (\p v -> p{tpVolTarget = v}) p10 r10
+        (p12, r12) = chooseInt tpVolLookback (\p v -> p{tpVolLookback = v}) p11 r11
+        (p13, r13) = chooseInt tpEpochs (\p v -> p{tpEpochs = v}) p12 r12
+        (p14, r14) = chooseInt tpHiddenSize (\p v -> p{tpHiddenSize = v}) p13 r13
+        (p15, r15) = chooseDouble tpLearningRate (\p v -> p{tpLearningRate = v}) p14 r14
+        (p16, r16) = chooseInt tpWalkForwardFolds (\p v -> p{tpWalkForwardFolds = v}) p15 r15
+        (p17, r17) = chooseMaybeDouble tpStopLoss (\p v -> p{tpStopLoss = v}) p16 r16
+        (p18, r18) = chooseMaybeDouble tpTakeProfit (\p v -> p{tpTakeProfit = v}) p17 r17
+        (p19, r19) = chooseMaybeDouble tpRiskPerTrade (\p v -> p{tpRiskPerTrade = v}) p18 r18
+        (out, rngFinal) = chooseInt tpRouterLookback (\p v -> p{tpRouterLookback = v}) p19 r19
+     in (normalizeTrialParams out, rngFinal)
+
+scaleTrialBudget :: Double -> Int -> Int -> Int -> TrialParams -> TrialParams
+scaleTrialBudget budgetRaw epochsMax hiddenMax walkForwardFoldsMax params =
+    let budget = clamp budgetRaw 0.05 1
+        scaleIntFloor lo hi =
+            let hi' = max lo hi
+             in max lo (floor (fromIntegral hi' * budget :: Double))
+        bars' =
+            if tpBars params <= 0
+                then tpBars params
+                else max 2 (min (tpBars params) (scaleIntFloor 2 (tpBars params)))
+        epochs' = min (tpEpochs params) (scaleIntFloor 1 (max 1 epochsMax))
+        hidden' = min (tpHiddenSize params) (scaleIntFloor 4 (max 4 hiddenMax))
+        folds' = min (tpWalkForwardFolds params) (scaleIntFloor 1 (max 1 walkForwardFoldsMax))
+     in normalizeTrialParams
+            params
+                { tpBars = bars'
+                , tpEpochs = max 0 epochs'
+                , tpHiddenSize = max 1 hidden'
+                , tpWalkForwardFolds = max 1 folds'
+                }
+
+promoteTrialBudget :: Int -> Int -> Int -> TrialParams -> TrialParams
+promoteTrialBudget barsMax epochsMax hiddenMax params =
+    normalizeTrialParams
+        params
+            { tpBars =
+                if tpBars params <= 0
+                    then tpBars params
+                    else max (tpBars params) barsMax
+            , tpEpochs = max (tpEpochs params) epochsMax
+            , tpHiddenSize = max (tpHiddenSize params) hiddenMax
+            }
+
+trialMapEliteBucket :: Maybe String -> TrialResult -> String
+trialMapEliteBucket symbolLabel tr =
+    trialParamsMapEliteBucket symbolLabel (trMetrics tr) (trParams tr)
+
+trialParamsMapEliteBucket :: Maybe String -> Maybe (KM.KeyMap Value) -> TrialParams -> String
+trialParamsMapEliteBucket symbolLabel metrics params =
+    intercalate
+        "|"
+        [ fromMaybe "-" symbolLabel
+        , tpInterval params
+        , map toLower (tpMethod params)
+        , trialRegimeBucket metrics params
+        , trialActivityBucket metrics
+        , trialDrawdownBucket metrics
+        ]
+
+trialRegimeBucket :: Maybe (KM.KeyMap Value) -> TrialParams -> String
+trialRegimeBucket metrics params =
+    let method = map toLower (tpMethod params)
+        maxDd = metricFloat metrics "maxDrawdown" 0
+     in if maxDd >= 0.18
+            then "stress"
+            else
+                if "breakout" `isPrefixOf` method || "breakout" `isInfixOf` method
+                    then "breakout"
+                    else
+                        if "reversion" `isInfixOf` method || "mean" `isInfixOf` method || "mr" `isInfixOf` method
+                            then "range"
+                            else
+                                if "trend" `isInfixOf` method || "momentum" `isInfixOf` method
+                                    then "trend"
+                                    else
+                                        if "regime" `isInfixOf` method || tpRegimeParameterBank params
+                                            then "adaptive"
+                                            else "mixed"
+
+trialActivityBucket :: Maybe (KM.KeyMap Value) -> String
+trialActivityBucket metrics =
+    let trades =
+            max
+                (metricInt metrics "roundTrips" 0)
+                (metricInt metrics "tradeCount" 0)
+     in if trades < 20
+            then "activity-low"
+            else
+                if trades < 60
+                    then "activity-med"
+                    else "activity-high"
+
+trialDrawdownBucket :: Maybe (KM.KeyMap Value) -> String
+trialDrawdownBucket metrics =
+    let drawdown = metricFloat metrics "maxDrawdown" 0
+     in if drawdown < 0.04
+            then "dd-low"
+            else
+                if drawdown < 0.12
+                    then "dd-med"
+                    else "dd-high"
+
+selectMapEliteTrials :: Int -> Int -> Maybe String -> [TrialResult] -> [TrialResult]
+selectMapEliteTrials perBucketRaw limitRaw symbolLabel sorted =
+    let limit = max 0 limitRaw
+        perBucket = max 0 perBucketRaw
+     in if limit <= 0
+            then []
+            else
+                if perBucket <= 0
+                    then take limit sorted
+                    else
+                        let (pickedRev, counts, pickedKeys) =
+                                foldl'
+                                    ( \(acc, bucketCounts, keys) tr ->
+                                        let bucket = trialMapEliteBucket symbolLabel tr
+                                            count = fromMaybe 0 (M.lookup bucket bucketCounts)
+                                            key = trialParamsIdentityKey (trParams tr)
+                                         in if length acc < limit && count < perBucket && Set.notMember key keys
+                                                then
+                                                    ( tr : acc
+                                                    , M.insert bucket (count + 1) bucketCounts
+                                                    , Set.insert key keys
+                                                    )
+                                                else (acc, bucketCounts, keys)
+                                    )
+                                    ([], M.empty, Set.empty)
+                                    sorted
+                            picked = reverse pickedRev
+                            need = limit - length picked
+                            backfill =
+                                if need <= 0
+                                    then []
+                                    else
+                                        take
+                                            need
+                                            [ tr
+                                            | tr <- sorted
+                                            , trialParamsIdentityKey (trParams tr) `Set.notMember` pickedKeys
+                                            ]
+                         in picked ++ backfill
+
+trialParamsIdentityKey :: TrialParams -> String
+trialParamsIdentityKey params =
+    hashBytesHex (encodePretty (trialToRecord (blankTrialResult params) Nothing))
+
+blankTrialResult :: TrialParams -> TrialResult
+blankTrialResult params =
+    TrialResult
+        { trOk = True
+        , trReason = Nothing
+        , trElapsedSec = 0
+        , trOrigin = "identity"
+        , trParams = params
+        , trFinalEquity = Just 1
+        , trMetrics = Just KM.empty
+        , trOpenThreshold = Nothing
+        , trCloseThreshold = Nothing
+        , trStdoutJson = Nothing
+        , trEligible = True
+        , trSearchEligible = True
+        , trFilterReason = Nothing
+        , trObjective = "identity"
+        , trScore = Just 0
+        }
+
+data OverfitPopulationStats = OverfitPopulationStats
+    { opsTrialCount :: !Int
+    , opsScoredTrialCount :: !Int
+    , opsSharpeMean :: !(Maybe Double)
+    , opsSharpeStd :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
+
+overfitPopulationStats :: [TrialResult] -> OverfitPopulationStats
+overfitPopulationStats records =
+    let scoredCount = length [() | tr <- records, isJust (trScore tr)]
+        sharpeSamples =
+            [ sharpe
+            | tr <- records
+            , Just metrics <- [trMetrics tr]
+            , Just sharpe <- [finiteDoubleMaybe (Just (metricFloat (Just metrics) "sharpe" 0))]
+            ]
+     in OverfitPopulationStats
+            { opsTrialCount = length records
+            , opsScoredTrialCount = scoredCount
+            , opsSharpeMean = meanMaybeDouble sharpeSamples
+            , opsSharpeStd = stddevMaybeDouble sharpeSamples
+            }
+
+trialOverfitEvidenceValue :: OverfitPopulationStats -> TrialResult -> Value
+trialOverfitEvidenceValue stats tr =
+    let selectedSharpe = trMetrics tr >>= \metrics -> finiteDoubleMaybe (Just (metricFloat (Just metrics) "sharpe" 0))
+        wfSummary = extractWalkForwardSummary (trStdoutJson tr)
+        wfSharpeMean = wfSummary >>= \metrics -> finiteDoubleMaybe (Just (metricFloat (Just metrics) "sharpeMean" 0))
+        wfSharpeStd = wfSummary >>= \metrics -> finiteDoubleMaybe (Just (metricFloat (Just metrics) "sharpeStd" 0))
+        penalty =
+            case opsSharpeStd stats of
+                Nothing -> Nothing
+                Just sd ->
+                    let n = max 1 (opsScoredTrialCount stats)
+                        p = 1 - (1 / fromIntegral (n + 1))
+                     in finiteDoubleMaybe (Just (max 0 sd * max 0 (normalInvApprox p)))
+        deflatedSharpe =
+            case (selectedSharpe, penalty) of
+                (Just sr, Just pen) -> finiteDoubleMaybe (Just (sr - pen))
+                _ -> selectedSharpe
+        pboProxy =
+            case (wfSharpeMean, wfSharpeStd) of
+                (Just m, Just s)
+                    | m <= 0 -> Just 1
+                    | otherwise ->
+                        let instability = s / max 1e-12 (abs m)
+                         in finiteDoubleMaybe (Just (clamp (instability / (1 + instability)) 0 1))
+                _ -> Nothing
+     in object
+            [ "trialCount" .= opsTrialCount stats
+            , "scoredTrialCount" .= opsScoredTrialCount stats
+            , "selectedSharpe" .= selectedSharpe
+            , "sharpeMeanAcrossTrials" .= opsSharpeMean stats
+            , "sharpeStdAcrossTrials" .= opsSharpeStd stats
+            , "multipleTestingSharpePenalty" .= penalty
+            , "deflatedSharpeProxy" .= deflatedSharpe
+            , "walkForwardSharpeMean" .= wfSharpeMean
+            , "walkForwardSharpeStd" .= wfSharpeStd
+            , "pboProxy" .= pboProxy
+            ]
+
+meanMaybeDouble :: [Double] -> Maybe Double
+meanMaybeDouble xs =
+    case filter (\x -> not (isNaN x || isInfinite x)) xs of
+        [] -> Nothing
+        clean -> Just (sum clean / fromIntegral (length clean))
+
+stddevMaybeDouble :: [Double] -> Maybe Double
+stddevMaybeDouble xs =
+    case filter (\x -> not (isNaN x || isInfinite x)) xs of
+        clean
+            | length clean < 2 -> Nothing
+            | otherwise ->
+                let m = sum clean / fromIntegral (length clean)
+                    var = sum (map (\x -> (x - m) * (x - m)) clean) / fromIntegral (length clean - 1)
+                 in finiteDoubleMaybe (Just (sqrt (max 0 var)))
+
+normalInvApprox :: Double -> Double
+normalInvApprox p
+    | p <= 0 = -(1 / 0)
+    | p >= 1 = 1 / 0
+    | p < plow =
+        let q = sqrt (-(2 * log p))
+         in (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
+                / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
+    | p > phigh =
+        let q = sqrt (-(2 * log (1 - p)))
+         in -( (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
+                / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
+             )
+    | otherwise =
+        let q = p - 0.5
+            r = q * q
+         in (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6)
+                * q
+                / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1)
+  where
+    plow = 0.02425
+    phigh = 1 - plow
+    a1 = -3.969683028665376e+01
+    a2 = 2.209460984245205e+02
+    a3 = -2.759285104469687e+02
+    a4 = 1.383577518672690e+02
+    a5 = -3.066479806614716e+01
+    a6 = 2.506628277459239e+00
+    b1 = -5.447609879822406e+01
+    b2 = 1.615858368580409e+02
+    b3 = -1.556989798866e+02
+    b4 = 6.680131188771972e+01
+    b5 = -1.328068155288572e+01
+    c1 = -7.784894002430293e-03
+    c2 = -3.223964580411365e-01
+    c3 = -2.400758277161838e+00
+    c4 = -2.549732539343734e+00
+    c5 = 4.374664141464968e+00
+    c6 = 2.938163982698783e+00
+    d1 = 7.784695709041462e-03
+    d2 = 3.224671290700398e-01
+    d3 = 2.445134137142996e+00
+    d4 = 3.754408661907416e+00
+
 pickRankBiasedPrior :: Double -> [PriorTrial] -> Rng -> (Maybe PriorTrial, Rng)
 pickRankBiasedPrior bias pool rng
     | null pool = (Nothing, rng)
@@ -8973,13 +9537,18 @@ optimizerTechniqueSummaryJson t =
         , "rankBiasedSurvivorExploitation" .= otsAppliedSurvivorExploitation t
         , "empiricalPriorSampling" .= otsAppliedEmpiricalPriors t
         , "correlationGuidance" .= otsAppliedCorrelationGuidance t
+        , "successiveHalving" .= otsAppliedSuccessiveHalving t
+        , "surrogateGuidedSearch" .= otsAppliedSurrogateGuidance t
+        , "activeSubspaceSampling" .= otsAppliedActiveSubspace t
+        , "mapElitesArchive" .= otsAppliedMapElites t
+        , "overfitAdjustedScoring" .= otsAppliedOverfitAdjustedScoring t
+        , "regimeConditionedBuckets" .= otsAppliedRegimeConditionedBuckets t
+        , "cmaInspiredLocalSearch" .= otsAppliedCmaLocalSearch t
         , "walkForwardCrossValidation" .= otsAppliedWalkForward t
         , "topPerformerSummary" .= otsAppliedTopPerformerSummary t
-        , -- Compatibility fields for older readers. These techniques are not
-          -- implemented by this optimizer, so never report them as applied.
+        , -- Compatibility fields for older readers.
           "sobolSeeding" .= False
-        , "successiveHalving" .= False
-        , "bayesianExpectedImprovement" .= False
+        , "bayesianExpectedImprovement" .= otsAppliedSurrogateGuidance t
         , "ensembleTopPerformers" .= False
         ]
 
@@ -8999,8 +9568,10 @@ writeTopJson ::
     Maybe String ->
     [TrialResult] ->
     OptimizationTechniqueSummary ->
+    Bool ->
+    Int ->
     IO ()
-writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
+writeTopJson topPath dataSource sourceOverride symbolLabel records summary mapElitesEnabled mapElitesPerBucket = do
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
     let successful =
             [ tr
@@ -9017,7 +9588,14 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 (finiteDoubleMaybe (Just (metricFloat (trMetrics tr) "annualizedReturn" (-(1 / 0)))))
                 (trFinalEquity tr)
         sorted = sortOn (Data.Ord.Down . sortKey) successful
-        combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
+        selected =
+            selectMapEliteTrials
+                (if mapElitesEnabled then mapElitesPerBucket else 0)
+                10
+                symbolLabel
+                sorted
+        overfitStats = overfitPopulationStats records
+        combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel overfitStats) [1 ..] selected
         selectionAudit = optimizerOverfitAudit (map overfitTrialFromResult records)
         topMetrics =
             let topN = take 5 sorted
@@ -9052,12 +9630,13 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 , "bestOptimizationTechniques" .= map optimizationTechniqueToJson optimizerSearchTechniques
                 , "optimizationTechniquesApplied" .= optimizerTechniqueSummaryJson summary
                 , "selectionAudit" .= fromMaybe Null selectionAudit
+                , "mapElites" .= object ["enabled" .= mapElitesEnabled, "perBucket" .= mapElitesPerBucket]
                 ]
     BL.writeFile path (encodePretty export')
     putStrLn ("Wrote top combos JSON: " ++ path)
 
-comboFromTrial :: Int -> String -> String -> Maybe String -> Int -> TrialResult -> Value
-comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
+comboFromTrial :: Int -> String -> String -> Maybe String -> OverfitPopulationStats -> Int -> TrialResult -> Value
+comboFromTrial createdAtMs dataSource sourceOverride symbolLabel overfitStats rank tr =
     let metricsRaw = trMetrics tr
         params = trParams tr
         finalEq = fromMaybe 0 (trFinalEquity tr)
@@ -9068,9 +9647,16 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         metrics0 = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
         metricsWithWalkForward = applyWalkForwardSummaryMetrics metrics0 (trStdoutJson tr)
         appliedMaxHoldBars = appliedCloseTimingMaxHoldBars currentMaxHoldBars closeTimingReport
-        metrics = applyCloseTimingMetrics metricsWithWalkForward currentMaxHoldBars appliedMaxHoldBars closeTimingReport
+        metricsWithCloseTiming = applyCloseTimingMetrics metricsWithWalkForward currentMaxHoldBars appliedMaxHoldBars closeTimingReport
+        metrics =
+            Just $
+                KM.insert
+                    (Key.fromString "overfit")
+                    (trialOverfitEvidenceValue overfitStats tr)
+                    (fromMaybe KM.empty metricsWithCloseTiming)
         metricsVal = maybe Null Object metrics
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
+        mapEliteBucket = trialMapEliteBucket symbolLabel tr
         paramsValue =
             object $
                 [ "platform" .= tpPlatform params
@@ -9276,6 +9862,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "closeThreshold" .= trCloseThreshold tr
                 , "source" .= source
                 , "optimizerTrialOrigin" .= trOrigin tr
+                , "optimizerBucket" .= mapEliteBucket
                 , "metrics" .= metricsVal
                 , "params" .= paramsValue
                 ]

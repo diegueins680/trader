@@ -75,6 +75,7 @@ scoringConfigParser =
         <*> scoreDouble "score-equity-log-floor" tcscEquityLogFloor "Floor applied to the log-equity term in validatedScore"
         <*> scoreDouble "score-freshness-half-life-days" tcscFreshnessHalfLifeDays "Half-life in days for ranking by combo createdAtMs; 0 disables the freshness multiplier"
         <*> scoreDouble "score-freshness-floor-multiplier" tcscFreshnessFloorMultiplier "Lowest multiplier applied by the freshness rank adjustment"
+        <*> scoreInt "score-map-elite-max-per-bucket" tcscMapEliteMaxPerBucket "Maximum merged combos to keep per MAP-Elites bucket before backfilling; 0 disables the bucket cap"
   where
     def = defaultTopComboScoringConfig
     scoreDouble name getter helpText =

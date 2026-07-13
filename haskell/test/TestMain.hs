@@ -515,6 +515,7 @@ main = do
     testMergeUnstampedDuplicatesKeepBestEver
     testMergeSanitizeTombstonesStampedBelowFloorRefresh
     testLowTradeTopCombosSinkBelowEvidenceFloor
+    testTopComboProcessingCarriesOverfitAndMapEliteMetadata
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
     testTopComboFreshnessMultiplierDefaultsDisabled
@@ -5138,6 +5139,22 @@ comboProcessingReasonsForTest combo =
             KM.lookup "reasons" processing >>= AT.parseMaybe Aeson.parseJSON
         _ -> Nothing
 
+comboProcessingDoubleForTest :: T.Text -> Aeson.Value -> Maybe Double
+comboProcessingDoubleForTest key combo =
+    case combo of
+        Aeson.Object o -> do
+            Aeson.Object processing <- KM.lookup "processing" o
+            KM.lookup (AK.fromText key) processing >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboProcessingTextForTest :: T.Text -> Aeson.Value -> Maybe T.Text
+comboProcessingTextForTest key combo =
+    case combo of
+        Aeson.Object o -> do
+            Aeson.Object processing <- KM.lookup "processing" o
+            KM.lookup (AK.fromText key) processing >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
 comboMethodForTest :: Aeson.Value -> Maybe T.Text
 comboMethodForTest combo =
     case combo of
@@ -5145,6 +5162,44 @@ comboMethodForTest combo =
             Aeson.Object params <- KM.lookup "params" c
             KM.lookup "method" params >>= AT.parseMaybe Aeson.parseJSON
         _ -> Nothing
+
+comboWithOverfitForTest :: Double -> Double -> Aeson.Value -> Aeson.Value
+comboWithOverfitForTest pbo deflatedSharpe val =
+    case val of
+        Aeson.Object o ->
+            let metrics =
+                    case KM.lookup "metrics" o of
+                        Just (Aeson.Object m) -> m
+                        _ -> KM.empty
+                overfit =
+                    Aeson.object
+                        [ "pboProxy" .= pbo
+                        , "deflatedSharpeProxy" .= deflatedSharpe
+                        ]
+             in Aeson.Object (KM.insert "metrics" (Aeson.Object (KM.insert "overfit" overfit metrics)) o)
+        _ -> val
+
+testTopComboProcessingCarriesOverfitAndMapEliteMetadata :: IO ()
+testTopComboProcessingCarriesOverfitAndMapEliteMetadata = do
+    let risky =
+            comboWithOverfitForTest 0.90 (-0.10) $
+                processingComboForTest
+                    "ta_trend"
+                    "db"
+                    False
+                    (Just adoptionMinWalkForwardSharpeMean)
+                    1.0
+                    adoptionMinTradeCount
+        combos = mergedCombosForTest [risky]
+        mCombo = listToMaybe combos
+        multiplier = mCombo >>= comboProcessingDoubleForTest "overfitMultiplier"
+        bucket = mCombo >>= comboProcessingTextForTest "mapEliteBucket"
+    assert
+        "top-combo processing applies overfit multiplier from PBO and deflated Sharpe proxies"
+        (multiplier == Just 0.125)
+    assert
+        "top-combo processing records MAP-Elites bucket dimensions"
+        (bucket == Just "BTCUSDT|15m|ta_trend|trend|activity-med|dd-low")
 
 comboWithCreatedAtForTest :: Int64 -> Aeson.Value -> Aeson.Value
 comboWithCreatedAtForTest createdAt val =
@@ -5325,7 +5380,11 @@ testMergeExecutableAnnotatesProcessingAndDedupe = do
     pure ()
 
 selectionComboForTest :: T.Text -> Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
-selectionComboForTest method score mCreatedAt mRefreshedAt =
+selectionComboForTest =
+    selectionComboForTestWithWalkForward True
+
+selectionComboForTestWithWalkForward :: Bool -> T.Text -> Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
+selectionComboForTestWithWalkForward includeWalkForward method score mCreatedAt mRefreshedAt =
     Aeson.object
         ( [ "symbol" .= ("BTCUSDT" :: T.Text)
           , "interval" .= ("15m" :: T.Text)
@@ -5337,7 +5396,19 @@ selectionComboForTest method score mCreatedAt mRefreshedAt =
           , "closeThreshold" .= (0.010 :: Double)
           , "objective" .= ("final-equity" :: T.Text)
           , "params" .= Aeson.object ["method" .= method, "lookback" .= (48 :: Int)]
-          , "metrics" .= Aeson.object ["finalEquity" .= (1.0 + score :: Double), "tradeCount" .= (8 :: Int)]
+          , "metrics"
+                .= Aeson.object
+                    ( [ "finalEquity" .= (1.0 + score :: Double)
+                      , "tradeCount" .= (8 :: Int)
+                      ]
+                        ++ [ "walkForwardSummary"
+                            .= Aeson.object
+                                [ "sharpeMean" .= (0.5 :: Double)
+                                , "sharpeStd" .= (1.0 :: Double)
+                                ]
+                           | includeWalkForward
+                           ]
+                    )
           ]
             ++ maybe [] (\t -> ["createdAtMs" .= t]) mCreatedAt
             ++ maybe [] (\t -> ["backtestRefreshedAtMs" .= t]) mRefreshedAt
@@ -5351,6 +5422,7 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
         staleLowRank = selectionComboForTest "stale-low-rank" 0.1 (Just (now - comboBacktestStaleAfterMs - 1)) Nothing
         freshLowRank = selectionComboForTest "fresh-low-rank" 0.2 (Just (now - oneDay)) Nothing
         missingFreshness = selectionComboForTest "missing-freshness" 0.3 Nothing Nothing
+        missingWalkForward = selectionComboForTestWithWalkForward False "missing-walk-forward" 0.35 (Just (now - oneDay)) Nothing
         exactlyAtBoundary = selectionComboForTest "boundary" 0.4 (Just (now - comboBacktestStaleAfterMs)) Nothing
         shortStalePolicy =
             ComboBacktestRefreshPolicy
@@ -5358,23 +5430,25 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
                 , cbrpPruneFinalEquityFloor = 1.0
                 }
         shortStale = selectionComboForTest "short-stale" 0.25 (Just (now - oneDay - 1)) Nothing
-        selected = selectCombosForBacktestRefresh 1 now [staleLowRank, freshLowRank, topFresh, missingFreshness]
+        selected = selectCombosForBacktestRefresh 1 now [staleLowRank, freshLowRank, topFresh, missingFreshness, missingWalkForward]
         selectedShortPolicy = selectCombosForBacktestRefreshWithPolicy shortStalePolicy 1 now [shortStale, freshLowRank, topFresh]
         selectedKeys = mapMaybe comboIdentityKey selected
         selectedShortPolicyKeys = mapMaybe comboIdentityKey selectedShortPolicy
         has combo = maybe False (`elem` selectedKeys) (comboIdentityKey combo)
         hasShortPolicy combo = maybe False (`elem` selectedShortPolicyKeys) (comboIdentityKey combo)
     assert
-        "selection keeps the top-ranked combo and every stale combo outside topN"
-        ( length selected == 3
+        "selection keeps the top-ranked combo and every stale or missing-evidence combo outside topN"
+        ( length selected == 4
             && has topFresh
             && has staleLowRank
             && has missingFreshness
+            && has missingWalkForward
             && not (has freshLowRank)
         )
     assert
-        "missing freshness is due, exactly three days old is not older than three days"
+        "missing freshness or walk-forward evidence is due, exactly three days old is not older than three days"
         ( comboBacktestDueForRefresh now missingFreshness
+            && comboBacktestDueForRefresh now missingWalkForward
             && not (comboBacktestDueForRefresh now exactlyAtBoundary)
         )
     assert

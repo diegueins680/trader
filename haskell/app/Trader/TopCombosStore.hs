@@ -73,9 +73,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf, sortBy)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import qualified Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -723,9 +723,11 @@ comboBacktestDueForRefresh = comboBacktestDueForRefreshWithPolicy defaultComboBa
 
 comboBacktestDueForRefreshWithPolicy :: ComboBacktestRefreshPolicy -> Int64 -> Aeson.Value -> Bool
 comboBacktestDueForRefreshWithPolicy policy now val =
-    case comboBacktestFreshnessMs val of
-        Nothing -> True
-        Just refreshedAt -> now - refreshedAt > cbrpStaleAfterMs policy
+    isNothing (comboWalkForwardSharpeMeanValue val)
+        || isNothing (comboWalkForwardSharpeStdValue val)
+        || case comboBacktestFreshnessMs val of
+            Nothing -> True
+            Just refreshedAt -> now - refreshedAt > cbrpStaleAfterMs policy
 
 selectCombosForBacktestRefresh :: Int -> Int64 -> [Aeson.Value] -> [Aeson.Value]
 selectCombosForBacktestRefresh = selectCombosForBacktestRefreshWithPolicy defaultComboBacktestRefreshPolicy
@@ -1222,13 +1224,117 @@ comboTradeCountValue :: Aeson.Value -> Maybe Int
 comboTradeCountValue val =
     comboMetricsInt "tradeCount" val <|> comboMetricInt "tradeCount" val
 
-comboWalkForwardSharpeMeanValue :: Aeson.Value -> Maybe Double
-comboWalkForwardSharpeMeanValue val = do
+comboWalkForwardSummaryObject :: Aeson.Value -> Maybe Aeson.Object
+comboWalkForwardSummaryObject val = do
     metrics <- comboMetricObject "metrics" val
     wf <- KM.lookup (AK.fromString "walkForwardSummary") metrics
     case wf of
-        Aeson.Object obj -> KM.lookup (AK.fromString "sharpeMean") obj >>= AT.parseMaybe Aeson.parseJSON
+        Aeson.Object obj -> Just obj
         _ -> Nothing
+
+comboWalkForwardSharpeMeanValue :: Aeson.Value -> Maybe Double
+comboWalkForwardSharpeMeanValue val = do
+    obj <- comboWalkForwardSummaryObject val
+    raw <- KM.lookup (AK.fromString "sharpeMean") obj
+    AT.parseMaybe Aeson.parseJSON raw
+
+comboWalkForwardSharpeStdValue :: Aeson.Value -> Maybe Double
+comboWalkForwardSharpeStdValue val = do
+    obj <- comboWalkForwardSummaryObject val
+    raw <- KM.lookup (AK.fromString "sharpeStd") obj
+    AT.parseMaybe Aeson.parseJSON raw
+
+comboOverfitMetricDouble :: String -> Aeson.Value -> Maybe Double
+comboOverfitMetricDouble key val = do
+    metrics <- comboMetricObject "metrics" val
+    overfit <- KM.lookup (AK.fromString "overfit") metrics
+    case overfit of
+        Aeson.Object obj -> KM.lookup (AK.fromString key) obj >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboOverfitMultiplier :: Aeson.Value -> Double
+comboOverfitMultiplier val =
+    pboMultiplier * deflatedSharpeMultiplier
+  where
+    pboMultiplier =
+        case comboOverfitMetricDouble "pboProxy" val of
+            Just pbo
+                | pbo >= 0.85 -> 0.25
+                | pbo >= 0.70 -> 0.50
+                | pbo >= 0.55 -> 0.75
+                | otherwise -> 1.0
+            Nothing -> 1.0
+    deflatedSharpeMultiplier =
+        case comboOverfitMetricDouble "deflatedSharpeProxy" val of
+            Just sharpe
+                | sharpe < 0 -> 0.50
+                | sharpe < 0.25 -> 0.80
+                | otherwise -> 1.0
+            Nothing -> 1.0
+
+comboMapEliteBucket :: Aeson.Value -> String
+comboMapEliteBucket val =
+    intercalate
+        "|"
+        [ fromMaybe "-" (comboParamString "binanceSymbol" val <|> comboParamString "symbol" val)
+        , fromMaybe "-" (comboParamString "interval" val)
+        , fromMaybe "-" (comboParamString "method" val)
+        , comboRegimeBucket val
+        , comboActivityBucket val
+        , comboDrawdownBucket val
+        ]
+
+comboParamString :: String -> Aeson.Value -> Maybe String
+comboParamString key val = do
+    params <- comboMetricObject "params" val
+    case KM.lookup (AK.fromString key) params of
+        Just (Aeson.String s) ->
+            let raw = trim (T.unpack s)
+             in if null raw then Nothing else Just raw
+        _ -> Nothing
+
+comboRegimeBucket :: Aeson.Value -> String
+comboRegimeBucket val =
+    let method = T.unpack (T.toLower (T.pack (fromMaybe "" (comboParamString "method" val))))
+        maxDd = fromMaybe 0 (comboMetricsDouble "maxDrawdown" val <|> comboMetricDouble "maxDrawdown" val)
+     in if maxDd >= 0.18
+            then "stress"
+            else
+                if "breakout" `isPrefixOf` method || "breakout" `isInfixOf` method
+                    then "breakout"
+                    else
+                        if "reversion" `isInfixOf` method || "mean" `isInfixOf` method || "mr" `isInfixOf` method
+                            then "range"
+                            else
+                                if "trend" `isInfixOf` method || "momentum" `isInfixOf` method
+                                    then "trend"
+                                    else
+                                        if "regime" `isInfixOf` method
+                                            then "adaptive"
+                                            else "mixed"
+
+comboActivityBucket :: Aeson.Value -> String
+comboActivityBucket val =
+    let trades =
+            max
+                (fromMaybe 0 (comboMetricsInt "roundTrips" val <|> comboMetricInt "roundTrips" val))
+                (fromMaybe 0 (comboTradeCountValue val))
+     in if trades < 20
+            then "activity-low"
+            else
+                if trades < 60
+                    then "activity-med"
+                    else "activity-high"
+
+comboDrawdownBucket :: Aeson.Value -> String
+comboDrawdownBucket val =
+    let drawdown = fromMaybe 0 (comboMetricsDouble "maxDrawdown" val <|> comboMetricDouble "maxDrawdown" val)
+     in if drawdown < 0.04
+            then "dd-low"
+            else
+                if drawdown < 0.12
+                    then "dd-med"
+                    else "dd-high"
 
 comboProcessingTier :: Aeson.Value -> String
 comboProcessingTier val
@@ -1291,9 +1397,10 @@ comboValidatedScore val =
                 (comboWalkForwardSharpeMeetsAdoptionFloor . Just <$> comboWalkForwardSharpeMeanValue val)
         drawdown = max 0 (fromMaybe 0 (comboMetricsDouble "maxDrawdown" val <|> comboMetricDouble "maxDrawdown" val))
         drawdownMultiplier = topComboDrawdownMultiplier defaultTopComboScoringConfig drawdown
+        overfitMultiplier = comboOverfitMultiplier val
         eq = fromMaybe 1 (comboFinalEquityValue val)
         equityTerm = topComboEquityTerm defaultTopComboScoringConfig eq
-     in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
+     in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier * overfitMultiplier + equityTerm
 
 comboProcessingValue :: Aeson.Value -> Aeson.Value
 comboProcessingValue val =
@@ -1301,6 +1408,8 @@ comboProcessingValue val =
         [ "tier" .= comboProcessingTier val
         , "tierRank" .= comboProcessingTierRank val
         , "validatedScore" .= comboValidatedScore val
+        , "overfitMultiplier" .= comboOverfitMultiplier val
+        , "mapEliteBucket" .= comboMapEliteBucket val
         , "reasons" .= comboProcessingReasons val
         ]
 

@@ -29,6 +29,7 @@ data TopComboScoringConfig = TopComboScoringConfig
     , tcscEquityLogFloor :: !Double
     , tcscFreshnessHalfLifeDays :: !Double
     , tcscFreshnessFloorMultiplier :: !Double
+    , tcscMapEliteMaxPerBucket :: !Int
     }
     deriving (Eq, Show)
 
@@ -52,6 +53,7 @@ defaultTopComboScoringConfig =
         , tcscEquityLogFloor = -1
         , tcscFreshnessHalfLifeDays = 0
         , tcscFreshnessFloorMultiplier = 0.35
+        , tcscMapEliteMaxPerBucket = 0
         }
 
 validateTopComboScoringConfig :: TopComboScoringConfig -> Either String TopComboScoringConfig
@@ -72,6 +74,7 @@ validateTopComboScoringConfig config = do
     finite "--score-equity-log-floor" (tcscEquityLogFloor config)
     finiteNonNegative "--score-freshness-half-life-days" (tcscFreshnessHalfLifeDays config)
     finiteUnit "--score-freshness-floor-multiplier" (tcscFreshnessFloorMultiplier config)
+    ensure "--score-map-elite-max-per-bucket must be >= 0" (tcscMapEliteMaxPerBucket config >= 0)
     pure config
   where
     ensure msg ok =
