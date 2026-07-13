@@ -25,6 +25,8 @@ module Trader.Optimizer.Optimize (
     objectiveScore,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
+    optimizerSoftSearchEligible,
+    optimizerSoftSearchFilterReason,
     optimizerRecordsSummaryJson,
     optimizerTechniqueSummaryJson,
     optimizerTopJsonSortKey,
@@ -1418,6 +1420,44 @@ metricInt m key def =
                 Just (Number n) ->
                     fromMaybe def (scientificToBoundedInt n)
                 _ -> def
+
+-- | Whether a deployability failure is safe to retain for search only.
+optimizerSoftSearchFilterReason :: Maybe String -> Bool
+optimizerSoftSearchFilterReason filterReason =
+    case filterReason of
+        Nothing -> False
+        Just reason ->
+            any
+                (`isPrefixOf` reason)
+                [ "activityCount<"
+                , "exposure<"
+                , "wfSharpeMean<"
+                , "wfSharpeStd>"
+                , "sharpe<"
+                , "calmar<"
+                , "annualizedReturn<"
+                , "winRate<"
+                , "profitFactor<"
+                , "turnover>"
+                ]
+
+{- | Retain a soft-filtered candidate only with present walk-forward evidence
+and the same strict activity/return floors used by survivor parents.
+-}
+optimizerSoftSearchEligible :: Maybe String -> Maybe Double -> Double -> Int -> Int -> Double -> Double -> Bool
+optimizerSoftSearchEligible filterReason mWfSharpeStd searchMaxWfSharpeStd activityCount activityFloor annualizedReturn annualizedReturnFloor =
+    optimizerSoftSearchFilterReason filterReason
+        && maybe False wfSharpeStdWithinSearchLimit mWfSharpeStd
+        && activityCount > activityFloor
+        && annualizedReturn > annualizedReturnFloor
+  where
+    wfSharpeStdWithinSearchLimit std = searchMaxWfSharpeStd <= 0 || std <= searchMaxWfSharpeStd
+
+survivorParentActivityCount :: Maybe (KM.KeyMap Value) -> Int
+survivorParentActivityCount metrics =
+    max
+        (metricInt metrics "operationCount" 0)
+        (metricInt metrics "tradeCount" 0)
 
 metricProfitFactor :: Maybe (KM.KeyMap Value) -> Maybe Double
 metricProfitFactor m =
@@ -7024,16 +7064,27 @@ runOptimizer args0 = do
                                                                                     case extractWalkForwardSummary (trStdoutJson tr0) of
                                                                                         Nothing -> Nothing
                                                                                         Just wfSummary -> Just (metricFloat (Just wfSummary) "sharpeStd" 0)
-                                                                                strictWfSharpeStdFiltered =
-                                                                                    maybe False ("wfSharpeStd>" `isPrefixOf`) filterReason
-                                                                                searchWfSharpeStdOk =
-                                                                                    maybe
-                                                                                        False
-                                                                                        (\std -> searchMaxWfSharpeStd <= 0 || std <= searchMaxWfSharpeStd)
-                                                                                        mSearchWfSharpeStd
+                                                                                searchMetricsOk =
+                                                                                    case trMetrics tr0 of
+                                                                                        Nothing -> False
+                                                                                        Just metrics ->
+                                                                                            let activityCount = survivorParentActivityCount (Just metrics)
+                                                                                                annRet = metricFloat (Just metrics) "annualizedReturn" 0
+                                                                                             in optimizerSoftSearchEligible
+                                                                                                    filterReason
+                                                                                                    mSearchWfSharpeStd
+                                                                                                    searchMaxWfSharpeStd
+                                                                                                    activityCount
+                                                                                                    survivorParentActivityFloor
+                                                                                                    annRet
+                                                                                                    survivorParentAnnualizedReturnFloor
+                                                                                softSearchEligible =
+                                                                                    trOk tr0
+                                                                                        && isJust (trFinalEquity tr0)
+                                                                                        && searchMetricsOk
                                                                                 searchEligible =
                                                                                     eligible
-                                                                                        || (strictWfSharpeStdFiltered && searchWfSharpeStdOk)
+                                                                                        || softSearchEligible
                                                                                 searchScore =
                                                                                     case (score, searchEligible, trMetrics tr0, mSearchWfSharpeStd) of
                                                                                         (Just sc, _, _, _) -> Just sc
@@ -7128,10 +7179,7 @@ runOptimizer args0 = do
                                                                             let gaParents =
                                                                                     [ promoteParams (trParams tr)
                                                                                     | tr <- elitePool
-                                                                                    , let opCount =
-                                                                                            max
-                                                                                                (metricInt (trMetrics tr) "operationCount" 0)
-                                                                                                (metricInt (trMetrics tr) "tradeCount" 0)
+                                                                                    , let opCount = survivorParentActivityCount (trMetrics tr)
                                                                                     , opCount > survivorParentActivityFloor
                                                                                     , metricFloat (trMetrics tr) "annualizedReturn" 0 > survivorParentAnnualizedReturnFloor
                                                                                     ]
