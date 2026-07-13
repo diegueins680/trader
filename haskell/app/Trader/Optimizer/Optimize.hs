@@ -7085,7 +7085,7 @@ runOptimizer args0 = do
                                                                                 let mPriorSeed = listToMaybe (drop (idx - 1) priorSeedTrials)
                                                                                     mSeedTransform =
                                                                                         if hyperbandEnabled
-                                                                                            then Just ("hyperband-low-budget", scaleTrialBudget hyperbandSeedBudget epochsMax hiddenMax walkForwardFoldsMax)
+                                                                                            then Just ("hyperband-low-budget", scaleTrialBudget barsMin hyperbandSeedBudget epochsMax hiddenMax walkForwardFoldsMax)
                                                                                             else Nothing
                                                                                 (b', recs', tr) <- runTrialWith idx rng mPriorSeed Nothing Nothing mSeedTransform Nothing b recs
                                                                                 pure (b', recs', tr : res)
@@ -8923,16 +8923,17 @@ activeSubspaceTrialParams fractionRaw base candidate rng0 =
         (out, rngFinal) = chooseInt tpRouterLookback (\p v -> p{tpRouterLookback = v}) p19 r19
      in (normalizeTrialParams out, rngFinal)
 
-scaleTrialBudget :: Double -> Int -> Int -> Int -> TrialParams -> TrialParams
-scaleTrialBudget budgetRaw epochsMax hiddenMax walkForwardFoldsMax params =
+scaleTrialBudget :: Int -> Double -> Int -> Int -> Int -> TrialParams -> TrialParams
+scaleTrialBudget barsMinRaw budgetRaw epochsMax hiddenMax walkForwardFoldsMax params =
     let budget = clamp budgetRaw 0.05 1
+        barsFloor = max 2 barsMinRaw
         scaleIntFloor lo hi =
             let hi' = max lo hi
              in max lo (floor (fromIntegral hi' * budget :: Double))
         bars' =
             if tpBars params <= 0
                 then tpBars params
-                else max 2 (min (tpBars params) (scaleIntFloor 2 (tpBars params)))
+                else max barsFloor (min (tpBars params) (scaleIntFloor barsFloor (tpBars params)))
         epochs' = min (tpEpochs params) (scaleIntFloor 1 (max 1 epochsMax))
         hidden' = min (tpHiddenSize params) (scaleIntFloor 4 (max 4 hiddenMax))
         folds' = min (tpWalkForwardFolds params) (scaleIntFloor 1 (max 1 walkForwardFoldsMax))
