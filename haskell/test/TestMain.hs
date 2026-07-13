@@ -143,7 +143,9 @@ import Trader.NeuralGovernor (
     defaultNeuralGovernorConfig,
     initNeuralGovernorState,
     neuralGovernorDecide,
+    neuralGovernorHoldReason,
     neuralGovernorObserveTrade,
+    neuralGovernorOpenBlockReason,
     neuralGovernorReward,
     neuralGovernorSizingMultiplier,
  )
@@ -3047,6 +3049,8 @@ testNeuralGovernorPolicy = do
                 , ngcMaxMultiplier = 1.5
                 , ngcRewardClip = 0.10
                 , ngcLossPenaltyScale = 3
+                , ngcOpenScoreFloor = 0
+                , ngcHoldScoreFloor = 0.001
                 }
         activeCfg = cfg{ngcMinTrades = 0}
         baseFeatures =
@@ -3084,6 +3088,23 @@ testNeuralGovernorPolicy = do
                 activeCfg
                 (neuralGovernorObserveTrade activeCfg stateWin pending0 0.03)
                 baseFeatures
+        policyPending0 = NeuralGovernorPendingEntry baseFeatures (neuralGovernorDecide activeCfg state0 baseFeatures)
+        policyWinState = iterate (\s -> neuralGovernorObserveTrade activeCfg s policyPending0 0.04) state0 !! 6
+        policyLossState = iterate (\s -> neuralGovernorObserveTrade activeCfg s policyPending0 (-0.04)) state0 !! 6
+        positivePolicyScore = ngdScore (neuralGovernorDecide activeCfg policyWinState baseFeatures)
+        negativePolicyScore = ngdScore (neuralGovernorDecide activeCfg policyLossState baseFeatures)
+        openBlockingCfg =
+            activeCfg
+                { ngcOpenScoreFloor = min 1 (negativePolicyScore + 1e-9)
+                , ngcHoldScoreFloor = 1
+                }
+        holdPreferringCfg =
+            activeCfg
+                { ngcOpenScoreFloor = -1
+                , ngcHoldScoreFloor = max (-1) (positivePolicyScore - 1e-9)
+                }
+        positivePolicyDecision = neuralGovernorDecide holdPreferringCfg policyWinState baseFeatures
+        negativePolicyDecision = neuralGovernorDecide openBlockingCfg policyLossState baseFeatures
     assert
         "neural governor is warmup pass-through before enough examples"
         (not (ngdReady warmup) && neuralGovernorSizingMultiplier warmup == 1 && ngdReason warmup == "NEURAL_GOVERNOR_WARMUP")
@@ -3104,6 +3125,16 @@ testNeuralGovernorPolicy = do
         ( ngdReady trainedDecision
             && neuralGovernorSizingMultiplier trainedDecision >= ngcMinMultiplier activeCfg
             && neuralGovernorSizingMultiplier trainedDecision <= ngcMaxMultiplier activeCfg
+        )
+    assert
+        "loss-trained neural governor can block fresh opens"
+        ( ngdScore negativePolicyDecision <= ngcOpenScoreFloor openBlockingCfg
+            && neuralGovernorOpenBlockReason negativePolicyDecision == Just "NEURAL_GOVERNOR_AVOID_OPEN"
+        )
+    assert
+        "win-trained neural governor can prefer holding ordinary signal exits"
+        ( ngdScore positivePolicyDecision >= ngcHoldScoreFloor holdPreferringCfg
+            && neuralGovernorHoldReason positivePolicyDecision == Just "NEURAL_GOVERNOR_PREFER_HOLD"
         )
 
 testLiveMaxPnlCloseTimingRecommendation :: IO ()

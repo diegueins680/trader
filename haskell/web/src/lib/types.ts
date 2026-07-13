@@ -171,6 +171,8 @@ export type ApiParams = {
   botNeuralGovernorRewardClip?: number;
   botNeuralGovernorLossPenaltyScale?: number;
   botNeuralGovernorMinTrades?: number;
+  botNeuralGovernorOpenScoreFloor?: number;
+  botNeuralGovernorHoldScoreFloor?: number;
   botNeuralGovernorMinMultiplier?: number;
   botNeuralGovernorMaxMultiplier?: number;
   botNeuralGovernorInfluence?: number;
@@ -589,6 +591,8 @@ export type BotNeuralGovernorConfig = {
   hiddenSize?: number;
   learningRate?: number;
   minTrades?: number;
+  openScoreFloor?: number;
+  holdScoreFloor?: number;
   minMultiplier?: number;
   maxMultiplier?: number;
   rewardClip?: number;
@@ -603,6 +607,8 @@ export type BotNeuralGovernor = {
   ready?: boolean;
   score?: number;
   multiplier?: number;
+  openBlockReason?: string | null;
+  holdReason?: string | null;
   reason?: string | null;
   lastReward?: number | null;
   config?: BotNeuralGovernorConfig;

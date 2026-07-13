@@ -9717,9 +9717,13 @@ export function App() {
                             typeof governor.lastReward === "number" && Number.isFinite(governor.lastReward)
                               ? ` • reward ${fmtPct(governor.lastReward, 2)}`
                               : "";
+                          const policy = [governor.openBlockReason ? "avoid open" : null, governor.holdReason ? "prefer hold" : null]
+                            .filter(Boolean)
+                            .join(", ");
+                          const policyText = policy ? ` • ${policy}` : "";
                           const state = governor.enabled ? (governor.ready ? "ready" : "warming") : "off";
                           const reason = governor.reason ? ` • ${governor.reason}` : "";
-                          return `${state} • size ${multiplier} • score ${score} • ${examples} trade(s)${reward}${reason}`;
+                          return `${state} • size ${multiplier} • score ${score} • ${examples} trade(s)${reward}${policyText}${reason}`;
                         })()}
                       </div>
                     </div>

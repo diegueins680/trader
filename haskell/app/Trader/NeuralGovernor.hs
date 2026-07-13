@@ -12,7 +12,9 @@ module Trader.NeuralGovernor (
     neuralGovernorDecide,
     neuralGovernorEnsureState,
     neuralGovernorFeatureCount,
+    neuralGovernorHoldReason,
     neuralGovernorObserveTrade,
+    neuralGovernorOpenBlockReason,
     neuralGovernorReward,
     neuralGovernorSizingMultiplier,
     neuralGovernorTextFeature,
@@ -46,6 +48,8 @@ data NeuralGovernorConfig = NeuralGovernorConfig
     , ngcRewardClip :: !Double
     , ngcLossPenaltyScale :: !Double
     , ngcMinTrades :: !Int
+    , ngcOpenScoreFloor :: !Double
+    , ngcHoldScoreFloor :: !Double
     , ngcMinMultiplier :: !Double
     , ngcMaxMultiplier :: !Double
     , ngcInfluence :: !Double
@@ -96,6 +100,8 @@ data NeuralGovernorDecision = NeuralGovernorDecision
     , ngdExamples :: !Int
     , ngdScore :: !Double
     , ngdMultiplier :: !Double
+    , ngdOpenBlockReason :: !(Maybe String)
+    , ngdHoldReason :: !(Maybe String)
     , ngdReason :: !String
     , ngdWarnings :: ![String]
     }
@@ -119,6 +125,8 @@ defaultNeuralGovernorConfig =
         , ngcRewardClip = 0.08
         , ngcLossPenaltyScale = 2.5
         , ngcMinTrades = 8
+        , ngcOpenScoreFloor = 0
+        , ngcHoldScoreFloor = 0.005
         , ngcMinMultiplier = 0.25
         , ngcMaxMultiplier = 1.15
         , ngcInfluence = 5
@@ -157,15 +165,23 @@ neuralGovernorDecide cfg0 state0 features =
         ready = ngcEnabled cfg && examples >= ngcMinTrades cfg
         multiplierRaw = 1 + ngcInfluence cfg * score
         multiplier = clamp (ngcMinMultiplier cfg) (ngcMaxMultiplier cfg) multiplierRaw
+        openBlockReason =
+            if ready && score <= ngcOpenScoreFloor cfg
+                then Just neuralGovernorAvoidOpenReason
+                else Nothing
+        holdReason =
+            if ready && score >= ngcHoldScoreFloor cfg
+                then Just neuralGovernorPreferHoldReason
+                else Nothing
      in if not (ngcEnabled cfg)
-            then mkDecision cfg False examples score 1 "NEURAL_GOVERNOR_DISABLED" []
+            then mkDecision cfg False examples score 1 Nothing Nothing "NEURAL_GOVERNOR_DISABLED" []
             else
                 if ngfMarketGovernorBlocked features
-                    then mkDecision cfg False examples score 1 "NEURAL_GOVERNOR_HARD_GATE" []
+                    then mkDecision cfg False examples score 1 Nothing Nothing "NEURAL_GOVERNOR_HARD_GATE" []
                     else
                         if not ready
-                            then mkDecision cfg False examples score 1 "NEURAL_GOVERNOR_WARMUP" []
-                            else mkDecision cfg True examples score multiplier "NEURAL_GOVERNOR_SIZING" []
+                            then mkDecision cfg False examples score 1 Nothing Nothing "NEURAL_GOVERNOR_WARMUP" []
+                            else mkDecision cfg True examples score multiplier openBlockReason holdReason "NEURAL_GOVERNOR_SIZING" []
 
 neuralGovernorObserveTrade ::
     NeuralGovernorConfig ->
@@ -201,6 +217,18 @@ neuralGovernorSizingMultiplier decision =
     if ngdEnabled decision && ngdReady decision
         then clamp 0 10 (ngdMultiplier decision)
         else 1
+
+neuralGovernorOpenBlockReason :: NeuralGovernorDecision -> Maybe String
+neuralGovernorOpenBlockReason decision =
+    if ngdEnabled decision && ngdReady decision
+        then ngdOpenBlockReason decision
+        else Nothing
+
+neuralGovernorHoldReason :: NeuralGovernorDecision -> Maybe String
+neuralGovernorHoldReason decision =
+    if ngdEnabled decision && ngdReady decision
+        then ngdHoldReason decision
+        else Nothing
 
 neuralGovernorFeatureCount :: Int
 neuralGovernorFeatureCount =
@@ -261,16 +289,24 @@ maybeScaled :: Double -> Double -> Maybe Double -> Double
 maybeScaled fallback scaleV =
     maybe fallback (clamp 0 1 . (* scaleV))
 
+neuralGovernorAvoidOpenReason :: String
+neuralGovernorAvoidOpenReason = "NEURAL_GOVERNOR_AVOID_OPEN"
+
+neuralGovernorPreferHoldReason :: String
+neuralGovernorPreferHoldReason = "NEURAL_GOVERNOR_PREFER_HOLD"
+
 mkDecision ::
     NeuralGovernorConfig ->
     Bool ->
     Int ->
     Double ->
     Double ->
+    Maybe String ->
+    Maybe String ->
     String ->
     [String] ->
     NeuralGovernorDecision
-mkDecision cfg ready examples score multiplier reason warnings =
+mkDecision cfg ready examples score multiplier openBlockReason holdReason reason warnings =
     NeuralGovernorDecision
         { ngdEnabled = ngcEnabled cfg
         , ngdMode = ngcMode cfg
@@ -278,6 +314,8 @@ mkDecision cfg ready examples score multiplier reason warnings =
         , ngdExamples = max 0 examples
         , ngdScore = finiteOr 0 score
         , ngdMultiplier = clamp 0 10 multiplier
+        , ngdOpenBlockReason = openBlockReason
+        , ngdHoldReason = holdReason
         , ngdReason = reason
         , ngdWarnings = warnings
         }
@@ -286,6 +324,8 @@ sanitizeConfig :: NeuralGovernorConfig -> NeuralGovernorConfig
 sanitizeConfig cfg =
     let minMult = finitePositive 0.25 (ngcMinMultiplier cfg)
         maxMult = max minMult (finitePositive 1.15 (ngcMaxMultiplier cfg))
+        openScoreFloor = clamp (-1) 1 (finiteOr 0 (ngcOpenScoreFloor cfg))
+        holdScoreFloor = clamp openScoreFloor 1 (finiteOr 0.005 (ngcHoldScoreFloor cfg))
      in cfg
             { ngcMode = NeuralGovernorSizing
             , ngcHiddenSize = max 2 (ngcHiddenSize cfg)
@@ -295,6 +335,8 @@ sanitizeConfig cfg =
             , ngcRewardClip = finitePositive 0.08 (ngcRewardClip cfg)
             , ngcLossPenaltyScale = finiteNonNegative 2.5 (ngcLossPenaltyScale cfg)
             , ngcMinTrades = max 0 (ngcMinTrades cfg)
+            , ngcOpenScoreFloor = openScoreFloor
+            , ngcHoldScoreFloor = holdScoreFloor
             , ngcMinMultiplier = minMult
             , ngcMaxMultiplier = maxMult
             , ngcInfluence = finiteNonNegative 5 (ngcInfluence cfg)
@@ -450,6 +492,8 @@ instance ToJSON NeuralGovernorConfig where
             , "rewardClip" .= ngcRewardClip cfg
             , "lossPenaltyScale" .= ngcLossPenaltyScale cfg
             , "minTrades" .= ngcMinTrades cfg
+            , "openScoreFloor" .= ngcOpenScoreFloor cfg
+            , "holdScoreFloor" .= ngcHoldScoreFloor cfg
             , "minMultiplier" .= ngcMinMultiplier cfg
             , "maxMultiplier" .= ngcMaxMultiplier cfg
             , "influence" .= ngcInfluence cfg
@@ -470,6 +514,8 @@ instance FromJSON NeuralGovernorConfig where
                 <*> o .:? "rewardClip" .!= ngcRewardClip defaults
                 <*> o .:? "lossPenaltyScale" .!= ngcLossPenaltyScale defaults
                 <*> o .:? "minTrades" .!= ngcMinTrades defaults
+                <*> o .:? "openScoreFloor" .!= ngcOpenScoreFloor defaults
+                <*> o .:? "holdScoreFloor" .!= ngcHoldScoreFloor defaults
                 <*> o .:? "minMultiplier" .!= ngcMinMultiplier defaults
                 <*> o .:? "maxMultiplier" .!= ngcMaxMultiplier defaults
                 <*> o .:? "influence" .!= ngcInfluence defaults
@@ -562,6 +608,8 @@ instance ToJSON NeuralGovernorDecision where
             , "examples" .= ngdExamples d
             , "score" .= ngdScore d
             , "multiplier" .= ngdMultiplier d
+            , "openBlockReason" .= ngdOpenBlockReason d
+            , "holdReason" .= ngdHoldReason d
             , "reason" .= ngdReason d
             , "warnings" .= ngdWarnings d
             ]
@@ -576,6 +624,8 @@ instance FromJSON NeuralGovernorDecision where
                 <*> o .: "examples"
                 <*> o .: "score"
                 <*> o .: "multiplier"
+                <*> o .:? "openBlockReason"
+                <*> o .:? "holdReason"
                 <*> o .: "reason"
                 <*> o .:? "warnings" .!= []
 

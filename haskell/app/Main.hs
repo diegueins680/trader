@@ -378,7 +378,9 @@ import Trader.NeuralGovernor (
     initNeuralGovernorState,
     neuralGovernorDecide,
     neuralGovernorEnsureState,
+    neuralGovernorHoldReason,
     neuralGovernorObserveTrade,
+    neuralGovernorOpenBlockReason,
     neuralGovernorSizingMultiplier,
     neuralGovernorTextFeature,
  )
@@ -1111,6 +1113,8 @@ data ApiParams = ApiParams
     , apBotNeuralGovernorRewardClip :: Maybe Double
     , apBotNeuralGovernorLossPenaltyScale :: Maybe Double
     , apBotNeuralGovernorMinTrades :: Maybe Int
+    , apBotNeuralGovernorOpenScoreFloor :: Maybe Double
+    , apBotNeuralGovernorHoldScoreFloor :: Maybe Double
     , apBotNeuralGovernorMinMultiplier :: Maybe Double
     , apBotNeuralGovernorMaxMultiplier :: Maybe Double
     , apBotNeuralGovernorInfluence :: Maybe Double
@@ -6999,6 +7003,8 @@ neuralGovernorStatusJson cfg state decision =
         , "ready" .= ngdReady decision
         , "score" .= ngdScore decision
         , "multiplier" .= ngdMultiplier decision
+        , "openBlockReason" .= neuralGovernorOpenBlockReason decision
+        , "holdReason" .= neuralGovernorHoldReason decision
         , "reason" .= ngdReason decision
         , "lastReward" .= ngsLastReward state
         , "config" .= cfg
@@ -7129,6 +7135,7 @@ entryOnlyGateReason reason =
         || reason == "TRADE_METHOD_INSUFFICIENT_EVIDENCE"
         || reason == "TRADE_METHOD_RESULT_BLOCKED"
         || reason == "TRADE_SYMBOL_NOT_ALLOWED"
+        || reason == "NEURAL_GOVERNOR_AVOID_OPEN"
         || capitalPreservationIsEntryOnlyReason reason
         || marketGovernorIsEntryOnlyReason reason
 
@@ -7397,6 +7404,8 @@ defaultBotSettingsFromEnv args = do
     neuralRewardClip <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_REWARD_CLIP" 1e-9 1 (ngcRewardClip neuralDefaults)
     neuralLossPenaltyScale <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_LOSS_PENALTY_SCALE" 0 100 (ngcLossPenaltyScale neuralDefaults)
     neuralMinTrades <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_MIN_TRADES" 0 10000 (ngcMinTrades neuralDefaults)
+    neuralOpenScoreFloor <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_OPEN_SCORE_FLOOR" (-1) 1 (ngcOpenScoreFloor neuralDefaults)
+    neuralHoldScoreFloor <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_HOLD_SCORE_FLOOR" (-1) 1 (ngcHoldScoreFloor neuralDefaults)
     neuralMinMultiplier <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_MIN_MULTIPLIER" 0 10 (ngcMinMultiplier neuralDefaults)
     neuralMaxMultiplier <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_MAX_MULTIPLIER" 0 10 (ngcMaxMultiplier neuralDefaults)
     neuralInfluence <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_INFLUENCE" 0 100 (ngcInfluence neuralDefaults)
@@ -7424,6 +7433,8 @@ defaultBotSettingsFromEnv args = do
                     , ngcRewardClip = neuralRewardClip
                     , ngcLossPenaltyScale = neuralLossPenaltyScale
                     , ngcMinTrades = neuralMinTrades
+                    , ngcOpenScoreFloor = neuralOpenScoreFloor
+                    , ngcHoldScoreFloor = neuralHoldScoreFloor
                     , ngcMinMultiplier = neuralMinMultiplier
                     , ngcMaxMultiplier = neuralMaxMultiplier
                     , ngcInfluence = neuralInfluence
@@ -7451,6 +7462,8 @@ botSettingsFromApi args p = do
         neuralRewardClip = fromMaybe (ngcRewardClip neuralDefaults) (apBotNeuralGovernorRewardClip p)
         neuralLossPenaltyScale = fromMaybe (ngcLossPenaltyScale neuralDefaults) (apBotNeuralGovernorLossPenaltyScale p)
         neuralMinTrades = fromMaybe (ngcMinTrades neuralDefaults) (apBotNeuralGovernorMinTrades p)
+        neuralOpenScoreFloor = fromMaybe (ngcOpenScoreFloor neuralDefaults) (apBotNeuralGovernorOpenScoreFloor p)
+        neuralHoldScoreFloor = fromMaybe (ngcHoldScoreFloor neuralDefaults) (apBotNeuralGovernorHoldScoreFloor p)
         neuralMinMultiplier = fromMaybe (ngcMinMultiplier neuralDefaults) (apBotNeuralGovernorMinMultiplier p)
         neuralMaxMultiplier = fromMaybe (ngcMaxMultiplier neuralDefaults) (apBotNeuralGovernorMaxMultiplier p)
         neuralInfluence = fromMaybe (ngcInfluence neuralDefaults) (apBotNeuralGovernorInfluence p)
@@ -7475,6 +7488,9 @@ botSettingsFromApi args p = do
     ensure "botNeuralGovernorRewardClip must be > 0 and <= 1" (isFiniteDouble neuralRewardClip && neuralRewardClip > 0 && neuralRewardClip <= 1)
     ensure "botNeuralGovernorLossPenaltyScale must be between 0 and 100" (isFiniteDouble neuralLossPenaltyScale && neuralLossPenaltyScale >= 0 && neuralLossPenaltyScale <= 100)
     ensure "botNeuralGovernorMinTrades must be between 0 and 10000" (neuralMinTrades >= 0 && neuralMinTrades <= 10000)
+    ensure "botNeuralGovernorOpenScoreFloor must be between -1 and 1" (isFiniteDouble neuralOpenScoreFloor && neuralOpenScoreFloor >= -1 && neuralOpenScoreFloor <= 1)
+    ensure "botNeuralGovernorHoldScoreFloor must be between -1 and 1" (isFiniteDouble neuralHoldScoreFloor && neuralHoldScoreFloor >= -1 && neuralHoldScoreFloor <= 1)
+    ensure "botNeuralGovernorOpenScoreFloor must be <= botNeuralGovernorHoldScoreFloor" (neuralOpenScoreFloor <= neuralHoldScoreFloor)
     ensure "botNeuralGovernorMinMultiplier must be between 0 and 10" (isFiniteDouble neuralMinMultiplier && neuralMinMultiplier >= 0 && neuralMinMultiplier <= 10)
     ensure "botNeuralGovernorMaxMultiplier must be between 0 and 10" (isFiniteDouble neuralMaxMultiplier && neuralMaxMultiplier >= 0 && neuralMaxMultiplier <= 10)
     ensure "botNeuralGovernorMinMultiplier must be <= botNeuralGovernorMaxMultiplier" (neuralMinMultiplier <= neuralMaxMultiplier)
@@ -7505,6 +7521,8 @@ botSettingsFromApi args p = do
                     , ngcRewardClip = neuralRewardClip
                     , ngcLossPenaltyScale = neuralLossPenaltyScale
                     , ngcMinTrades = neuralMinTrades
+                    , ngcOpenScoreFloor = neuralOpenScoreFloor
+                    , ngcHoldScoreFloor = neuralHoldScoreFloor
                     , ngcMinMultiplier = neuralMinMultiplier
                     , ngcMaxMultiplier = neuralMaxMultiplier
                     , ngcInfluence = neuralInfluence
@@ -10737,6 +10755,24 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 startupMarketGovernor
                 latestStartGovernorSized
                 restoredNeuralGovernorState
+        startupHoldContext =
+            if startPos0 == 0
+                then latestStartGovernorSized
+                else
+                    latestStartGovernorSized
+                        { lsChosenDir = Just startPos0
+                        , lsCloseDir = Just startPos0
+                        }
+        (_, startupNeuralGovernorHoldDecision) =
+            neuralGovernorDecisionForBot
+                argsStartSignal
+                settings
+                sym
+                0
+                restoredLossStreak
+                startupMarketGovernor
+                startupHoldContext
+                restoredNeuralGovernorState
         latestStartPolicySized = applyNeuralGovernorSizing startupNeuralGovernorDecision latestStartGovernorSized
 
         -- Startup decision:
@@ -10751,6 +10787,14 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
 
         startupPortfolioReasonMaybe = mStartupPortfolioCapitalPreservation >>= pcprReason
         startupEntryAttempt = desiredPosSignalRaw /= 0 && desiredPosSignalRaw /= startPos0
+        startupNeuralOpenBlockReasonMaybe =
+            if startupEntryAttempt
+                then neuralGovernorOpenBlockReason startupNeuralGovernorDecision
+                else Nothing
+        startupNeuralHoldReasonMaybe =
+            if startPos0 /= 0 && desiredPosSignalRaw /= startPos0
+                then neuralGovernorHoldReason startupNeuralGovernorHoldDecision
+                else Nothing
 
     startupTradeGateReasonMaybe <-
         if bsTradeEnabled settings && startupEntryAttempt
@@ -10767,7 +10811,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
             case startupTradeGateReasonMaybe of
                 Just reason -> applyTradeDeploymentSizingPolicy reason latestStartPolicySized
                 Nothing -> latestStartPolicySized
-        startupGateReasonMaybe = startupTradeHardGateReasonMaybe <|> startupMarketGovernorReasonMaybe <|> startupPortfolioReasonMaybe
+        startupGateReasonMaybe = startupTradeHardGateReasonMaybe <|> startupMarketGovernorReasonMaybe <|> startupPortfolioReasonMaybe <|> startupNeuralOpenBlockReasonMaybe
         (desiredPosSignal, startupGateAction) =
             case startupGateReasonMaybe of
                 Just reason ->
@@ -10778,7 +10822,10 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                                 if flipAttempt
                                     then (0, Just ("EXIT_" ++ reason))
                                     else (desiredPosSignalRaw, Nothing)
-                Nothing -> (desiredPosSignalRaw, Nothing)
+                Nothing ->
+                    case startupNeuralHoldReasonMaybe of
+                        Just reason -> (startPos0, Just ("HOLD_" ++ reason))
+                        Nothing -> (desiredPosSignalRaw, Nothing)
 
         latest =
             case startupGateAction of
@@ -14345,6 +14392,25 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 marketGovernor
                 latest2GovernorSized
                 (botNeuralGovernorState st)
+        neuralGovernorHoldContext =
+            if prevPos == 0
+                then latest2GovernorSized
+                else
+                    latest2GovernorSized
+                        { lsChosenDir = Just prevPos
+                        , lsCloseDir = Just prevPos
+                        , lsPositionSize = Just prevSize
+                        }
+        (_, neuralGovernorHoldDecision) =
+            neuralGovernorDecisionForBot
+                args
+                settings
+                (botSymbol st)
+                drawdown
+                (botLossStreak st)
+                marketGovernor
+                neuralGovernorHoldContext
+                (botNeuralGovernorState st)
         latest2NeuralSized = applyNeuralGovernorSizing neuralGovernorDecision latest2GovernorSized
         entrySizeForExposure = entryScaleForSignal args (beMarket (botEnv st)) latest2NeuralSized
         desiredSize =
@@ -14368,6 +14434,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             case argMaxExposurePerBase args of
                 Just lim | lim > 0 -> baseExposureAfter > lim
                 _ -> False
+        neuralGovernorOpenBlockReasonMaybe =
+            if entryAttempt
+                then neuralGovernorOpenBlockReason neuralGovernorDecision
+                else Nothing
+        neuralGovernorHoldReasonMaybe =
+            if prevPos /= 0 && desiredPosWanted2 /= prevPos && mExitReason2 == Just "SIGNAL"
+                then neuralGovernorHoldReason neuralGovernorHoldDecision
+                else Nothing
 
     tradeGateReasonMaybe <-
         if bsTradeEnabled settings && entryAttempt
@@ -14398,6 +14472,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     <|> portfolioCapitalPreservationReasonMaybe
                     <|> capitalPreservationReasonMaybe
                     <|> perfGateReasonMaybe
+                    <|> neuralGovernorOpenBlockReasonMaybe
             | otherwise = Nothing
 
         (latest2b, desiredPosWanted2b, mExitReason2b) =
@@ -14415,7 +14490,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                 if isEntryOnlyGate && flipAttempt
                                     then (latest2TradeSized{lsAction = action}, 0, Just reason)
                                     else (latest2TradeSized{lsAction = action}, prevPos, Nothing)
-                Nothing -> (latest2TradeSized, desiredPosWanted2, mExitReason2)
+                Nothing ->
+                    case neuralGovernorHoldReasonMaybe of
+                        Just reason -> (latest2TradeSized{lsChosenDir = Just prevPos, lsAction = "HOLD_" ++ reason}, prevPos, Nothing)
+                        Nothing -> (latest2TradeSized, desiredPosWanted2, mExitReason2)
 
         (latest2c, desiredPosWanted2c, mExitReason2c)
             | comboFreshForLive = (latest2b, desiredPosWanted2b, mExitReason2b)
