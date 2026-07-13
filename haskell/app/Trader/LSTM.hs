@@ -22,6 +22,7 @@ module Trader.LSTM (
 
 import qualified Data.Bifunctor
 import Data.List (foldl')
+import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Numeric.AD (grad)
@@ -76,9 +77,19 @@ Inverts 'paramCountD': @len = 4*(h*(h+d)+h) + h + 1@.
 -}
 inputDimFromModel :: LSTMModel -> Int
 inputDimFromModel model =
+    fromMaybe 1 (validInputDimFromModel model)
+
+validInputDimFromModel :: LSTMModel -> Maybe Int
+validInputDimFromModel model =
     let h = lmHiddenSize model
         len = length (lmParams model)
-     in if h <= 0 then 1 else max 1 ((len - (5 * h + 1)) `div` (4 * h) - h)
+        fixed = 5 * h + 1
+        divisor = 4 * h
+        variable = len - fixed
+        d = if divisor <= 0 then 0 else variable `div` divisor - h
+     in if h > 0 && variable >= 0 && variable `mod` divisor == 0 && d > 0 && paramCountD h d == len
+            then Just d
+            else Nothing
 
 buildSequences :: Int -> [Double] -> [([Double], Double)]
 buildSequences lookback xs
@@ -221,11 +232,16 @@ predictNext model window =
 
 predictNextV :: LSTMModel -> V.Vector Double -> Double
 predictNextV model window =
-    let d = inputDimFromModel model
-        params = unflattenParamsD (lmHiddenSize model) d (map realToFrac (lmParams model))
-        win = V.map realToFrac window
-        y = forwardWindowDV d params win
-     in realToFrac y
+    case validInputDimFromModel model of
+        Nothing -> 0
+        Just d
+            | V.null window || V.length window `mod` d /= 0 -> 0
+            | not (all isFiniteDouble (lmParams model)) || V.any (not . isFiniteDouble) window -> 0
+            | otherwise ->
+                let params = unflattenParamsD (lmHiddenSize model) d (map realToFrac (lmParams model))
+                    win = V.map realToFrac window
+                    y = realToFrac (forwardWindowDV d params win)
+                 in if isFiniteDouble y then y else 0
 
 predictSeriesNext :: LSTMModel -> Int -> [Double] -> [Double]
 predictSeriesNext model lookback xs =
@@ -235,21 +251,23 @@ predictSeriesNext model lookback xs =
 {- | Multivariate next-step prediction. @channels@ holds @d@ parallel channels,
 each the last @lookback@ values ending at the current bar (channel 0 is the
 primary/target channel). Channels are interleaved timestep-major into the flat
-window the model expects. Falls back to the primary channel alone if shapes are
-inconsistent.
+window the model expects. A channel-count or shape mismatch fails closed to 0;
+it must not reinterpret a multivariate model as a differently shaped model.
 -}
 predictNextMulti :: LSTMModel -> [[Double]] -> Double
 predictNextMulti model channels =
-    case channels of
-        [] -> 0
-        (c0 : _) ->
+    case validInputDimFromModel model of
+        Nothing -> 0
+        Just d ->
             let lens = map length channels
-                ok = not (null channels) && all (== head lens) lens && head lens > 0
-                flat =
-                    if ok
-                        then [v | t <- [0 .. head lens - 1], ch <- channels, let v = ch !! t]
-                        else c0
-             in predictNextV model (V.fromList flat)
+                shapeOk =
+                    length channels == d
+                        && not (null lens)
+                        && head lens > 0
+                        && all (== head lens) lens
+                valuesOk = all (all isFiniteDouble) channels
+                flat = [v | t <- [0 .. head lens - 1], ch <- channels, let v = ch !! t]
+             in if shapeOk && valuesOk then predictNextV model (V.fromList flat) else 0
 
 -- Internal helpers
 

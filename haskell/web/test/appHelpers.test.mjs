@@ -13,12 +13,59 @@ import {
   parseDatetimeLocal,
   isOpenBinancePosition,
   positionSideInfo,
+  prepareTopComboRows,
   readExactSafeInteger,
   readNonNegativeExactSafeInteger,
   sanitizeOptimizationComboOperation,
+  selectTopCombosFallbackSource,
   sortBinancePositions,
   splitStats,
 } from "../.tmp/web-tests/appHelpers.js";
+
+test("prepareTopComboRows rejects invented defaults and assigns stable unique identities", () => {
+  const validParams = (symbol, method = "10") => ({
+    binanceSymbol: symbol,
+    interval: "1h",
+    bars: 200,
+    method,
+  });
+  const rows = [
+    null,
+    7,
+    [],
+    {},
+    { finalEquity: 1.1, params: null },
+    { finalEquity: 1.1, params: {} },
+    { finalEquity: 1.1, params: { interval: "1h", bars: 200, method: "not-a-method" } },
+    { finalEquity: 1.1, params: { interval: "1h", bars: 1.5, method: "10" } },
+    { rank: 7, finalEquity: 1.1, params: { ...validParams("BTCUSDT"), bars: 0 } },
+    { rank: 2, finalEquity: 1.2, params: validParams("ETHUSDT") },
+    { rank: 2, finalEquity: 1.3, params: validParams("SOLUSDT") },
+    { finalEquity: 1.4, params: validParams("BNBUSDT") },
+  ];
+
+  const prepared = prepareTopComboRows(rows);
+  assert.deepEqual(prepared.map((row) => row.params.binanceSymbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]);
+  assert.equal(prepared[0].id, 7, "a unique rank remains the visible identity");
+  assert.equal(new Set(prepared.map((row) => row.id)).size, prepared.length);
+  assert.notEqual(prepared[1].id, 2, "duplicate ranks must not become duplicate identities");
+  assert.notEqual(prepared[2].id, 2, "every duplicate rank receives a content identity");
+
+  const reversedBySymbol = new Map(
+    prepareTopComboRows([...rows].reverse()).map((row) => [row.params.binanceSymbol, row.id]),
+  );
+  for (const row of prepared) {
+    assert.equal(reversedBySymbol.get(row.params.binanceSymbol), row.id, "content identities remain stable across payload order");
+  }
+});
+
+test("selectTopCombosFallbackSource rejects future timestamps as freshness evidence", () => {
+  const now = 1_000_000;
+  assert.equal(selectTopCombosFallbackSource(now - 100, now - 50, now), "cache");
+  assert.equal(selectTopCombosFallbackSource(now - 100, now + 1, now), "repo");
+  assert.equal(selectTopCombosFallbackSource(now + 1, now - 100, now), "cache");
+  assert.equal(selectTopCombosFallbackSource(null, null, now), "repo");
+});
 
 function optimizerCombo(id, finalEquity, params) {
   return {

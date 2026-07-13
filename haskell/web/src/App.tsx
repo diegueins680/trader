@@ -104,7 +104,6 @@ import {
   OPTIMIZER_UI_MAX_BARS,
   OPTIMIZER_UI_MAX_TIMEOUT_SEC,
   OPTIMIZER_UI_MAX_TRIALS,
-  BOT_AUTOSTART_RETRY_MS,
   BOT_TELEMETRY_POINTS,
   DATA_LOG_AUTO_SCROLL_SLOP_PX,
   DATA_LOG_MAX_ENTRIES,
@@ -198,7 +197,6 @@ import {
   RATIO_ROUND_DIGITS,
   RATIO_ROUND_FACTOR,
   SECONDS_PER_YEAR,
-  TOP_COMBOS_BOT_TARGET,
   TOP_COMBOS_DISPLAY_DEFAULT,
   TOP_COMBOS_DISPLAY_MIN,
   TOP_COMBOS_POLL_MS,
@@ -269,6 +267,7 @@ import {
   parseTimeInputMs,
   pnlBadgeClass,
   positionSideInfo,
+  prepareTopComboRows,
   roundRatioDown,
   roundRatioUp,
   readExactSafeInteger,
@@ -277,6 +276,7 @@ import {
   sanitizeSymbolForPlatform,
   sanitizeOptimizationComboOperation,
   sanitizeFilenameSegment,
+  selectTopCombosFallbackSource,
   sigBool,
   sigNumber,
   sigText,
@@ -894,9 +894,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
-  const sanitized: OptimizationCombo[] = rawCombos.map((raw, index) => {
-    const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
-    const params = (rawRec.params as Record<string, unknown> | null | undefined) ?? {};
+  const preparedRows = prepareTopComboRows(rawCombos);
+  const sanitized: OptimizationCombo[] = preparedRows.map(({ id, record: rawRec, params }) => {
     const method =
       typeof params.method === "string" && methods.includes(params.method as Method)
         ? (params.method as Method)
@@ -1087,7 +1086,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       .filter((op): op is OptimizationComboOperation => op !== null);
     const operationsOut = operations.length > 0 ? operations : null;
     return {
-      id: rank ?? index + 1,
+      id,
       rank,
       createdAtMs: createdAtMsFinal,
       objective,
@@ -1212,7 +1211,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     if (eq !== 0) return eq;
     return a.id - b.id;
   });
-  const comboCount = rawCombos.length;
+  const comboCount = sanitized.length;
   const payloadSourceRaw =
     typeof payloadRec.payloadSource === "string" && payloadRec.payloadSource.trim()
       ? payloadRec.payloadSource.trim()
@@ -1268,10 +1267,8 @@ const selectTopCombosFallback = (
   cache: SanitizedTopCombosPayload | null,
 ): { parsed: SanitizedTopCombosPayload; source: TopCombosSource } | null => {
   if (repo && cache) {
-    const repoMs = repo.generatedAtMs ?? 0;
-    const cacheMs = cache.generatedAtMs ?? 0;
-    if (cacheMs > repoMs) return { parsed: cache, source: "cache" };
-    return { parsed: repo, source: "repo" };
+    const source = selectTopCombosFallbackSource(repo.generatedAtMs, cache.generatedAtMs);
+    return source === "cache" ? { parsed: cache, source } : { parsed: repo, source };
   }
   if (repo) return { parsed: repo, source: "repo" };
   if (cache) return { parsed: cache, source: "cache" };
@@ -1760,8 +1757,6 @@ export function App() {
   const botOrderOpsRangeRef = useRef<{ startMs: number; endMs: number } | null>(null);
   const opsPerformanceAbortRef = useRef<AbortController | null>(null);
   const opsPerformanceInFlightRef = useRef(false);
-  const botAutoStartSuppressedRef = useRef(false);
-  const botAutoStartRef = useRef<{ lastAttemptAtMs: number }>({ lastAttemptAtMs: 0 });
 
   const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 
@@ -2067,23 +2062,6 @@ export function App() {
     });
     return sorted;
   }, [comboOrder, topCombosFiltered]);
-  const topComboBotTargets = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const combo of topCombosAll) {
-      const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
-      if (platform && platform !== "binance") continue;
-      const rawSymbol = combo.params.binanceSymbol ?? "";
-      const normalized = normalizeSymbolKey(rawSymbol);
-      if (!normalized) continue;
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      out.push(normalized);
-      if (out.length >= TOP_COMBOS_BOT_TARGET) break;
-    }
-    return out;
-  }, [topCombosAll]);
-  const topComboBotTargetsKey = useMemo(() => topComboBotTargets.join("|"), [topComboBotTargets]);
   const [topCombosDisplayCount, setTopCombosDisplayCount] = useState(() => TOP_COMBOS_DISPLAY_DEFAULT);
   const topCombos = useMemo(
     () => topCombosOrdered.slice(0, topCombosDisplayCount),
@@ -2160,10 +2138,6 @@ export function App() {
     signature: string;
     symbols: string[];
   } | null>(null);
-  const botAutoStartTopCombosRef = useRef<{ lastAttemptAtMs: number; lastKey: string }>({
-    lastAttemptAtMs: 0,
-    lastKey: "",
-  });
   const pendingComboStartRef = useRef(pendingComboStart);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
@@ -2755,13 +2729,6 @@ export function App() {
   const handleComboPreview = useCallback((combo: OptimizationCombo) => setSelectedComboId(combo.id), []);
   const handleComboApply = useCallback(
     (combo: OptimizationCombo) => {
-      const baseForm = formRef.current;
-      const manualOverrides = manualOverridesRef.current;
-      const nextForm = applyComboToForm(baseForm, combo, apiComputeLimitsRef.current, manualOverrides, true);
-      const nextSignature = formApplySignature(nextForm);
-      const symbols = parseSymbolsInput(nextForm.binanceSymbol);
-      pendingComboStartRef.current = { signature: nextSignature, symbols };
-      setPendingComboStart({ signature: nextSignature, symbols });
       applyCombo(combo, { respectManual: true, allowPositioning: true });
     },
     [applyCombo],
@@ -5808,7 +5775,6 @@ export function App() {
       const symbolsOverride = opts?.symbolsOverride ? parseSymbolsInput(opts.symbolsOverride.join(",")) : [];
       const tenantKey = binanceTenantKeyResolved?.trim() ?? "";
       const hasBinanceInlineKeys = Boolean(binanceApiKey.trim() && binanceApiSecret.trim());
-      if (!opts?.auto) botAutoStartSuppressedRef.current = false;
       const startSymbols = symbolsOverride.length > 0 ? symbolsOverride : botSymbolsInput;
       const primarySymbolRaw = startSymbols[0] ?? form.binanceSymbol.trim();
       const primarySymbol = primarySymbolRaw ? normalizeSymbolKey(primarySymbolRaw) : "";
@@ -5955,7 +5921,6 @@ export function App() {
                 : "Bot not running",
           );
         }
-        if (!retrying) botAutoStartRef.current.lastAttemptAtMs = Date.now();
       };
 
       try {
@@ -6343,7 +6308,6 @@ export function App() {
       const normalizedOut = normalizeBotStatus(out);
       setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
       appendDataLog("Bot Stop Response", normalizedOut);
-      botAutoStartSuppressedRef.current = true;
       showToast(symbol ? `Bot stopped (${symbol})` : "Bot stopped");
     } catch (e) {
       if (isAbortError(e)) return;
@@ -7187,14 +7151,6 @@ export function App() {
       : selectedComboLabel
         ? `Start bot with ${selectedComboLabel}`
         : "Start bot with selected combo";
-  const topComboSig = useMemo(() => {
-    if (!topCombo) return null;
-    return comboApplySignature(topCombo, apiComputeLimits, form, manualOverrides, true);
-  }, [apiComputeLimits, form, manualOverrides, topCombo]);
-  const botAutoStartReady = useMemo(() => {
-    if (!topComboSig) return false;
-    return topComboSig === formApplySignature(form);
-  }, [form, topComboSig]);
 
   const missingSymbol = !form.binanceSymbol.trim();
   const intervalValue = form.interval.trim();
@@ -7772,88 +7728,6 @@ export function App() {
     );
   }, [apiBlockedReason, apiStatusIssue, botTradeKeysIssue, rateLimitReason, selectedComboForm]);
   const comboStartBlocked = bot.loading || botStarting || comboStartPending || Boolean(comboStartBlockedReason);
-  const topComboAutoStartIssues = useMemo(
-    () =>
-      buildRequestIssueDetails({
-        rateLimitReason,
-        apiStatusIssue,
-        apiBlockedReason,
-        apiTargetId: "section-api",
-        missingSymbol: false,
-        symbolError: null,
-        missingInterval,
-        intervalTargetId: "interval",
-        lookbackError: lookbackState.error,
-        lookbackTargetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
-        apiLimitsReason,
-        apiLimitsTargetId: barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined,
-      }),
-    [
-      apiBlockedReason,
-      apiLimitsReason,
-      apiStatusIssue,
-      barsExceedsApi,
-      epochsExceedsApi,
-      hiddenSizeExceedsApi,
-      lookbackState.error,
-      lookbackState.overrideOn,
-      missingInterval,
-      rateLimitReason,
-    ],
-  );
-  const topComboAutoStartBlockedReason = useMemo(
-    () =>
-      firstReason(
-        topComboAutoStartIssues[0]?.disabledMessage ?? topComboAutoStartIssues[0]?.message,
-        !isBinancePlatform ? "Live bot is supported on Binance only." : null,
-        form.positioning === "long-short" && form.market !== "futures"
-          ? "Live bot long/short requires the Futures market."
-          : null,
-        botTradeKeysIssue,
-      ),
-    [botTradeKeysIssue, form.market, form.positioning, isBinancePlatform, topComboAutoStartIssues],
-  );
-
-  useEffect(() => {
-    if (!botAutoStartReady) return;
-    if (apiOk !== "ok") return;
-    if (!botStatusFetchedRef.current) return;
-    if (botAutoStartSuppressedRef.current) return;
-    if (botAnyRunning) return;
-    if (botStartBlocked) return;
-    const now = Date.now();
-    if (now - botAutoStartRef.current.lastAttemptAtMs < BOT_AUTOSTART_RETRY_MS) return;
-    botAutoStartRef.current.lastAttemptAtMs = now;
-    void startLiveBot({ auto: true, silent: true });
-  }, [apiOk, botAnyRunning, botAutoStartReady, botStartBlocked, startLiveBot]);
-  useEffect(() => {
-    if (apiOk !== "ok") return;
-    if (!botStatusFetchedRef.current) return;
-    if (botAutoStartSuppressedRef.current) return;
-    if (comboStartPending) return;
-    if (bot.loading || botStarting) return;
-    if (topComboAutoStartBlockedReason) return;
-    if (topComboBotTargets.length === 0) return;
-
-    const missing = topComboBotTargets.filter((sym) => !botActiveSymbolSet.has(normalizeSymbolKey(sym)));
-    if (missing.length === 0) return;
-
-    const now = Date.now();
-    const last = botAutoStartTopCombosRef.current;
-    if (last.lastKey === topComboBotTargetsKey && now - last.lastAttemptAtMs < BOT_AUTOSTART_RETRY_MS) return;
-    botAutoStartTopCombosRef.current = { lastAttemptAtMs: now, lastKey: topComboBotTargetsKey };
-    void startLiveBot({ auto: true, silent: true, symbolsOverride: topComboBotTargets });
-  }, [
-    apiOk,
-    bot.loading,
-    botActiveSymbolSet,
-    botStarting,
-    comboStartPending,
-    startLiveBot,
-    topComboAutoStartBlockedReason,
-    topComboBotTargets,
-    topComboBotTargetsKey,
-  ]);
   useEffect(() => {
     if (!pendingComboStart) return;
     if (formApplySignature(form) !== pendingComboStart.signature) return;
@@ -9713,17 +9587,47 @@ export function App() {
                             typeof governor.examples === "number" && Number.isFinite(governor.examples)
                               ? Math.max(0, Math.trunc(governor.examples))
                               : 0;
+                          const evaluationTrades =
+                            typeof governor.evaluationTrades === "number" && Number.isFinite(governor.evaluationTrades)
+                              ? Math.max(0, Math.trunc(governor.evaluationTrades))
+                              : null;
+                          const counterfactualAdvantage =
+                            typeof governor.counterfactualAdvantage === "number" &&
+                            Number.isFinite(governor.counterfactualAdvantage)
+                              ? ` • advantage ${fmtPct(governor.counterfactualAdvantage, 2)}`
+                              : "";
                           const reward =
                             typeof governor.lastReward === "number" && Number.isFinite(governor.lastReward)
                               ? ` • reward ${fmtPct(governor.lastReward, 2)}`
                               : "";
+                          const rolloutMode = governor.rolloutMode?.trim().toLowerCase();
+                          const rollout = governor.enforced
+                            ? "enforced"
+                            : rolloutMode === "shadow"
+                              ? "shadow"
+                              : rolloutMode === "observe"
+                                ? "observe"
+                                : rolloutMode || "observe";
                           const policy = [governor.openBlockReason ? "avoid open" : null, governor.holdReason ? "prefer hold" : null]
                             .filter(Boolean)
                             .join(", ");
                           const policyText = policy ? ` • ${policy}` : "";
+                          const candidatePolicy = [
+                            governor.candidateOpenBlockReason ? "avoid open" : null,
+                            governor.candidateHoldReason ? "prefer hold" : null,
+                          ]
+                            .filter(Boolean)
+                            .join(", ");
+                          const candidatePolicyText = candidatePolicy ? ` • candidate: ${candidatePolicy}` : "";
+                          const evaluationText = evaluationTrades != null ? ` • eval ${evaluationTrades} trade(s)` : "";
+                          const rolloutEvent = governor.rolledBack
+                            ? " • rolled back"
+                            : governor.promoted
+                              ? " • promoted"
+                              : "";
                           const state = governor.enabled ? (governor.ready ? "ready" : "warming") : "off";
                           const reason = governor.reason ? ` • ${governor.reason}` : "";
-                          return `${state} • size ${multiplier} • score ${score} • ${examples} trade(s)${reward}${policyText}${reason}`;
+                          return `${state} • ${rollout}${rolloutEvent} • size ${multiplier} • score ${score} • ${examples} trade(s)${evaluationText}${reward}${counterfactualAdvantage}${policyText}${candidatePolicyText}${reason}`;
                         })()}
                       </div>
                     </div>

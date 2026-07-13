@@ -1,5 +1,7 @@
 # Extracted Formal Specifications
 
+> Historical focused extraction: the canonical repository-wide specification registry is now `formal/specifications.json`, documented in `docs/formal-specifications.md`. The S1-S18 sections below remain detailed trading contracts, not the complete feature inventory.
+
 Date extracted: 2026-06-21
 
 This document consolidates the formal and quasi-formal specifications implemented by the codebase and described by the repository documentation. It separates implemented executable contracts from documented intended contracts and known parity gaps.
@@ -58,7 +60,7 @@ Primary documentation sources:
 | S9 | ROI scoring, optimizer tie-breaks, public optimizer surface | Implemented |
 | S10 | Close-timing analysis and max-hold retune acceptance | Implemented |
 | S11 | Threshold calibration | Implemented |
-| S12 | Gate telemetry | Implemented |
+| S12 | Gate telemetry | Accumulator implemented; end-to-end gate instrumentation gap |
 | S13 | Market-data freshness and continuity gate | Implemented |
 | S14 | Bot startup, adoption evidence, and start queue safety | Implemented |
 | S15 | Cost calibration and venue cost floors | Implemented |
@@ -327,8 +329,8 @@ Formal clauses:
 4. If live order has no executed quantity, no-fill statuses yield `Nothing`.
 5. Fill-implying statuses use the positive finite fallback quantity.
 6. Unknown or empty statuses with no executed quantity yield `Nothing`.
-7. Applied fractions convert base-unit fill evidence into position-fraction state by scaling intended fraction by `appliedBase / requestedBase`.
-8. If requested base quantity is absent, applied fraction falls back to all-or-nothing on intended fraction.
+7. Applied fractions convert base-unit fill evidence into position-fraction state by scaling intended fraction by `min(1, appliedBase / requestedBase)`, so exchange-reported overfills cannot increase exposure beyond intent.
+8. If requested base quantity is absent, any positive fill evidence applies exactly the intended fraction all-or-nothing; the base-unit fill magnitude is never interpreted directly as an equity fraction.
 9. Executed fill updates signed exposure algebraically: `newSigned = currentSigned + signedFill`.
 10. `closeQty` is the fill portion reducing existing opposite exposure; `openQty` is the remaining fill portion.
 11. Sanitized fill quantity is conserved: `closeQty + openQty ~= sanitizedQty`.
@@ -342,6 +344,7 @@ Bounded obligations:
 - `testFormalExecutionInvariants`
 - `testOrderExecutionFillSanitizationInvariant`
 - `testOrderExecutionCorruptedInputInvariant`
+- `Trader.Test.FormalVerification.formalVerificationSuite` forces every `verifyFormalExecution` field, including implementation/spec equivalence and the applied-fraction exposure bound.
 
 ## S8. Risk Halt Decision
 
@@ -358,19 +361,21 @@ Formal clauses:
 2. Previous weekly-loss halt resets when week changes.
 3. Other previous halt reasons persist.
 4. If no previous halt remains, risk checks run in fixed priority order:
-   `RISK_LIMIT_NON_FINITE`, `DRAWDOWN_LIMIT_INVALID`, `POSITION_SIZE_INVALID`, `EXPECTANCY_INVALID`, `VOL_TARGET_INVALID`, `LEVERAGE_INVALID`, daily loss, weekly loss, drawdown, negative expectancy, position size, loss streak.
+   `RISK_LIMIT_NON_FINITE`, `RISK_METRIC_INVALID`, `LOSS_STREAK_LIMIT_INVALID`, `DRAWDOWN_LIMIT_INVALID`, `POSITION_SIZE_INVALID`, `EXPECTANCY_INVALID`, `VOL_TARGET_INVALID`, `LEVERAGE_INVALID`, daily loss, weekly loss, drawdown, negative expectancy, position size, loss streak.
 5. Any configured numeric risk limit that is `NaN` or infinite yields `RISK_LIMIT_NON_FINITE`.
-6. Drawdown limit must be finite and strictly inside `(0,1)`.
-7. Position size evidence must be finite, non-negative, and `<= 10`.
-8. If minimum expectancy is configured, expectancy evidence must be present and finite.
-9. Vol target evidence must be finite, non-negative, and `<= 10`.
-10. Leverage evidence must be finite, non-negative, and `<= 150`.
-11. Negative configured limits are sanitized to zero before comparisons, making them maximally restrictive rather than disabling halts.
-12. Daily loss, weekly loss, and drawdown halt on `metric >= limit`.
-13. Negative expectancy halts when `expectancy < minExpectancy`.
-14. Position-size halt occurs when `positionSize > maxPositionSize`.
-15. Loss-streak halt occurs only when limit is positive and `consecutiveLosses > limit`.
-16. Increasing risk metrics cannot remove a halt on the bounded verification domain.
+6. Daily-loss, weekly-loss, and drawdown evidence must be finite and non-negative; malformed evidence yields `RISK_METRIC_INVALID` before it can make every ordered comparison false.
+7. A negative loss-streak limit yields `LOSS_STREAK_LIMIT_INVALID`. Zero retains its documented disabled meaning, and positive limits enable the comparison.
+8. Drawdown limit must be finite and strictly inside `(0,1)`.
+9. Position size evidence must be finite, non-negative, and `<= 10`.
+10. If minimum expectancy is configured, expectancy evidence must be present and finite.
+11. Vol target evidence must be finite, non-negative, and `<= 10`.
+12. Leverage evidence must be finite, non-negative, and `<= 150`.
+13. Negative daily-loss, weekly-loss, minimum-expectancy, and maximum-position floating limits sanitize to zero before comparisons; malformed drawdown and loss-streak limits use the explicit invalid reasons above.
+14. Daily loss, weekly loss, and drawdown halt on `metric >= limit`.
+15. Negative expectancy halts when `expectancy < minExpectancy`.
+16. Position-size halt occurs when `positionSize > maxPositionSize`.
+17. Loss-streak halt occurs only when limit is positive and `consecutiveLosses > limit`.
+18. Increasing admissible risk metrics cannot remove a halt on the bounded verification domain.
 
 Bounded obligations:
 
@@ -380,6 +385,7 @@ Bounded obligations:
 - `testFormalRiskNegativeLimitSanitization`
 - `testFormalRiskPositionSizeHalt`
 - `testFormalRiskLossStreakHalt`
+- `Trader.Test.FormalVerification.formalVerificationSuite` covers malformed risk metrics, negative loss-streak limits, and forces every field in `verifyFormalRisk`.
 
 ## S9. ROI Scoring And Optimizer Tie-Breaks
 
@@ -494,10 +500,12 @@ Formal clauses:
 4. `thresholdAtPercentile` clamps outside `[0,100]` and linearly interpolates between stored anchors.
 5. Percentile threshold is monotone in percentile.
 6. Config validation requires finite positive headroom divisor, finite non-negative fee floor, non-negative minimum sample size, percentiles in `[0,100]`, and aggressive percentile `<=` conservative percentile.
-7. `headroomThreshold = suggestedThreshold / headroomDivisor`; default divisor is `1.5`.
-8. `feeBufferThreshold = suggestedThreshold + feeFloor`; default fee floor is `0.001`.
-9. Confidence interval is ordered because it is `threshold +/- 1.96 * standardError`.
-10. Recommendation is one of `INSUFFICIENT_SAMPLE`, `CONSERVATIVE`, `AGGRESSIVE`, or `BALANCED`.
+7. Calibration-method validation requires finite percentiles in `[0,100]` and finite non-negative standard-deviation multipliers; invalid methods yield `Nothing`.
+8. Distribution and calibration output must remain finite, so finite inputs whose aggregate arithmetic overflows are rejected rather than serialized as `Infinity`.
+9. `headroomThreshold = suggestedThreshold / headroomDivisor`; default divisor is `1.5`.
+10. `feeBufferThreshold = suggestedThreshold + feeFloor`; default fee floor is `0.001`.
+11. Confidence interval is ordered because it is `threshold +/- 1.96 * standardError`.
+12. Recommendation is one of `INSUFFICIENT_SAMPLE`, `CONSERVATIVE`, `AGGRESSIVE`, or `BALANCED`.
 
 Bounded obligations:
 
@@ -505,7 +513,7 @@ Bounded obligations:
 
 ## S12. Gate Telemetry
 
-Status: Implemented.
+Status: Accumulator implemented; end-to-end gate instrumentation remains a gap.
 
 Primary code:
 
@@ -520,9 +528,10 @@ Formal clauses:
 1. Telemetry is observational: recording a rejection cannot affect gate decisions because telemetry is written after the decision and not read by gate logic.
 2. Empty telemetry has zero counts, no recent rejections, and no binding gate.
 3. Rejection histogram counts by `(gate, reason)`.
-4. Recent rejection history is bounded by `maxRecent`.
+4. The configured recent-rejection bound is normalized into `[0,1000]`, and recent history never exceeds that normalized bound.
 5. Binding gate is the gate with the highest rejection count.
 6. Diagnosis is derived from candidate/rejection counts and is one of the documented telemetry diagnosis classes.
+7. Untrusted `ReasonUnknown` text is canonicalized to one `UNKNOWN` value before histogram or recent-history storage, bounding the gate/reason key space and preventing sensitive raw error text from entering telemetry.
 
 Bounded obligations:
 
@@ -530,6 +539,11 @@ Bounded obligations:
 - `testGateTelemetryAccumulationInvariant`
 - `testGateTelemetryBindingGateIdentification`
 - `testGateTelemetryHistogramSorting`
+- `Trader.Test.FormalVerification.formalVerificationSuite` covers negative/huge bounds and unknown-reason cardinality.
+
+Integration caveat:
+
+- `Trader.GateTelemetry` is not yet threaded through every production gate in `Main`, `Trading`, or `SignalGates`, and total-bar/candidate counters do not yet have one canonical runtime source. The bounded tests verify accumulator behavior, not the claim that every live rejection is recorded.
 
 ## S13. Market Data Freshness And Continuity
 
@@ -551,28 +565,31 @@ Documentation:
 
 Implemented clauses:
 
-1. Interval strings must parse through `parseIntervalSeconds`; invalid intervals produce `MARKET_DATA_INTERVAL_INVALID`.
-2. Last close time is `lastOpenTimeMs + intervalMs`.
-3. Data age is `nowMs - lastCloseTimeMs`.
+1. Interval strings must parse through `parseIntervalSeconds`, be positive, and convert from seconds to milliseconds without exceeding `Int64`; invalid intervals produce `MARKET_DATA_INTERVAL_INVALID`.
+2. Last close time is the checked sum `lastOpenTimeMs + intervalMs`.
+3. Data age is the checked difference `nowMs - lastCloseTimeMs`.
 4. Data is stale when `ageMs > intervalMs`.
 5. Stale reason includes age, budget, and last close time.
 6. Continuation expects each next open time to equal the previous expected open plus interval.
 7. First mismatch yields `MARKET_DATA_GAP` with expected, actual, and interval values.
 8. `MARKET_DATA_GAP` and `STALE_MARKET_DATA` are transient market-data errors for queued bot starts.
-9. Exchange candle loaders discard still-open bars before strategy input.
-10. Market-series validation rejects non-finite numeric payloads.
-11. Market-series validation rejects negative volume.
-12. Market-series validation rejects impossible OHLC relationships when OHLC fields are present.
-13. Market-series validation rejects duplicate or non-increasing open times.
-14. Live exchange price loads require exact interval continuity after closed-bar filtering.
-15. Live exchange price loads require fresh last-closed-bar evidence before strategy execution.
-16. Coinbase, Kraken, and Poloniex loaders preserve source open and volume fields instead of synthesizing them for live exchange inputs.
-17. CSV/offline input validates finite values, OHLC shape, volume, and timestamp monotonicity when those fields are present, but does not enforce interval continuity or wall-clock freshness by default because CSV can be a time-agnostic offline dataset.
+9. Any overflow in close-time, age, or continuation arithmetic fails closed as `MARKET_DATA_TIMESTAMP_OVERFLOW`; it is malformed data, not a transient gap/staleness condition.
+10. Closed-series normalization rejects a bar if its checked close time cannot be represented, so overflow cannot wrap a future/open candle into the closed set.
+11. Exchange candle loaders discard still-open bars before strategy input.
+12. Market-series validation rejects non-finite numeric payloads.
+13. Market-series validation rejects negative volume.
+14. Market-series validation rejects impossible OHLC relationships when OHLC fields are present.
+15. Market-series validation rejects duplicate or non-increasing open times.
+16. Live exchange price loads require exact interval continuity after closed-bar filtering.
+17. Live exchange price loads require fresh last-closed-bar evidence before strategy execution.
+18. Coinbase, Kraken, and Poloniex loaders preserve source open and volume fields instead of synthesizing them for live exchange inputs.
+19. CSV/offline input validates finite values, OHLC shape, volume, and timestamp monotonicity when those fields are present, but does not enforce interval continuity or wall-clock freshness by default because CSV can be a time-agnostic offline dataset.
 
 Bounded obligations:
 
 - `testMarketDataFreshnessAndContinuationInvariant`
 - `testQueuedBotStartIgnoresTransientMarketDataErrors`
+- `Trader.Test.FormalVerification.formalVerificationSuite` covers close-time, age, and continuation overflow witnesses at the `Int64` boundaries.
 
 ## S14. Bot Startup And Adoption Evidence
 

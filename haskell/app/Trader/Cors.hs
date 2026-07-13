@@ -78,6 +78,7 @@ corsRequestHasImplicitReadOrigin req =
     path = requestPathNoApiPrefix req
     publicReadPaths =
         [ ["health"]
+        , ["ready"]
         , ["version"]
         , ["optimizer", "combos"]
         ]

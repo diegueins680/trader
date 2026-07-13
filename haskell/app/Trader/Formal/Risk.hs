@@ -41,6 +41,8 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrRiskHaltLossStreak :: !Bool
     , fvrMaxPositionSizeBound :: !Bool
     , fvrRiskLimitFinite :: !Bool
+    , fvrRiskMetricSanity :: !Bool
+    , fvrLossStreakLimitSanity :: !Bool
     , fvrDrawdownSanity :: !Bool
     , fvrPositionSizeSanity :: !Bool
     , fvrExpectancySanity :: !Bool
@@ -66,6 +68,8 @@ verifyFormalRisk =
             , Just (ExitOther "POSITION_SIZE")
             , Just (ExitOther "LOSS_STREAK")
             , Just (ExitOther "RISK_LIMIT_NON_FINITE")
+            , Just (ExitOther "RISK_METRIC_INVALID")
+            , Just (ExitOther "LOSS_STREAK_LIMIT_INVALID")
             ]
 
         -- Monotonicity: increasing any risk metric must not *remove* a halt.
@@ -249,10 +253,10 @@ verifyFormalRisk =
                     let result = specRiskHalt hi
                         limit = fmap (max 0) (hiMaxPositionSizeLim hi)
                         size = max 0 (hiPositionSize hi)
-                     in case result of
-                            Just (ExitOther "POSITION_SIZE") ->
-                                maybe False (size >) limit
-                            _ -> True
+                        breached = maybe False (size >) limit
+                     in if breached
+                            then result == Just (ExitOther "POSITION_SIZE")
+                            else result /= Just (ExitOther "POSITION_SIZE")
                 )
                 [ HaltInputs
                     { hiPrevHaltReason = Nothing
@@ -285,10 +289,10 @@ verifyFormalRisk =
                     let result = specRiskHalt hi
                         limit = fmap (max 0) (hiMaxLossStreakLim hi)
                         cl = hiConsecutiveLosses hi
-                     in case result of
-                            Just (ExitOther "LOSS_STREAK") ->
-                                maybe False (\lim -> lim > 0 && cl > lim) limit
-                            _ -> True
+                        breached = maybe False (\lim -> lim > 0 && cl > lim) limit
+                     in if breached
+                            then result == Just (ExitOther "LOSS_STREAK")
+                            else result /= Just (ExitOther "LOSS_STREAK")
                 )
                 [ HaltInputs
                     { hiPrevHaltReason = Nothing
@@ -322,10 +326,11 @@ verifyFormalRisk =
                     let result = specRiskHalt hi
                         limit = fmap (max 0) (hiMaxPositionSizeLim hi)
                         size = max 0 (hiPositionSize hi)
-                     in case result of
-                            Just (ExitOther "POSITION_SIZE") ->
-                                maybe False (size >) limit
-                            _ -> True
+                        sizeValid = finiteDouble (hiPositionSize hi) && hiPositionSize hi >= 0 && hiPositionSize hi <= 10
+                        breached = sizeValid && maybe False (size >) limit
+                     in if breached
+                            then result == Just (ExitOther "POSITION_SIZE")
+                            else result /= Just (ExitOther "POSITION_SIZE")
                 )
                 [ HaltInputs
                     { hiPrevHaltReason = Nothing
@@ -387,6 +392,74 @@ verifyFormalRisk =
                 , mdd <- [Nothing, Just 0, Just 0.05, Just (0 / 0)]
                 , me <- [Nothing, Just 0, Just (0 / 0)]
                 , mps <- [Nothing, Just 0, Just (0 / 0)]
+                ]
+
+        -- Loss and drawdown observations must be finite and non-negative.
+        -- Otherwise NaN/Infinity can make every configured comparison false.
+        riskMetricSanity =
+            all
+                ( \hi ->
+                    let metrics = [hiDailyLoss hi, hiWeeklyLoss hi, hiDrawdown hi]
+                        invalid = any (\value -> not (finiteDouble value) || value < 0) metrics
+                     in if invalid
+                            then specRiskHalt hi == Just (ExitOther "RISK_METRIC_INVALID")
+                            else specRiskHalt hi /= Just (ExitOther "RISK_METRIC_INVALID")
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = dailyLoss
+                    , hiWeeklyLoss = weeklyLoss
+                    , hiDrawdown = drawdown
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
+                | dailyLoss <- metricDomain
+                , weeklyLoss <- metricDomain
+                , drawdown <- metricDomain
+                ]
+
+        -- Negative loss-streak limits are corrupted configuration, not the
+        -- documented zero/disabled boundary.
+        lossStreakLimitSanity =
+            all
+                ( \hi ->
+                    let invalid = maybe False (< 0) (hiMaxLossStreakLim hi)
+                     in if invalid
+                            then specRiskHalt hi == Just (ExitOther "LOSS_STREAK_LIMIT_INVALID")
+                            else specRiskHalt hi /= Just (ExitOther "LOSS_STREAK_LIMIT_INVALID")
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = consecutiveLosses
+                    , hiMaxLossStreakLim = maxLossStreak
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
+                | consecutiveLosses <- [0, 1, 4]
+                , maxLossStreak <- [Nothing, Just (-3), Just (-1), Just 0, Just 1, Just 3]
                 ]
 
         -- Drawdown sanity: ecMaxDrawdown must be finite and strictly within
@@ -605,6 +678,8 @@ verifyFormalRisk =
             , fvrRiskHaltLossStreak = lossStreakHalt
             , fvrMaxPositionSizeBound = maxPositionSizeBound
             , fvrRiskLimitFinite = riskLimitFinite
+            , fvrRiskMetricSanity = riskMetricSanity
+            , fvrLossStreakLimitSanity = lossStreakLimitSanity
             , fvrDrawdownSanity = drawdownSanity
             , fvrPositionSizeSanity = positionSizeSanity
             , fvrExpectancySanity = expectancySanity
@@ -612,3 +687,5 @@ verifyFormalRisk =
             , fvrLeverageSanity = leverageSanity
             , fvrCooldownNonNegative = cooldownNonNegative
             }
+  where
+    metricDomain = [-0.01, 0, 0.1, 0 / 0, 1 / 0, -(1 / 0)]

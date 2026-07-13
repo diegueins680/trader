@@ -133,6 +133,26 @@ def _cache_path(sym, interval):
     return os.path.join(CACHE_DIR, f"{sym}_{interval}.csv")
 
 
+def merge_cache_frames(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
+    """Merge overlapping cache rows without erasing point-in-time observations.
+
+    Fresh non-null values replace older values for the same bar, while an
+    unavailable value in the latest API window falls back to the previously
+    accumulated value. This matters because Binance kline history is deeper
+    than several derivatives-stat endpoints: a refresh must not turn an older
+    funding/OI/basis/taker observation back into NaN.
+    """
+    if existing.empty:
+        return fresh.drop_duplicates("openTime", keep="last").sort_values("openTime").reset_index(drop=True)
+    if fresh.empty:
+        return existing.drop_duplicates("openTime", keep="last").sort_values("openTime").reset_index(drop=True)
+
+    old_by_time = existing.drop_duplicates("openTime", keep="last").set_index("openTime")
+    fresh_by_time = fresh.drop_duplicates("openTime", keep="last").set_index("openTime")
+    merged = fresh_by_time.combine_first(old_by_time)
+    return merged.sort_index().reset_index()
+
+
 def update_cache(symbols, interval="1h", kline_limit=1500):
     """Fetch the latest window for each symbol and merge (dedup by openTime) into
     the append-only CSV cache. Stats columns are stored already point-in-time
@@ -159,12 +179,7 @@ def update_cache(symbols, interval="1h", kline_limit=1500):
         path = _cache_path(sym, interval)
         if os.path.exists(path):
             old = pd.read_csv(path)
-            k = (
-                pd.concat([old, k])
-                .drop_duplicates("openTime", keep="last")
-                .sort_values("openTime")
-                .reset_index(drop=True)
-            )
+            k = merge_cache_frames(old, k)
         k.to_csv(path, index=False)
         print(f"  {sym}: cached {len(k)} bars -> {os.path.relpath(path)}")
 

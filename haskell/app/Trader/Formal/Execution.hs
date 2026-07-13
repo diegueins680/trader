@@ -2,6 +2,7 @@ module Trader.Formal.Execution (
     ExecutionVerificationReport (..),
     applyExecutedQuantitySpec,
     applyReduceOnlyExecutedQuantitySpec,
+    orderAppliedFractionSpec,
     orderAppliedQuantitySpec,
     verifyFormalExecution,
 ) where
@@ -12,9 +13,9 @@ import Trader.OrderExecution (
     OrderExecutionEvidence (..),
     applyExecutedQuantity,
     applyReduceOnlyExecutedQuantity,
+    orderAppliedFraction,
     orderAppliedQuantity,
  )
-import Trader.Types.Safe (NonNegative (..), Quantity (..), sanitizeNonNegative)
 
 -- ---------------------------------------------------------------------------
 -- Spec-level definitions (naive, obviously correct)
@@ -124,6 +125,23 @@ orderAppliedQuantitySpec ev fallbackQty =
                                 Just s' | statusImpliesFilled' s' -> fallback
                                 _ -> Nothing
 
+{- | Spec version of 'orderAppliedFraction'.  An exchange-reported overfill
+cannot increase exposure beyond the intended fraction.
+-}
+orderAppliedFractionSpec :: OrderExecutionEvidence -> Maybe Double -> Double -> Maybe Double
+orderAppliedFractionSpec ev mRequestedBase intendedFraction = do
+    intended <- positiveFiniteSpec intendedFraction
+    case mRequestedBase >>= positiveFiniteSpec of
+        Nothing -> intended <$ orderAppliedQuantitySpec ev intended
+        Just requestedBase -> do
+            appliedBase <- orderAppliedQuantitySpec ev requestedBase
+            positiveFiniteSpec (intended * min 1 (appliedBase / requestedBase))
+
+positiveFiniteSpec :: Double -> Maybe Double
+positiveFiniteSpec x
+    | isNaN x || isInfinite x || x <= 0 = Nothing
+    | otherwise = Just x
+
 -- ---------------------------------------------------------------------------
 -- Verification report
 -- ---------------------------------------------------------------------------
@@ -132,6 +150,8 @@ data ExecutionVerificationReport = ExecutionVerificationReport
     { fvrExecImplMatchesSpec :: !Bool
     , fvrExecReduceOnlyImplMatchesSpec :: !Bool
     , fvrExecOrderAppliedImplMatchesSpec :: !Bool
+    , fvrExecOrderAppliedFractionImplMatchesSpec :: !Bool
+    , fvrExecOrderAppliedFractionBounded :: !Bool
     , fvrExecReduceOnlyNeverIncreases :: !Bool
     , fvrExecReduceOnlyNeverFlips :: !Bool
     , fvrExecQtyConservation :: !Bool
@@ -192,6 +212,44 @@ verifyFormalExecution =
                 , fb <- [negate (1 / 0), 0, 0.5, 1 / 0]
                 ]
 
+        orderAppliedFractionCases =
+            [ (ev, requested, intended)
+            | sent <- [False, True]
+            , live <- [False, True]
+            , status <- [Nothing, Just "filled", Just "canceled", Just "done", Just "error"]
+            , executed <- [Nothing, Just 0, Just (0 / 0), Just 0.5, Just 1, Just 3]
+            , let ev =
+                    OrderExecutionEvidence
+                        { oeeSent = sent
+                        , oeeLive = live
+                        , oeeStatus = status
+                        , oeeExecutedQty = executed
+                        }
+            , requested <- [Nothing, Just 0, Just (0 / 0), Just 0.5, Just 1]
+            , intended <- [negate (1 / 0), 0, 0.25, 1, 1 / 0]
+            ]
+
+        orderAppliedFractionImplMatchSpec =
+            all
+                ( \(ev, requested, intended) ->
+                    maybeDoubleClose
+                        (orderAppliedFractionSpec ev requested intended)
+                        (orderAppliedFraction ev requested intended)
+                )
+                orderAppliedFractionCases
+
+        orderAppliedFractionBounded =
+            all
+                ( \(ev, requested, intended) ->
+                    case orderAppliedFraction ev requested intended of
+                        Nothing -> True
+                        Just applied ->
+                            not (isNaN applied || isInfinite applied)
+                                && applied > 0
+                                && applied <= intended
+                )
+                orderAppliedFractionCases
+
         reduceOnlyNeverIncreases =
             all
                 ( \(prevPos, prevSize, qty) ->
@@ -250,6 +308,8 @@ verifyFormalExecution =
             { fvrExecImplMatchesSpec = implMatchSpec
             , fvrExecReduceOnlyImplMatchesSpec = reduceOnlyImplMatchSpec
             , fvrExecOrderAppliedImplMatchesSpec = orderAppliedImplMatchSpec
+            , fvrExecOrderAppliedFractionImplMatchesSpec = orderAppliedFractionImplMatchSpec
+            , fvrExecOrderAppliedFractionBounded = orderAppliedFractionBounded
             , fvrExecReduceOnlyNeverIncreases = reduceOnlyNeverIncreases
             , fvrExecReduceOnlyNeverFlips = reduceOnlyNeverFlips
             , fvrExecQtyConservation = qtyConservation
@@ -269,3 +329,8 @@ closeEnough :: Double -> Double -> Bool
 closeEnough a b
     | isNaN a && isNaN b = True
     | otherwise = abs (a - b) <= max 1e-9 (abs a * 1e-12)
+
+maybeDoubleClose :: Maybe Double -> Maybe Double -> Bool
+maybeDoubleClose Nothing Nothing = True
+maybeDoubleClose (Just a) (Just b) = closeEnough a b
+maybeDoubleClose _ _ = False

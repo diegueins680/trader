@@ -1767,9 +1767,9 @@ test("normalizeFormState preserves restored fraction validation and precedence",
   assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
   assert.equal(precedenceState.blockingError, null);
 });
-test("defaultForm uses live armed trade presets", () => {
-assert.equal(defaultForm.binanceLive, true);
-assert.equal(defaultForm.tradeArmed, true);
+test("defaultForm requires explicit live-order and trade-arming consent", () => {
+assert.equal(defaultForm.binanceLive, false);
+assert.equal(defaultForm.tradeArmed, false);
 assert.equal(defaultForm.botAdoptExistingPosition, true);
 assert.equal(defaultForm.orderQuote, 0);
 assert.equal(defaultForm.orderQuantity, 0);

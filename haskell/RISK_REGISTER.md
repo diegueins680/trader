@@ -7,7 +7,7 @@
 | THRESHOLD-FACTOR-001 | `thresholdFactor` not wired into simulation config | Medium | trader-firm-research | OPEN | Confirm research spec; handoff to Execution for wiring |
 | TRAILING-STOP-001 | Trailing-stop exit may re-enter on same bar (race) | Medium | trader-firm-execution | OPEN | Add bar-level re-entry lock after trailing-stop exit |
 | RISK-LIMIT-001 | Daily / weekly / drawdown limits not enforced in live trading loop | High | trader-firm-risk | **RESOLVED** 2026-05-24 | Runtime spec-coupled invariant checks landed; guardrail tests pass |
-| BINARY-HANG-001 | `trader-hs` binary occasionally hangs on shutdown (SIGTERM) | Medium | trader-firm-cto | OPEN | Add timeout + explicit `exitWith` in signal handler |
+| BINARY-HANG-001 | `trader-hs` binary occasionally hangs on shutdown (SIGTERM) | Medium | trader-firm-cto | **MITIGATED / VALIDATION PENDING** 2026-07-12 | Bounded SIGTERM/SIGINT drain, Warp timeout, worker/job cleanup, state persistence, and PostgreSQL close are implemented with helper-level deadline tests; confirm with a serve-mode subprocess SIGTERM test against PostgreSQL before closing |
 | GITHUB-502-001 | Autoloop GitHub API 502 retries are unbounded | **MEDIUM** | trader-firm-cto | OPEN | Fix deployed 5c64c508 (exponential backoff + 3 retries). Cycle 166 observed. Severity reduces to LOW if 2 more clean cycles confirm by 18:00 UTC. |
 | EXECUTION-DATASET-001 | Dataset generation for backtests is non-deterministic | Medium | trader-firm-data | OPEN | Seed RNG and snapshot dataset hash in test output |
 | AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on same repo | High | trader-firm-cto | OPEN | Add PID file / lockfile in `scripts/autoloop-forever.mjs` |

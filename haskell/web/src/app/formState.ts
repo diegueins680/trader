@@ -198,8 +198,10 @@ export const defaultForm: FormState = {
   orderQuoteFraction: 1,
   maxOrderQuote: 0,
   idempotencyKey: "",
-  binanceLive: true,
-  tradeArmed: true,
+  // Exposure-increasing actions require an explicit operator acknowledgement
+  // in ConfigDock; a fresh browser session must never begin armed/live.
+  binanceLive: false,
+  tradeArmed: false,
   bypassCache: false,
   autoRefresh: false,
   autoRefreshSec: 20,

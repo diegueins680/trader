@@ -14,6 +14,7 @@ import Trader.Cors (CorsConfig (..), corsHeadersFor)
 corsSuite :: [(String, IO ())]
 corsSuite =
     [ ("implicit cors allows health reads", testHealthReadAllowed)
+    , ("implicit cors allows readiness reads", testReadinessReadAllowed)
     , ("implicit cors allows optimizer combos reads", testOptimizerCombosReadAllowed)
     , ("implicit cors rejects tenant-scoped query reads", testTenantScopedQueryReadBlocked)
     , ("implicit cors rejects tenant-scoped reads without auth headers", testTenantScopedReadRequiresAuthHeader)
@@ -51,6 +52,10 @@ expectOriginBlocked label req =
 testHealthReadAllowed :: IO ()
 testHealthReadAllowed =
     expectOriginAllowed "GET /health echoes origin" (mkRequest "GET" ["health"] [] [])
+
+testReadinessReadAllowed :: IO ()
+testReadinessReadAllowed =
+    expectOriginAllowed "GET /ready echoes origin" (mkRequest "GET" ["ready"] [] [])
 
 testOptimizerCombosReadAllowed :: IO ()
 testOptimizerCombosReadAllowed =

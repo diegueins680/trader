@@ -478,6 +478,42 @@ export function buildAutoloopScratchBranchCandidates({ localBranches = [], remot
     }));
 }
 
+export function selectMergeVerificationTarget(changedPaths = []) {
+  const paths = uniqueStrings(changedPaths.map((filePath) => sanitizeRelativePath(filePath)));
+  if (paths.length === 0) return null;
+
+  const documentationOnly = (filePath) =>
+    filePath === "README.md" ||
+    filePath === "CHANGELOG.md" ||
+    filePath === "FORMAL_METHODS.md" ||
+    filePath.startsWith("docs/") ||
+    filePath.startsWith("artifacts/") ||
+    filePath.startsWith("research-notes/");
+  const codePaths = paths.filter((filePath) => !documentationOnly(filePath));
+  if (codePaths.length === 0) return "full";
+
+  const isHaskellPath = (filePath) => filePath.startsWith("haskell/") && !filePath.startsWith("haskell/web/");
+  const isWebPath = (filePath) => filePath.startsWith("haskell/web/");
+  const isAutomationPath = (filePath) =>
+    filePath === "test/autoloop.test.mjs" ||
+    filePath === "scripts/codex-logical-correctness-loop.sh" ||
+    filePath === "scripts/restart-local-stack.sh" ||
+    filePath.startsWith("scripts/autoloop") ||
+    filePath.startsWith("scripts/install-autoloop");
+
+  const hasHaskell = codePaths.some(isHaskellPath);
+  const hasWeb = codePaths.some(isWebPath);
+  const hasAutomation = codePaths.some(isAutomationPath);
+  const hasUnknown = codePaths.some(
+    (filePath) => !isHaskellPath(filePath) && !isWebPath(filePath) && !isAutomationPath(filePath),
+  );
+
+  if (hasHaskell && !hasWeb && !hasAutomation && !hasUnknown) return null;
+  if (hasWeb && !hasHaskell && !hasAutomation && !hasUnknown) return "web";
+  if (hasAutomation && !hasHaskell && !hasWeb && !hasUnknown) return "automation";
+  return "full";
+}
+
 export function prepareShellCommand(command) {
   const normalized = String(command ?? "").trim();
   const needsGhcup =

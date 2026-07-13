@@ -36,6 +36,28 @@ def add_features(df):
     return df
 
 
+def expanding_past_zscore(values, min_periods=20):
+    """Z-score each value using only finite observations strictly before it."""
+    values = np.asarray(values, dtype=float)
+    out = np.full(values.shape, np.nan, dtype=float)
+    count = 0
+    total = 0.0
+    total_sq = 0.0
+    for i, value in enumerate(values):
+        if not np.isfinite(value):
+            continue
+        if count >= min_periods:
+            mean = total / count
+            variance = max(0.0, total_sq / count - mean * mean)
+            sd = np.sqrt(variance)
+            if sd > 1e-12:
+                out[i] = (value - mean) / sd
+        count += 1
+        total += value
+        total_sq += value * value
+    return out
+
+
 def main():
     syms = sys.argv[1:] or ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
     interval = "1h"
@@ -65,10 +87,10 @@ def main():
     for sym, df in panel.items():
         f = df["funding"].to_numpy(float)
         b = df["basis"].to_numpy(float)
-        # standardize within symbol; signal = +basis - funding (per the IC signs)
-        def z(x):
-            return (x - np.nanmean(x)) / (np.nanstd(x) + 1e-12)
-        df["xs_score"] = z(b) - z(f)
+        # Standardize within symbol using only observations available before
+        # each bar. Full-history mean/std would leak future distribution shifts
+        # into the historical cross-sectional ranking.
+        df["xs_score"] = expanding_past_zscore(b) - expanding_past_zscore(f)
     xs = H.cross_sectional(panel, "xs_score")
     if len(xs):
         H.summarize(xs["net"], ppy, "cross-sectional", n_trials=n_trials)

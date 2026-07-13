@@ -28,7 +28,7 @@ import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
 import { fmtPct } from "../lib/format";
 import { PLATFORM_DEFAULT_BARS, PLATFORM_DEFAULT_SYMBOL } from "./constants";
-import { preferredExchangePlatform } from "./contracts";
+import { METHOD_IDS, preferredExchangePlatform } from "./contracts";
 import { METHOD_TIPS } from "./methodMeta";
 import {
   BINANCE_SYMBOL_PATTERN,
@@ -2035,6 +2035,118 @@ export type TopCombosMeta = {
   dedupedCount: number | null;
 };
 
+export type PreparedTopComboRow = {
+  id: number;
+  originalIndex: number;
+  record: Record<string, unknown>;
+  params: Record<string, unknown>;
+};
+
+function isUnknownRecord(raw: unknown): raw is Record<string, unknown> {
+  return raw !== null && typeof raw === "object" && !Array.isArray(raw);
+}
+
+function stableJsonValue(raw: unknown, ancestors = new Set<object>()): string {
+  if (raw === null) return "null";
+  if (typeof raw === "string") return JSON.stringify(raw);
+  if (typeof raw === "number") return Number.isFinite(raw) ? String(raw) : "null";
+  if (typeof raw === "boolean") return raw ? "true" : "false";
+  if (typeof raw !== "object") return "null";
+  if (ancestors.has(raw)) return '"[Circular]"';
+  ancestors.add(raw);
+  const encoded = Array.isArray(raw)
+    ? `[${raw.map((value) => stableJsonValue(value, ancestors)).join(",")}]`
+    : isUnknownRecord(raw)
+      ? `{${Object.keys(raw)
+          .sort()
+          .map((key) => `${JSON.stringify(key)}:${stableJsonValue(raw[key], ancestors)}`)
+          .join(",")}}`
+      : "null";
+  ancestors.delete(raw);
+  return encoded;
+}
+
+function stablePositiveHash(raw: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash ^= raw.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) || 1;
+}
+
+function usableTopComboRow(raw: unknown): { record: Record<string, unknown>; params: Record<string, unknown> } | null {
+  if (!isUnknownRecord(raw) || !isUnknownRecord(raw.params)) return null;
+  const params = raw.params;
+  const method = typeof params.method === "string" ? params.method : "";
+  const interval = typeof params.interval === "string" ? params.interval.trim() : "";
+  const bars = readExactSafeInteger(params.bars);
+  const finalEquity = raw.finalEquity;
+  if (!METHOD_IDS.some((candidate) => candidate === method)) return null;
+  if (!interval || bars == null || bars < 0) return null;
+  if (typeof finalEquity !== "number" || !Number.isFinite(finalEquity)) return null;
+  return { record: raw, params };
+}
+
+/**
+ * Reject rows that would sanitize to an invented default combo, then assign a
+ * deterministic numeric identity. A unique positive rank remains the visible
+ * identity; duplicate or missing ranks use a stable content hash instead.
+ */
+export function prepareTopComboRows(rawRows: unknown[]): PreparedTopComboRow[] {
+  const usable = rawRows.flatMap((raw, originalIndex) => {
+    const row = usableTopComboRow(raw);
+    return row ? [{ ...row, originalIndex }] : [];
+  });
+  const rankCounts = new Map<number, number>();
+  for (const { record } of usable) {
+    const rank = readExactSafeInteger(record.rank);
+    if (rank != null && rank >= 1) rankCounts.set(rank, (rankCounts.get(rank) ?? 0) + 1);
+  }
+
+  const usedIds = new Set<number>();
+  return usable.map(({ record, params, originalIndex }) => {
+    const rank = readExactSafeInteger(record.rank);
+    if (rank != null && rank >= 1 && rankCounts.get(rank) === 1 && !usedIds.has(rank)) {
+      usedIds.add(rank);
+      return { id: rank, originalIndex, record, params };
+    }
+
+    const identitySeed = stableJsonValue({
+      createdAtMs: record.createdAtMs ?? null,
+      objective: record.objective ?? null,
+      source: record.source ?? null,
+      openThreshold: record.openThreshold ?? null,
+      closeThreshold: record.closeThreshold ?? null,
+      params,
+    });
+    let suffix = 0;
+    let id = stablePositiveHash(identitySeed);
+    while (usedIds.has(id)) {
+      suffix += 1;
+      id = stablePositiveHash(`${identitySeed}#${suffix}`);
+    }
+    usedIds.add(id);
+    return { id, originalIndex, record, params };
+  });
+}
+
+function trustedTopComboFreshnessMs(raw: unknown, nowMs: number): number {
+  const value = readExactSafeInteger(raw);
+  return value != null && value >= 0 && value <= nowMs ? value : 0;
+}
+
+/** Choose between two available fallbacks without letting a future timestamp win. */
+export function selectTopCombosFallbackSource(
+  repoGeneratedAtMs: unknown,
+  cacheGeneratedAtMs: unknown,
+  nowMs = Date.now(),
+): "repo" | "cache" {
+  const repoMs = trustedTopComboFreshnessMs(repoGeneratedAtMs, nowMs);
+  const cacheMs = trustedTopComboFreshnessMs(cacheGeneratedAtMs, nowMs);
+  return cacheMs > repoMs ? "cache" : "repo";
+}
+
 export type ComboOrder = "annualized-equity" | "rank" | "date-desc" | "date-asc";
 
 type OptimizerRunFormTextKey = {
@@ -3014,7 +3126,6 @@ export const CUSTOM_SYMBOL_VALUE = "__custom__";
 export const TOP_COMBOS_POLL_MS = 30_000;
 export const TOP_COMBOS_DISPLAY_DEFAULT = 5;
 export const TOP_COMBOS_DISPLAY_MIN = 1;
-export const TOP_COMBOS_BOT_TARGET = 50;
 export const MIN_LOOKBACK_BARS = 2;
 export const MIN_BACKTEST_BARS = 2;
 export const MIN_BACKTEST_RATIO = 0.01;

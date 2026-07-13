@@ -6,6 +6,7 @@ module Trader.NeuralGovernor (
     NeuralGovernorFeatures (..),
     NeuralGovernorMode (..),
     NeuralGovernorPendingEntry (..),
+    NeuralGovernorRolloutMode (..),
     NeuralGovernorState (..),
     defaultNeuralGovernorConfig,
     initNeuralGovernorState,
@@ -15,9 +16,12 @@ module Trader.NeuralGovernor (
     neuralGovernorHoldReason,
     neuralGovernorObserveTrade,
     neuralGovernorOpenBlockReason,
+    neuralGovernorCounterfactualAdvantage,
     neuralGovernorReward,
+    neuralGovernorRolloutModeCode,
     neuralGovernorSizingMultiplier,
     neuralGovernorTextFeature,
+    parseNeuralGovernorRolloutMode,
 ) where
 
 import Data.Aeson (
@@ -32,15 +36,27 @@ import Data.Aeson (
  )
 import Data.Char (ord, toLower)
 import Data.List (foldl')
+import Data.Maybe (isJust, isNothing)
 import System.Random (mkStdGen, randomRs)
 
 data NeuralGovernorMode
     = NeuralGovernorSizing
     deriving (Eq, Show)
 
+{- | Controls when a trained policy is allowed to affect live orders.
+Observe only trains the model, shadow also scores counterfactual decisions,
+and enforce applies the policy after the promotion gates pass.
+-}
+data NeuralGovernorRolloutMode
+    = NeuralGovernorObserve
+    | NeuralGovernorShadow
+    | NeuralGovernorEnforce
+    deriving (Eq, Show)
+
 data NeuralGovernorConfig = NeuralGovernorConfig
     { ngcEnabled :: !Bool
     , ngcMode :: !NeuralGovernorMode
+    , ngcRolloutMode :: !NeuralGovernorRolloutMode
     , ngcHiddenSize :: !Int
     , ngcLearningRate :: !Double
     , ngcL2 :: !Double
@@ -54,6 +70,10 @@ data NeuralGovernorConfig = NeuralGovernorConfig
     , ngcMaxMultiplier :: !Double
     , ngcInfluence :: !Double
     , ngcSeed :: !Int
+    , ngcPromotionMinTrades :: !Int
+    , ngcPromotionMinAdvantage :: !Double
+    , ngcRollbackMinTrades :: !Int
+    , ngcRollbackAdvantageFloor :: !Double
     }
     deriving (Eq, Show)
 
@@ -90,14 +110,26 @@ data NeuralGovernorModel = NeuralGovernorModel
 data NeuralGovernorState = NeuralGovernorState
     { ngsModel :: !NeuralGovernorModel
     , ngsLastReward :: !(Maybe Double)
+    , ngsEvaluationTrades :: !Int
+    , ngsBaselineReturn :: !Double
+    , ngsCounterfactualReturn :: !Double
+    , ngsPromotedAtEvaluation :: !(Maybe Int)
+    , ngsPromotionAdvantage :: !Double
+    , ngsRolledBack :: !Bool
     }
     deriving (Eq, Show)
 
 data NeuralGovernorDecision = NeuralGovernorDecision
     { ngdEnabled :: !Bool
     , ngdMode :: !NeuralGovernorMode
+    , ngdRolloutMode :: !NeuralGovernorRolloutMode
     , ngdReady :: !Bool
+    , ngdEnforced :: !Bool
+    , ngdPromoted :: !Bool
+    , ngdRolledBack :: !Bool
     , ngdExamples :: !Int
+    , ngdEvaluationTrades :: !Int
+    , ngdCounterfactualAdvantage :: !Double
     , ngdScore :: !Double
     , ngdMultiplier :: !Double
     , ngdOpenBlockReason :: !(Maybe String)
@@ -118,6 +150,7 @@ defaultNeuralGovernorConfig =
     NeuralGovernorConfig
         { ngcEnabled = True
         , ngcMode = NeuralGovernorSizing
+        , ngcRolloutMode = NeuralGovernorShadow
         , ngcHiddenSize = 12
         , ngcLearningRate = 0.02
         , ngcL2 = 1e-4
@@ -131,6 +164,10 @@ defaultNeuralGovernorConfig =
         , ngcMaxMultiplier = 1.15
         , ngcInfluence = 5
         , ngcSeed = 1337
+        , ngcPromotionMinTrades = 30
+        , ngcPromotionMinAdvantage = 0.01
+        , ngcRollbackMinTrades = 10
+        , ngcRollbackAdvantageFloor = -0.02
         }
 
 initNeuralGovernorState :: NeuralGovernorConfig -> NeuralGovernorState
@@ -139,6 +176,12 @@ initNeuralGovernorState cfg0 =
      in NeuralGovernorState
             { ngsModel = initModel cfg neuralGovernorFeatureCount
             , ngsLastReward = Nothing
+            , ngsEvaluationTrades = 0
+            , ngsBaselineReturn = 0
+            , ngsCounterfactualReturn = 0
+            , ngsPromotedAtEvaluation = Nothing
+            , ngsPromotionAdvantage = 0
+            , ngsRolledBack = False
             }
 
 neuralGovernorEnsureState :: NeuralGovernorConfig -> NeuralGovernorState -> NeuralGovernorState
@@ -165,23 +208,37 @@ neuralGovernorDecide cfg0 state0 features =
         ready = ngcEnabled cfg && examples >= ngcMinTrades cfg
         multiplierRaw = 1 + ngcInfluence cfg * score
         multiplier = clamp (ngcMinMultiplier cfg) (ngcMaxMultiplier cfg) multiplierRaw
+        evaluatesPolicy = ngcRolloutMode cfg /= NeuralGovernorObserve
         openBlockReason =
-            if ready && score <= ngcOpenScoreFloor cfg
+            if ready && evaluatesPolicy && score <= ngcOpenScoreFloor cfg
                 then Just neuralGovernorAvoidOpenReason
                 else Nothing
         holdReason =
-            if ready && score >= ngcHoldScoreFloor cfg
+            if ready && evaluatesPolicy && score >= ngcHoldScoreFloor cfg
                 then Just neuralGovernorPreferHoldReason
                 else Nothing
+        promotionEligible = neuralGovernorPromotionEligible cfg state
+        promoted = isJust (ngsPromotedAtEvaluation state) || promotionEligible
+        enforced =
+            ready
+                && ngcRolloutMode cfg == NeuralGovernorEnforce
+                && promoted
+                && not (ngsRolledBack state)
+        reason
+            | not (ngcEnabled cfg) = "NEURAL_GOVERNOR_DISABLED"
+            | ngfMarketGovernorBlocked features = "NEURAL_GOVERNOR_HARD_GATE"
+            | not ready = "NEURAL_GOVERNOR_WARMUP"
+            | ngsRolledBack state = "NEURAL_GOVERNOR_ROLLED_BACK"
+            | ngcRolloutMode cfg == NeuralGovernorObserve = "NEURAL_GOVERNOR_OBSERVE"
+            | ngcRolloutMode cfg == NeuralGovernorShadow = "NEURAL_GOVERNOR_SHADOW"
+            | not promoted = "NEURAL_GOVERNOR_AWAITING_PROMOTION"
+            | otherwise = "NEURAL_GOVERNOR_ENFORCE"
      in if not (ngcEnabled cfg)
-            then mkDecision cfg False examples score 1 Nothing Nothing "NEURAL_GOVERNOR_DISABLED" []
+            then mkDecision cfg state False False False examples score 1 Nothing Nothing reason []
             else
-                if ngfMarketGovernorBlocked features
-                    then mkDecision cfg False examples score 1 Nothing Nothing "NEURAL_GOVERNOR_HARD_GATE" []
-                    else
-                        if not ready
-                            then mkDecision cfg False examples score 1 Nothing Nothing "NEURAL_GOVERNOR_WARMUP" []
-                            else mkDecision cfg True examples score multiplier openBlockReason holdReason "NEURAL_GOVERNOR_SIZING" []
+                if ngfMarketGovernorBlocked features || not ready
+                    then mkDecision cfg state False False promoted examples score 1 Nothing Nothing reason []
+                    else mkDecision cfg state True enforced promoted examples score multiplier openBlockReason holdReason reason []
 
 neuralGovernorObserveTrade ::
     NeuralGovernorConfig ->
@@ -195,10 +252,56 @@ neuralGovernorObserveTrade cfg0 state0 pending realizedReturn =
      in case neuralGovernorReward cfg realizedReturn of
             Nothing -> state
             Just reward ->
-                state
-                    { ngsModel = trainOne cfg (ngsModel state) (featureVector (ngpeFeatures pending)) reward
-                    , ngsLastReward = Just reward
-                    }
+                let decision = ngpeDecision pending
+                    evaluatesPolicy =
+                        ngdReady decision
+                            && ngdRolloutMode decision /= NeuralGovernorObserve
+                    actualReturn = finiteOr 0 realizedReturn
+                    candidateMultiplier = clamp 0 10 (ngdMultiplier decision)
+                    baselineReturn
+                        | ngdEnforced decision && candidateMultiplier > 1e-12 = actualReturn / candidateMultiplier
+                        | otherwise = actualReturn
+                    counterfactualReturn
+                        | not evaluatesPolicy = baselineReturn
+                        | ngdEnforced decision = actualReturn
+                        | isJust (ngdOpenBlockReason decision) = 0
+                        | otherwise = baselineReturn * candidateMultiplier
+                    evaluationIncrement = if evaluatesPolicy then 1 else 0
+                    evaluationTrades = ngsEvaluationTrades state + evaluationIncrement
+                    baselineTotal = ngsBaselineReturn state + if evaluatesPolicy then baselineReturn else 0
+                    counterfactualTotal = ngsCounterfactualReturn state + if evaluatesPolicy then counterfactualReturn else 0
+                    advantage = counterfactualTotal - baselineTotal
+                    newlyPromoted =
+                        ngcRolloutMode cfg == NeuralGovernorEnforce
+                            && not (ngsRolledBack state)
+                            && isNothing (ngsPromotedAtEvaluation state)
+                            && evaluationTrades >= ngcPromotionMinTrades cfg
+                            && advantage >= ngcPromotionMinAdvantage cfg
+                    promotedAt =
+                        if newlyPromoted
+                            then Just evaluationTrades
+                            else ngsPromotedAtEvaluation state
+                    promotionAdvantage =
+                        if newlyPromoted
+                            then advantage
+                            else ngsPromotionAdvantage state
+                    rollbackEligible =
+                        case promotedAt of
+                            Nothing -> False
+                            Just promotedAtEvaluation ->
+                                evaluationTrades - promotedAtEvaluation >= ngcRollbackMinTrades cfg
+                                    && advantage - promotionAdvantage <= ngcRollbackAdvantageFloor cfg
+                    rolledBack = ngsRolledBack state || rollbackEligible
+                 in state
+                        { ngsModel = trainOne cfg (ngsModel state) (featureVector (ngpeFeatures pending)) reward
+                        , ngsLastReward = Just reward
+                        , ngsEvaluationTrades = evaluationTrades
+                        , ngsBaselineReturn = baselineTotal
+                        , ngsCounterfactualReturn = counterfactualTotal
+                        , ngsPromotedAtEvaluation = promotedAt
+                        , ngsPromotionAdvantage = promotionAdvantage
+                        , ngsRolledBack = rolledBack
+                        }
 
 neuralGovernorReward :: NeuralGovernorConfig -> Double -> Maybe Double
 neuralGovernorReward cfg0 realizedReturn
@@ -214,21 +317,31 @@ neuralGovernorReward cfg0 realizedReturn
 
 neuralGovernorSizingMultiplier :: NeuralGovernorDecision -> Double
 neuralGovernorSizingMultiplier decision =
-    if ngdEnabled decision && ngdReady decision
+    if ngdEnabled decision && ngdReady decision && ngdEnforced decision
         then clamp 0 10 (ngdMultiplier decision)
         else 1
 
 neuralGovernorOpenBlockReason :: NeuralGovernorDecision -> Maybe String
 neuralGovernorOpenBlockReason decision =
-    if ngdEnabled decision && ngdReady decision
+    if ngdEnabled decision && ngdReady decision && ngdEnforced decision
         then ngdOpenBlockReason decision
         else Nothing
 
 neuralGovernorHoldReason :: NeuralGovernorDecision -> Maybe String
 neuralGovernorHoldReason decision =
-    if ngdEnabled decision && ngdReady decision
+    if ngdEnabled decision && ngdReady decision && ngdEnforced decision
         then ngdHoldReason decision
         else Nothing
+
+neuralGovernorCounterfactualAdvantage :: NeuralGovernorState -> Double
+neuralGovernorCounterfactualAdvantage state =
+    finiteOr 0 (ngsCounterfactualReturn state - ngsBaselineReturn state)
+
+neuralGovernorPromotionEligible :: NeuralGovernorConfig -> NeuralGovernorState -> Bool
+neuralGovernorPromotionEligible cfg state =
+    ngsEvaluationTrades state >= ngcPromotionMinTrades cfg
+        && neuralGovernorCounterfactualAdvantage state >= ngcPromotionMinAdvantage cfg
+        && not (ngsRolledBack state)
 
 neuralGovernorFeatureCount :: Int
 neuralGovernorFeatureCount =
@@ -297,6 +410,9 @@ neuralGovernorPreferHoldReason = "NEURAL_GOVERNOR_PREFER_HOLD"
 
 mkDecision ::
     NeuralGovernorConfig ->
+    NeuralGovernorState ->
+    Bool ->
+    Bool ->
     Bool ->
     Int ->
     Double ->
@@ -306,12 +422,18 @@ mkDecision ::
     String ->
     [String] ->
     NeuralGovernorDecision
-mkDecision cfg ready examples score multiplier openBlockReason holdReason reason warnings =
+mkDecision cfg state ready enforced promoted examples score multiplier openBlockReason holdReason reason warnings =
     NeuralGovernorDecision
         { ngdEnabled = ngcEnabled cfg
         , ngdMode = ngcMode cfg
+        , ngdRolloutMode = ngcRolloutMode cfg
         , ngdReady = ready
+        , ngdEnforced = enforced
+        , ngdPromoted = promoted
+        , ngdRolledBack = ngsRolledBack state
         , ngdExamples = max 0 examples
+        , ngdEvaluationTrades = max 0 (ngsEvaluationTrades state)
+        , ngdCounterfactualAdvantage = neuralGovernorCounterfactualAdvantage state
         , ngdScore = finiteOr 0 score
         , ngdMultiplier = clamp 0 10 multiplier
         , ngdOpenBlockReason = openBlockReason
@@ -340,6 +462,10 @@ sanitizeConfig cfg =
             , ngcMinMultiplier = minMult
             , ngcMaxMultiplier = maxMult
             , ngcInfluence = finiteNonNegative 5 (ngcInfluence cfg)
+            , ngcPromotionMinTrades = max 0 (ngcPromotionMinTrades cfg)
+            , ngcPromotionMinAdvantage = finiteOr 0.01 (ngcPromotionMinAdvantage cfg)
+            , ngcRollbackMinTrades = max 1 (ngcRollbackMinTrades cfg)
+            , ngcRollbackAdvantageFloor = min 0 (finiteOr (-0.02) (ngcRollbackAdvantageFloor cfg))
             }
 
 initModel :: NeuralGovernorConfig -> Int -> NeuralGovernorModel
@@ -474,17 +600,43 @@ modeCode mode =
 parseMode :: String -> NeuralGovernorMode
 parseMode _ = NeuralGovernorSizing
 
+neuralGovernorRolloutModeCode :: NeuralGovernorRolloutMode -> String
+neuralGovernorRolloutModeCode rolloutMode =
+    case rolloutMode of
+        NeuralGovernorObserve -> "observe"
+        NeuralGovernorShadow -> "shadow"
+        NeuralGovernorEnforce -> "enforce"
+
+parseNeuralGovernorRolloutMode :: String -> Maybe NeuralGovernorRolloutMode
+parseNeuralGovernorRolloutMode raw =
+    case map toLower raw of
+        "observe" -> Just NeuralGovernorObserve
+        "shadow" -> Just NeuralGovernorShadow
+        "enforce" -> Just NeuralGovernorEnforce
+        _ -> Nothing
+
 instance ToJSON NeuralGovernorMode where
     toJSON = toJSON . modeCode
 
 instance FromJSON NeuralGovernorMode where
     parseJSON value = parseMode <$> parseJSON value
 
+instance ToJSON NeuralGovernorRolloutMode where
+    toJSON = toJSON . neuralGovernorRolloutModeCode
+
+instance FromJSON NeuralGovernorRolloutMode where
+    parseJSON value = do
+        raw <- parseJSON value
+        case parseNeuralGovernorRolloutMode raw of
+            Just rolloutMode -> pure rolloutMode
+            Nothing -> fail "neural governor rollout mode must be observe, shadow, or enforce"
+
 instance ToJSON NeuralGovernorConfig where
     toJSON cfg =
         object
             [ "enabled" .= ngcEnabled cfg
             , "mode" .= ngcMode cfg
+            , "rolloutMode" .= ngcRolloutMode cfg
             , "hiddenSize" .= ngcHiddenSize cfg
             , "learningRate" .= ngcLearningRate cfg
             , "l2" .= ngcL2 cfg
@@ -498,6 +650,10 @@ instance ToJSON NeuralGovernorConfig where
             , "maxMultiplier" .= ngcMaxMultiplier cfg
             , "influence" .= ngcInfluence cfg
             , "seed" .= ngcSeed cfg
+            , "promotionMinTrades" .= ngcPromotionMinTrades cfg
+            , "promotionMinAdvantage" .= ngcPromotionMinAdvantage cfg
+            , "rollbackMinTrades" .= ngcRollbackMinTrades cfg
+            , "rollbackAdvantageFloor" .= ngcRollbackAdvantageFloor cfg
             ]
 
 instance FromJSON NeuralGovernorConfig where
@@ -507,6 +663,7 @@ instance FromJSON NeuralGovernorConfig where
             NeuralGovernorConfig
                 <$> o .:? "enabled" .!= ngcEnabled defaults
                 <*> o .:? "mode" .!= ngcMode defaults
+                <*> o .:? "rolloutMode" .!= ngcRolloutMode defaults
                 <*> o .:? "hiddenSize" .!= ngcHiddenSize defaults
                 <*> o .:? "learningRate" .!= ngcLearningRate defaults
                 <*> o .:? "l2" .!= ngcL2 defaults
@@ -520,6 +677,10 @@ instance FromJSON NeuralGovernorConfig where
                 <*> o .:? "maxMultiplier" .!= ngcMaxMultiplier defaults
                 <*> o .:? "influence" .!= ngcInfluence defaults
                 <*> o .:? "seed" .!= ngcSeed defaults
+                <*> o .:? "promotionMinTrades" .!= ngcPromotionMinTrades defaults
+                <*> o .:? "promotionMinAdvantage" .!= ngcPromotionMinAdvantage defaults
+                <*> o .:? "rollbackMinTrades" .!= ngcRollbackMinTrades defaults
+                <*> o .:? "rollbackAdvantageFloor" .!= ngcRollbackAdvantageFloor defaults
 
 instance ToJSON NeuralGovernorFeatures where
     toJSON f =
@@ -590,6 +751,12 @@ instance ToJSON NeuralGovernorState where
         object
             [ "model" .= ngsModel state
             , "lastReward" .= ngsLastReward state
+            , "evaluationTrades" .= ngsEvaluationTrades state
+            , "baselineReturn" .= ngsBaselineReturn state
+            , "counterfactualReturn" .= ngsCounterfactualReturn state
+            , "promotedAtEvaluation" .= ngsPromotedAtEvaluation state
+            , "promotionAdvantage" .= ngsPromotionAdvantage state
+            , "rolledBack" .= ngsRolledBack state
             ]
 
 instance FromJSON NeuralGovernorState where
@@ -598,14 +765,26 @@ instance FromJSON NeuralGovernorState where
             NeuralGovernorState
                 <$> o .: "model"
                 <*> o .:? "lastReward"
+                <*> o .:? "evaluationTrades" .!= 0
+                <*> o .:? "baselineReturn" .!= 0
+                <*> o .:? "counterfactualReturn" .!= 0
+                <*> o .:? "promotedAtEvaluation"
+                <*> o .:? "promotionAdvantage" .!= 0
+                <*> o .:? "rolledBack" .!= False
 
 instance ToJSON NeuralGovernorDecision where
     toJSON d =
         object
             [ "enabled" .= ngdEnabled d
             , "mode" .= ngdMode d
+            , "rolloutMode" .= ngdRolloutMode d
             , "ready" .= ngdReady d
+            , "enforced" .= ngdEnforced d
+            , "promoted" .= ngdPromoted d
+            , "rolledBack" .= ngdRolledBack d
             , "examples" .= ngdExamples d
+            , "evaluationTrades" .= ngdEvaluationTrades d
+            , "counterfactualAdvantage" .= ngdCounterfactualAdvantage d
             , "score" .= ngdScore d
             , "multiplier" .= ngdMultiplier d
             , "openBlockReason" .= ngdOpenBlockReason d
@@ -620,8 +799,14 @@ instance FromJSON NeuralGovernorDecision where
             NeuralGovernorDecision
                 <$> o .: "enabled"
                 <*> o .: "mode"
+                <*> o .:? "rolloutMode" .!= NeuralGovernorShadow
                 <*> o .: "ready"
+                <*> o .:? "enforced" .!= False
+                <*> o .:? "promoted" .!= False
+                <*> o .:? "rolledBack" .!= False
                 <*> o .: "examples"
+                <*> o .:? "evaluationTrades" .!= 0
+                <*> o .:? "counterfactualAdvantage" .!= 0
                 <*> o .: "score"
                 <*> o .: "multiplier"
                 <*> o .:? "openBlockReason"

@@ -15,6 +15,7 @@ import { fmtRatio } from "../lib/format";
 import type { Method, OptimizerSource, StateSyncImportResponse } from "../lib/types";
 import { InfoList, InfoPopover } from "./InfoPopover";
 import { ComboRoiCorrelationCharts } from "./ComboRoiCorrelationCharts";
+import { ComboLiveStartControls } from "./ComboLiveStartControls";
 import type { OptimizationCombo } from "./TopCombosChart";
 import { TopCombosChart } from "./TopCombosChart";
 
@@ -476,37 +477,19 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           No combos match the current filters.
         </div>
       ) : null}
-      <div className="actions" style={{ marginBottom: 8 }}>
-        <button className="btnSmall" type="button" onClick={refreshTopCombos} disabled={topCombosLoading}>
-          {topCombosLoading ? "Refreshing…" : "Refresh combos now"}
-        </button>
-        <button
-          className="btnSmall"
-          type="button"
-          onClick={() => {
-            if (topComboDisplay) handleComboApply(topComboDisplay);
-          }}
-          disabled={!topComboDisplay}
-        >
-          Apply top combo now
-        </button>
-        {selectedCombo ? (
-          <button
-            className="btnSmall btnPrimary"
-            type="button"
-            onClick={() => handleComboStart(selectedCombo)}
-            disabled={comboStartBlocked}
-            title={comboStartBlockedReason ?? undefined}
-          >
-            {comboStartPending ? "Starting…" : selectedComboStartLabel}
-          </button>
-        ) : null}
-      </div>
-      {selectedCombo && comboStartBlockedReason ? (
-        <div className="hint" style={{ marginBottom: 8, color: "rgba(239, 68, 68, 0.85)" }}>
-          Start bot with selected combo is disabled: {comboStartBlockedReason}
-        </div>
-      ) : null}
+      <ComboLiveStartControls
+        apiOk={apiOk}
+        topCombosLoading={topCombosLoading}
+        topComboDisplay={topComboDisplay}
+        selectedCombo={selectedCombo}
+        selectedComboStartLabel={selectedComboStartLabel}
+        comboStartBlocked={comboStartBlocked}
+        comboStartBlockedReason={comboStartBlockedReason}
+        comboStartPending={comboStartPending}
+        refreshTopCombos={refreshTopCombos}
+        handleComboApply={handleComboApply}
+        handleComboStart={handleComboStart}
+      />
       <div className="combosScroll">
         <details className="details">
           <summary>Run optimizer (create combos)</summary>
@@ -2555,10 +2538,10 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           />
         </div>
         <div className="hint">
-          Select a combo to preview. Click Apply to load params into the form and auto-start a live bot for that symbol (Binance only). bars=0 uses all CSV data or the exchange default (500).
+          Select a combo to preview. Click Apply to load params into the form, or use Start bot with selected combo for an explicit Binance live-bot launch. bars=0 uses all CSV data or the exchange default (500).
         </div>
         <div className="hint">
-          Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.
+          Top combos auto-apply when available (manual overrides respected), but browser-applied combos do not auto-start live bots.
         </div>
       </div>
     </div>

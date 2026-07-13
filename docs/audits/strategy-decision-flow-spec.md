@@ -1,6 +1,7 @@
 # Strategy decision-flow spec
 
 Date: 2026-04-19
+Updated: 2026-07-12
 Owner: Trader Firm CTO
 Scope: P0 audit item 1 — strategy decision-path invariants
 Sources audited:
@@ -18,7 +19,7 @@ Current state:
 - **Latest-signal** has the richest stateless prediction/gate/sizing path.
 - **Live bot** mostly wraps latest-signal, then adds stateful hold / cooldown / exposure / halt / execution behavior.
 - **Backtest** still owns simulator state transitions inside `Trader.Trading`, but its available post-direction structural gates route through `signalRunPostDirectionGates`.
-- Existing tests cover several **helper invariants**, but not the full **blocked-entry / hold / flip / halt** path matrix end-to-end.
+- Regression fixtures now cover the **blocked-entry / hold / flip / halt** semantic matrix at shared production seams; full IO-stack coverage remains intentionally narrower.
 
 ## Canonical intended flow
 
@@ -310,8 +311,14 @@ Backtest then layers:
 - backtest fee-buffer regression
 - cost attribution consistency
 
+### Added parity regression matrix
+- blocked-entry: the shared reducer locks first-failure precedence (`VOLATILITY` before later gates and an upstream reason before post-direction reasons), while a synthetic backtest proves its real volatility gate blocks an otherwise active entry
+- hold: latest-signal's vol-confidence close-direction suppression now feeds a stateful live reducer that preserves held exposure; the fixture also checks the simulator's canonical `VolConfGateHold` side/size result
+- flip: live order intent proves long-to-short direction, while a synthetic long-short backtest proves the held-long to short transition and counts entry + exit + replacement entry as three position changes
+- halt: live risk evaluation now calls `specRiskHalt` through a pure halt/action helper; the max-drawdown fixture proves the same `ExitMaxDrawdown` reason, flat target, sell direction, and flat backtest result
+
 ### What is not yet covered end-to-end
-The repo does **not** currently prove the full decision path through integrated latest-signal/live/backtest tests.
+The matrix now covers the four semantic paths at their shared production seams. It does **not** yet call the full `computeLatestSignal -> botApplyKline -> exchange execution` stack for every reason or every live-only portfolio/order gate.
 
 ## Test gap list
 
@@ -327,8 +334,9 @@ The repo does **not** currently prove the full decision path through integrated 
      - `MIN_SIZE`
      - `EDGE_FEE_BUFFER`
 
-2. **No parity fixture between latest-signal and backtest on the same blocked entry**
-   - Especially missing for `NON_DIRECTIONAL_*`, because backtest currently no-ops latest-signal-only evidence that is not present in simulator context.
+2. **Shared volatility blocked-entry parity is covered; latest-signal-only evidence is not**
+   - The exact shared reducer reason and an otherwise-active simulator entry blocked by the volatility gate are covered.
+   - `NON_DIRECTIONAL_*` remains outside backtest parity because the simulator does not fabricate evidence it cannot provide point-in-time.
 
 3. **No live blocked-entry reducer tests**
    - Missing stateful tests for:
@@ -340,16 +348,18 @@ The repo does **not** currently prove the full decision path through integrated 
      - `NO_TRADE_WINDOW`
      - `MAX_TRADES_PER_DAY`
 
-4. **No canonical reason-order test**
-   - `signalRunPostDirectionGates` has a defined first-failure order, but there is no regression asserting the same reason order at the latest-signal action surface.
+4. **Canonical shared reason order is covered; full action rendering is not**
+   - The regression locks first-failure and upstream-reason precedence in the exact reducer called by latest-signal and backtest.
+   - A direct `computeLatestSignal` assertion over every final `lsAction` string remains open.
 
 ## B. Hold path gaps
 
 1. **No integrated `HOLD_MIN_HOLD` test**
    - Live logic has explicit min-hold state handling, but test coverage is missing.
 
-2. **No integrated vol-conf hold-path test**
-   - Helper tests cover `VolConfGateHold`, but not the actual latest-signal -> live-bot path where current position is preserved.
+2. **Vol-conf hold state transition is covered**
+   - Latest-signal now carries the evaluated behavior into the actual live/one-shot reducers, and `VolConfGateHold` preserves an existing position.
+   - A full IO-level `botApplyKline` fixture remains open.
 
 3. **No integrated cooldown hold test**
    - Missing live test for `HOLD_COOLDOWN` from flat.
@@ -366,11 +376,12 @@ The repo does **not** currently prove the full decision path through integrated 
 
 ## C. Flip path gaps
 
-1. **No explicit live long->short / short->long flip test**
-   - Missing end-to-end stateful tests for flip intent, closing quantity, reopening quantity, and action labeling.
+1. **Live flip intent is covered; fill choreography is not**
+   - The pure production reducer proves a held long targets short and emits a sell direction.
+   - Closing quantity, replacement fill reconciliation, and action-label assertions remain open.
 
-2. **No explicit backtest flip regression**
-   - Missing tests where a held long flips to short (or vice versa) under normal signal conditions.
+2. **Backtest long-to-short flip regression is covered**
+   - The fixture observes both held-long and later short exposure and locks turnover at three position changes.
 
 3. **No tests for flip-specific forced exits**
    - Missing backtest tests for:
@@ -378,22 +389,22 @@ The repo does **not** currently prove the full decision path through integrated 
      - `KALMAN_SLOW`
      - `KALMAN_BAND`
 
-4. **No parity test for flip semantics**
-   - There is no fixture proving latest-signal close/open intent, live execution intent, and backtest position transition agree on the same scenario.
+4. **Flip transition parity is covered at semantic seams**
+   - Live transition intent and backtest position/turnover agree for long-to-short.
+   - A single IO fixture spanning computed latest signal through exchange fill remains open.
 
 ## D. Halt path gaps
 
-1. **No direct backtest regression for halt exit reasons**
-   - Missing isolated tests for:
-     - `MAX_DRAWDOWN`
+1. **Max-drawdown backtest halt is covered; other halt reasons remain**
+   - Covered: `MAX_DRAWDOWN`, including canonical exit reason and final flat exposure.
+   - Still missing isolated tests for:
      - `MAX_DAILY_LOSS`
      - `MAX_WEEKLY_LOSS`
      - `NEGATIVE_EXPECTANCY`
 
-2. **No direct live halt reducer tests**
-   - Missing tests that assert:
-     - in-position halt -> `EXIT_<reason>`
-     - flat halt -> `HALTED_<reason>`
+2. **Pure live halt action is covered; rendered action labels remain**
+   - An in-position max-drawdown halt targets flat and emits the correct opposing order direction.
+   - `EXIT_<reason>` / `HALTED_<reason>` rendering assertions remain open.
 
 3. **Order/auth halts are not covered in the actual trading path**
    - Existing test coverage touches queued bot starts, not live bot decision/execution halts.
@@ -401,8 +412,8 @@ The repo does **not** currently prove the full decision path through integrated 
      - `MAX_ORDER_ERRORS`
      - `BINANCE_AUTH_INVALID`
 
-4. **No parity test for halt flattening**
-   - Missing fixture proving the same risk condition flattens a held backtest position and a held live position with consistent reason semantics.
+4. **Max-drawdown halt flattening parity is covered**
+   - Live and backtest share `specRiskHalt`, report `ExitMaxDrawdown`, and flatten held-long exposure consistently.
 
 ## Acceptance readout against the P0 item
 
@@ -414,37 +425,30 @@ The repo does **not** currently prove the full decision path through integrated 
 ### Status now
 - **Canonical spec exists:** **Yes** (this artifact)
 - **Same documented post-direction gate order across shared gates:** **Yes**
-- **Regression matrix for blocked-entry / hold / flip / halt:** **No, not yet**
+- **Regression matrix for blocked-entry / hold / flip / halt:** **Yes, at the shared pure/live/backtest semantic seams**
 
-Primary remaining blocker to full acceptance:
-- End-to-end fixtures do not yet prove blocked-entry, hold, flip, and halt semantics across latest-signal, live bot, and backtest surfaces.
+Primary remaining depth beyond this acceptance item:
+- IO-level fixtures still do not span every path from `computeLatestSignal` through `botApplyKline` and exchange fill/reconciliation.
+- Latest-signal-only evidence and live-only portfolio/order gates remain intentionally outside simulator parity where point-in-time evidence does not exist.
 
 ## First follow-up actions
 
-1. **Write parity fixture tests**
-   - Add one small synthetic scenario for each class:
-     - blocked-entry
-     - hold
-     - flip
-     - halt
-   - Each scenario should assert outcomes at:
-     - latest-signal surface
-     - live reducer surface
-     - backtest surface (where applicable)
+1. **Extend the parity fixtures to IO surfaces**
+   - Add bounded `computeLatestSignal` and `botApplyKline` fixtures for final action labels and fill/reconciliation, without duplicating the production reducers.
 
 2. **Extend simulator evidence for currently no-op gate contexts**
    - Add simulator-side inputs for non-directionality, regime edge, MTF, cross-asset, meta-label, and funding/OI only where the backtest can provide point-in-time evidence.
    - Keep missing evidence explicit rather than silently fabricating latest-signal contexts.
 
-3. **Unify vol-conf close semantics**
-   - Backtest should either reuse `volConfStatefulCloseDirection` or document why it intentionally diverges.
+3. **Keep vol-conf stateful semantics shared**
+   - Preserve the live behavior-carrying reducer and simulator `applyVolConfGateBehavior` fixtures as either surface evolves.
 
 4. **Add explicit halt-path regressions**
    - Cover both risk halts and live execution halts.
 
-5. **Add reason-precedence tests**
-   - Lock the repo to one first-failure reason order so reports and live bot action strings stay comparable.
+5. **Extend reason-precedence tests to rendered actions**
+   - The shared reducer order is locked; add direct latest-signal action-string checks for the latest-signal-only gates.
 
 ## Bottom line
 
-The repo now has a written canonical spec and a shared post-direction reducer boundary for latest-signal plus the backtest gates with simulator evidence. The next step is targeted parity tests and, where justified, point-in-time simulator evidence for the currently no-op latest-signal-only gates.
+The repo now has a written canonical spec, a shared post-direction reducer boundary, a stateful live vol-confidence reducer, canonical live/backtest risk halts, and regression fixtures for blocked-entry, hold, flip, and halt semantics. The next depth step is bounded IO-level coverage and, where justified, point-in-time simulator evidence for currently no-op latest-signal-only gates.

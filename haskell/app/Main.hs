@@ -61,7 +61,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status410, status413, status429, status500, status502, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -75,6 +75,7 @@ import System.Exit (ExitCode (..), die, exitFailure)
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
 import System.IO (Handle, IOMode (ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
+import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 import System.Process (CreateProcess (..), StdStream (CreatePipe), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
 import System.Random (randomIO)
 import System.Timeout (timeout)
@@ -119,6 +120,19 @@ import Trader.App.AutoStartBackoff (
 import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceAuthFailureFromMessage, binanceTradeTestConfirmsAuth, parseBinanceError)
 import Trader.App.Csv (loadCsvPriceSeries)
 import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
+import Trader.App.GracefulShutdown (
+    DrainController,
+    WorkerRegistry,
+    beginDrain,
+    forkSupervisedWorker,
+    isDraining,
+    newDrainController,
+    newWorkerRegistry,
+    runCleanupStepBounded,
+    shouldRejectDuringDrain,
+    stopSupervisedWorkersBounded,
+    stopThreadIdsBounded,
+ )
 import Trader.App.Observability (
     Journal,
     Metrics,
@@ -340,7 +354,12 @@ import Trader.LiveGap (
     liveGapStatsByMethodWithConfig,
     validateLiveGapConfig,
  )
-import Trader.LiveOrderIntent (desiredPositionForSignal, orderDirectionForTransition)
+import Trader.LiveOrderIntent (
+    LiveRiskHaltAction (..),
+    desiredPositionForSignalWithVolConf,
+    liveRiskHaltAction,
+    orderDirectionForTransition,
+ )
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
 import Trader.MarketDataIntegrity (
@@ -373,6 +392,7 @@ import Trader.NeuralGovernor (
     NeuralGovernorDecision (..),
     NeuralGovernorFeatures (..),
     NeuralGovernorPendingEntry (..),
+    NeuralGovernorRolloutMode (..),
     NeuralGovernorState (..),
     defaultNeuralGovernorConfig,
     initNeuralGovernorState,
@@ -381,8 +401,10 @@ import Trader.NeuralGovernor (
     neuralGovernorHoldReason,
     neuralGovernorObserveTrade,
     neuralGovernorOpenBlockReason,
+    neuralGovernorRolloutModeCode,
     neuralGovernorSizingMultiplier,
     neuralGovernorTextFeature,
+    parseNeuralGovernorRolloutMode,
  )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
@@ -547,6 +569,7 @@ import Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
     ExitReason (..),
+    HaltInputs (..),
     IntrabarFill (..),
     OutcomeWeightConfig (..),
     PositionSide (..),
@@ -650,6 +673,7 @@ data PredHistory = PredHistory
 data LatestSignal = LatestSignal
     { lsMethod :: !Method
     , lsVolConfGate :: !VolConfGatePreset
+    , lsVolConfBehavior :: !VolConfGateBehavior
     , lsCurrentPrice :: !Double
     , lsOpenThreshold :: !Double
     , lsCloseThreshold :: !Double
@@ -1107,6 +1131,7 @@ data ApiParams = ApiParams
     , apBotOutcomeWeightLossScale :: Maybe Double
     , apBotOutcomeWeightCap :: Maybe Double
     , apBotNeuralGovernorEnabled :: Maybe Bool
+    , apBotNeuralGovernorRolloutMode :: Maybe String
     , apBotNeuralGovernorHiddenSize :: Maybe Int
     , apBotNeuralGovernorLearningRate :: Maybe Double
     , apBotNeuralGovernorL2 :: Maybe Double
@@ -1119,6 +1144,10 @@ data ApiParams = ApiParams
     , apBotNeuralGovernorMaxMultiplier :: Maybe Double
     , apBotNeuralGovernorInfluence :: Maybe Double
     , apBotNeuralGovernorSeed :: Maybe Int
+    , apBotNeuralGovernorPromotionMinTrades :: Maybe Int
+    , apBotNeuralGovernorPromotionMinAdvantage :: Maybe Double
+    , apBotNeuralGovernorRollbackMinTrades :: Maybe Int
+    , apBotNeuralGovernorRollbackAdvantageFloor :: Maybe Double
     , apBotTrade :: Maybe Bool
     , apBotProtectionOrders :: Maybe Bool
     , apProtectionMinConfidence :: Maybe Double
@@ -6999,10 +7028,18 @@ neuralGovernorStatusJson cfg state decision =
     object
         [ "enabled" .= ngcEnabled cfg
         , "mode" .= ngcMode cfg
+        , "rolloutMode" .= neuralGovernorRolloutModeCode (ngcRolloutMode cfg)
         , "examples" .= ngdExamples decision
         , "ready" .= ngdReady decision
+        , "enforced" .= ngdEnforced decision
+        , "promoted" .= ngdPromoted decision
+        , "rolledBack" .= ngdRolledBack decision
+        , "evaluationTrades" .= ngdEvaluationTrades decision
+        , "counterfactualAdvantage" .= ngdCounterfactualAdvantage decision
         , "score" .= ngdScore decision
         , "multiplier" .= ngdMultiplier decision
+        , "candidateOpenBlockReason" .= ngdOpenBlockReason decision
+        , "candidateHoldReason" .= ngdHoldReason decision
         , "openBlockReason" .= neuralGovernorOpenBlockReason decision
         , "holdReason" .= neuralGovernorHoldReason decision
         , "reason" .= ngdReason decision
@@ -7386,6 +7423,7 @@ defaultBotSettings args =
 
 defaultBotSettingsFromEnv :: Args -> IO BotSettings
 defaultBotSettingsFromEnv args = do
+    tradeEnabledRaw <- lookupEnv "TRADER_BOT_TRADE"
     onlineEpochs <- readBoundedIntEnv "TRADER_BOT_ONLINE_EPOCHS" 0 50 defaultBotOnlineEpochs
     onlineValRatio <- readBoundedDoubleEnv "TRADER_BOT_ONLINE_VAL_RATIO" 0 0.95 defaultBotOnlineValRatio
     onlinePatience <- readBoundedIntEnv "TRADER_BOT_ONLINE_PATIENCE" 0 50 defaultBotOnlinePatience
@@ -7396,8 +7434,19 @@ defaultBotSettingsFromEnv args = do
     outcomeWeightLossScale <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_LOSS_SCALE" 0 1000 (owcLossScale defaultOutcomeWeightConfig)
     outcomeWeightCap <- readBoundedDoubleEnv "TRADER_BOT_OUTCOME_WEIGHT_CAP" 1 100 (owcCap defaultOutcomeWeightConfig)
     neuralEnabledRaw <- lookupEnv "TRADER_BOT_NEURAL_GOVERNOR_ENABLED"
+    neuralRolloutRaw <- lookupEnv "TRADER_BOT_NEURAL_GOVERNOR_ROLLOUT_MODE"
     let neuralDefaults = defaultNeuralGovernorConfig
         neuralEnabled = readEnvBool neuralEnabledRaw (ngcEnabled neuralDefaults)
+        -- When present, this is a deployment-level kill switch.  Invalid
+        -- values fail closed; absence preserves the legacy/API default.
+        tradeEnabled = maybe True (\_ -> readEnvBool tradeEnabledRaw False) tradeEnabledRaw
+    neuralRolloutMode <-
+        case neuralRolloutRaw of
+            Nothing -> pure (ngcRolloutMode neuralDefaults)
+            Just raw ->
+                case parseNeuralGovernorRolloutMode (trim raw) of
+                    Just rolloutMode -> pure rolloutMode
+                    Nothing -> ioError (userError "TRADER_BOT_NEURAL_GOVERNOR_ROLLOUT_MODE must be observe, shadow, or enforce")
     neuralHiddenSize <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_HIDDEN_SIZE" 2 256 (ngcHiddenSize neuralDefaults)
     neuralLearningRate <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_LEARNING_RATE" 1e-9 10 (ngcLearningRate neuralDefaults)
     neuralL2 <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_L2" 0 10 (ngcL2 neuralDefaults)
@@ -7410,6 +7459,10 @@ defaultBotSettingsFromEnv args = do
     neuralMaxMultiplier <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_MAX_MULTIPLIER" 0 10 (ngcMaxMultiplier neuralDefaults)
     neuralInfluence <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_INFLUENCE" 0 100 (ngcInfluence neuralDefaults)
     neuralSeed <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_SEED" 0 maxBound (ngcSeed neuralDefaults)
+    neuralPromotionMinTrades <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_PROMOTION_MIN_TRADES" 0 100000 (ngcPromotionMinTrades neuralDefaults)
+    neuralPromotionMinAdvantage <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_PROMOTION_MIN_ADVANTAGE" (-10) 10 (ngcPromotionMinAdvantage neuralDefaults)
+    neuralRollbackMinTrades <- readBoundedIntEnv "TRADER_BOT_NEURAL_GOVERNOR_ROLLBACK_MIN_TRADES" 1 100000 (ngcRollbackMinTrades neuralDefaults)
+    neuralRollbackAdvantageFloor <- readBoundedDoubleEnv "TRADER_BOT_NEURAL_GOVERNOR_ROLLBACK_ADVANTAGE_FLOOR" (-10) 0 (ngcRollbackAdvantageFloor neuralDefaults)
     pure
         (defaultBotSettings args)
             { bsOnlineEpochs = onlineEpochs
@@ -7427,6 +7480,7 @@ defaultBotSettingsFromEnv args = do
             , bsNeuralGovernorConfig =
                 neuralDefaults
                     { ngcEnabled = neuralEnabled
+                    , ngcRolloutMode = neuralRolloutMode
                     , ngcHiddenSize = neuralHiddenSize
                     , ngcLearningRate = neuralLearningRate
                     , ngcL2 = neuralL2
@@ -7439,7 +7493,12 @@ defaultBotSettingsFromEnv args = do
                     , ngcMaxMultiplier = neuralMaxMultiplier
                     , ngcInfluence = neuralInfluence
                     , ngcSeed = neuralSeed
+                    , ngcPromotionMinTrades = neuralPromotionMinTrades
+                    , ngcPromotionMinAdvantage = neuralPromotionMinAdvantage
+                    , ngcRollbackMinTrades = neuralRollbackMinTrades
+                    , ngcRollbackAdvantageFloor = neuralRollbackAdvantageFloor
                     }
+            , bsTradeEnabled = tradeEnabled
             }
 
 botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
@@ -7456,6 +7515,7 @@ botSettingsFromApi args p = do
         outcomeWeightCap = fromMaybe (owcCap defaultOutcomeWeightConfig) (apBotOutcomeWeightCap p)
         neuralDefaults = defaultNeuralGovernorConfig
         neuralEnabled = fromMaybe (ngcEnabled neuralDefaults) (apBotNeuralGovernorEnabled p)
+        neuralRolloutRaw = fromMaybe (neuralGovernorRolloutModeCode (ngcRolloutMode neuralDefaults)) (apBotNeuralGovernorRolloutMode p)
         neuralHiddenSize = fromMaybe (ngcHiddenSize neuralDefaults) (apBotNeuralGovernorHiddenSize p)
         neuralLearningRate = fromMaybe (ngcLearningRate neuralDefaults) (apBotNeuralGovernorLearningRate p)
         neuralL2 = fromMaybe (ngcL2 neuralDefaults) (apBotNeuralGovernorL2 p)
@@ -7468,9 +7528,18 @@ botSettingsFromApi args p = do
         neuralMaxMultiplier = fromMaybe (ngcMaxMultiplier neuralDefaults) (apBotNeuralGovernorMaxMultiplier p)
         neuralInfluence = fromMaybe (ngcInfluence neuralDefaults) (apBotNeuralGovernorInfluence p)
         neuralSeed = fromMaybe (ngcSeed neuralDefaults) (apBotNeuralGovernorSeed p)
+        neuralPromotionMinTrades = fromMaybe (ngcPromotionMinTrades neuralDefaults) (apBotNeuralGovernorPromotionMinTrades p)
+        neuralPromotionMinAdvantage = fromMaybe (ngcPromotionMinAdvantage neuralDefaults) (apBotNeuralGovernorPromotionMinAdvantage p)
+        neuralRollbackMinTrades = fromMaybe (ngcRollbackMinTrades neuralDefaults) (apBotNeuralGovernorRollbackMinTrades p)
+        neuralRollbackAdvantageFloor = fromMaybe (ngcRollbackAdvantageFloor neuralDefaults) (apBotNeuralGovernorRollbackAdvantageFloor p)
         tradeEnabled = fromMaybe True (apBotTrade p)
         protectionOrders = fromMaybe False (apBotProtectionOrders p)
         adoptExistingPosition = True
+
+    neuralRolloutMode <-
+        case parseNeuralGovernorRolloutMode (trim neuralRolloutRaw) of
+            Just rolloutMode -> Right rolloutMode
+            Nothing -> Left "botNeuralGovernorRolloutMode must be observe, shadow, or enforce"
 
     ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
     ensure "botOnlineEpochs must be between 0 and 50" (onlineEpochs >= 0 && onlineEpochs <= 50)
@@ -7496,6 +7565,10 @@ botSettingsFromApi args p = do
     ensure "botNeuralGovernorMinMultiplier must be <= botNeuralGovernorMaxMultiplier" (neuralMinMultiplier <= neuralMaxMultiplier)
     ensure "botNeuralGovernorInfluence must be between 0 and 100" (isFiniteDouble neuralInfluence && neuralInfluence >= 0 && neuralInfluence <= 100)
     ensure "botNeuralGovernorSeed must be >= 0" (neuralSeed >= 0)
+    ensure "botNeuralGovernorPromotionMinTrades must be between 0 and 100000" (neuralPromotionMinTrades >= 0 && neuralPromotionMinTrades <= 100000)
+    ensure "botNeuralGovernorPromotionMinAdvantage must be between -10 and 10" (isFiniteDouble neuralPromotionMinAdvantage && neuralPromotionMinAdvantage >= -10 && neuralPromotionMinAdvantage <= 10)
+    ensure "botNeuralGovernorRollbackMinTrades must be between 1 and 100000" (neuralRollbackMinTrades >= 1 && neuralRollbackMinTrades <= 100000)
+    ensure "botNeuralGovernorRollbackAdvantageFloor must be between -10 and 0" (isFiniteDouble neuralRollbackAdvantageFloor && neuralRollbackAdvantageFloor >= -10 && neuralRollbackAdvantageFloor <= 0)
 
     pure
         BotSettings
@@ -7515,6 +7588,7 @@ botSettingsFromApi args p = do
             , bsNeuralGovernorConfig =
                 neuralDefaults
                     { ngcEnabled = neuralEnabled
+                    , ngcRolloutMode = neuralRolloutMode
                     , ngcHiddenSize = neuralHiddenSize
                     , ngcLearningRate = neuralLearningRate
                     , ngcL2 = neuralL2
@@ -7527,6 +7601,10 @@ botSettingsFromApi args p = do
                     , ngcMaxMultiplier = neuralMaxMultiplier
                     , ngcInfluence = neuralInfluence
                     , ngcSeed = neuralSeed
+                    , ngcPromotionMinTrades = neuralPromotionMinTrades
+                    , ngcPromotionMinAdvantage = neuralPromotionMinAdvantage
+                    , ngcRollbackMinTrades = neuralRollbackMinTrades
+                    , ngcRollbackAdvantageFloor = neuralRollbackAdvantageFloor
                     }
             , bsTradeEnabled = tradeEnabled
             , bsProtectionOrders = protectionOrders
@@ -10779,7 +10857,8 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
         -- - Adopted positions are kept only if the open-threshold signal still agrees.
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
         desiredPosSignalRaw =
-            desiredPositionForSignal
+            desiredPositionForSignalWithVolConf
+                (lsVolConfBehavior latestStartPolicySized)
                 (argPositioning args)
                 startPos0
                 (lsChosenDir latestStartPolicySized)
@@ -13426,28 +13505,6 @@ triggerTopCombosBacktestOnCandle ctx =
             full <- isFullTBQueue q
             unless full (writeTBQueue q ())
 
-forkSupervisedWorker :: String -> IO () -> IO ThreadId
-forkSupervisedWorker name action =
-    forkIO (loop 0)
-  where
-    restartDelayUs = 1000000
-
-    loop :: Int -> IO ()
-    loop restartCount = do
-        result <- try action
-        case result of
-            Right () -> do
-                putStrLn (printf "Background worker '%s' exited; restarting (count=%d)." name (restartCount + 1))
-                threadDelay restartDelayUs
-                loop (restartCount + 1)
-            Left ex ->
-                case fromException ex :: Maybe AsyncException of
-                    Just asyncEx -> throwIO asyncEx
-                    Nothing -> do
-                        putStrLn (printf "Background worker '%s' crashed: %s" name (displayException ex))
-                        threadDelay restartDelayUs
-                        loop (restartCount + 1)
-
 autoTopCombosBacktestLoop :: TopCombosBacktestCtx -> IO ()
 autoTopCombosBacktestLoop ctx =
     if not (tcbcEnabled ctx)
@@ -13930,16 +13987,32 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                         vals = filter (\x -> not (isNaN x || isInfinite x)) returns
                                      in if null vals then Nothing else Just (sum vals / fromIntegral (length vals))
                 _ -> Nothing
+        canonicalRiskHalt =
+            liveRiskHaltAction
+                prevPos
+                HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = dailyLoss
+                    , hiWeeklyLoss = weeklyLoss
+                    , hiDrawdown = drawdown
+                    , hiExpectancy = expectancy
+                    , hiMaxDailyLossLim = argMaxDailyLoss args
+                    , hiMaxWeeklyLossLim = argMaxWeeklyLoss args
+                    , hiMaxDrawdownLim = argMaxDrawdown args
+                    , hiMinExpectancy = argMinExpectancy args
+                    , hiPositionSize = max 0 prevSize
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = max 0 (fromMaybe 0 (argVolTarget args))
+                    , hiLeverage = 0
+                    }
         riskHaltReason =
             if isJust (botHaltReason st)
                 then Nothing
-                else case () of
-                    _
-                        | maybe False (dailyLoss >=) (argMaxDailyLoss args) -> Just "MAX_DAILY_LOSS"
-                        | maybe False (weeklyLoss >=) (argMaxWeeklyLoss args) -> Just "MAX_WEEKLY_LOSS"
-                        | maybe False (drawdown >=) (argMaxDrawdown args) -> Just "MAX_DRAWDOWN"
-                        | maybe False (\lim -> maybe False (< lim) expectancy) (argMinExpectancy args) -> Just "NEGATIVE_EXPECTANCY"
-                        | otherwise -> Nothing
+                else exitReasonCode <$> lrhaExitReason canonicalRiskHalt
         haltReason1 = botHaltReason st <|> riskHaltReason
         haltedAt1 = botHaltedAtMs st <|> (if isJust riskHaltReason then Just now else Nothing)
         halted = isJust haltReason1
@@ -14024,7 +14097,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         -- - Entry uses the open-threshold signal.
         -- - Holds use the close-threshold direction when the open signal is neutral.
         desiredPosSignal =
-            desiredPositionForSignal
+            desiredPositionForSignalWithVolConf
+                (lsVolConfBehavior latest0Raw)
                 (argPositioning args)
                 prevPos
                 (lsChosenDir latest0Raw)
@@ -15429,6 +15503,92 @@ applyBotStartupEnvPreset args = do
                 }
     pure BotStartupEnvPreset{bsepArgs = args', bsepApplied = applied}
 
+installServeShutdownHandler :: DrainController -> IO () -> IO ()
+installServeShutdownHandler drain closeListener = do
+    let requestShutdown = do
+            firstSignal <- beginDrain drain
+            when firstSignal $ do
+                hPutStrLn stderr "Shutdown requested; readiness is now draining and new work is disabled."
+                hFlush stderr
+            closeListener
+    void (installHandler sigTERM (Catch requestShutdown) Nothing)
+    void (installHandler sigINT (Catch requestShutdown) Nothing)
+
+closeOpsStoreMaybe :: Maybe OpsStore -> IO ()
+closeOpsStoreMaybe mOps =
+    for_ mOps $ \store ->
+        withMVar (osLock store) $ \_ -> do
+            conn <- readIORef (osConn store)
+            close conn
+
+stopAsyncStoresBounded :: Int -> AsyncStores -> IO Bool
+stopAsyncStoresBounded timeoutUs stores = do
+    signalEntries <- asyncJobWaiters (asSignal stores)
+    backtestEntries <- asyncJobWaiters (asBacktest stores)
+    tradeEntries <- asyncJobWaiters (asTrade stores)
+    let entries = signalEntries ++ backtestEntries ++ tradeEntries
+    let killBudgetUs = max 1 (timeoutUs `div` 2)
+        finishBudgetUs = max 1 (timeoutUs - killBudgetUs)
+    delivered <- stopThreadIdsBounded killBudgetUs (map fst entries)
+    finished <- timeout finishBudgetUs (mapM_ snd entries)
+    pure (delivered && isJust finished)
+
+asyncJobWaiters :: JobStore a -> IO [(ThreadId, IO ())]
+asyncJobWaiters store = do
+    entries <- HM.elems <$> readMVar (jsJobs store)
+    pure [(jeThreadId entry, void (readMVar (jeResult entry))) | entry <- entries]
+
+stopListenKeyStreams :: ListenKeyManager -> IO ()
+stopListenKeyStreams manager = do
+    tenantKeys <- HM.keys <$> readMVar (lkmState manager)
+    mapM_ (stopListenKeyStream manager) tenantKeys
+
+stopAndPersistBots :: Maybe OpsStore -> Maybe FilePath -> BotController -> IO ()
+stopAndPersistBots mOps mBotStateDir botCtrl = do
+    states <- botGetStatesAll botCtrl
+    forM_ states $ \st -> do
+        persistBotStatusMaybe mBotStateDir st
+        botStatusLogMaybe mOps False st
+    tenantKeys <- HM.keys <$> readMVar (bcRuntime botCtrl)
+    forM_ tenantKeys $ \tenantKey -> void (botStop botCtrl tenantKey Nothing)
+
+runServeShutdown :: Int -> Int -> Maybe Journal -> Maybe OpsStore -> WorkerRegistry -> AsyncStores -> ListenKeyManager -> Maybe FilePath -> BotController -> IO ()
+runServeShutdown shutdownTimeoutSec port mJournal mOps workers asyncStores listenKeyManager mBotStateDir botCtrl = do
+    startedAtMs <- getTimestampMs
+    let totalBudgetMs = fromIntegral shutdownTimeoutSec * 1000
+        closeReserveMs = min 2000 (totalBudgetMs `div` 4)
+        workDeadlineMs = startedAtMs + max 1 (totalBudgetMs - closeReserveMs)
+        finalDeadlineMs = startedAtMs + totalBudgetMs
+        runBefore deadlineMs label action = do
+            nowMs <- getTimestampMs
+            let remainingUs = fromIntegral (max 0 (deadlineMs - nowMs)) * 1000
+            if remainingUs <= 0
+                then hPutStrLn stderr ("Shutdown deadline reached before " ++ label ++ ".")
+                else do
+                    ok <- runCleanupStepBounded remainingUs action
+                    unless ok (hPutStrLn stderr ("Shutdown step failed or timed out: " ++ label ++ "."))
+        stopRecord =
+            object
+                [ "port" .= port
+                , "reason" .= ("shutdown" :: String)
+                , "timeoutSec" .= shutdownTimeoutSec
+                ]
+    runBefore workDeadlineMs "server.stop persistence" $ do
+        journalWriteMaybe mJournal (object ["type" .= ("server.stop" :: String), "atMs" .= startedAtMs, "port" .= port, "reason" .= ("shutdown" :: String)])
+        opsAppendMaybe mOps Nothing "server.stop" Nothing Nothing (Just stopRecord) Nothing Nothing Nothing Nothing
+    runBefore workDeadlineMs "supervised workers" $ do
+        stopped <- stopSupervisedWorkersBounded (shutdownTimeoutSec * 1000000) workers
+        unless stopped (ioError (userError "one or more supervised workers did not stop"))
+    runBefore workDeadlineMs "async jobs" $ do
+        stopped <- stopAsyncStoresBounded (shutdownTimeoutSec * 1000000) asyncStores
+        unless stopped (ioError (userError "one or more async jobs did not stop"))
+    runBefore workDeadlineMs "listen-key streams" (stopListenKeyStreams listenKeyManager)
+    runBefore workDeadlineMs "bot snapshots and workers" (stopAndPersistBots mOps mBotStateDir botCtrl)
+    runBefore finalDeadlineMs "Ops PostgreSQL close" (closeOpsStoreMaybe mOps)
+    finishedAtMs <- getTimestampMs
+    hPutStrLn stderr (printf "Serve shutdown completed in %dms." (max 0 (finishedAtMs - startedAtMs)))
+    hFlush stderr
+
 runRestApi :: Args -> Maybe Webhook -> IO ()
 runRestApi cliArgs mWebhook = do
     -- REST requests should default to mainnet unless callers explicitly set binanceTestnet=true.
@@ -15463,6 +15623,7 @@ runRestApi cliArgs mWebhook = do
             )
     corsConfig <- resolveCorsConfig apiToken
     timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
+    shutdownTimeoutEnv <- lookupEnv "TRADER_API_SHUTDOWN_TIMEOUT_SEC"
     maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
     maxBacktestRunningEnv <- lookupEnv "TRADER_API_MAX_BACKTEST_RUNNING"
     backtestTimeoutEnv <- lookupEnv "TRADER_API_BACKTEST_TIMEOUT_SEC"
@@ -15481,6 +15642,10 @@ runRestApi cliArgs mWebhook = do
             case timeoutEnv >>= readMaybe of
                 Just n | n >= 0 -> n
                 _ -> 1800
+        shutdownTimeoutSec =
+            case shutdownTimeoutEnv >>= readMaybe of
+                Just n | n >= 5 -> n
+                _ -> 20
         maxAsyncRunning =
             case maxAsyncRunningEnv >>= readMaybe of
                 Just n | n >= 1 -> n
@@ -15554,6 +15719,7 @@ runRestApi cliArgs mWebhook = do
         putStrLn "Increased GHC capabilities to 2 (to keep the API responsive during heavy compute)."
 
     bindHostEnv <- lookupEnv "TRADER_API_BIND_HOST"
+    drain <- newDrainController
     let bindHostStr =
             case trim <$> bindHostEnv of
                 Just host | not (null host) -> host
@@ -15562,9 +15728,11 @@ runRestApi cliArgs mWebhook = do
         displayHost = "127.0.0.1" :: String
         port = max 1 (argPort baseArgs)
         settings =
-            Warp.setHost bindHost $
-                Warp.setTimeout timeoutSec $
-                    Warp.setPort port Warp.defaultSettings
+            Warp.setInstallShutdownHandler (installServeShutdownHandler drain) $
+                Warp.setGracefulShutdownTimeout (Just shutdownTimeoutSec) $
+                    Warp.setHost bindHost $
+                        Warp.setTimeout timeoutSec $
+                            Warp.setPort port Warp.defaultSettings
     putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
     putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
     putStrLn
@@ -15585,6 +15753,7 @@ runRestApi cliArgs mWebhook = do
     putStrLn (printf "API trade async timeout: timeoutSec=%d" tradeTimeoutSec)
     putStrLn (printf "API Binance trades timeout: timeoutSec=%d" tradesTimeoutSec)
     putStrLn (printf "API Binance positions timeout: timeoutSec=%d" positionsTimeoutSec)
+    putStrLn (printf "API graceful shutdown timeout: timeoutSec=%d" shutdownTimeoutSec)
     putStrLn
         ( printf
             "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
@@ -15609,7 +15778,7 @@ runRestApi cliArgs mWebhook = do
         else case ccAllowedOrigins corsConfig of
             [] ->
                 if ccAllowAuthOrigin corsConfig
-                    then putStrLn "CORS: implicit read/auth origins allowed (auth-like headers, /health, /version, and /optimizer/combos)"
+                    then putStrLn "CORS: implicit read/auth origins allowed (auth-like headers, /health, /ready, /version, and /optimizer/combos)"
                     else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
             origins ->
                 putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
@@ -15655,7 +15824,8 @@ runRestApi cliArgs mWebhook = do
     for_ mOps $ \store ->
         putStrLn ("Ops persistence: " ++ opsPersistenceConfigSummary (osPersistenceConfig store))
     mStateSyncTarget <- newStateSyncTargetFromEnv
-    _ <- forkSupervisedWorker "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
+    workers <- newWorkerRegistry
+    _ <- forkSupervisedWorker workers "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir
     backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
@@ -15730,29 +15900,33 @@ runRestApi cliArgs mWebhook = do
     case mAutoBotTenant of
         Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
         Just tenantKey -> do
-            _ <- forkSupervisedWorker "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
+            _ <- forkSupervisedWorker workers "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
     autoOptimizerEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
     let autoOptimizerEnabled = readEnvBool autoOptimizerEnabledEnv True
     if autoOptimizerEnabled
         then do
-            _ <- forkSupervisedWorker "auto-optimizer" (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
+            _ <- forkSupervisedWorker workers "auto-optimizer" (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
             pure ()
         else putStrLn "Auto optimizer background worker disabled (TRADER_OPTIMIZER_ENABLED=false)."
     when topCombosEnabled $ do
-        _ <- forkSupervisedWorker "top-combos-candle" (topCombosCandleWorker topCombosCtx)
-        _ <- forkSupervisedWorker "top-combos-scheduled-backtest" (autoTopCombosBacktestLoop topCombosCtx)
+        _ <- forkSupervisedWorker workers "top-combos-candle" (topCombosCandleWorker topCombosCtx)
+        _ <- forkSupervisedWorker workers "top-combos-scheduled-backtest" (autoTopCombosBacktestLoop topCombosCtx)
         pure ()
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
     asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
     asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
+    let asyncStores = AsyncStores asyncSignal asyncBacktest asyncTrade
     requestProgressStore <- newRequestProgressStore
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
+            `finally` do
+                void (beginDrain drain)
+                runServeShutdown shutdownTimeoutSec port mJournal mOps workers asyncStores listenKeyManager mBotStateDir bot
     case res of
         Right () -> pure ()
         Left e ->
@@ -17249,6 +17423,7 @@ adminAsyncHealthJson stores = do
 
 apiHealthJson ::
     BuildInfo ->
+    DrainController ->
     Maybe BS.ByteString ->
     Wai.Request ->
     ApiComputeLimits ->
@@ -17258,12 +17433,19 @@ apiHealthJson ::
     AsyncStores ->
     Bool ->
     IO Aeson.Value
-apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
+apiHealthJson buildInfo drain apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
+    draining <- isDraining drain
     let authRequired = isJust apiToken
         authOk = authorized apiToken req
         asyncCfg = asBacktest asyncStores
         basePairs =
-            ["status" .= ("ok" :: String), "version" .= biVersion buildInfo, "authRequired" .= authRequired, "authOk" .= authOk]
+            [ "status" .= ("ok" :: String)
+            , "ready" .= not draining
+            , "draining" .= draining
+            , "version" .= biVersion buildInfo
+            , "authRequired" .= authRequired
+            , "authOk" .= authOk
+            ]
                 ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
                 ++ [ "computeLimits"
                         .= object
@@ -17320,11 +17502,12 @@ apiApp ::
     BacktestGate ->
     TopCombosBacktestCtx ->
     AsyncStores ->
+    DrainController ->
     FilePath ->
     TopCombosStore ->
     FilePath ->
     Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp req respond = do
     startMs <- getTimestampMs
     let rawPath = Wai.pathInfo req
         path =
@@ -17336,8 +17519,8 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
             case path of
                 [] -> "/"
                 _ -> "/" ++ intercalate "/" (map T.unpack path)
-        pathIsPublic = path == ["health"] || path == ["version"]
-        pathIsQuiet = path == ["health"] || path == ["version"]
+        pathIsPublic = path == ["health"] || path == ["ready"] || path == ["version"]
+        pathIsQuiet = path == ["health"] || path == ["ready"] || path == ["version"]
         respondLogged resp = do
             endMs <- getTimestampMs
             let code = statusCode (Wai.responseStatus resp)
@@ -17354,202 +17537,214 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                 "OPTIONS" -> respondLogged (Wai.responseLBS status204 (corsHeadersFor corsConfig req) "")
                 _ -> do
                     metricsIncEndpoint metrics label
-                    if not pathIsPublic && not (authorized apiToken req)
-                        then respondCors (jsonError status401 "Unauthorized (send Authorization: Bearer <token> or X-API-Key)")
-                        else case path of
-                            [] ->
-                                case Wai.requestMethod req of
-                                    "GET" ->
-                                        respondCors $
-                                            jsonValue
-                                                status200
-                                                ( object
-                                                    ( [ "name" .= ("trader-hs" :: String)
-                                                      , "version" .= biVersion buildInfo
-                                                      ]
-                                                        ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
-                                                        ++ [ "endpoints"
-                                                                .= apiEndpointDocs
-                                                           ]
-                                                    )
-                                                )
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["version"] ->
-                                case Wai.requestMethod req of
-                                    "GET" ->
-                                        respondCors $
-                                            jsonValue
-                                                status200
-                                                ( object
-                                                    [ "name" .= ("trader-hs" :: String)
-                                                    , "version" .= biVersion buildInfo
-                                                    , "commit" .= biCommit buildInfo
-                                                    ]
-                                                )
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["health"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> do
-                                        v <- apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores False
-                                        respondCors (jsonValue status200 v)
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["admin", "health"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> do
-                                        v <- apiHealthJson buildInfo apiToken req limits reqLimits apiCache mOps asyncStores True
-                                        respondCors (jsonValue status200 v)
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["metrics"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleMetrics metrics botCtrl respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["ops"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleOps multiUserEnabled mOps req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["ops", "performance"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleOpsPerformance multiUserEnabled mOps req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["outbox"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleOutbox multiUserEnabled mOps req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["cache"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> do
-                                        v <- apiCacheStatsJson apiCache
-                                        respondCors (jsonValue status200 v)
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["cache", "clear"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> do
-                                        apiCacheClear apiCache
-                                        now <- getTimestampMs
-                                        respondCors (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["signal"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleSignal reqLimits apiCache mOps limits baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["signal", "async"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleSignalAsync reqLimits apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["signal", "async", jobId] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleAsyncPoll mOps (asSignal asyncStores) jobId respondCors
-                                    "POST" -> handleAsyncPoll mOps (asSignal asyncStores) jobId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["signal", "async", jobId, "cancel"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleAsyncCancel mOps (asSignal asyncStores) jobId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["trade"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["trade", "async"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["trade", "async", jobId] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleAsyncPoll mOps (asTrade asyncStores) jobId respondCors
-                                    "POST" -> handleAsyncPoll mOps (asTrade asyncStores) jobId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["trade", "async", jobId, "cancel"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleAsyncCancel mOps (asTrade asyncStores) jobId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["backtest"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["backtest", "async"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBacktestAsync reqLimits apiCache mOps limits backtestGate (asBacktest asyncStores) baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["backtest", "async", jobId] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleAsyncPoll mOps (asBacktest asyncStores) jobId respondCors
-                                    "POST" -> handleAsyncPoll mOps (asBacktest asyncStores) jobId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["backtest", "async", jobId, "cancel"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleAsyncCancel mOps (asBacktest asyncStores) jobId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["request-progress", requestId] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleRequestProgress requestProgressStore requestId respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "keys"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinanceKeys requestProgressStore reqLimits mOps baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "positions"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respondCors
-                                    "GET" -> handleBinancePositionsGet requestProgressStore reqLimits mOps baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "positions", "close"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinanceClosePosition reqLimits mOps baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "trades"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "proxy", "health"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleBinanceProxyHealth respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["coinbase", "keys"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleCoinbaseKeys reqLimits baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "listenKey"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "listenKey", "stream"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleBinanceListenKeyStream listenKeyManager req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "listenKey", "keepAlive"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["binance", "listenKey", "close"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["bot", "start"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir topCombosStore baseArgs botCtrl req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["bot", "stop"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["bot", "status"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleBotStatus reqLimits botCtrl mBotStateDir req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["optimizer", "run"] ->
-                                case Wai.requestMethod req of
-                                    "POST" -> handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["optimizer", "combos"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            ["state", "sync"] ->
-                                case Wai.requestMethod req of
-                                    "GET" -> handleStateSyncExport mOps mBotStateDir topCombosStore req respondCors
-                                    "POST" -> handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStore req respondCors
-                                    _ -> respondCors (jsonError status405 "Method not allowed")
-                            _ -> respondCors (jsonError status404 "Not found")
+                    draining <- isDraining drain
+                    if draining && shouldRejectDuringDrain (Wai.requestMethod req) path
+                        then respondCors (jsonError status503 "Server is draining; retry on a ready instance.")
+                        else
+                            if not pathIsPublic && not (authorized apiToken req)
+                                then respondCors (jsonError status401 "Unauthorized (send Authorization: Bearer <token> or X-API-Key)")
+                                else case path of
+                                    [] ->
+                                        case Wai.requestMethod req of
+                                            "GET" ->
+                                                respondCors $
+                                                    jsonValue
+                                                        status200
+                                                        ( object
+                                                            ( [ "name" .= ("trader-hs" :: String)
+                                                              , "version" .= biVersion buildInfo
+                                                              ]
+                                                                ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
+                                                                ++ [ "endpoints"
+                                                                        .= apiEndpointDocs
+                                                                   ]
+                                                            )
+                                                        )
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["version"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" ->
+                                                respondCors $
+                                                    jsonValue
+                                                        status200
+                                                        ( object
+                                                            [ "name" .= ("trader-hs" :: String)
+                                                            , "version" .= biVersion buildInfo
+                                                            , "commit" .= biCommit buildInfo
+                                                            ]
+                                                        )
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["health"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> do
+                                                v <- apiHealthJson buildInfo drain apiToken req limits reqLimits apiCache mOps asyncStores False
+                                                respondCors (jsonValue status200 v)
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["ready"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> do
+                                                drainingNow <- isDraining drain
+                                                let readyStatus = if drainingNow then status503 else status200
+                                                    readyLabel = if drainingNow then "draining" else "ready" :: String
+                                                respondCors (jsonValue readyStatus (object ["status" .= readyLabel, "ready" .= not drainingNow, "draining" .= drainingNow]))
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["admin", "health"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> do
+                                                v <- apiHealthJson buildInfo drain apiToken req limits reqLimits apiCache mOps asyncStores True
+                                                respondCors (jsonValue status200 v)
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["metrics"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleMetrics metrics botCtrl respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["ops"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleOps multiUserEnabled mOps req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["ops", "performance"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleOpsPerformance multiUserEnabled mOps req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["outbox"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleOutbox multiUserEnabled mOps req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["cache"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> do
+                                                v <- apiCacheStatsJson apiCache
+                                                respondCors (jsonValue status200 v)
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["cache", "clear"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> do
+                                                apiCacheClear apiCache
+                                                now <- getTimestampMs
+                                                respondCors (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["signal"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleSignal reqLimits apiCache mOps limits baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["signal", "async"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleSignalAsync reqLimits apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["signal", "async", jobId] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleAsyncPoll mOps (asSignal asyncStores) jobId respondCors
+                                            "POST" -> handleAsyncPoll mOps (asSignal asyncStores) jobId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["signal", "async", jobId, "cancel"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleAsyncCancel mOps (asSignal asyncStores) jobId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["trade"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["trade", "async"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["trade", "async", jobId] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleAsyncPoll mOps (asTrade asyncStores) jobId respondCors
+                                            "POST" -> handleAsyncPoll mOps (asTrade asyncStores) jobId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["trade", "async", jobId, "cancel"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleAsyncCancel mOps (asTrade asyncStores) jobId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["backtest"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["backtest", "async"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBacktestAsync reqLimits apiCache mOps limits backtestGate (asBacktest asyncStores) baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["backtest", "async", jobId] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleAsyncPoll mOps (asBacktest asyncStores) jobId respondCors
+                                            "POST" -> handleAsyncPoll mOps (asBacktest asyncStores) jobId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["backtest", "async", jobId, "cancel"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleAsyncCancel mOps (asBacktest asyncStores) jobId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["request-progress", requestId] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleRequestProgress requestProgressStore requestId respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "keys"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceKeys requestProgressStore reqLimits mOps baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "positions"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respondCors
+                                            "GET" -> handleBinancePositionsGet requestProgressStore reqLimits mOps baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "positions", "close"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceClosePosition reqLimits mOps baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "trades"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "proxy", "health"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleBinanceProxyHealth respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["coinbase", "keys"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleCoinbaseKeys reqLimits baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "listenKey"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "listenKey", "stream"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleBinanceListenKeyStream listenKeyManager req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "listenKey", "keepAlive"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "listenKey", "close"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["bot", "start"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir topCombosStore baseArgs botCtrl req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["bot", "stop"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["bot", "status"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleBotStatus reqLimits botCtrl mBotStateDir req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["optimizer", "run"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["optimizer", "combos"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["state", "sync"] ->
+                                        case Wai.requestMethod req of
+                                            "GET" -> handleStateSyncExport mOps mBotStateDir topCombosStore req respondCors
+                                            "POST" -> handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStore req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
+                                    _ -> respondCors (jsonError status404 "Not found")
 
     let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
         handleIoException _ = pure WaiInternal.ResponseReceived
@@ -22431,7 +22626,7 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                     if market /= MarketFutures
                                         then respond (jsonError status400 "binance close position requires market=futures")
                                         else do
-                                            let live = fromMaybe (argBinanceLive baseArgs) (abcpBinanceLive params)
+                                            let live = argBinanceLive baseArgs && fromMaybe True (abcpBinanceLive params)
                                             if not live
                                                 then respond (jsonError status400 "binanceLive must be enabled to close positions")
                                                 else do
@@ -22607,10 +22802,13 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                 case requireTenantKey "bot/start" mTenant of
                                     Left e -> respond (jsonError status400 e)
                                     Right tenantKey -> do
+                                        tradeEnabledRaw <- lookupEnv "TRADER_BOT_TRADE"
                                         let argsBase =
                                                 applyBackendAutostartSizingDefault $
                                                     normalizeBarsForLookback argsRequested{argTradeOnly = True}
-                                            tradeEnabled = botTradeEnabledFromApi (apBotTrade params)
+                                            tradeAllowedByEnv = maybe True (\_ -> readEnvBool tradeEnabledRaw False) tradeEnabledRaw
+                                            tradeEnabled = tradeAllowedByEnv && botTradeEnabledFromApi (apBotTrade params)
+                                            paramsEffective = params{apBotTrade = Just tradeEnabled}
                                         symbolsOrErr <- resolveBotSymbols argsBase params
                                         let requestedSymbols =
                                                 case symbolsOrErr of
@@ -22667,7 +22865,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                                 case validateApiComputeLimits limits argsCombo of
                                                                     Left err -> pure (sym, Left err)
                                                                     Right argsOk -> do
-                                                                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp params sym
+                                                                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp paramsEffective sym
                                                                         case r of
                                                                             Left err -> pure (sym, Left err)
                                                                             Right outcome -> do
@@ -23135,7 +23333,7 @@ argsFromApi baseArgs p = do
                     case apPeriodsPerYear p of
                         Nothing -> argPeriodsPerYear baseArgs
                         Just v -> Just v
-                , argBinanceLive = pick (apBinanceLive p) (argBinanceLive baseArgs)
+                , argBinanceLive = argBinanceLive baseArgs && pick (apBinanceLive p) True
                 , argDryRun = pick (apDryRun p) (argDryRun baseArgs)
                 , argOrderQuote = pickMaybe (apOrderQuote p) (argOrderQuote baseArgs)
                 , argOrderQuantity = pickMaybe (apOrderQuantity p) (argOrderQuantity baseArgs)
@@ -23410,7 +23608,8 @@ prepareOrderSignalPlatform args sig mBinanceEnv =
                 Left ex -> pure (Left ("No order: failed to read current Binance position: " ++ take 240 (show ex)))
                 Right currentPos -> do
                     let desiredPos =
-                            desiredPositionForSignal
+                            desiredPositionForSignalWithVolConf
+                                (lsVolConfBehavior sig)
                                 (argPositioning args)
                                 currentPos
                                 (lsChosenDir sig)
@@ -34103,6 +34302,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
          in LatestSignal
                 { lsMethod = methodForReport
                 , lsVolConfGate = volConfGatePreset
+                , lsVolConfBehavior = volConfBehavior
                 , lsCurrentPrice = currentPrice
                 , lsOpenThreshold = openThrAdj
                 , lsCloseThreshold = closeThrAdj

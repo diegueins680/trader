@@ -23,7 +23,7 @@ import qualified Data.Vector as V
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
 import Trader.RoiScore (
-    RoiScoreConfig,
+    RoiScoreConfig (..),
     RoiScoreInputs (..),
     activityPenaltyFor,
     defaultFormalRoiScoreConfig,
@@ -162,24 +162,103 @@ roiSpecScore :: Double -> Double -> BacktestMetrics -> Double
 roiSpecScore = roiSpecScoreWithConfig defaultFormalRoiScoreConfig
 
 roiSpecScoreWithConfig :: RoiScoreConfig -> Double -> Double -> BacktestMetrics -> Double
-roiSpecScoreWithConfig cfg penaltyMaxDd penaltyTurnover m =
-    let view = roiViewFromMetrics m
-     in roiScoreFromInputsWithConfig
-            cfg
-            penaltyMaxDd
-            penaltyTurnover
-            ( RoiScoreInputs
-                { rsiAnnualizedReturn = rvAnnualizedReturn view
-                , rsiMaxDrawdown = rvMaxDrawdown view
-                , rsiTailLoss = rvTailLoss view
-                , rsiTurnover = rvTurnover view
-                , rsiExpectancy = rvExpectancy view
-                , rsiPaybackDuration = Just (rvAvgHold view)
-                , rsiRoundTrips = rvRoundTrips view
-                , rsiTradeCount = rvActivityCount view
-                , rsiExposure = rvExposure view
-                }
-            )
+roiSpecScoreWithConfig cfg0 penaltyMaxDd penaltyTurnover m =
+    let cfg = roiSpecSanitizeConfig cfg0
+        view = roiViewFromMetrics m
+        annualizedReturn = rvAnnualizedReturn view
+        maxDrawdown = rvMaxDrawdown view
+        tailLoss = rvTailLoss view
+        turnover = rvTurnover view
+        expectancy = rvExpectancy view
+        completedRoundTrips = rvRoundTrips view
+        activityCount = rvActivityCount view
+        exposure = rvExposure view
+        drawdownPenalty = roiSpecFiniteNonNegative penaltyMaxDd
+        turnoverPenalty = roiSpecFiniteNonNegative penaltyTurnover
+        expectancyReward = roiSpecExpectancyReward cfg completedRoundTrips exposure expectancy
+        paybackReward = roiSpecPaybackReward cfg completedRoundTrips expectancy exposure (rvAvgHold view)
+        evidencePenalty = roiSpecEvidencePenalty cfg completedRoundTrips activityCount exposure
+     in annualizedReturn
+            - drawdownPenalty * (maxDrawdown + tailLoss)
+            - turnoverPenalty * turnover
+            + expectancyReward
+            + paybackReward
+            - evidencePenalty
+
+-- Keep the executable specification structurally independent from
+-- 'Trader.RoiScore'.  These helpers intentionally restate the requirement
+-- formula instead of calling the implementation helpers under verification.
+roiSpecSanitizeConfig :: RoiScoreConfig -> RoiScoreConfig
+roiSpecSanitizeConfig cfg =
+    cfg
+        { rscExpectancyRewardWeight = roiSpecFiniteNonNegative (rscExpectancyRewardWeight cfg)
+        , rscPaybackRewardCap = roiSpecFiniteNonNegative (rscPaybackRewardCap cfg)
+        , rscMinimumActivityFloor = max 0 (rscMinimumActivityFloor cfg)
+        , rscMinimumExposureFloor = roiSpecFiniteNonNegative (rscMinimumExposureFloor cfg)
+        , rscZeroRoundTripPenalty = roiSpecFiniteNonNegative (rscZeroRoundTripPenalty cfg)
+        , rscLowRoundTripPenalty = roiSpecFiniteNonNegative (rscLowRoundTripPenalty cfg)
+        , rscZeroActivityPenalty = roiSpecFiniteNonNegative (rscZeroActivityPenalty cfg)
+        , rscLowActivityPenalty = roiSpecFiniteNonNegative (rscLowActivityPenalty cfg)
+        , rscZeroExposurePenalty = roiSpecFiniteNonNegative (rscZeroExposurePenalty cfg)
+        , rscLowExposurePenaltyBase = roiSpecFiniteNonNegative (rscLowExposurePenaltyBase cfg)
+        , rscLowExposurePenaltyGapScale = roiSpecFiniteNonNegative (rscLowExposurePenaltyGapScale cfg)
+        }
+
+roiSpecExpectancyReward :: RoiScoreConfig -> Int -> Double -> Double -> Double
+roiSpecExpectancyReward cfg completedRoundTrips exposure expectancy
+    | expectancy <= 0 = rscExpectancyRewardWeight cfg * expectancy
+    | completedRoundTrips <= 0 = 0
+    | exposure < rscMinimumExposureFloor cfg = 0
+    | otherwise = rscExpectancyRewardWeight cfg * expectancy
+
+roiSpecPaybackReward :: RoiScoreConfig -> Int -> Double -> Double -> Double -> Double
+roiSpecPaybackReward cfg completedRoundTrips expectancy exposure avgHold
+    | completedRoundTrips < rscMinimumActivityFloor cfg = 0
+    | exposure < rscMinimumExposureFloor cfg = 0
+    | expectancy <= 0 = 0
+    | not (roiSpecFinite avgHold) || avgHold <= 0 = 0
+    | otherwise = min (rscPaybackRewardCap cfg) (1 / (1 + avgHold))
+
+roiSpecEvidencePenalty :: RoiScoreConfig -> Int -> Int -> Double -> Double
+roiSpecEvidencePenalty cfg completedRoundTrips activityCount exposure =
+    roiSpecActivityPenalty cfg activityCount
+        + roiSpecRoundTripPenalty cfg completedRoundTrips
+        + roiSpecExposurePenalty cfg exposure
+
+roiSpecActivityPenalty :: RoiScoreConfig -> Int -> Double
+roiSpecActivityPenalty cfg activityCount
+    | activityCount <= 0 = rscZeroActivityPenalty cfg
+    | activityCount < rscMinimumActivityFloor cfg =
+        fromIntegral (rscMinimumActivityFloor cfg - activityCount) * rscLowActivityPenalty cfg
+    | otherwise = 0
+
+roiSpecRoundTripPenalty :: RoiScoreConfig -> Int -> Double
+roiSpecRoundTripPenalty cfg completedRoundTrips
+    | completedRoundTrips <= 0 = rscZeroRoundTripPenalty cfg
+    | completedRoundTrips < rscMinimumActivityFloor cfg =
+        rscLowRoundTripPenalty cfg * fromIntegral (rscMinimumActivityFloor cfg - completedRoundTrips)
+    | otherwise = 0
+
+roiSpecExposurePenalty :: RoiScoreConfig -> Double -> Double
+roiSpecExposurePenalty cfg exposure
+    | exposure <= 0 = rscZeroExposurePenalty cfg
+    | exposure < rscMinimumExposureFloor cfg =
+        let gap =
+                if rscMinimumExposureFloor cfg <= 0
+                    then 0
+                    else 1 - roiSpecClamp 0 1 (exposure / rscMinimumExposureFloor cfg)
+         in rscLowExposurePenaltyBase cfg + rscLowExposurePenaltyGapScale cfg * gap
+    | otherwise = 0
+
+roiSpecFiniteNonNegative :: Double -> Double
+roiSpecFiniteNonNegative value =
+    if roiSpecFinite value then max 0 value else 0
+
+roiSpecFinite :: Double -> Bool
+roiSpecFinite value = not (isNaN value || isInfinite value)
+
+roiSpecClamp :: Double -> Double -> Double -> Double
+roiSpecClamp lower upper value = max lower (min upper value)
 
 tieBreakCandidateFromMetrics :: BacktestMetrics -> Double -> Double -> TieBreakCandidate
 tieBreakCandidateFromMetrics metrics openThr closeThr =

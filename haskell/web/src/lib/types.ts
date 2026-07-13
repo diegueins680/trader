@@ -588,6 +588,7 @@ export type BotMarketGovernor = {
 export type BotNeuralGovernorConfig = {
   enabled?: boolean;
   mode?: string;
+  rolloutMode?: string;
   hiddenSize?: number;
   learningRate?: number;
   minTrades?: number;
@@ -603,12 +604,20 @@ export type BotNeuralGovernorConfig = {
 export type BotNeuralGovernor = {
   enabled: boolean;
   mode?: string;
+  rolloutMode?: string;
+  enforced?: boolean;
+  promoted?: boolean;
+  rolledBack?: boolean;
   examples?: number;
+  evaluationTrades?: number;
   ready?: boolean;
   score?: number;
   multiplier?: number;
+  counterfactualAdvantage?: number;
   openBlockReason?: string | null;
   holdReason?: string | null;
+  candidateOpenBlockReason?: string | null;
+  candidateHoldReason?: string | null;
   reason?: string | null;
   lastReward?: number | null;
   config?: BotNeuralGovernorConfig;

@@ -5,11 +5,7 @@
   route {
     @stateSync path /state/sync
     handle @stateSync {
-      reverse_proxy api:8080 {
-        health_uri /health
-        health_interval 30s
-        health_timeout 5s
-      }
+      reverse_proxy api:8080
     }
 
     basic_auth {
@@ -23,9 +19,6 @@
       reverse_proxy api:8080 {
         header_up Authorization "Bearer {$TRADER_API_TOKEN}"
         header_up X-API-Key "{$TRADER_API_TOKEN}"
-        health_uri /health
-        health_interval 30s
-        health_timeout 5s
       }
     }
 
@@ -34,9 +27,6 @@
       reverse_proxy api:8080 {
         header_up Authorization "Bearer {$TRADER_API_TOKEN}"
         header_up X-API-Key "{$TRADER_API_TOKEN}"
-        health_uri /health
-        health_interval 30s
-        health_timeout 5s
       }
     }
 

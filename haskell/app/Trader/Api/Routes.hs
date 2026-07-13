@@ -14,6 +14,7 @@ apiEndpointDocs :: [Value]
 apiEndpointDocs =
     [ endpoint "GET" "/"
     , endpoint "GET" "/health"
+    , endpoint "GET" "/ready"
     , endpoint "GET" "/admin/health"
     , endpoint "GET" "/version"
     , endpoint "GET" "/metrics"

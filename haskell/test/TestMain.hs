@@ -15,7 +15,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (isInfixOf, isPrefixOf)
+import Data.List (isInfixOf, isPrefixOf, nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -79,6 +79,8 @@ import Trader.Formal.Optimization (
     fvrVolConfMalformedInputsStayConservative,
     fvrVolConfMalformedVolMatchesMissing,
     fvrVolConfOutputBounded,
+    roiImplementationScoreWithConfig,
+    roiSpecScoreWithConfig,
     roiViewFromMetrics,
     rvActivityCount,
     verifyFormalOptimization,
@@ -89,6 +91,7 @@ import Trader.Formal.Risk (
     specRiskHalt,
     verifyFormalRisk,
  )
+import Trader.Formal.RiskRegister (RiskEntry (..), riskRegister, riskSeverityOf)
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import qualified Trader.Kalman3 as Kalman3
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
@@ -108,7 +111,13 @@ import Trader.LiveGap (
     liveGapStatsByMethod,
     liveGapStatsByMethodWithConfig,
  )
-import Trader.LiveOrderIntent (desiredPositionForSignal, orderDirectionForTransition)
+import Trader.LiveOrderIntent (
+    LiveRiskHaltAction (..),
+    desiredPositionForSignal,
+    desiredPositionForSignalWithVolConf,
+    liveRiskHaltAction,
+    orderDirectionForTransition,
+ )
 import Trader.MarketContext (alignKlineClosesToOpenTimes, fitLinearRange)
 import Trader.MarketDataIntegrity (
     MarketSeriesBar (..),
@@ -140,6 +149,7 @@ import Trader.NeuralGovernor (
     NeuralGovernorDecision (..),
     NeuralGovernorFeatures (..),
     NeuralGovernorPendingEntry (..),
+    NeuralGovernorRolloutMode (..),
     defaultNeuralGovernorConfig,
     initNeuralGovernorState,
     neuralGovernorDecide,
@@ -149,6 +159,7 @@ import Trader.NeuralGovernor (
     neuralGovernorReward,
     neuralGovernorSizingMultiplier,
  )
+import Trader.OnlineStats (Welford (..), emptyWelford, updateWelford, varianceWelford)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
 import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
 import qualified Trader.Optimizer.Common as OptimizerCommon
@@ -211,6 +222,16 @@ import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
 import Trader.Predictors.PatchTST (PatchTSTModel (..), patchTstFeaturesAt, predictPatchTST, trainPatchTST)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
+import Trader.RoiScore (RoiScoreConfig (..), defaultFormalRoiScoreConfig)
+import Trader.SensitivityAnalysis (
+    ParameterSpec (..),
+    SensitivityPoint (..),
+    SensitivityReport (..),
+    mostSensitiveParameter,
+    runLocalSensitivity,
+    runLocalSensitivityChecked,
+    validateParameterSpec,
+ )
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
@@ -246,8 +267,13 @@ import Trader.SignalGates (
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
  )
+import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
+import Trader.Test.Cors (corsSuite)
+import Trader.Test.FormalVerification (formalVerificationSuite)
+import Trader.Test.GracefulShutdown (gracefulShutdownSuite)
+import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.ThresholdCalibration (
@@ -263,6 +289,7 @@ import Trader.ThresholdCalibration (
     defaultThresholdCalibrationConfig,
     suggestedThreshold,
     thresholdAtPercentile,
+    validateCalibrationMethod,
     validateThresholdCalibrationConfig,
  )
 import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig, topComboFreshnessMultiplier, topComboMinimumFinalEquity)
@@ -330,6 +357,7 @@ import Trader.Trading (
     tradeOutcomeWeights,
     tradeOutcomeWeightsWithConfig,
  )
+import Trader.Types.Safe (fromLeverage, fromQuantity, leverageFromDouble, quantityFromDouble)
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
@@ -360,6 +388,7 @@ main = do
     testTakeProfitGuardrail
     testMarketContextAlignsPeerKlinesByOpenTime
     testOrderIntentUsesCloseDirectionForExistingPositions
+    testVolConfHoldPreservesLivePosition
     testLongShortFlipCountsExitAndEntryTurnover
     testIntrabarTakeProfitUsesExitBarCost
     testPartialTakeProfitMovesLongStopToBreakeven
@@ -483,6 +512,7 @@ main = do
     testPredictionMarketHerdSelection
     testSignalGatesPublicSurfaceRegression
     testSignalGateVolTargetPrecedesCloud
+    testDecisionParitySharedGatePrecedence
     testTradingPublicSurfaceRegression
     testKellyLiteBacktestSizingRegression
     testPositionSizeScaleSanityInvariant
@@ -573,6 +603,12 @@ main = do
     testOptimizerRecordsRetryDiscoveryStopsWhenEligible
     testTopComboBacktestPrunesRoiLosers
     testMetricsConsumesTradingPublicResults
+    testMetricsFiniteInputBoundary
+    testOnlineStatsFiniteInputBoundary
+    testIndependentRoiSpecification
+    testSensitivityAnalysisInvariants
+    testRiskRegisterInvariants
+    testSafeNumericConstruction
     testGateTelemetryEmptyInvariant
     testGateTelemetryAccumulationInvariant
     testGateTelemetryBindingGateIdentification
@@ -584,6 +620,7 @@ main = do
     testThresholdCalibrationInterpolatesIntermediatePercentiles
     testThresholdCalibrationStdDevMethod
     testThresholdCalibrationHybridMethod
+    testThresholdCalibrationRejectsMalformedMethod
     testThresholdCalibrationRecommendationInsufficientSample
     testThresholdCalibrationRecommendationConservative
     testThresholdCalibrationRecommendationAggressive
@@ -608,6 +645,11 @@ main = do
     testHMMSanitizesMalformedInputs
     runOnlineNeuralTests
     runTechnicalAnalysisTests
+    runSuite "apiRoutes" apiRouteSuite
+    runSuite "cors" corsSuite
+    runSuite "formalVerification" formalVerificationSuite
+    runSuite "gracefulShutdown" gracefulShutdownSuite
+    runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
 
@@ -844,6 +886,24 @@ testMultivariateLstmInputs = do
     assert "two-channel paramCount matches paramCountD h 2" (length (lmParams mMulti) == paramCountD (lmHiddenSize mMulti) 2)
     assert "two-channel params differ from univariate" (lmParams mMulti /= lmParams mUni)
     assert "two-channel prediction is finite" (finite (predictNextMulti mMulti [take 4 series, take 4 series2]))
+    assert
+        "multivariate prediction rejects a missing channel"
+        (predictNextMulti mMulti [take 4 series] == 0)
+    assert
+        "multivariate prediction rejects an extra channel"
+        (predictNextMulti mMulti [take 4 series, take 4 series2, take 4 series] == 0)
+    assert
+        "multivariate prediction rejects unequal channel lengths"
+        (predictNextMulti mMulti [take 4 series, take 3 series2] == 0)
+    assert
+        "multivariate prediction rejects non-finite channel evidence"
+        (predictNextMulti mMulti [take 4 series, [0.05, 0.10, 0 / 0, 0.20]] == 0)
+    assert
+        "flat multivariate prediction rejects a non-divisible feature window"
+        (predictNext mMulti [0.1, 0.2, 0.3] == 0)
+    assert
+        "malformed parameter vectors fail closed"
+        (predictNext (LSTMModel 3 [0]) window == 0)
 
 testGBDTSanitizesMalformedInputs :: IO ()
 testGBDTSanitizesMalformedInputs = do
@@ -3044,6 +3104,7 @@ testNeuralGovernorPolicy = do
     let cfg =
             defaultNeuralGovernorConfig
                 { ngcMinTrades = 2
+                , ngcRolloutMode = NeuralGovernorEnforce
                 , ngcLearningRate = 0.2
                 , ngcInfluence = 10
                 , ngcMinMultiplier = 0.5
@@ -3052,6 +3113,9 @@ testNeuralGovernorPolicy = do
                 , ngcLossPenaltyScale = 3
                 , ngcOpenScoreFloor = 0
                 , ngcHoldScoreFloor = 0.001
+                , ngcPromotionMinTrades = 0
+                , ngcPromotionMinAdvantage = -1
+                , ngcRollbackMinTrades = 1000
                 }
         activeCfg = cfg{ngcMinTrades = 0}
         baseFeatures =
@@ -6994,6 +7058,77 @@ testSignalGateVolTargetPrecedesCloud = do
         "vol-target readiness takes precedence over Kalman cloud vetoes"
         (result == (Nothing, Just "VOL_TARGET"))
 
+-- The latest-signal path and simulator both call signalRunPostDirectionGates.
+-- Exercise its reason order directly, then prove that the simulator blocks the
+-- corresponding high-volatility entry instead of bypassing the shared gate.
+testDecisionParitySharedGatePrecedence :: IO ()
+testDecisionParitySharedGatePrecedence = do
+    let allFailingGates =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                False
+                (const False)
+                (const False)
+                (const False)
+                False
+                (const (False, Just "NON_DIRECTIONAL_RANGE"))
+                (False, Just "REGIME_EDGE")
+                (False, Just "MTF_CONSENSUS")
+                (False, Just "CROSS_ASSET")
+                (const False)
+                (const (False, 0))
+        upstreamReasonWins =
+            signalRunPostDirectionGates
+                (Just 1)
+                (Just "PAIRS_CONFLICT")
+                False
+                False
+                (const False)
+                (const False)
+                (const False)
+                False
+                (const (False, Just "NON_DIRECTIONAL_RANGE"))
+                (False, Just "REGIME_EDGE")
+                (False, Just "MTF_CONSENSUS")
+                (False, Just "CROSS_ASSET")
+                (const False)
+                (const (False, 0))
+        prices = V.fromList [100 :: Double, 100, 101, 103, 104, 105]
+        predictions = V.fromList [102 :: Double, 102, 104, 106, 107]
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.005
+                , ecCloseThreshold = 0.002
+                , ecFee = 0
+                , ecVolLookback = 2
+                , ecMaxPositionSize = 1
+                }
+        allowed = simulateEnsemble baseCfg 2 prices prices prices predictions predictions (Nothing :: Maybe (V.Vector StepMeta))
+        volatilityBlocked =
+            simulateEnsemble
+                baseCfg{ecMaxVolatility = Just 1e-6}
+                2
+                prices
+                prices
+                prices
+                predictions
+                predictions
+                (Nothing :: Maybe (V.Vector StepMeta))
+    assert
+        "shared post-direction gate precedence reports volatility before later failing gates"
+        (allFailingGates == (Nothing, Just "VOLATILITY"))
+    assert
+        "an upstream direction reason remains authoritative over post-direction failures"
+        (upstreamReasonWins == (Nothing, Just "PAIRS_CONFLICT"))
+    assert
+        "backtest fixture has a real entry before the volatility gate is enabled"
+        (any ((> 1e-9) . abs) (brPositions allowed))
+    assert
+        "backtest consumes the shared volatility gate and blocks the same entry"
+        (all ((<= 1e-9) . abs) (brPositions volatilityBlocked))
+
 testSignalDirectionalityLiveSemanticsRegression :: IO ()
 testSignalDirectionalityLiveSemanticsRegression = do
     let chopPrices = pricesFromReturns [0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0.01, -0.01]
@@ -7982,6 +8117,187 @@ testMetricsConsumesTradingPublicResults = do
             && rvActivityCount (roiViewFromMetrics metrics) == 1
         )
 
+testMetricsFiniteInputBoundary :: IO ()
+testMetricsFiniteInputBoundary = do
+    let badResult =
+            BacktestResult
+                { brEquityCurve = [1, 0 / 0, 1 / 0, 1.0e-300, 1.0e308]
+                , brTrades = []
+                , brPositions = [0, 0 / 0, 1 / 0, -1]
+                , brAgreementOk = [True]
+                , brAgreementValid = [True]
+                , brPositionChanges = -3
+                , brCostAttribution = emptyBacktestCostAttribution []
+                }
+        metricsFor annualization = computeMetrics annualization badResult
+        malformedAnnualizations = [0 / 0, 1 / 0, negate (1 / 0), -252, 0]
+        metricDoubles metrics =
+            [ bmFinalEquity metrics
+            , bmTotalReturn metrics
+            , bmAnnualizedReturn metrics
+            , bmAnnualizedVolatility metrics
+            , bmSharpe metrics
+            , bmSortino metrics
+            , bmCalmar metrics
+            , bmDownsideVolatility metrics
+            , bmVaR95 metrics
+            , bmCVaR95 metrics
+            , bmMaxDrawdown metrics
+            , bmWinRate metrics
+            , bmGrossProfit metrics
+            , bmGrossLoss metrics
+            , bmAvgTradeReturn metrics
+            , bmAvgHoldingPeriods metrics
+            , bmExposure metrics
+            , bmAgreementRate metrics
+            , bmTurnover metrics
+            ]
+        allFinite metrics = all finiteDouble (metricDoubles metrics) && maybe True finiteDouble (bmProfitFactor metrics)
+    assert
+        "metrics remain finite for malformed annualization and source values"
+        (all (allFinite . metricsFor) malformedAnnualizations)
+    assert
+        "malformed annualization fails closed to zero annualized metrics"
+        ( all
+            ( \annualization ->
+                let metrics = metricsFor annualization
+                 in bmAnnualizedReturn metrics == 0
+                        && bmAnnualizedVolatility metrics == 0
+                        && bmSharpe metrics == 0
+                        && bmSortino metrics == 0
+            )
+            malformedAnnualizations
+        )
+    assert
+        "negative position-change evidence cannot create negative turnover"
+        (bmPositionChanges (metricsFor 252) == 0 && bmTurnover (metricsFor 252) == 0)
+
+testOnlineStatsFiniteInputBoundary :: IO ()
+testOnlineStatsFiniteInputBoundary = do
+    let unchanged = foldl (flip updateWelford) emptyWelford [0 / 0, 1 / 0, negate (1 / 0)]
+        learned = foldl (flip updateWelford) emptyWelford [1, 2, 3]
+        repaired = updateWelford 7 (Welford (-1) (0 / 0) (-1))
+    assert "non-finite online observations are ignored" (unchanged == emptyWelford)
+    assert "finite Welford observations update count and mean" (wCount learned == 3 && abs (wMean learned - 2) < 1e-12)
+    assert "finite Welford sample variance is correct" (varianceWelford learned == Just 1)
+    assert "corrupted Welford state resets on the next finite observation" (repaired == Welford 1 7 0)
+    assert "corrupted Welford state cannot emit variance" (isNothing (varianceWelford (Welford 3 0 (0 / 0))))
+
+testIndependentRoiSpecification :: IO ()
+testIndependentRoiSpecification = do
+    let result =
+            BacktestResult
+                { brEquityCurve = [1, 1.02, 1.01, 1.05]
+                , brTrades = []
+                , brPositions = [0, 0.5, 0.5, 0]
+                , brAgreementOk = [True, False, True]
+                , brAgreementValid = [True, True, True]
+                , brPositionChanges = 2
+                , brCostAttribution = emptyBacktestCostAttribution []
+                }
+        metrics =
+            (computeMetrics 252 result)
+                { bmCVaR95 = 0.03
+                , bmMaxDrawdown = 0.04
+                , bmAvgTradeReturn = 0.01
+                , bmAvgHoldingPeriods = 4
+                , bmRoundTrips = 3
+                , bmTradeCount = 4
+                , bmExposure = 0.25
+                }
+        customConfig =
+            defaultFormalRoiScoreConfig
+                { rscExpectancyRewardWeight = 0.73
+                , rscPaybackRewardCap = 0.08
+                , rscMinimumActivityFloor = 2
+                , rscMinimumExposureFloor = 0.05
+                , rscZeroRoundTripPenalty = 0.11
+                , rscLowRoundTripPenalty = 0.07
+                , rscZeroActivityPenalty = 0.13
+                , rscLowActivityPenalty = 0.04
+                , rscZeroExposurePenalty = 0.09
+                , rscLowExposurePenaltyBase = 0.03
+                , rscLowExposurePenaltyGapScale = 0.02
+                }
+        malformedConfig =
+            customConfig
+                { rscExpectancyRewardWeight = 0 / 0
+                , rscPaybackRewardCap = 1 / 0
+                , rscMinimumActivityFloor = -4
+                , rscMinimumExposureFloor = -1
+                }
+        agrees config =
+            abs
+                ( roiSpecScoreWithConfig config 1.2 0.3 metrics
+                    - roiImplementationScoreWithConfig config 1.2 0.3 metrics
+                )
+                <= 1e-12
+    assert "independent ROI specification matches a custom production configuration" (agrees customConfig)
+    assert "independent ROI specification matches production sanitization" (agrees malformedConfig)
+
+testSensitivityAnalysisInvariants :: IO ()
+testSensitivityAnalysisInvariants = do
+    let spec =
+            ParameterSpec
+                { psName = "openThreshold"
+                , psDescription = "test parameter"
+                , psMin = 1
+                , psMax = 3
+                , psSteps = 3
+                , psBaseline = 2
+                }
+        offGridSpec = spec{psMax = 4, psBaseline = 2}
+        evaluator value = (2 * value, 0.1, 10, 0.5, 1.2)
+        checked = runLocalSensitivityChecked spec evaluator
+        offGrid = runLocalSensitivityChecked offGridSpec evaluator
+        invalidSpec = spec{psSteps = 1}
+        invalidReport = runLocalSensitivity invalidSpec (\_ -> error "invalid sensitivity spec evaluated")
+        malformedOutput = runLocalSensitivity spec (const (0 / 0, 1 / 0, -2, 2, -1))
+        pointsFinite report =
+            all
+                ( \point ->
+                    all finiteDouble [spParameterValue point, spSharpe point, spMaxDrawdown point, spWinRate point, spProfitFactor point]
+                        && spTradeCount point >= 0
+                        && spWinRate point >= 0
+                        && spWinRate point <= 1
+                )
+                (srPoints report)
+    assert "valid sensitivity specifications are accepted" (not (isLeft (validateParameterSpec spec)))
+    assert "invalid sensitivity step counts are rejected" (isLeft (validateParameterSpec invalidSpec))
+    case checked of
+        Left err -> assert ("valid sensitivity analysis failed: " ++ err) False
+        Right report -> do
+            assert "sensitivity analysis evaluates the declared grid" (map spParameterValue (srPoints report) == [1, 2, 3])
+            assertNear "linear response has unit elasticity" 1 (srElasticity report) 1e-12
+    case offGrid of
+        Left err -> assert ("off-grid baseline analysis failed: " ++ err) False
+        Right report ->
+            assert
+                "off-grid baselines are included as explicit evidence"
+                (any ((< 1e-12) . abs . subtract (psBaseline offGridSpec) . spParameterValue) (srPoints report))
+    assert "invalid sensitivity specs fail without evaluating the callback" (null (srPoints invalidReport))
+    assert "malformed evaluator outputs sanitize to a finite report" (pointsFinite malformedOutput && finiteDouble (srElasticity malformedOutput))
+    let poisoned = malformedOutput{srElasticity = 0 / 0}
+    assert "non-finite reports cannot win sensitivity ranking" (mostSensitiveParameter [poisoned, malformedOutput] == Just (srParameter malformedOutput))
+
+testRiskRegisterInvariants :: IO ()
+testRiskRegisterInvariants = do
+    let ids = map reId riskRegister
+        nonEmpty textValue = not (T.null (T.strip textValue))
+        complete entry = nonEmpty (reDescription entry) && nonEmpty (reOwner entry) && nonEmpty (reMitigation entry)
+        lookupConsistent entry = riskSeverityOf (reId entry) == Just (reSeverity entry)
+    assert "formal risk-register IDs are unique" (length ids == length (nub ids))
+    assert "formal risk-register entries have complete ownership and mitigation text" (all complete riskRegister)
+    assert "formal risk-register severity lookup matches every canonical entry" (all lookupConsistent riskRegister)
+
+testSafeNumericConstruction :: IO ()
+testSafeNumericConstruction = do
+    let malformed = [0 / 0, 1 / 0, negate (1 / 0), -1]
+    assert "malformed quantities sanitize to zero" (all ((== 0) . fromQuantity . quantityFromDouble) malformed)
+    assert "valid quantities preserve their value" (fromQuantity (quantityFromDouble 2.5) == 2.5)
+    assert "malformed leverage sanitizes to a finite positive floor" (all ((== 1e-12) . fromLeverage . leverageFromDouble) (0 : malformed))
+    assert "valid leverage preserves its value" (fromLeverage (leverageFromDouble 3) == 3)
+
 -- ============================================================================
 -- Gate Telemetry Tests
 -- Engineering invariant: If you can't measure it, you can't improve it.
@@ -8005,10 +8321,15 @@ testGateTelemetryAccumulationInvariant = do
         tel1 = recordRejection rej1 tel0
         tel2 = recordRejection rej2 tel1
         tel3 = recordRejection rej3 tel2
+        bounded = foldl (flip recordRejection) (emptyTelemetry 2) (replicate 5 rej1)
+        disabledRecent = recordRejection rej1 (emptyTelemetry (-1))
     assert "accumulated rejections count correctly" (gtTotalRejections tel3 == 3)
     assert "per-gate counts track correctly" (Map.lookup GateEdgeSpike (gtPerGateCounts tel3) == Just 2)
     assert "per-gate counts track correctly for second gate" (Map.lookup GateEdgeHeadroom (gtPerGateCounts tel3) == Just 1)
     assert "recent rejections bounded" (length (gtRecentRejections tel3) <= 10)
+    assert "configured recent rejection bound is honored" (length (gtRecentRejections bounded) == 2)
+    assert "configured recent rejection bound remains observable" (gtMaxRecent bounded == 2)
+    assert "negative recent rejection bounds sanitize to zero" (null (gtRecentRejections disabledRecent) && gtMaxRecent disabledRecent == 0)
 
 testGateTelemetryBindingGateIdentification :: IO ()
 testGateTelemetryBindingGateIdentification = do
@@ -8154,6 +8475,25 @@ testThresholdCalibrationHybridMethod = do
                 "hybrid method has confidence interval"
                 (uncurry (<=) (tcConfidenceInterval calib))
 
+testThresholdCalibrationRejectsMalformedMethod :: IO ()
+testThresholdCalibrationRejectsMalformedMethod = do
+    let edges = [0.001, 0.002, 0.003]
+        malformedMethods =
+            [ PercentileMethod (-1)
+            , PercentileMethod 101
+            , PercentileMethod (0 / 0)
+            , StdDevMethod (-1)
+            , StdDevMethod (1 / 0)
+            , HybridMethod 50 (0 / 0)
+            , HybridMethod (negate (1 / 0)) 1
+            ]
+    assert
+        "malformed calibration methods fail validation"
+        (all (isLeft . validateCalibrationMethod) malformedMethods)
+    assert
+        "malformed calibration methods cannot emit a calibration"
+        (all (isNothing . calibrateThreshold edges) malformedMethods)
+
 testThresholdCalibrationRecommendationInsufficientSample :: IO ()
 testThresholdCalibrationRecommendationInsufficientSample = do
     let edges = [0.01 | _ <- [1 .. 10 :: Int]]
@@ -8211,6 +8551,12 @@ testFormalExecutionInvariants = do
     assert
         "orderAppliedQuantity implementation matches spec on bounded grid"
         (fvrExecOrderAppliedImplMatchesSpec report)
+    assert
+        "orderAppliedFraction implementation matches spec on bounded grid"
+        (fvrExecOrderAppliedFractionImplMatchesSpec report)
+    assert
+        "orderAppliedFraction never exceeds intended exposure"
+        (fvrExecOrderAppliedFractionBounded report)
     assert
         "reduce-only fills never increase position magnitude"
         (fvrExecReduceOnlyNeverIncreases report)
@@ -8612,6 +8958,52 @@ testOrderIntentUsesCloseDirectionForExistingPositions = do
     assert "close-only long exit becomes a SELL order direction" (orderDirectionForTransition 1 longExit == Just (-1))
     assert "close-only short exit becomes a BUY order direction" (orderDirectionForTransition (-1) shortExit == Just 1)
 
+testVolConfHoldPreservesLivePosition :: IO ()
+testVolConfHoldPreservesLivePosition = do
+    let sideDirection side =
+            case side of
+                SideLong -> 1
+                SideShort -> -1
+        latestCloseSide =
+            volConfStatefulCloseDirection
+                VolConfGateHold
+                (Just SideShort)
+                (Just SideShort)
+        latestCloseDirection = sideDirection <$> latestCloseSide
+        liveDesired =
+            desiredPositionForSignalWithVolConf
+                VolConfGateHold
+                LongShort
+                1
+                Nothing
+                latestCloseDirection
+        liveWithoutHold =
+            desiredPositionForSignalWithVolConf
+                VolConfGateAllowEntry
+                LongShort
+                1
+                Nothing
+                latestCloseDirection
+        backtestHeld =
+            applyVolConfGateBehavior
+                VolConfGateHold
+                (Just SideLong)
+                0.6
+                (Just SideShort)
+                0.8
+    assert
+        "vol-conf HOLD suppresses latest-signal close direction"
+        (isNothing latestCloseSide)
+    assert
+        "live stateful reduction preserves the held long when latest-signal reports vol-conf HOLD"
+        (liveDesired == 1)
+    assert
+        "without vol-conf HOLD the same neutral latest signal exits the held long"
+        (liveWithoutHold == 0)
+    assert
+        "backtest vol-conf HOLD preserves the same held side and size"
+        (backtestHeld == (Just SideLong, 0.6))
+
 testLongShortFlipCountsExitAndEntryTurnover :: IO ()
 testLongShortFlipCountsExitAndEntryTurnover = do
     let prices = V.fromList [100 :: Double, 100, 100]
@@ -8628,9 +9020,18 @@ testLongShortFlipCountsExitAndEntryTurnover = do
     case result of
         Left err -> ioError (userError ("long-short flip turnover regression failed to simulate: " ++ err))
         Right bt ->
-            assert
-                "long-short flip counts the exit and the new entry as separate position changes"
-                (brPositionChanges bt == 3)
+            let positions = brPositions bt
+                flipsLongToShort =
+                    case dropWhile (<= 0) positions of
+                        [] -> False
+                        _long : afterLong -> any (< 0) afterLong
+             in do
+                    assert
+                        "long-short backtest transitions from held long to short"
+                        flipsLongToShort
+                    assert
+                        "long-short flip counts initial entry, exit, and replacement entry as separate turnover"
+                        (brPositionChanges bt == 3)
 
 testIntrabarTakeProfitUsesExitBarCost :: IO ()
 testIntrabarTakeProfitUsesExitBarCost = do
@@ -8794,17 +9195,51 @@ testMaxDrawdownHaltsSimulation = do
         result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
         trades = brTrades result
         positions = brPositions result
+        liveHalt =
+            liveRiskHaltAction
+                1
+                HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0.06
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Just 0.05
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 1
+                    , hiMaxPositionSizeLim = Just 1
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
     assert
         "max-drawdown simulation produces at least one trade"
         (not (null trades))
     assert
-        "max-drawdown simulation ends flat or with the last known position"
-        (not (null positions) && (last positions == 0 || length positions >= V.length prices - 1))
+        "max-drawdown simulation ends flat"
+        (not (null positions) && last positions == 0)
     assert
         "last trade exits with ExitMaxDrawdown"
         ( case trades of
             [] -> False
             ts -> trExitReason (last ts) == Just ExitMaxDrawdown
+        )
+    assert
+        "live and backtest use the same canonical max-drawdown halt reason"
+        ( lrhaExitReason liveHalt == Just ExitMaxDrawdown
+            && case trades of
+                [] -> False
+                ts -> lrhaExitReason liveHalt == trExitReason (last ts)
+        )
+    assert
+        "a live max-drawdown halt flattens a long with a sell transition"
+        ( lrhaDesiredPosition liveHalt == 0
+            && lrhaOrderDirection liveHalt == Just (-1)
         )
     assert
         "max-drawdown exit occurs before or at the final bar"

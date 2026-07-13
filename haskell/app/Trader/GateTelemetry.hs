@@ -16,7 +16,8 @@ Every gate rejection is recorded with context so engineers can diagnose
 zero-trade scenarios without manual code review.
 
 Design invariants:
-1. Telemetry accumulation is O(1) per gate check (mutable counters).
+1. Telemetry accumulation is O(log k + maxRecent), with finite reason keys and
+   maxRecent capped at 1000.
 2. Serialization happens only at backtest/output boundaries.
 3. All fields are JSON-serializable for downstream analysis.
 4. No telemetry field can affect gate logic (observability is side-effect-free).
@@ -246,33 +247,46 @@ emptyTelemetry maxRecent =
         , gtPerGateCounts = Map.empty
         , gtPerReasonCounts = Map.empty
         , gtRecentRejections = []
-        , gtMaxRecent = maxRecent
+        , gtMaxRecent = normalizeMaxRecent maxRecent
         }
 
--- | Default bound for recent rejections buffer.
-maxRecentDefault :: Int
-maxRecentDefault = 100
+maxRecentLimit :: Int
+maxRecentLimit = 1000
+
+normalizeMaxRecent :: Int -> Int
+normalizeMaxRecent = max 0 . min maxRecentLimit
 
 -- | Record a single rejection event.
 recordRejection :: GateRejection -> GateTelemetry -> GateTelemetry
-recordRejection rejection =
-    recordRejectionWithContext rejection maxRecentDefault
+recordRejection rejection tel =
+    recordRejectionWithContext rejection (gtMaxRecent tel) tel
 
 -- | Record a rejection with explicit max-recent bound.
 recordRejectionWithContext :: GateRejection -> Int -> GateTelemetry -> GateTelemetry
 recordRejectionWithContext rejection maxRecent tel =
-    let key = (grGateName rejection, grReason rejection)
+    let maxRecent' = normalizeMaxRecent maxRecent
+        rejection' = canonicalizeRejection rejection
+        key = (grGateName rejection', grReason rejection')
         hist' = Map.insertWith (+) key 1 (gtRejectionHistogram tel)
-        gateCounts' = Map.insertWith (+) (grGateName rejection) 1 (gtPerGateCounts tel)
-        reasonCounts' = Map.insertWith (+) (grReason rejection) 1 (gtPerReasonCounts tel)
-        recent' = take maxRecent (rejection : gtRecentRejections tel)
+        gateCounts' = Map.insertWith (+) (grGateName rejection') 1 (gtPerGateCounts tel)
+        reasonCounts' = Map.insertWith (+) (grReason rejection') 1 (gtPerReasonCounts tel)
+        recent' = take maxRecent' (rejection' : gtRecentRejections tel)
      in tel
             { gtTotalRejections = gtTotalRejections tel + 1
             , gtRejectionHistogram = hist'
             , gtPerGateCounts = gateCounts'
             , gtPerReasonCounts = reasonCounts'
             , gtRecentRejections = recent'
+            , gtMaxRecent = maxRecent'
             }
+
+-- Unknown reason strings are untrusted external cardinality (and may contain
+-- sensitive error text). Collapse them to one stable bucket before storage.
+canonicalizeRejection :: GateRejection -> GateRejection
+canonicalizeRejection rejection =
+    case grReason rejection of
+        ReasonUnknown _ -> rejection{grReason = ReasonUnknown "UNKNOWN"}
+        _ -> rejection
 
 {- | Convenience: record a rejection from a string reason.
 This bridges the existing string-based reasons in SignalGates.hs

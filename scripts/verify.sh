@@ -15,7 +15,7 @@ Usage: bash scripts/verify.sh [target]
 Targets:
   haskell     Run Haskell format, lint, build, smoke, and test checks.
   web         Run web typecheck, tests, and build.
-  automation  Run the root autoloop regression tests.
+  automation  Validate formal-spec coverage and run root automation regressions.
   smoke       Run only the Haskell smoke checks.
   full        Run haskell + web + automation checks.
 EOF
@@ -72,9 +72,13 @@ verify_web() {
 }
 
 verify_automation() {
+  require_cmd bash
   require_cmd node
+  require_cmd python3
 
-  run_step "node --test test/autoloop.test.mjs" bash -c "cd \"$ROOT_DIR\" && node --test test/autoloop.test.mjs"
+  run_step "validate deploy TOML and Compose config" bash -c "cd \"$ROOT_DIR\" && bash scripts/verify-deploy-config.sh"
+  run_step "node scripts/verify-formal-specs.mjs" bash -c "cd \"$ROOT_DIR\" && node scripts/verify-formal-specs.mjs"
+  run_step "node --test test/*.test.mjs" bash -c "cd \"$ROOT_DIR\" && node --test test/*.test.mjs"
 }
 
 verify_smoke() {

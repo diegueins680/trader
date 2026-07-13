@@ -62,6 +62,7 @@ expectedEndpointPairs :: [(String, String)]
 expectedEndpointPairs =
     [ ("GET", "/")
     , ("GET", "/health")
+    , ("GET", "/ready")
     , ("GET", "/admin/health")
     , ("GET", "/version")
     , ("GET", "/metrics")

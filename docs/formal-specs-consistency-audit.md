@@ -1,5 +1,7 @@
 # Formal Specs Consistency Audit
 
+> Superseded for repository-wide coverage by `docs/formal-verification-audit-2026-07-12.md`. This document remains the historical audit of the earlier S1-S18 trading subset.
+
 Date audited: 2026-06-21
 
 Scope:

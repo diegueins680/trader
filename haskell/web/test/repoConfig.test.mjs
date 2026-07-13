@@ -219,6 +219,13 @@ test("repo contract routes top-combo integer imports through the exact safe-inte
   );
 });
 
+test("repo contract gates top-combo display and auto-apply through validated rows", () => {
+  assert.match(appSource, /const preparedRows = prepareTopComboRows\(rawCombos\);/);
+  assert.match(appSource, /const sanitized: OptimizationCombo\[\] = preparedRows\.map/);
+  assert.match(appSource, /const comboCount = sanitized\.length;/);
+  assert.match(appSource, /maybeAutoApplyTopCombo\(parsed\.combos\)/);
+});
+
 test("repo contract routes lookback and live-bot validation targets to their config pages", () => {
   const targetPageMapBody = parseTsConstObjectBody(configLayoutSource, "CONFIG_TARGET_PAGE_MAP");
 

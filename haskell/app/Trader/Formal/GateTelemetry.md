@@ -6,18 +6,21 @@
 ## Purpose
 Provide structured, measurable observability for every signal gate rejection.
 
+Current conformance scope: this contract verifies the standalone accumulator. The accumulator is not yet threaded through every `Main`/`Trading`/`SignalGates` production path, so repository-wide rejection capture remains an explicit integration gap.
+
 ## Invariants
 
 ### I1: Observability Does Not Affect Logic
 **Statement**: For all gate checks `g`, `gate_result(g) = gate_result(g_without_telemetry)`.
 **Proof**: The telemetry accumulator is passed as a separate argument and is never read during gate logic evaluation. The `recordRejection` function is only called AFTER the gate decision is made.
 
-### I2: Telemetry Accumulation is O(1)
-**Statement**: Recording a rejection takes constant time regardless of history size.
+### I2: Telemetry Accumulation and Cardinality are Bounded
+**Statement**: Recording a rejection takes `O(log k + maxRecent)`, where `k` is the finite set of canonical gate/reason pairs and `maxRecent` is capped at `1000`.
 **Proof**: `recordRejectionWithContext` performs:
-- One `Map.insertWith` on a strict Map (O(log n) where n = number of distinct gate/reason pairs, bounded by ~50)
-- One list prepend for recent rejections (O(1))
-- The recent rejection list is bounded by `maxRecent` (default 100), so memory is O(1)
+- strict `Map.insertWith` operations in `O(log k)`;
+- a prepend plus `take maxRecent` in `O(maxRecent)`;
+- canonicalization of every `ReasonUnknown` value to one `UNKNOWN` bucket, preventing attacker-controlled reason cardinality;
+- normalization of the recent-event bound into `[0,1000]`.
 
 ### I3: Fail-Closed by Default
 **Statement**: `emptyTelemetry` produces a telemetry object with zero counts and no binding gate.
@@ -30,8 +33,8 @@ Provide structured, measurable observability for every signal gate rejection.
 ## Failure Modes
 
 ### F1: Telemetry Memory Leak
-**Condition**: `maxRecent` is set to a very large value.
-**Mitigation**: Default is 100. Production should cap at 1000.
+**Condition**: `maxRecent` is negative or very large, or untrusted unknown-reason text has unbounded cardinality.
+**Mitigation**: Bounds normalize into `[0,1000]`, and unknown reasons collapse to one stable bucket before histogram/recent storage.
 
 ### F2: Concurrent Access Corruption
 **Condition**: Multiple threads update the same `GateTelemetry` without synchronization.
@@ -49,3 +52,4 @@ See `test/TestMain.hs`:
 - `testGateTelemetryAccumulationInvariant`
 - `testGateTelemetryBindingGateIdentification`
 - `testGateTelemetryHistogramSorting`
+- `Trader.Test.FormalVerification.formalVerificationSuite` covers negative/huge recent-history bounds and canonical unknown-reason cardinality.

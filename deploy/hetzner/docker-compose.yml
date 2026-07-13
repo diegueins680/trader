@@ -24,16 +24,16 @@ services:
         TRADER_GIT_COMMIT: ${TRADER_GIT_COMMIT:-}
     image: ${TRADER_API_IMAGE:-trader-api:local}
     command:
-      - trader-hs
-      - --serve
-      - --port
-      - "8080"
-      - --platform
-      - binance
-      - --futures
-      - --binance-live
-      - --trade-log
-      - .tmp/trader/live_trades.ndjson
+      - /bin/sh
+      - -ec
+      - |
+        set -- trader-hs --serve --port 8080 --platform binance --futures --trade-log .tmp/trader/live_trades.ndjson
+        case "$${TRADER_BINANCE_LIVE:-false}" in
+          true|TRUE|1) set -- "$$@" --binance-live ;;
+          false|FALSE|0|"") ;;
+          *) echo "TRADER_BINANCE_LIVE must be true/false/1/0" >&2; exit 64 ;;
+        esac
+        exec "$$@"
     restart: unless-stopped
     depends_on:
       postgres:
@@ -257,11 +257,14 @@ services:
     environment:
       ALERT_PHONE: ${ALERT_PHONE:-}
       CALLMEBOT_APIKEY: ${CALLMEBOT_APIKEY:-}
-      TRADER_API_URL: http://api:8080
-      HEALTH_INTERVAL_SEC: "60"
     command: python /app/bridge.py
     ports:
       - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
 
 volumes:
   trader-postgres:

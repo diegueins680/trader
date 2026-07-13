@@ -39,6 +39,7 @@ import {
   prepareShellCommand,
   resolveAutoloopBackend,
   sanitizeRelativePath,
+  selectMergeVerificationTarget,
   stripMarkdownFences,
   uniqueStrings,
   writeJsonFileAtomic,
@@ -58,6 +59,11 @@ function assertOrderedSubsequence(values, expected, label) {
 }
 
 const SCORECARD_SCRIPT = fileURLToPath(new URL("../haskell/scripts/volatility_gating_scorecard.py", import.meta.url));
+const VALIDATE_TOML_SCRIPT = fileURLToPath(new URL("../scripts/validate-toml.py", import.meta.url));
+const EXTRACT_EDGES_SCRIPT = fileURLToPath(new URL("../scripts/extract_edges.py", import.meta.url));
+const RESEARCH_DIR = fileURLToPath(new URL("../scripts/research/", import.meta.url));
+const PYTHON_RESEARCH_DEPS =
+  spawnSync("python3", ["-c", "import numpy, pandas"], { encoding: "utf8" }).status === 0;
 
 function runScorecard(args) {
   return spawnSync("python3", [SCORECARD_SCRIPT, ...args], {
@@ -356,7 +362,8 @@ test("Fly config installs the radio maintenance process group", async () => {
   const dockerfile = await fs.readFile(new URL("../Dockerfile", import.meta.url), "utf8");
   const radioLoop = await fs.readFile(new URL("../scripts/fly-radio-stations-loop.sh", import.meta.url), "utf8");
 
-  assert.match(flyConfig, /\[processes\][\s\S]*app = "trader-hs --serve --port 8080(?: --trade-log \.tmp\/trader\/live_trades\.ndjson)?"/);
+  assert.equal(flyConfig.match(/^\[processes\]$/gm)?.length, 1, "Fly config must declare [processes] once");
+  assert.match(flyConfig, /\[processes\][\s\S]*app = "trader-hs --serve --port 8080 --platform binance --futures --binance-live --trade-log \.tmp\/trader\/live_trades\.ndjson"/);
   assert.match(flyConfig, /\[processes\][\s\S]*radio = "sh \/usr\/local\/bin\/fly-radio-stations-loop"/);
   assert.match(flyConfig, /RADIO_STATIONS_FILE = "\/var\/lib\/trader\/state\/radio-stations\.json"/);
   assert.match(flyConfig, /RADIO_STATION_DISCOVERY_URLS = "https:\/\/all\.api\.radio-browser\.info\/json\/stations\/topclick\/500\?hidebroken=true"/);
@@ -369,6 +376,32 @@ test("Fly config installs the radio maintenance process group", async () => {
 
   assert.match(radioLoop, /maintain-radio-stations\.mjs --stations-file "\$stations_file"/);
   assert.doesNotMatch(radioLoop, /--json/);
+});
+
+test("deploy config verifier parses every Fly TOML and rejects duplicate tables", async () => {
+  const valid = spawnSync("python3", [VALIDATE_TOML_SCRIPT], { encoding: "utf8" });
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.match(valid.stdout, /validated TOML: fly\.toml/);
+  assert.match(valid.stdout, /validated TOML: fly\.research\.toml/);
+  assert.match(valid.stdout, /validated TOML: haskell\/web\/fly\.frontend\.toml/);
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "invalid-toml-test-"));
+  try {
+    const invalid = path.join(dir, "duplicate.toml");
+    await fs.writeFile(invalid, "[processes]\napp = 'one'\n[processes]\napp = 'two'\n");
+    const rejected = spawnSync("python3", [VALIDATE_TOML_SCRIPT, invalid], { encoding: "utf8" });
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /invalid TOML .*duplicate\.toml/i);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+
+  const verify = await fs.readFile(new URL("../scripts/verify.sh", import.meta.url), "utf8");
+  const deployVerifier = await fs.readFile(new URL("../scripts/verify-deploy-config.sh", import.meta.url), "utf8");
+  assert.match(verify, /bash scripts\/verify-deploy-config\.sh/);
+  assert.match(deployVerifier, /docker compose[\s\S]*config --quiet/);
+  assert.match(deployVerifier, /trader\.trading\.env\.example/);
+  assert.match(deployVerifier, /trader\.research\.env\.example/);
 });
 
 test("buildBranchMergeCandidates ignores autoloop recovery branches", () => {
@@ -431,6 +464,131 @@ test("buildAutoloopScratchBranchCandidates keeps only autoloop recovery and chec
       remoteRef: "origin/autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
     },
   ]);
+});
+
+test("selectMergeVerificationTarget chooses the narrowest canonical gate", () => {
+  assert.equal(selectMergeVerificationTarget(["haskell/app/Main.hs"]), null);
+  assert.equal(selectMergeVerificationTarget(["haskell/web/src/App.tsx", "README.md"]), "web");
+  assert.equal(selectMergeVerificationTarget(["scripts/autoloop-lib.mjs", "CHANGELOG.md"]), "automation");
+  assert.equal(selectMergeVerificationTarget(["haskell/web/src/App.tsx", "scripts/autoloop-lib.mjs"]), "full");
+  assert.equal(selectMergeVerificationTarget(["deploy/hetzner/docker-compose.trading.yml"]), "full");
+  assert.equal(selectMergeVerificationTarget(["FORMAL_METHODS.md"]), "full");
+  assert.equal(selectMergeVerificationTarget([]), null);
+});
+
+test("extract_edges keeps ex-ante decision edges separate from realized outcomes", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "extract-edges-test-"));
+  try {
+    const input = path.join(dir, "backtest.json");
+    const decisionOutput = path.join(dir, "decision.csv");
+    const outcomeOutput = path.join(dir, "outcome.csv");
+    await fs.writeFile(
+      input,
+      JSON.stringify({
+        trades: [
+          { entryPrice: 100, exitPrice: 110, return: -0.05 },
+          { return: 0 },
+          { entryPrice: 100, exitPrice: 90, side: "SHORT" },
+        ],
+        decisionTraces: [{ edge: 0.02 }, { entryEdge: 0.025 }, { edge: Number.NaN }],
+        gateTelemetry: { recentRejections: [{ edge: 0.03 }] },
+      }),
+    );
+
+    const decisionRun = spawnSync(
+      "python3",
+      [EXTRACT_EDGES_SCRIPT, "--backtest-json", input, "--output", decisionOutput],
+      { encoding: "utf8" },
+    );
+    assert.equal(decisionRun.status, 0, decisionRun.stderr);
+    assert.deepEqual((await fs.readFile(decisionOutput, "utf8")).trim().split("\n"), [
+      "0.02000000",
+      "0.02500000",
+      "0.03000000",
+    ]);
+
+    const outcomeRun = spawnSync(
+      "python3",
+      [
+        EXTRACT_EDGES_SCRIPT,
+        "--backtest-json",
+        input,
+        "--series",
+        "realized-return",
+        "--output",
+        outcomeOutput,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(outcomeRun.status, 0, outcomeRun.stderr);
+    assert.deepEqual((await fs.readFile(outcomeOutput, "utf8")).trim().split("\n"), [
+      "-0.05000000",
+      "0.00000000",
+      "0.10000000",
+    ]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "research cache overlap and normalization remain point-in-time",
+  { skip: !PYTHON_RESEARCH_DEPS },
+  () => {
+    const program = String.raw`
+import json
+import sys
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, sys.argv[1])
+import datafeed
+import run_example
+
+old = pd.DataFrame([
+    {"openTime": 1, "close": 10.0, "funding": 0.01, "oi": 100.0},
+    {"openTime": 2, "close": 20.0, "funding": 0.02, "oi": 200.0},
+])
+fresh = pd.DataFrame([
+    {"openTime": 1, "close": 11.0, "funding": np.nan, "oi": np.nan},
+    {"openTime": 3, "close": 30.0, "funding": 0.03, "oi": 300.0},
+])
+merged = datafeed.merge_cache_frames(old, fresh)
+overlap = merged.loc[merged["openTime"] == 1].iloc[0]
+
+prefix = np.arange(1.0, 31.0)
+prefix_score = run_example.expanding_past_zscore(prefix)
+extended_score = run_example.expanding_past_zscore(np.concatenate([prefix, [1e12, -1e12]]))
+print(json.dumps({
+    "openTimes": merged["openTime"].tolist(),
+    "overlapClose": overlap["close"],
+    "overlapFunding": overlap["funding"],
+    "overlapOi": overlap["oi"],
+    "prefixInvariant": bool(np.allclose(prefix_score, extended_score[:len(prefix)], equal_nan=True)),
+}))
+`;
+    const run = spawnSync("python3", ["-c", program, RESEARCH_DIR], { encoding: "utf8" });
+    assert.equal(run.status, 0, run.stderr);
+    const result = JSON.parse(run.stdout);
+    assert.deepEqual(result.openTimes, [1, 2, 3]);
+    assert.equal(result.overlapClose, 11);
+    assert.equal(result.overlapFunding, 0.01);
+    assert.equal(result.overlapOi, 100);
+    assert.equal(result.prefixInvariant, true);
+  },
+);
+
+test("research and web proxy correctness contracts are explicit in source", async () => {
+  const datafeed = await fs.readFile(new URL("../scripts/research/datafeed.py", import.meta.url), "utf8");
+  const example = await fs.readFile(new URL("../scripts/research/run_example.py", import.meta.url), "utf8");
+  const nginx = await fs.readFile(new URL("../haskell/web/nginx/default.conf.template", import.meta.url), "utf8");
+  assert.match(datafeed, /fresh_by_time\.combine_first\(old_by_time\)/);
+  assert.match(example, /def expanding_past_zscore\(/);
+  assert.doesNotMatch(example, /np\.nanmean|np\.nanstd/);
+  assert.match(nginx, /proxy_pass \$\{TRADER_API_ORIGIN\}\//);
+  assert.match(nginx, /proxy_set_header Host \$proxy_host;/);
+  assert.match(nginx, /proxy_ssl_name \$proxy_host;/);
+  assert.doesNotMatch(nginx, /trader-hs\.fly\.dev/);
 });
 
 test("parseJsonResponse rejects invalid JSON", () => {
@@ -1244,8 +1402,12 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
-  assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)"\], \{ trimOutput: false \}\)/);
-  assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)"\], \{ trimOutput: false \}\)/);
+  assert.match(
+    script,
+    /buildAutoloopScratchBranchCandidates\(\{\s*localBranches,\s*remoteBranches,\s*baseBranch,\s*\}\)/,
+  );
+  assert.doesNotMatch(script, /const allLocalBranches =/);
+  assert.doesNotMatch(script, /const allRemoteBranches =/);
   assert.match(script, /runCommand\("git", \["worktree", "list", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /const worktreeBranches = listWorktreeBranches\(\);/);
   assert.match(script, /scratchCandidateBranches: pruneResult\.scratchCandidateBranches/);
@@ -1259,6 +1421,12 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /pruneErrors: pruneResult\.pruneErrors/);
   assert.match(script, /branch reconciliation pruned \$\{pruneResult\.prunedLocalBranches\.length\} local and \$\{pruneResult\.prunedRemoteBranches\.length\} remote merged ref\(s\)/);
   assert.match(script, /branch reconciliation skipped \$\{pruneResult\.skippedWorktreeBranches\.length\} merged local ref\(s\) still attached to worktrees/);
+  assert.match(script, /runCommand\("bash", \["scripts\/verify\.sh", target\], \{ capture: false \}\)/);
+  assert.match(script, /canonical merge verification failed; rolled back/);
+  assert.ok(
+    script.indexOf("const canonicalVerification =") < script.indexOf("const shouldPush ="),
+    "canonical verification must precede pushing the reconciled base branch",
+  );
 });
 
 test("autoloop workflow requires a dedicated push token and never skips post-push CI polling", async () => {
@@ -1286,6 +1454,15 @@ test("CI Fly deploy skips external billing blockers", async () => {
   assert.match(workflow, /overdue invoices\|update your payment information/);
   assert.match(workflow, /blocked by Fly billing state/);
   assert.match(workflow, /Skipping \$\{label\} deploy for this run/);
+});
+
+test("CI pins the checked-in GHC and Cabal toolchain", async () => {
+  for (const relativePath of ["../.github/workflows/ci.yml", "../.github/workflows/autoloop.yml"]) {
+    const workflow = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
+    assert.match(workflow, /ghc:\s*"9\.4\.8"/);
+    assert.match(workflow, /cabal:\s*"3\.12\.1\.0"/);
+    assert.doesNotMatch(workflow, /cabal:\s*latest/);
+  }
 });
 
 test("CI Fly deploy reports app-scoped token fixes for unauthorized apps", async () => {
@@ -1316,14 +1493,22 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
   assert.doesNotMatch(workflow, /HETZNER_RESEARCH_REQUIRED/);
   assert.doesNotMatch(workflow, /skipping research deploy/);
+  assert.match(workflow, /HETZNER_\$\{ROLE\^\^\}_KNOWN_HOSTS is required; host-key TOFU is not permitted/);
+  assert.doesNotMatch(workflow, /ssh-keyscan/);
 
   assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
+  assert.match(deployScript, /-o StrictHostKeyChecking=yes/);
   assert.match(deployScript, /-o "ConnectTimeout=\$\{ssh_connect_timeout\}"/);
   assert.match(deployScript, /-o "ConnectionAttempts=\$\{ssh_connection_attempts\}"/);
   assert.match(deployScript, /--exclude '\.cabal\/'/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-root\/'/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-work\/'/);
   assert.match(deployScript, /--exclude '\.venv\/'/);
+  assert.match(deployScript, /docker image tag "\$previous_image_id" "\$ROLLBACK_IMAGE"/);
+  assert.match(deployScript, /wait_for_api_health/);
+  assert.match(deployScript, /\/health reported commit/);
+  assert.match(deployScript, /Rolling API back to/);
+  assert.match(deployScript, /TRADER_API_IMAGE="\$ROLLBACK_IMAGE"/);
 });
 
 test("docs pin the mandatory Hetzner deploy contract for both roles", async () => {
@@ -1389,12 +1574,12 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
 });
 
-test("repo root package exposes the autoloop verifier script", async () => {
+test("repo root package exposes all root automation and formal verifier tests", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);
   const testScript = pkg?.scripts?.["test:autoloop"];
   assert.equal(typeof testScript, "string");
-  assert.match(testScript, /\bnode --test test\/autoloop\.test\.mjs\b/);
+  assert.equal(testScript, "node --test test/*.test.mjs");
 });
 
 test("repo root test command includes the autoloop verifier", async () => {

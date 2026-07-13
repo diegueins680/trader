@@ -38,8 +38,8 @@ data MarketSeriesBar = MarketSeriesBar
 marketDataFreshness :: String -> Int64 -> Int64 -> Maybe MarketDataFreshness
 marketDataFreshness interval nowMs lastOpenTimeMs = do
     intervalMs <- intervalMsFrom interval
-    let lastCloseTimeMs = lastOpenTimeMs + intervalMs
-        ageMs = nowMs - lastCloseTimeMs
+    lastCloseTimeMs <- checkedAddInt64 lastOpenTimeMs intervalMs
+    ageMs <- checkedSubtractInt64 nowMs lastCloseTimeMs
     pure
         MarketDataFreshness
             { mdfLastOpenTimeMs = lastOpenTimeMs
@@ -51,34 +51,49 @@ marketDataFreshness interval nowMs lastOpenTimeMs = do
 
 marketDataStaleReason :: String -> Int64 -> Int64 -> Maybe String
 marketDataStaleReason interval nowMs lastOpenTimeMs =
-    case marketDataFreshness interval nowMs lastOpenTimeMs of
+    case intervalMsFrom interval of
         Nothing -> Just (invalidIntervalReason interval)
-        Just freshness
-            | mdfStale freshness ->
-                Just
-                    ( "STALE_MARKET_DATA ageMs="
-                        ++ show (mdfAgeMs freshness)
-                        ++ " budgetMs="
-                        ++ show (mdfFreshnessBudgetMs freshness)
-                        ++ " lastCloseTimeMs="
-                        ++ show (mdfLastCloseTimeMs freshness)
-                    )
-            | otherwise -> Nothing
+        Just intervalMs ->
+            case marketDataFreshness interval nowMs lastOpenTimeMs of
+                Nothing -> Just (timestampOverflowReason nowMs lastOpenTimeMs intervalMs)
+                Just freshness
+                    | mdfStale freshness ->
+                        Just
+                            ( "STALE_MARKET_DATA ageMs="
+                                ++ show (mdfAgeMs freshness)
+                                ++ " budgetMs="
+                                ++ show (mdfFreshnessBudgetMs freshness)
+                                ++ " lastCloseTimeMs="
+                                ++ show (mdfLastCloseTimeMs freshness)
+                            )
+                    | otherwise -> Nothing
 
 marketDataContinuationIssue :: String -> Int64 -> [Int64] -> Maybe String
 marketDataContinuationIssue interval lastOpenTimeMs openTimeMs =
     case intervalMsFrom interval of
         Nothing -> Just (invalidIntervalReason interval)
-        Just intervalMs -> firstContinuationIssue intervalMs (lastOpenTimeMs + intervalMs) openTimeMs
+        Just _ | null openTimeMs -> Nothing
+        Just intervalMs ->
+            case checkedAddInt64 lastOpenTimeMs intervalMs of
+                Nothing -> Just (continuationOverflowReason lastOpenTimeMs intervalMs)
+                Just expectedOpenTimeMs -> firstContinuationIssue intervalMs expectedOpenTimeMs openTimeMs
 
 normalizeClosedMarketSeries :: String -> Int64 -> Int64 -> [(MarketSeriesBar, a)] -> Either String [(MarketSeriesBar, a)]
-normalizeClosedMarketSeries label intervalMs nowMs barsWithPayload = do
-    let sorted = sortOn (msbOpenTimeMs . fst) barsWithPayload
-        bars = map fst sorted
-    validateMarketSeriesBars label bars
-    let closed = filter (\(bar, _) -> msbOpenTimeMs bar + intervalMs <= nowMs) sorted
-    validateMarketSeriesContinuity label intervalMs (map fst closed)
-    pure closed
+normalizeClosedMarketSeries label intervalMs nowMs barsWithPayload
+    | intervalMs <= 0 = Left (label ++ " invalid intervalMs=" ++ show intervalMs)
+    | otherwise = do
+        let sorted = sortOn (msbOpenTimeMs . fst) barsWithPayload
+            bars = map fst sorted
+        validateMarketSeriesBars label bars
+        closes <- traverse closeWitness sorted
+        let closed = [barWithPayload | (barWithPayload, closeTimeMs) <- zip sorted closes, closeTimeMs <= nowMs]
+        validateMarketSeriesContinuity label intervalMs (map fst closed)
+        pure closed
+  where
+    closeWitness (bar, _) =
+        case checkedAddInt64 (msbOpenTimeMs bar) intervalMs of
+            Nothing -> Left (label ++ " timestamp overflow openTimeMs=" ++ show (msbOpenTimeMs bar) ++ " intervalMs=" ++ show intervalMs)
+            Just closeTimeMs -> Right closeTimeMs
 
 validateMarketSeriesBars :: String -> [MarketSeriesBar] -> Either String ()
 validateMarketSeriesBars label bars = do
@@ -113,22 +128,30 @@ validateStrictMarketSeriesTimes label bars =
 validateMarketSeriesContinuity :: String -> Int64 -> [MarketSeriesBar] -> Either String ()
 validateMarketSeriesContinuity label intervalMs bars
     | intervalMs <= 0 = Left (label ++ " invalid intervalMs=" ++ show intervalMs)
-    | otherwise =
-        case [ (msbOpenTimeMs a + intervalMs, msbOpenTimeMs b)
-             | (a, b) <- zip bars (drop 1 bars)
-             , msbOpenTimeMs b /= msbOpenTimeMs a + intervalMs
-             ] of
-            (expected, actual) : _ ->
+    | otherwise = traverse_ validatePair (zip bars (drop 1 bars))
+  where
+    validatePair (a, b) =
+        case checkedAddInt64 (msbOpenTimeMs a) intervalMs of
+            Nothing ->
                 Left
                     ( label
-                        ++ " gap expectedOpenTimeMs="
-                        ++ show expected
-                        ++ " actualOpenTimeMs="
-                        ++ show actual
+                        ++ " timestamp overflow openTimeMs="
+                        ++ show (msbOpenTimeMs a)
                         ++ " intervalMs="
                         ++ show intervalMs
                     )
-            [] -> Right ()
+            Just expected
+                | msbOpenTimeMs b == expected -> Right ()
+                | otherwise ->
+                    Left
+                        ( label
+                            ++ " gap expectedOpenTimeMs="
+                            ++ show expected
+                            ++ " actualOpenTimeMs="
+                            ++ show (msbOpenTimeMs b)
+                            ++ " intervalMs="
+                            ++ show intervalMs
+                        )
 
 marketSeriesOhlcOk :: MarketSeriesBar -> Bool
 marketSeriesOhlcOk bar =
@@ -147,7 +170,12 @@ firstContinuationIssue :: Int64 -> Int64 -> [Int64] -> Maybe String
 firstContinuationIssue _ _ [] = Nothing
 firstContinuationIssue intervalMs expectedOpenTimeMs (actualOpenTimeMs : rest)
     | actualOpenTimeMs == expectedOpenTimeMs =
-        firstContinuationIssue intervalMs (expectedOpenTimeMs + intervalMs) rest
+        case rest of
+            [] -> Nothing
+            _ ->
+                case checkedAddInt64 expectedOpenTimeMs intervalMs of
+                    Nothing -> Just (continuationOverflowReason expectedOpenTimeMs intervalMs)
+                    Just nextExpectedOpenTimeMs -> firstContinuationIssue intervalMs nextExpectedOpenTimeMs rest
     | otherwise =
         Just
             ( "MARKET_DATA_GAP expectedOpenTimeMs="
@@ -160,11 +188,42 @@ firstContinuationIssue intervalMs expectedOpenTimeMs (actualOpenTimeMs : rest)
 
 intervalMsFrom :: String -> Maybe Int64
 intervalMsFrom interval =
-    (* 1000) . fromIntegral <$> parseIntervalSeconds interval
+    parseIntervalSeconds interval >>= \seconds ->
+        if seconds <= 0
+            then Nothing
+            else integerToInt64 (toInteger seconds * 1000)
+
+checkedAddInt64 :: Int64 -> Int64 -> Maybe Int64
+checkedAddInt64 a b = integerToInt64 (toInteger a + toInteger b)
+
+checkedSubtractInt64 :: Int64 -> Int64 -> Maybe Int64
+checkedSubtractInt64 a b = integerToInt64 (toInteger a - toInteger b)
+
+integerToInt64 :: Integer -> Maybe Int64
+integerToInt64 value
+    | value < toInteger (minBound :: Int64) = Nothing
+    | value > toInteger (maxBound :: Int64) = Nothing
+    | otherwise = Just (fromInteger value)
 
 invalidIntervalReason :: String -> String
 invalidIntervalReason interval =
     "MARKET_DATA_INTERVAL_INVALID interval=" ++ show interval
+
+timestampOverflowReason :: Int64 -> Int64 -> Int64 -> String
+timestampOverflowReason nowMs lastOpenTimeMs intervalMs =
+    "MARKET_DATA_TIMESTAMP_OVERFLOW nowMs="
+        ++ show nowMs
+        ++ " lastOpenTimeMs="
+        ++ show lastOpenTimeMs
+        ++ " intervalMs="
+        ++ show intervalMs
+
+continuationOverflowReason :: Int64 -> Int64 -> String
+continuationOverflowReason openTimeMs intervalMs =
+    "MARKET_DATA_TIMESTAMP_OVERFLOW openTimeMs="
+        ++ show openTimeMs
+        ++ " intervalMs="
+        ++ show intervalMs
 
 {- | Returns True for transient market-data issues that should not block
 queued bot starts (the bot is in a safe HOLD state and the condition

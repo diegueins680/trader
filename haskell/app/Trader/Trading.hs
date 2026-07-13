@@ -476,6 +476,23 @@ anyRiskLimitNonFinite hi =
         , hiMaxPositionSizeLim hi
         ]
 
+{- | Reject corrupted loss/drawdown observations before comparisons. IEEE-754
+NaN makes every ordered comparison false, so accepting it here would silently
+disable an otherwise configured halt. Loss and drawdown magnitudes are also
+required to be non-negative.
+-}
+riskMetricInvalid :: HaltInputs -> Bool
+riskMetricInvalid hi =
+    any
+        (\value -> not (finiteDouble value) || value < 0)
+        [hiDailyLoss hi, hiWeeklyLoss hi, hiDrawdown hi]
+
+{- | A negative loss-streak limit is malformed configuration. Zero retains its
+documented meaning of "disabled"; positive limits enable the halt.
+-}
+lossStreakLimitInvalid :: HaltInputs -> Bool
+lossStreakLimitInvalid hi = maybe False (< 0) (hiMaxLossStreakLim hi)
+
 {- | Check whether the drawdown limit is outside the valid (0,1) interval.
 This is a FIRM-CRITICAL hygiene gate: a drawdown limit of 0 would halt on
 any non-negative drawdown, and a limit >=1 would never halt, both of which
@@ -500,6 +517,10 @@ specRiskHalt hi =
                 Nothing
                     | anyRiskLimitNonFinite hi ->
                         Just (ExitOther "RISK_LIMIT_NON_FINITE")
+                    | riskMetricInvalid hi ->
+                        Just (ExitOther "RISK_METRIC_INVALID")
+                    | lossStreakLimitInvalid hi ->
+                        Just (ExitOther "LOSS_STREAK_LIMIT_INVALID")
                     | drawdownLimitInvalid hi ->
                         Just (ExitOther "DRAWDOWN_LIMIT_INVALID")
                     | not (finiteDouble (hiPositionSize hi)) || hiPositionSize hi < 0 || hiPositionSize hi > 10 ->

@@ -115,8 +115,18 @@ TRADER_TOP_COMBOS_SYNC_MAX_COMBOS=5000
 `docker-compose.yml` already passes these through to the `api` service. Redeploy:
 
 ```sh
-TRADER_HETZNER_ENV_FILE=deploy/hetzner/trader.env ./deploy/hetzner/deploy-remote.sh <host>
+TRADER_HETZNER_ENV_FILE=deploy/hetzner/trader.env \
+TRADER_HETZNER_KNOWN_HOSTS=/path/to/verified-known_hosts \
+./deploy/hetzner/deploy-remote.sh <host>
 ```
+
+The host key must already be verified and pinned either in the supplied file or
+the deploy user's standard `~/.ssh/known_hosts`; strict host-key checking is
+always enabled. After starting the stack, the deploy waits for API health and
+requires `/health` to report `TRADER_GIT_COMMIT`. The previous API image remains
+tagged as `trader-api:rollback` and is restored automatically if health or commit
+attestation fails. CI additionally requires `HETZNER_TRADING_KNOWN_HOSTS` and
+`HETZNER_RESEARCH_KNOWN_HOSTS`; it never discovers host keys at deploy time.
 
 ### 4. local
 

@@ -191,9 +191,17 @@ jobs:
               echo "::error::Unknown role '$ROLE'"; exit 1 ;;
           esac
 
-          if [[ -z "${HETZNER_SSH_KEY:-}" || -z "$host" ]]; then
-            echo "::warning::HETZNER_SSH_KEY or ${ROLE} host secret not set; skipping ${ROLE} deploy."
-            exit 0
+          if [[ -z "${HETZNER_SSH_KEY:-}" ]]; then
+            echo "::error::HETZNER_SSH_KEY is required; refusing to skip the mandatory ${ROLE} deploy."
+            exit 1
+          fi
+          if [[ -z "$host" ]]; then
+            echo "::error::HETZNER_${ROLE^^}_HOST is required; refusing to skip the mandatory ${ROLE} deploy."
+            exit 1
+          fi
+          if [[ -z "$host_keys" ]]; then
+            echo "::error::HETZNER_${ROLE^^}_KNOWN_HOSTS is required; host-key TOFU is not permitted."
+            exit 1
           fi
 
           key_file="$(mktemp)"
@@ -206,12 +214,7 @@ jobs:
           chmod 600 "$key_file"
 
           port="${HETZNER_SSH_PORT:-22}"
-          if [[ -n "$host_keys" ]]; then
-            printf '%s\n' "$host_keys" > "$known_hosts"
-          else
-            echo "::warning::No pinned host key for ${ROLE}; trusting via ssh-keyscan (TOFU)."
-            ssh-keyscan -p "$port" -H "$host" > "$known_hosts" 2>/dev/null || true
-          fi
+          printf '%s\n' "$host_keys" > "$known_hosts"
 
           export TRADER_HETZNER_SSH_USER="${HETZNER_SSH_USER:-root}"
           export TRADER_HETZNER_SSH_PORT="$port"

@@ -38,32 +38,33 @@ data BacktestMetrics = BacktestMetrics
 computeMetrics :: Double -> BacktestResult -> BacktestMetrics
 computeMetrics periodsPerYear br =
     let eq = brEquityCurve br
+        periodsPerYear' = sanitizeAnnualization periodsPerYear
         periods = max 0 (length eq - 1)
         finalEq = sanitizeEquity (lastOr 1.0 eq)
         totalRet = finalEq - 1
         rets = returnsFromEquity eq
         meanR = mean rets
         stdR = stddev rets
-        annVol = stdR * sqrt periodsPerYear
+        annVol = sanitizeFinite 0 (stdR * sqrt periodsPerYear')
         sharpe =
             if stdR <= 0
                 then 0
-                else (meanR / stdR) * sqrt periodsPerYear
+                else sanitizeFinite 0 ((meanR / stdR) * sqrt periodsPerYear')
         downsideDev = downsideDeviation rets
-        downsideVol = downsideDev * sqrt periodsPerYear
+        downsideVol = sanitizeFinite 0 (downsideDev * sqrt periodsPerYear')
         sortino =
             if downsideDev <= 0
                 then 0
-                else (meanR / downsideDev) * sqrt periodsPerYear
+                else sanitizeFinite 0 ((meanR / downsideDev) * sqrt periodsPerYear')
         annRet =
             if periods <= 0
                 then 0
-                else sanitizeFinite 0 (finalEq ** (periodsPerYear / fromIntegral periods) - 1)
-        maxDd = abs (min 0 (minDrawdown eq))
+                else sanitizeFinite 0 (finalEq ** (periodsPerYear' / fromIntegral periods) - 1)
+        maxDd = sanitizeFinite 0 (abs (min 0 (minDrawdown eq)))
         calmar =
             if maxDd <= 0
                 then annRet
-                else annRet / maxDd
+                else sanitizeFinite 0 (annRet / maxDd)
         (var95, cvar95) = varCvar 0.95 rets
 
         trades = brTrades br
@@ -88,12 +89,13 @@ computeMetrics periodsPerYear br =
                 (0, 0, 0, 0, 0, 0)
                 trades
         winRate = if tradeCount == 0 then 0 else fromIntegral wins / fromIntegral tradeCount
-        grossLosses = abs grossLossSum
+        grossLosses = sanitizeFinite 0 (abs grossLossSum)
+        grossProfits' = sanitizeFinite 0 grossProfits
         profitFactor
-            | grossLosses > 0 = Just (grossProfits / grossLosses)
-            | grossProfits > 0 = Nothing
+            | grossLosses > 0 = Just (sanitizeFinite 0 (grossProfits' / grossLosses))
+            | grossProfits' > 0 = Nothing
             | otherwise = Just 0
-        avgTrade = if tradeCount == 0 then 0 else sumReturns / fromIntegral tradeCount
+        avgTrade = if tradeCount == 0 then 0 else sanitizeFinite 0 (sumReturns / fromIntegral tradeCount)
         avgHold = if tradeCount == 0 then 0 else fromIntegral totalHold / fromIntegral tradeCount
 
         exposure =
@@ -106,7 +108,7 @@ computeMetrics periodsPerYear br =
                         )
                         (0, 0)
                         pos
-             in if count == 0 then 0 else sumAbs / fromIntegral count
+             in if count == 0 then 0 else sanitizeFinite 0 (sumAbs / fromIntegral count)
 
         agree =
             let flags = brAgreementOk br
@@ -118,7 +120,7 @@ computeMetrics periodsPerYear br =
                 (agrees, total) = foldl' step (0, 0) (zip flags valids)
              in if total == 0 then 0 else fromIntegral agrees / fromIntegral total
 
-        positionChanges = brPositionChanges br
+        positionChanges = max 0 (brPositionChanges br)
         turnover = if periods == 0 then 0 else fromIntegral positionChanges / fromIntegral periods
      in BacktestMetrics
             { bmPeriods = periods
@@ -137,7 +139,7 @@ computeMetrics periodsPerYear br =
             , bmTradeCount = tradeCount
             , bmRoundTrips = roundTrips
             , bmWinRate = winRate
-            , bmGrossProfit = grossProfits
+            , bmGrossProfit = grossProfits'
             , bmGrossLoss = grossLosses
             , bmProfitFactor = profitFactor
             , bmAvgTradeReturn = avgTrade
@@ -164,13 +166,13 @@ returnsFromEquity eq =
     ret a b =
         if a <= 0
             then 0
-            else b / a - 1
+            else sanitizeFinite 0 (b / a - 1)
 
 mean :: [Double] -> Double
 mean xs =
     if null xs
         then 0
-        else sum xs / fromIntegral (length xs)
+        else sanitizeFinite 0 (sum xs / fromIntegral (length xs))
 
 stddev :: [Double] -> Double
 stddev xs =
@@ -180,7 +182,7 @@ stddev xs =
         _ ->
             let m = mean xs
                 var = sum (map (\x -> (x - m) ** 2) xs) / fromIntegral (length xs - 1)
-             in sqrt (max 0 var)
+             in sanitizeFinite 0 (sqrt (max 0 var))
 
 downsideDeviation :: [Double] -> Double
 downsideDeviation xs =
@@ -188,7 +190,7 @@ downsideDeviation xs =
         n = length downs
      in if n <= 0
             then 0
-            else sqrt (max 0 (sum (map (\r -> r * r) downs) / fromIntegral n))
+            else sanitizeFinite 0 (sqrt (max 0 (sum (map (\r -> r * r) downs) / fromIntegral n)))
 
 varCvar :: Double -> [Double] -> (Double, Double)
 varCvar level xs =
@@ -219,7 +221,7 @@ minDrawdown eq =
             let peak' = max peak e
                 dd = if peak' <= 0 then 0 else (e - peak') / peak'
              in (peak', min minDd dd)
-        (_, ddMin) = foldl' step (0, 0) eq
+        (_, ddMin) = foldl' step (0, 0) (map sanitizeEquity eq)
      in ddMin
 
 lastOr :: a -> [a] -> a
@@ -236,3 +238,9 @@ sanitizeFinite fallback x =
     if isNaN x || isInfinite x
         then fallback
         else x
+
+sanitizeAnnualization :: Double -> Double
+sanitizeAnnualization periodsPerYear =
+    if isNaN periodsPerYear || isInfinite periodsPerYear || periodsPerYear <= 0
+        then 0
+        else periodsPerYear

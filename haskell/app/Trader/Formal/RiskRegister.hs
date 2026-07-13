@@ -32,6 +32,9 @@ data RiskID
     | EXPECTANCY_INVALID_001
     | VOL_TARGET_INVALID_001
     | LEVERAGE_INVALID_001
+    | MARKET_DATA_TIMESTAMP_OVERFLOW_001
+    | RISK_METRIC_INVALID_001
+    | LOSS_STREAK_LIMIT_INVALID_001
     deriving (Eq, Show)
 
 -- | Severity levels.
@@ -124,6 +127,27 @@ riskRegister =
         , reDescription = "Non-finite, negative, or >150x leverage configs bypass position-size limits and allow catastrophic liquidation risk"
         , reOwner = "trader-firm-risk"
         , reMitigation = "Executable halt spec landed: specRiskHalt emits LEVERAGE_INVALID; invariant proven in verifyFormalRisk; futuresPositionRiskLeverageSane caps live trading at 125x"
+        }
+    , RiskEntry
+        { reId = MARKET_DATA_TIMESTAMP_OVERFLOW_001
+        , reSeverity = CLOSED
+        , reDescription = "Market-data timestamp arithmetic can overflow Int64 and make stale or discontinuous evidence appear valid"
+        , reOwner = "trader-firm-data"
+        , reMitigation = "Checked timestamp arithmetic now fails closed in freshness, continuation, normalization, and continuity validation; bounded witnesses run in the formal verification suite"
+        }
+    , RiskEntry
+        { reId = RISK_METRIC_INVALID_001
+        , reSeverity = CLOSED
+        , reDescription = "Negative or non-finite daily loss, weekly loss, or drawdown evidence can bypass live halt checks"
+        , reOwner = "trader-firm-risk"
+        , reMitigation = "specRiskHalt emits RISK_METRIC_INVALID before threshold comparisons; bounded witnesses run in the formal verification suite"
+        }
+    , RiskEntry
+        { reId = LOSS_STREAK_LIMIT_INVALID_001
+        , reSeverity = CLOSED
+        , reDescription = "A negative loss-streak limit can silently disable loss-streak protection"
+        , reOwner = "trader-firm-risk"
+        , reMitigation = "specRiskHalt emits LOSS_STREAK_LIMIT_INVALID for negative limits while preserving zero as the documented disabled boundary"
         }
     ]
 

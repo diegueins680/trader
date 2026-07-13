@@ -1,6 +1,6 @@
 module Main where
 
-import System.Clock
+import System.CPUTime (getCPUTime)
 import Trader.LSTM
 
 main :: IO ()
@@ -21,8 +21,11 @@ main = do
                 , lcSeed = 42
                 }
     putStrLn "Starting..."
-    t0 <- getTime Monotonic
+    t0 <- getCPUTime
     let (model, history) = trainLSTM cfg series
-    t1 <- getTime Monotonic
-    let elapsed = fromIntegral (toNanoSecs (diffTimeSpec t1 t0)) / 1e9
+    -- Force the training result before taking the end timestamp. CPU time is
+    -- provided by base and keeps this small diagnostic target dependency-free.
+    sum (lmParams model) `seq` length history `seq` pure ()
+    t1 <- getCPUTime
+    let elapsed = fromIntegral (t1 - t0) / 1e12 :: Double
     putStrLn $ "Done: params=" ++ show (length (lmParams model)) ++ " epochs=" ++ show (length history) ++ " time=" ++ show elapsed ++ "s"

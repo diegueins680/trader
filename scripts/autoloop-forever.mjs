@@ -13,6 +13,7 @@ import {
   normalizeGitBranchShortName,
   parseGitStatusPaths,
   prepareShellCommand,
+  selectMergeVerificationTarget,
   uniqueStrings,
   writeJsonFileAtomic,
 } from "./autoloop-lib.mjs";
@@ -348,6 +349,32 @@ function runMergeBuildGate() {
   }
 }
 
+function mergeCanonicalVerificationTarget(fromRef, toRef = "HEAD") {
+  const changedPaths = splitNonEmptyLines(
+    runCommand("git", ["diff", "--name-only", `${fromRef}..${toRef}`], { trimOutput: false }),
+  );
+  return selectMergeVerificationTarget(changedPaths);
+}
+
+function runMergeCanonicalVerificationGate(fromRef, toRef = "HEAD") {
+  let target = null;
+  let command = `git diff --name-only ${fromRef}..${toRef}`;
+  try {
+    target = mergeCanonicalVerificationTarget(fromRef, toRef);
+    if (!target) return { ok: true, target: null, command: null };
+    command = `bash scripts/verify.sh ${target}`;
+    runCommand("bash", ["scripts/verify.sh", target], { capture: false });
+    return { ok: true, target, command };
+  } catch (err) {
+    return {
+      ok: false,
+      target,
+      command,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortName(branchRef)) {
   const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
   const mergeMessage = buildMergeCommitMessage(shortName, branchRef);
@@ -479,15 +506,12 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
     remoteBranches,
     baseBranch,
   });
-  const allLocalBranches = splitNonEmptyLines(
-    runCommand("git", ["branch", "--format=%(refname:short)"], { trimOutput: false }),
-  );
-  const allRemoteBranches = splitNonEmptyLines(
-    runCommand("git", ["branch", "-r", "--format=%(refname:short)"], { trimOutput: false }),
-  );
+  // Recovery/checkpoint refs preserve failed or operator-owned work. They are
+  // eligible for cleanup only after Git itself reports them merged into the
+  // base branch; never prune them merely because they use an autoloop prefix.
   const scratchCandidates = buildAutoloopScratchBranchCandidates({
-    localBranches: allLocalBranches,
-    remoteBranches: allRemoteBranches,
+    localBranches,
+    remoteBranches,
     baseBranch,
   });
   const candidatesByShortName = new Map();
@@ -617,7 +641,8 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     // reach origin/<base>. On failure, roll the whole batch back to the
     // origin-synced head and skip the push so the offending branches stay
     // unmerged for the next cycle / human review.
-    if (mergedBranches.length > 0 && mergeChangedHaskellFiles(baseHeadAfterSync)) {
+    const haskellMergeChanged = mergedBranches.length > 0 && mergeChangedHaskellFiles(baseHeadAfterSync);
+    if (haskellMergeChanged) {
       const buildGate = runMergeBuildGate();
       if (!buildGate.ok) {
         runCommand("git", ["reset", "--hard", baseHeadAfterSync], { capture: false });
@@ -644,6 +669,40 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
           },
         };
       }
+    }
+
+    const canonicalVerification =
+      mergedBranches.length > 0
+        ? runMergeCanonicalVerificationGate(baseHeadAfterSync)
+        : { ok: true, target: null, command: null };
+    if (!canonicalVerification.ok) {
+      runCommand("git", ["reset", "--hard", baseHeadAfterSync], { capture: false });
+      const rolledBack = [...mergedBranches];
+      await logRunner(
+        `branch reconciliation rolled back ${rolledBack.length} merge(s) into ${BASE_BRANCH}: ${canonicalVerification.command} failed`,
+      );
+      return {
+        ok: false,
+        reason: `canonical merge verification failed; rolled back ${rolledBack.length} branch merge(s) to keep ${BASE_BRANCH} verified`,
+        details: [...rolledBack.map((branch) => `rolled-back:${branch}`), canonicalVerification.error]
+          .filter(Boolean)
+          .slice(0, 40),
+        summary: {
+          startedAt,
+          endedAt: new Date().toISOString(),
+          baseBranch: BASE_BRANCH,
+          syncedOrigin: originSync.outcome,
+          candidateBranches: candidates.map((candidate) => candidate.shortName),
+          mergedBranches: [],
+          conflictAbortedBranches,
+          rolledBackBranches: rolledBack,
+          buildGate: haskellMergeChanged ? "passed" : "not-required",
+          canonicalVerification: canonicalVerification.command,
+          canonicalVerificationOutcome: "failed",
+          pushed: false,
+          head: runCommand("git", ["rev-parse", "HEAD"]),
+        },
+      };
     }
 
     const shouldPush = originSync.outcome !== "noop" || mergedBranches.length > 0;
@@ -690,6 +749,9 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       pushed: pushResult.pushed,
       pushRetried: pushResult.retried,
       retrySyncOutcome: pushResult.retrySync?.outcome ?? null,
+      canonicalVerification: canonicalVerification.command,
+      canonicalVerificationOutcome: canonicalVerification.command ? "passed" : "not-required",
+      buildGate: haskellMergeChanged ? "passed" : "not-required",
       pruneCandidateBranches: pruneResult.candidateBranches,
       scratchCandidateBranches: pruneResult.scratchCandidateBranches,
       prunedLocalBranches: pruneResult.prunedLocalBranches,

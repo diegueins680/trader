@@ -49,10 +49,15 @@ orderAppliedFraction :: OrderExecutionEvidence -> Maybe Double -> Double -> Mayb
 orderAppliedFraction ev mRequestedBase intendedFraction = do
     intended <- positiveFinite intendedFraction
     case mRequestedBase >>= positiveFinite of
-        Nothing -> orderAppliedQuantity ev intended
+        -- Without a base-unit denominator, fill evidence is all-or-nothing:
+        -- its magnitude cannot safely be interpreted as an equity fraction.
+        Nothing -> intended <$ orderAppliedQuantity ev intended
         Just reqBase -> do
             appliedBase <- orderAppliedQuantity ev reqBase
-            positiveFinite (intended * (appliedBase / reqBase))
+            -- Exchange evidence must never make the applied fraction exceed
+            -- the requested exposure.  Overfills are malformed evidence for
+            -- position accounting, so conservatively cap them at the intent.
+            positiveFinite (intended * min 1 (appliedBase / reqBase))
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =

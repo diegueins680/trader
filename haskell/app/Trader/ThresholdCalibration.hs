@@ -39,6 +39,7 @@ module Trader.ThresholdCalibration (
     calibrateThresholdFromEdgesWithConfig,
     computeEdgeDistribution,
     defaultThresholdCalibrationConfig,
+    validateCalibrationMethod,
     validateThresholdCalibrationConfig,
 
     -- * Analysis
@@ -115,6 +116,26 @@ validateThresholdCalibrationConfig config = do
         finite label value
         ensure (label ++ " must be >= 0") (value >= 0)
     percentileRange label value = do
+        finite label value
+        ensure (label ++ " must be between 0 and 100") (value >= 0 && value <= 100)
+
+-- | Validate calibration parameters before they can influence a threshold.
+validateCalibrationMethod :: CalibrationMethod -> Either String CalibrationMethod
+validateCalibrationMethod method = do
+    case method of
+        PercentileMethod percentileValue -> validPercentile "calibration percentile" percentileValue
+        StdDevMethod multiplier -> finiteNonNegative "calibration standard-deviation multiplier" multiplier
+        HybridMethod percentileValue multiplier -> do
+            validPercentile "hybrid calibration percentile" percentileValue
+            finiteNonNegative "hybrid calibration standard-deviation multiplier" multiplier
+    pure method
+  where
+    ensure msg ok = if ok then Right () else Left msg
+    finite label value = ensure (label ++ " must be finite") (not (isNaN value || isInfinite value))
+    finiteNonNegative label value = do
+        finite label value
+        ensure (label ++ " must be >= 0") (value >= 0)
+    validPercentile label value = do
         finite label value
         ensure (label ++ " must be between 0 and 100") (value >= 0 && value <= 100)
 
@@ -198,6 +219,7 @@ computeEdgeDistribution :: [Double] -> Maybe EdgeDistribution
 computeEdgeDistribution [] = Nothing
 computeEdgeDistribution edges
     | any invalidEdge edges = Nothing
+    | not (all finite [mean, stddev]) = Nothing
     | otherwise =
         Just
             EdgeDistribution
@@ -221,6 +243,7 @@ computeEdgeDistribution edges
     mean = sum edges / fromIntegral n
     stddev = sqrt (sum (map (\x -> (x - mean) ^ 2) edges) / fromIntegral n)
     invalidEdge x = isNaN x || isInfinite x || x < 0
+    finite x = not (isNaN x || isInfinite x)
 
 -- | Compute the value at a given percentile (0-100) from a sorted list.
 percentile :: Double -> [Double] -> Double
@@ -296,6 +319,7 @@ calibrateThreshold = calibrateThresholdWithConfig defaultThresholdCalibrationCon
 calibrateThresholdWithConfig :: ThresholdCalibrationConfig -> [Double] -> CalibrationMethod -> Maybe ThresholdCalibration
 calibrateThresholdWithConfig rawConfig edges method = do
     config <- either (const Nothing) Just (validateThresholdCalibrationConfig rawConfig)
+    _ <- either (const Nothing) Just (validateCalibrationMethod method)
     dist <- computeEdgeDistribution edges
     let threshold = suggestedThreshold method dist
         headroom = threshold / tccHeadroomDivisor config
@@ -310,20 +334,24 @@ calibrateThresholdWithConfig rawConfig edges method = do
             | threshold > conservativeThreshold = "CONSERVATIVE: Threshold above configured conservative percentile — may produce very few trades"
             | threshold < aggressiveThreshold = "AGGRESSIVE: Threshold below configured aggressive percentile — may produce excessive trades"
             | otherwise = "BALANCED: Threshold within interquartile range — recommended for production"
-    pure
-        ThresholdCalibration
-            { tcSymbol = Nothing
-            , tcInterval = Nothing
-            , tcMethod = Nothing
-            , tcCalibrationMethod = method
-            , tcEdgeDistribution = dist
-            , tcSuggestedThreshold = threshold
-            , tcHeadroomThreshold = headroom
-            , tcFeeBufferThreshold = feeBuffer
-            , tcConfidenceInterval = (ciLower, ciUpper)
-            , tcSampleSize = edSampleSize dist
-            , tcRecommendation = rec
-            }
+        finite x = not (isNaN x || isInfinite x)
+    if all finite [threshold, headroom, feeBuffer, ciLower, ciUpper] && threshold >= 0 && ciLower <= ciUpper
+        then
+            pure
+                ThresholdCalibration
+                    { tcSymbol = Nothing
+                    , tcInterval = Nothing
+                    , tcMethod = Nothing
+                    , tcCalibrationMethod = method
+                    , tcEdgeDistribution = dist
+                    , tcSuggestedThreshold = threshold
+                    , tcHeadroomThreshold = headroom
+                    , tcFeeBufferThreshold = feeBuffer
+                    , tcConfidenceInterval = (ciLower, ciUpper)
+                    , tcSampleSize = edSampleSize dist
+                    , tcRecommendation = rec
+                    }
+        else Nothing
 
 -- | Calibrate with full context (symbol, interval, method).
 calibrateThresholdFromEdges :: [Double] -> CalibrationMethod -> Text -> Text -> Text -> Maybe ThresholdCalibration

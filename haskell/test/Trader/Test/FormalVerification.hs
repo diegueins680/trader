@@ -1,0 +1,256 @@
+module Trader.Test.FormalVerification (
+    formalVerificationSuite,
+) where
+
+import Control.Monad (forM_, unless)
+import Data.Int (Int64)
+import Data.List (isPrefixOf)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
+import qualified Data.Text as T
+import qualified Trader.Formal.Execution as Execution
+import qualified Trader.Formal.Optimization as Optimization
+import qualified Trader.Formal.Risk as Risk
+import Trader.GateTelemetry (
+    GateName (..),
+    GateRejection (..),
+    GateTelemetry (..),
+    RejectionReason (..),
+    emptyTelemetry,
+    recordRejection,
+    recordRejectionWithContext,
+ )
+import Trader.MarketDataIntegrity (
+    MarketSeriesBar (..),
+    marketDataContinuationIssue,
+    marketDataFreshness,
+    marketDataStaleReason,
+    normalizeClosedMarketSeries,
+    validateMarketSeriesContinuity,
+ )
+import Trader.Trading (ExitReason (..), HaltInputs (..), specRiskHalt)
+
+formalVerificationSuite :: [(String, IO ())]
+formalVerificationSuite =
+    [ ("market timestamps fail closed on Int64 overflow", testMarketTimestampOverflow)
+    , ("risk metrics and loss-streak limits fail closed", testRiskMalformedInputs)
+    , ("gate telemetry bounds history and unknown cardinality", testGateTelemetryBounds)
+    , ("every formal execution obligation holds", testFormalExecutionReport)
+    , ("every formal risk obligation holds", testFormalRiskReport)
+    , ("every formal optimization obligation holds", testFormalOptimizationReport)
+    ]
+
+testMarketTimestampOverflow :: IO ()
+testMarketTimestampOverflow = do
+    let maxTimestamp = maxBound :: Int64
+        overflowBar = marketBar maxTimestamp
+        nearOverflowBar = marketBar (maxTimestamp - 1000)
+        staleOverflow = marketDataStaleReason "1h" maxTimestamp maxTimestamp
+        continuationOverflow = marketDataContinuationIssue "1h" maxTimestamp [maxTimestamp]
+    assertBool
+        "freshness rejects overflowed close/age arithmetic"
+        (isNothing (marketDataFreshness "1h" maxTimestamp maxTimestamp))
+    assertBool
+        "stale reason identifies timestamp overflow instead of reporting fresh data"
+        (maybe False ("MARKET_DATA_TIMESTAMP_OVERFLOW" `isPrefixOf`) staleOverflow)
+    assertBool
+        "continuation rejects overflowed expected timestamps"
+        (maybe False ("MARKET_DATA_TIMESTAMP_OVERFLOW" `isPrefixOf`) continuationOverflow)
+    assertBool
+        "closed-bar normalization rejects an overflowed close timestamp"
+        ( case normalizeClosedMarketSeries "test candle" 3600000 0 [(overflowBar, ())] of
+            Left err -> "test candle timestamp overflow" `isPrefixOf` err
+            Right _ -> False
+        )
+    assertBool
+        "continuity validation rejects overflowed expected timestamps"
+        ( case validateMarketSeriesContinuity "test candle" 3600000 [nearOverflowBar, overflowBar] of
+            Left err -> "test candle timestamp overflow" `isPrefixOf` err
+            Right _ -> False
+        )
+    assertBool
+        "empty continuation evidence remains a valid no-op"
+        (isNothing (marketDataContinuationIssue "1h" maxTimestamp []))
+  where
+    marketBar openTimeMs =
+        MarketSeriesBar
+            { msbOpenTimeMs = openTimeMs
+            , msbOpen = Just 1
+            , msbHigh = Just 1
+            , msbLow = Just 1
+            , msbClose = 1
+            , msbVolume = Just 0
+            }
+
+testRiskMalformedInputs :: IO ()
+testRiskMalformedInputs = do
+    let base =
+            HaltInputs
+                { hiPrevHaltReason = Nothing
+                , hiDayChanged = False
+                , hiWeekChanged = False
+                , hiDailyLoss = 0
+                , hiWeeklyLoss = 0
+                , hiDrawdown = 0
+                , hiExpectancy = Nothing
+                , hiMaxDailyLossLim = Nothing
+                , hiMaxWeeklyLossLim = Nothing
+                , hiMaxDrawdownLim = Nothing
+                , hiMinExpectancy = Nothing
+                , hiPositionSize = 0
+                , hiMaxPositionSizeLim = Nothing
+                , hiConsecutiveLosses = 0
+                , hiMaxLossStreakLim = Nothing
+                , hiVolTarget = 0
+                , hiLeverage = 0
+                }
+        malformedMetrics = [-0.01, 0 / 0, 1 / 0, -(1 / 0)]
+        metricCases value =
+            [ base{hiDailyLoss = value}
+            , base{hiWeeklyLoss = value}
+            , base{hiDrawdown = value}
+            ]
+    forM_ malformedMetrics $ \value ->
+        forM_ (metricCases value) $ \inputs ->
+            assertBool
+                "malformed daily/weekly/drawdown evidence emits RISK_METRIC_INVALID"
+                (specRiskHalt inputs == Just (ExitOther "RISK_METRIC_INVALID"))
+    assertBool
+        "negative loss-streak limit emits LOSS_STREAK_LIMIT_INVALID"
+        ( specRiskHalt base{hiConsecutiveLosses = 10, hiMaxLossStreakLim = Just (-1)}
+            == Just (ExitOther "LOSS_STREAK_LIMIT_INVALID")
+        )
+    assertBool
+        "zero loss-streak limit retains its documented disabled boundary"
+        (isNothing (specRiskHalt base{hiConsecutiveLosses = 10, hiMaxLossStreakLim = Just 0}))
+
+testGateTelemetryBounds :: IO ()
+testGateTelemetryBounds = do
+    let negativeBound = emptyTelemetry (-10)
+        negativeRecorded = recordRejection (unknownRejection "negative") negativeBound
+        hugeBound = emptyTelemetry maxBound
+        hugeRecorded = iterate (recordRejection (unknownRejection "huge")) hugeBound !! 1005
+        explicitHuge = recordRejectionWithContext (unknownRejection "explicit") maxBound (emptyTelemetry 1)
+        unknownRecorded =
+            foldl
+                (flip (recordRejection . unknownRejection))
+                (emptyTelemetry 10)
+                ["first", "second", "third"]
+        canonicalUnknown = ReasonUnknown (T.pack "UNKNOWN")
+    assertBool
+        "negative recent-history bounds normalize to zero"
+        (gtMaxRecent negativeBound == 0 && null (gtRecentRejections negativeRecorded))
+    assertBool
+        "huge recent-history bounds cap at 1000"
+        ( gtMaxRecent hugeRecorded == 1000
+            && length (gtRecentRejections hugeRecorded) == 1000
+            && gtTotalRejections hugeRecorded == 1005
+        )
+    assertBool
+        "explicit huge bound updates also cap at 1000"
+        (gtMaxRecent explicitHuge == 1000 && length (gtRecentRejections explicitHuge) == 1)
+    assertBool
+        "untrusted unknown reasons collapse to one canonical histogram bucket"
+        ( Map.size (gtRejectionHistogram unknownRecorded) == 1
+            && Map.size (gtPerReasonCounts unknownRecorded) == 1
+            && Map.lookup canonicalUnknown (gtPerReasonCounts unknownRecorded) == Just 3
+            && all ((== canonicalUnknown) . grReason) (gtRecentRejections unknownRecorded)
+        )
+  where
+    unknownRejection reason =
+        GateRejection
+            { grGateName = GateUnknown
+            , grReason = ReasonUnknown (T.pack reason)
+            , grSymbol = Nothing
+            , grInterval = Nothing
+            , grTimestamp = Nothing
+            , grEdgeValue = Nothing
+            , grThreshold = Nothing
+            , grEfficiency = Nothing
+            , grZScore = Nothing
+            , grConfidence = Nothing
+            }
+
+testFormalExecutionReport :: IO ()
+testFormalExecutionReport =
+    assertChecks
+        [ ("implementation matches position-fill spec", Execution.fvrExecImplMatchesSpec report)
+        , ("reduce-only implementation matches spec", Execution.fvrExecReduceOnlyImplMatchesSpec report)
+        , ("order applied quantity matches spec", Execution.fvrExecOrderAppliedImplMatchesSpec report)
+        , ("order applied fraction matches spec", Execution.fvrExecOrderAppliedFractionImplMatchesSpec report)
+        , ("order applied fraction is bounded", Execution.fvrExecOrderAppliedFractionBounded report)
+        , ("reduce-only never increases", Execution.fvrExecReduceOnlyNeverIncreases report)
+        , ("reduce-only never flips", Execution.fvrExecReduceOnlyNeverFlips report)
+        , ("fill quantity is conserved", Execution.fvrExecQtyConservation report)
+        , ("close quantity is monotone", Execution.fvrExecCloseQtyMonotone report)
+        , ("open quantity is monotone", Execution.fvrExecOpenQtyMonotone report)
+        ]
+  where
+    report = Execution.verifyFormalExecution
+
+testFormalRiskReport :: IO ()
+testFormalRiskReport =
+    assertChecks
+        [ ("halt is monotone", Risk.fvrRiskHaltMonotone report)
+        , ("daily halt resets", Risk.fvrRiskHaltResetDaily report)
+        , ("weekly halt resets", Risk.fvrRiskHaltResetWeekly report)
+        , ("other halts persist", Risk.fvrRiskHaltPreservesOther report)
+        , ("no false positive", Risk.fvrRiskHaltNoFalsePositive report)
+        , ("position-size halt is complete", Risk.fvrRiskHaltPositionSize report)
+        , ("loss-streak halt is complete", Risk.fvrRiskHaltLossStreak report)
+        , ("max-position bound holds", Risk.fvrMaxPositionSizeBound report)
+        , ("risk limits are finite", Risk.fvrRiskLimitFinite report)
+        , ("risk metrics are admissible", Risk.fvrRiskMetricSanity report)
+        , ("loss-streak limit is admissible", Risk.fvrLossStreakLimitSanity report)
+        , ("drawdown config is sane", Risk.fvrDrawdownSanity report)
+        , ("position-size evidence is sane", Risk.fvrPositionSizeSanity report)
+        , ("expectancy evidence is sane", Risk.fvrExpectancySanity report)
+        , ("volatility target is sane", Risk.fvrVolTargetSanity report)
+        , ("leverage is sane", Risk.fvrLeverageSanity report)
+        , ("cooldown is non-negative", Risk.fvrCooldownNonNegative report)
+        ]
+  where
+    report = Risk.verifyFormalRisk
+
+testFormalOptimizationReport :: IO ()
+testFormalOptimizationReport =
+    assertChecks
+        [ ("ROI domain is non-empty", Optimization.fvrRoiStateCount report > 0)
+        , ("tie-break domain is non-empty", Optimization.fvrTieBreakPairCount report > 0)
+        , ("vol-conf domain is non-empty", Optimization.fvrVolConfStateCount report > 0)
+        , ("Kalman domain is non-empty", Optimization.fvrKalmanFusionStateCount report > 0)
+        , ("ROI spec matches implementation", Optimization.fvrRoiSpecMatchesImplementation report)
+        , ("return is monotone", Optimization.fvrReturnMonotone report)
+        , ("drawdown is monotone", Optimization.fvrDrawdownMonotone report)
+        , ("tail loss is monotone", Optimization.fvrTailLossMonotone report)
+        , ("turnover is monotone", Optimization.fvrTurnoverMonotone report)
+        , ("expectancy is monotone", Optimization.fvrExpectancyMonotone report)
+        , ("payback is monotone", Optimization.fvrPaybackMonotone report)
+        , ("invalid payback equals missing", Optimization.fvrInvalidPaybackMatchesMissing report)
+        , ("zero-round-trip rewards stay disabled", Optimization.fvrZeroRoundTripRewardInvariant report)
+        , ("activity penalty is ordered", Optimization.fvrActivityPenaltyOrdered report)
+        , ("activity count is valid", Optimization.fvrActivityCountInvariant report)
+        , ("exposure penalty is ordered", Optimization.fvrExposurePenaltyOrdered report)
+        , ("tie-break is total", Optimization.fvrTieBreakTotalOrderAfterNormalization report)
+        , ("tie-break prefers hysteresis", Optimization.fvrTieBreakHysteresisPreference report)
+        , ("tie-break spec matches implementation", Optimization.fvrTieBreakSpecMatchesImplementation report)
+        , ("optimizer public surface holds", Optimization.fvrOptimizerPublicSurfaceInvariant report)
+        , ("vol-conf canonicalization holds", Optimization.fvrVolConfCanonicalizationInvariant report)
+        , ("malformed volatility equals missing", Optimization.fvrVolConfMalformedVolMatchesMissing report)
+        , ("malformed confidence fails closed", Optimization.fvrVolConfMalformedConfidenceFailsClosed report)
+        , ("malformed vol-conf stays conservative", Optimization.fvrVolConfMalformedInputsStayConservative report)
+        , ("vol-conf output is bounded", Optimization.fvrVolConfOutputBounded report)
+        , ("malformed Kalman measurements are ignored", Optimization.fvrKalmanFusionMalformedMeasurementsIgnored report)
+        , ("no valid Kalman measurement keeps prior", Optimization.fvrKalmanFusionNoValidMeasurementsKeepPrior report)
+        , ("Kalman posterior is finite", Optimization.fvrKalmanFusionPosteriorFinite report)
+        , ("valid Kalman evidence shrinks variance", Optimization.fvrKalmanFusionValidEvidenceShrinksVariance report)
+        ]
+  where
+    report = Optimization.verifyFormalOptimization
+
+assertChecks :: [(String, Bool)] -> IO ()
+assertChecks = mapM_ (uncurry assertBool)
+
+assertBool :: String -> Bool -> IO ()
+assertBool message condition =
+    unless condition (ioError (userError ("Assertion failed: " ++ message)))

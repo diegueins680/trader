@@ -14,6 +14,14 @@ primary_region = "fra"
   TRADER_BOT_AUTOSTART_MAX_BOTS = "100"
   TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "5"
   TRADER_BOT_START_MAX_SYMBOLS = "1"
+  TRADER_BOT_START_METHOD = "ta_regime_switch"
+  TRADER_BOT_START_VOL_CONF_GATE = "disabled"
+  TRADER_BOT_START_COST_AWARE_EDGE = "false"
+  TRADER_BOT_START_MIN_EDGE = "0"
+  TRADER_BOT_START_MIN_SIGNAL_TO_NOISE = "0"
+  TRADER_BOT_START_OPEN_THRESHOLD = "0.001"
+  TRADER_BOT_START_CLOSE_THRESHOLD = "0.001"
+  TRADER_BOT_START_TOP_COMBO_ADOPTION = "false"
   TRADER_CROSS_EXCHANGE_COINBASE = "true"
   # Trading-only node: optimization/backtesting runs on trader-hs-research (and
   # Hetzner research). This node pulls the best combos from the Tigris bus and
@@ -44,7 +52,7 @@ primary_region = "fra"
   RADIO_STATION_CHECK_CONCURRENCY = "8"
 
 [processes]
-  app = "trader-hs --serve --port 8080 --trade-log .tmp/trader/live_trades.ndjson"
+  app = "trader-hs --serve --port 8080 --platform binance --futures --binance-live --trade-log .tmp/trader/live_trades.ndjson"
   radio = "sh /usr/local/bin/fly-radio-stations-loop"
 
 [http_service]

@@ -59,7 +59,6 @@ export const OPTIMIZER_UI_MAX_TRIALS = 30;
 export const OPTIMIZER_UI_MAX_TIMEOUT_SEC = 1200;
 export const OPTIMIZER_UI_MAX_BARS = 1500;
 export const BOT_TELEMETRY_POINTS = 240;
-export const BOT_AUTOSTART_RETRY_MS = 15_000;
 export const RATE_LIMIT_BASE_MS = 10_000;
 export const RATE_LIMIT_MAX_MS = 120_000;
 export const RATE_LIMIT_TOAST_MIN_MS = 12_000;

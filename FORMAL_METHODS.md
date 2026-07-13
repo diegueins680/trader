@@ -1,3 +1,7 @@
+# Focused Formal Methods Contracts
+
+The canonical repository-wide specification registry is `formal/specifications.json`, documented in `docs/formal-specifications.md`. This file provides deeper proof sketches for selected trading-critical contracts and must remain consistent with that registry and executable evidence.
+
 ## Formal conformal calibration contract
 
 `fitConformal` and `predictInterval` in `haskell/app/Trader/Predictors/Conformal.hs` are treated as the fail-closed calibration boundary for conformal prediction intervals and any confidence or trading gate derived from those intervals.
@@ -142,17 +146,14 @@ Clauses:
 Bounded executable obligations:
 
 - `testSignalGateEntryHeadroomSpecializesFeeBuffer` preserves the legacy headroom boundary cases, including the valid zero-threshold explicit-edge boundary and the zero-fee specialization.
-- `testSignalGateEntryFeeBuffer` covers equality-at-boundary acceptance, strict-below-boundary rejection, zero-threshold-with-fees behavior, missing-edge fail-closed behavior, the zero-threshold zero-fee explicit-edge corner, and the zero-fee specialization.
-- `testSignalGateEntryFeeBufferMonotoneFees` witnesses monotone non-increasing admissibility as `roundTripFeeFloor` rises and the once-blocked-stays-blocked ladder.
-- `testSignalGateEntryFeeBufferMonotoneEdge` witnesses monotone non-increasing admissibility as raw edge falls under a fixed fee floor.
+- `testTradingEntryGateFailClosedMonotone` covers equality at the fee-aware boundary and witnesses the non-increasing admissibility ladders as fees rise or raw edge falls.
 - `testSignalGateEntryFeeBufferFailsClosed` covers negative and non-finite open thresholds, negative and non-finite fee floors, non-finite edges, and negative edge samples.
 - `testNormalizeSignalEntryEdgeFailClosedRegression` witnesses that the restored public `normalizeSignalEntryEdge` helper preserves valid fresh-entry edges, collapses finite negative raw edges to the shared `Just 0` sample, maps non-finite raw edges to `Nothing`, and keeps the Trading conjunction fail closed when that shared sample is reused.
 - `testTradingEntryGateFailClosedMonotone` and `testTradingEntryGateMalformedNoReopen` extend the `mkEntryGateState` witness so negative or non-finite per-side fees cannot reopen a blocked fresh entry after shared edge normalization.
 - `testVolConfGateMalformedInputsFailClosed` witnesses valid volatility-confidence boundary equality, fail-closed behavior for missing/malformed/out-of-range volatility, fail-closed behavior for malformed provided confidence, weak entry-blocking behavior for missing confidence, exit-only behavior that cannot open or increase exposure, and monotonicity under stricter confidence and high-volatility requirements.
 - `testBacktestEntryGateUsesRoundTripFeeBuffer` binds the same contract to the checked simulator: a no-fee headroom-valid entry can open, but the identical prediction remains flat once modeled round-trip costs exceed the available edge, including when fixed costs only become prohibitive after Kelly-lite overlays reduce final entry size.
 - `testBacktestFreshEntrySizingBoundsFailClosed` binds fresh-entry sizing validity to the checked simulator by covering negative, `NaN`, and infinite max-position caps and min-position floors, the valid zero-cap no-entry boundary, valid zero-floor admissibility, valid minimum-floor equality, cap-below-floor rejection, and monotone non-increasing exposure as valid caps tighten.
-- `testSignalGateEntryEdgeSpike` covers equality-at-cap acceptance, zero-threshold zero-edge acceptance, zero-threshold positive-edge rejection, and malformed threshold/edge fail-closed behavior for the independent spike veto in the same entry-only conjunction.
-- `testSignalGateEntryEdgeSpikeMonotone` witnesses monotone non-increasing admissibility as the effective spike threshold is lowered.
+- `testSignalGateEntryEdgeSpikeCapRegression` covers equality at both active caps, strict-above-cap rejection, and malformed threshold/edge fail-closed behavior for the independent spike veto.
 - `testOptimizerPublicSurfaceRegression` imports `signalEntryHeadroomThresholdCap`, `EnsembleConfig(..)`, `StepMeta(..)`, and `simulateEnsembleVWithHLChecked` through their public modules, witnesses the `0.03 -> 0.02` headroom-cap boundary, and fails before `optimize-equity` CI build time if the optimizer-facing public surface narrows again.
 - `testMetricsConsumesTradingPublicResults` constructs `BacktestResult`, `ExitReason`, and `Trade` through `Trader.Trading`, routes them through `computeMetrics`, and fails before downstream optimizer builds if the public result-type surface narrows again.
 - `haskell/web/test/deployConfig.test.mjs` covers blank or missing Fly host normalization to the default backend fallback, rejects malformed string and non-string Fly app/host overrides instead of synthesizing a fallback, and keeps that normalization confined to `apiFallbackUrl`.
