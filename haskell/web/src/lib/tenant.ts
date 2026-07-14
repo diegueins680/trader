@@ -14,15 +14,29 @@ async function sha256Hex(input: string): Promise<string> {
   return toHex(hash);
 }
 
+function isLegacyCredentialComponentSafe(value: string): boolean {
+  return !value.includes(":");
+}
+
+function encodeCredentialTupleV2(components: readonly string[]): string {
+  return `tenant-key-v2|${components.map((component) => `${encoder.encode(component).byteLength}:${component}`).join("")}`;
+}
+
+function trimCredential(value: string): string {
+  return value.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, "");
+}
+
 export async function buildTenantKey(platform: Platform, key: string, secret: string, passphrase?: string): Promise<string | null> {
-  const k = key.trim();
-  const s = secret.trim();
-  const p = passphrase?.trim() ?? "";
+  const k = trimCredential(key);
+  const s = trimCredential(secret);
+  const p = trimCredential(passphrase ?? "");
   if (!k || !s) return null;
   if (platform === "coinbase" && !p) return null;
-  const payload = platform === "coinbase" ? `${k}:${s}:${p}` : `${k}:${s}`;
+  const components = platform === "coinbase" ? [k, s, p] : [k, s];
+  const legacySafe = components.every(isLegacyCredentialComponentSafe);
+  const payload = legacySafe ? components.join(":") : encodeCredentialTupleV2(components);
   const hash = await sha256Hex(payload);
-  return `${platform}:${hash}`;
+  return legacySafe ? `${platform}:${hash}` : `${platform}:v2:${hash}`;
 }
 
 export async function buildTenantKeyForPlatform(

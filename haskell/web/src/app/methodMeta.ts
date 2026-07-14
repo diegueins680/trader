@@ -164,6 +164,13 @@ export const METHOD_UI_META = [
     tip: "hedge_blend adapts the Kalman/LSTM mix online (exp-weights) based on realized prediction error.",
   },
   {
+    id: "meta_hedge_blend",
+    optionTitle: "Meta hedge blend",
+    label: "Meta hedge blend (online expert mix)",
+    configHint: "adapts an online mixture across the available method forecasts.",
+    tip: "meta_hedge_blend uses online exponential weighting across the available method forecasts based on realized prediction error.",
+  },
+  {
     id: "net_softmax_blend",
     optionTitle: "Net softmax blend",
     label: "Net softmax blend (post-cost softmax edge weights)",
@@ -260,6 +267,20 @@ export const METHOD_UI_META = [
     label: "TA regime switch",
     configHint: "switches TA style by trend/range/breakout regime.",
     tip: "ta_regime_switch selects trend, reversion, or breakout TA logic from ADX, EMA200, and Bollinger bandwidth context.",
+  },
+  {
+    id: "sma_cross",
+    optionTitle: "SMA cross",
+    label: "SMA cross",
+    configHint: "uses the admitted fast/slow moving-average crossover setup.",
+    tip: "sma_cross follows admitted fast/slow moving-average crossovers with the configured thresholds and risk framing.",
+  },
+  {
+    id: "sma_cross_regime",
+    optionTitle: "SMA cross (trend regime)",
+    label: "SMA cross (trend regime)",
+    configHint: "requires the SMA crossover setup to occur in the trend regime.",
+    tip: "sma_cross_regime applies the SMA crossover strategy only when the market is classified as trending.",
   },
   {
     id: "10",

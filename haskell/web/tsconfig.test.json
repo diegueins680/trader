@@ -13,6 +13,7 @@
     "src/app/constants.ts",
     "src/lib/format.ts",
     "src/lib/types.ts",
+    "src/lib/tenant.ts",
     "src/lib/deployConfig.ts",
     "src/vite-env.d.ts"
   ]

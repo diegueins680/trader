@@ -11,6 +11,60 @@ function jsonResponse(status, body) {
   });
 }
 
+function validRunningBotStatus(overrides = {}) {
+  return {
+    running: true,
+    live: false,
+    tenantKey: "tenant",
+    symbol: "BTCUSDT",
+    interval: "3m",
+    market: "futures",
+    method: "blend",
+    threshold: 0.01,
+    settings: {
+      pollSeconds: 5,
+      onlineEpochs: 1,
+      trainBars: 100,
+      maxPoints: 500,
+      tradeEnabled: false,
+    },
+    halted: false,
+    peakEquity: 1,
+    dayStartEquity: 1,
+    consecutiveOrderErrors: 0,
+    startIndex: 0,
+    startedAtMs: 1,
+    updatedAtMs: 2,
+    prices: [100],
+    openTimes: [1],
+    kalmanPredNext: [null],
+    lstmPredNext: [null],
+    equityCurve: [1],
+    positions: [0],
+    operations: [],
+    orders: [],
+    trades: [],
+    ...overrides,
+  };
+}
+
+function validStartingBotStatus(overrides = {}) {
+  return {
+    running: false,
+    starting: true,
+    tenantKey: "tenant",
+    symbol: "BTCUSDT",
+    interval: "3m",
+    market: "futures",
+    method: "blend",
+    threshold: 0.01,
+    openThreshold: 0.01,
+    closeThreshold: 0.01,
+    startedAtMs: 1,
+    ...overrides,
+  };
+}
+
 async function loadApiModule(config, fetchImpl) {
   globalThis.window = {
     location: {
@@ -135,6 +189,384 @@ test("api client keeps base and request query params for relative bot URLs", asy
   );
   assert.equal(tenantHeader, "tenant-request");
   assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100"]);
+});
+
+test("bot status decoder accepts a valid running safety envelope and is shared by stop", async () => {
+  let calls = 0;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => {
+      calls += 1;
+      return calls === 1 ? jsonResponse(200, validRunningBotStatus()) : jsonResponse(200, { running: 0 });
+    },
+    async (api) => {
+      const status = await api.botStatus("/api", { timeoutMs: 5_000 });
+      assert.equal(status.running, true);
+      assert.equal(status.live, false);
+      assert.deepEqual(status.positions, [0]);
+      await assert.rejects(
+        () => api.botStop("/api", { timeoutMs: 5_000 }),
+        (error) => error instanceof api.InvalidApiResponseError && error.endpoint === "/bot/stop",
+      );
+    },
+  );
+  assert.equal(calls, 2);
+});
+
+test("bot status decoder accepts every backend-only canonical method", async () => {
+  const methods = ["meta_hedge_blend", "sma_cross", "sma_cross_regime"];
+  for (const method of methods) {
+    await withApiModule(
+      {
+        apiBaseUrl: "/api",
+        apiBaseUrlInferred: false,
+        apiFallbackUrl: "",
+        apiToken: "",
+      },
+      async () => jsonResponse(200, validRunningBotStatus({ method })),
+      async (api) => {
+        const status = await api.botStatus("/api", { timeoutMs: 5_000 });
+        assert.equal(status.running, true);
+        assert.equal(status.method, method);
+      },
+    );
+  }
+});
+
+test("bot status decoder rejects non-boolean running state before returning it to the UI", async () => {
+  let calls = 0;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => {
+      calls += 1;
+      return jsonResponse(200, { running: "false" });
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.endpoint === "/bot/status" &&
+          error.field === "status.running must be a boolean",
+      );
+    },
+  );
+  assert.equal(calls, 1);
+});
+
+test("bot status decoder rejects malformed position evidence and incoherent multi-bot summaries", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      if (String(url).includes("symbol=BAD_POSITION_DOMAIN")) {
+        return jsonResponse(200, validRunningBotStatus({ symbol: "BAD_POSITION_DOMAIN", positions: [2] }));
+      }
+      if (String(url).includes("symbol=BAD_POSITION")) {
+        return jsonResponse(200, validRunningBotStatus({ symbol: "BAD_POSITION", positions: [0.5] }));
+      }
+      return jsonResponse(200, {
+        running: true,
+        multi: true,
+        bots: [{ running: false }],
+      });
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }, undefined, "BAD_POSITION"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError && error.field === "status.positions[0] must be a safe integer",
+      );
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }, undefined, "BAD_POSITION_DOMAIN"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError && error.field === "status.positions[0] must be -1, 0, or 1",
+      );
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError && error.field === "status.running disagrees with status.bots",
+      );
+    },
+  );
+});
+
+test("bot status decoder requires non-empty aligned core running series", async () => {
+  const responses = [
+    validRunningBotStatus({ prices: [] }),
+    validRunningBotStatus({ positions: [] }),
+  ];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, responses.shift()),
+    async (api) => {
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError && error.field === "status.prices must not be empty",
+      );
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.positions must align with status.prices",
+      );
+    },
+  );
+});
+
+test("bot lifecycle decoder requires and binds tenant identity on running, starting, and snapshot state", async () => {
+  const responses = [
+    validRunningBotStatus({ tenantKey: undefined }),
+    validRunningBotStatus({ tenantKey: "other-tenant" }),
+    validStartingBotStatus({ tenantKey: "other-tenant" }),
+    {
+      running: false,
+      snapshotAtMs: 3,
+      snapshot: validRunningBotStatus({ tenantKey: "other-tenant" }),
+    },
+  ];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, responses.shift()),
+    async (api) => {
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }, undefined, "BTCUSDT", "tenant"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.tenantKey must be a non-empty string",
+      );
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }, undefined, "BTCUSDT", "tenant"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.tenantKey does not match the requested tenant",
+      );
+      await assert.rejects(
+        () => api.botStart("/api", { tenantKey: "tenant", botSymbols: ["BTCUSDT"] }, { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.tenantKey does not match the requested tenant",
+      );
+      await assert.rejects(
+        () => api.botStop("/api", { timeoutMs: 5_000 }, "BTCUSDT", "tenant"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.snapshot.tenantKey does not match the requested tenant",
+      );
+    },
+  );
+});
+
+test("bot lifecycle decoder binds unambiguous status, stop, and start symbols", async () => {
+  const responses = [
+    validRunningBotStatus({ symbol: "ETHUSDT" }),
+    {
+      running: false,
+      snapshotAtMs: 3,
+      snapshot: validRunningBotStatus({ symbol: "ETHUSDT" }),
+    },
+    validStartingBotStatus({ symbol: "ETHUSDT" }),
+  ];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, responses.shift()),
+    async (api) => {
+      await assert.rejects(
+        () => api.botStatus("/api", { timeoutMs: 5_000 }, undefined, "BTCUSDT", "tenant"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.symbol does not match the requested symbol",
+      );
+      await assert.rejects(
+        () => api.botStop("/api", { timeoutMs: 5_000 }, "BTCUSDT", "tenant"),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.snapshot.symbol does not match the requested symbol",
+      );
+      await assert.rejects(
+        () => api.botStart("/api", { tenantKey: "tenant", botSymbols: ["BTCUSDT"] }, { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.field === "status.symbol does not match the requested symbol",
+      );
+    },
+  );
+});
+
+test("single-symbol bot start accepts a valid multi response containing an orphan-position bot", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () =>
+      jsonResponse(202, {
+        running: true,
+        starting: false,
+        multi: true,
+        bots: [validRunningBotStatus(), validRunningBotStatus({ symbol: "ETHUSDT" })],
+      }),
+    async (api) => {
+      const status = await api.botStart(
+        "/api",
+        { tenantKey: "tenant", botSymbols: ["BTCUSDT"] },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(status.multi, true);
+      assert.deepEqual(
+        status.bots.map((bot) => bot.symbol),
+        ["BTCUSDT", "ETHUSDT"],
+      );
+    },
+  );
+});
+
+test("bot start accepts a running multi-bot response with a queued sequential start", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () =>
+      jsonResponse(202, {
+        running: true,
+        starting: true,
+        multi: true,
+        bots: [validRunningBotStatus()],
+        queued: [{ symbol: "ETHUSDT", message: "Queued for sequential start after currently active bots are stable." }],
+      }),
+    async (api) => {
+      const status = await api.botStart("/api", { botSymbols: ["BTCUSDT", "ETHUSDT"] }, { timeoutMs: 5_000 });
+      assert.equal(status.running, true);
+      assert.equal(status.starting, true);
+      assert.equal(status.bots.length, 1);
+      assert.equal(status.queued.length, 1);
+    },
+  );
+});
+
+test("bot start accepts a queued-only multi-bot response", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () =>
+      jsonResponse(202, {
+        running: false,
+        starting: true,
+        multi: true,
+        bots: [],
+        queued: [{ symbol: "ETHUSDT", message: "Queued for sequential start after currently active bots are stable." }],
+      }),
+    async (api) => {
+      const status = await api.botStart("/api", { botSymbols: ["ETHUSDT"] }, { timeoutMs: 5_000 });
+      assert.equal(status.running, false);
+      assert.equal(status.starting, true);
+      assert.deepEqual(status.bots, []);
+      assert.equal(status.queued.length, 1);
+    },
+  );
+});
+
+test("bot status accepts backend-bounded long-lookback series that exceed the retention target", async () => {
+  const seriesLength = 104;
+  const numericSeries = Array.from({ length: seriesLength }, (_, index) => index + 1);
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () =>
+      jsonResponse(
+        200,
+        validRunningBotStatus({
+          settings: {
+            pollSeconds: 5,
+            onlineEpochs: 1,
+            trainBars: 100,
+            maxPoints: 100,
+            tradeEnabled: false,
+          },
+          prices: numericSeries,
+          openTimes: numericSeries,
+          kalmanPredNext: numericSeries,
+          lstmPredNext: numericSeries,
+          equityCurve: numericSeries,
+          positions: numericSeries.map(() => 0),
+        }),
+      ),
+    async (api) => {
+      const status = await api.botStatus("/api", { timeoutMs: 5_000 });
+      assert.equal(status.running, true);
+      assert.equal(status.prices.length, seriesLength);
+      assert.equal(status.settings.maxPoints, 100);
+    },
+  );
+});
+
+test("bot start decodes after transient retry handling so malformed success cannot duplicate the mutation", async () => {
+  let calls = 0;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => {
+      calls += 1;
+      return jsonResponse(200, validRunningBotStatus({ settings: { tradeEnabled: "false" } }));
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.botStart("/api", { binanceSymbol: "BTCUSDT" }, { timeoutMs: 5_000 }),
+        (error) =>
+          error instanceof api.InvalidApiResponseError &&
+          error.endpoint === "/bot/start" &&
+          error.field === "status.settings.tradeEnabled must be a boolean",
+      );
+    },
+  );
+  assert.equal(calls, 1);
 });
 
 test("api client preserves exact safe integer query params for bot status, ops, and ops performance", async () => {
@@ -487,7 +919,7 @@ test("botStart retries transient 502 responses before failing", async () => {
       if (method === "POST" && href === "https://api.example.com/bot/start") {
         starts += 1;
         if (starts < 3) return jsonResponse(502, { error: "Bad Gateway" });
-        return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+        return jsonResponse(202, validStartingBotStatus());
       }
       throw new Error(`unexpected request: ${method} ${href}`);
     },
@@ -833,7 +1265,7 @@ test("api client forwards tenant key as X-Tenant-Key from JSON body params", asy
       const href = String(url);
       if (href !== "/api/bot/start") throw new Error(`unexpected request: ${href}`);
       tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
-      return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+      return jsonResponse(202, validStartingBotStatus({ tenantKey: "tenant-body" }));
     },
     async (api) => {
       const out = await api.botStart(
@@ -943,7 +1375,7 @@ test("api client forwards X-Tenant-Key for cross-origin direct-host writes", asy
       const href = String(url);
       if (href !== "https://api.example.com/bot/start") throw new Error(`unexpected request: ${href}`);
       tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
-      return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+      return jsonResponse(202, validStartingBotStatus({ tenantKey: "tenant-body" }));
     },
     async (api) => {
       const out = await api.botStart(

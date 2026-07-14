@@ -28,19 +28,21 @@ This is bounded/executable formal verification, not a claim of unbounded mathema
 18. Research preprocessing standardized from full history, cache refresh could erase prior PIT values with nulls, and edge calibration mixed realized outcomes with decision evidence. Normalization is past-only, cache merge preserves known PIT values, and outcome series is separate.
 19. The frontend proxy used a configurable URL with hardcoded Fly Host/SNI. URL, Host, and TLS server identity now derive from the same origin.
 20. Top-combo rows were defaulted from malformed payloads, duplicate ranks produced colliding identities, and future timestamps could win freshness selection. Rows are now schema-sanitized before display/auto-apply, identities are deterministic and unique, and future-dated evidence is rejected.
+21. Credential tuples were joined with a separator, so distinct credentials containing `:` could derive the same tenant. Backend, browser, and AWS now trim the same ASCII boundary whitespace, preserve legacy keys for separator-free tuples including Unicode credentials, and use a domain-separated, UTF-8 byte-length-framed `platform:v2` identity only for separator-bearing tuples; collision and Unicode-boundary vectors agree across all three runtimes.
+22. Successful bot lifecycle responses relied on compile-time TypeScript shapes. Bot start/status/stop now decode the safety envelope before UI mutation, require non-empty aligned core running series, bind applicable response tenant/symbol identities to the request, and reject malformed snapshot or multi-bot evidence without retrying a successful mutation.
+23. Risk IDs and lifecycle state drifted between duplicate Markdown rows and a partial Haskell representation. `formal/risk-register.json` is now canonical, with automation enforcing unique ordered IDs and exact severity/status parity in both projections.
 
 ## Remaining conformance gaps
 
 The registry specifies these behaviors, but current evidence is incomplete and must not be mistaken for proof:
 
 - `GateTelemetry` is a correct standalone accumulator but is not wired through every production gate; total-bar and candidate counters do not yet have an end-to-end source.
-- API TypeScript types are not runtime response decoders for every endpoint; malformed server objects can still reach some UI state.
+- Bot start/status/stop responses now have a fail-closed safety-envelope decoder. Other TypeScript endpoint response types remain compile-time only and need endpoint-specific runtime decoders.
+- Existing separator-bearing tenants need an explicit one-time state-key migration; ambiguous legacy aliases cannot be dual-read safely.
 - Web orchestration, SSE EOF/reconnect behavior, and multi-chunk state-sync partial failure lack a full state-machine test harness.
-- Tenant-key concatenation is not an injective credential encoding when credential components contain the separator.
 - Client runtime API tokens are public credentials by construction and must never be treated as server secrets.
 - Venue signing/filter/pagination behavior, S3/state-sync atomicity, outbox delivery, migrations, and deployment rollback have static/integration witnesses rather than model-checked proofs.
 - Research and optimizer no-lookahead contracts need generated prefix/walk-forward properties across every preprocessing path.
-- The root Markdown and Haskell risk registers still need one canonical ID/status representation and an automated duplicate/status consistency check.
 - Hetzner exact remote projection, watchdog process identity, radio SSRF restrictions, AWS temporary-secret cleanup, and transactional state sync need additional implementation hardening.
 
 The strongest next step is a small pure core library with QuickCheck/Hedgehog properties and SBV/Z3 proofs for time arithmetic, gates, execution, and risk transitions, followed by a state-machine refinement test shared by live and backtest paths.

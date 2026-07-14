@@ -50,19 +50,20 @@
     {
       "id": "H-INTERFACE",
       "title": "CLI, API routing, configuration, authorization, and runtime",
-      "features": ["CLI parsing", "REST route catalog", "async request jobs", "environment precedence", "tenant resolution", "CORS authorization", "HTTP retry", "cache administration", "runtime observability", "graceful shutdown"],
+      "features": ["CLI parsing", "REST route catalog", "async request jobs", "environment precedence", "tenant resolution", "versioned length-framed tenant identity", "CORS authorization", "HTTP retry", "cache administration", "runtime observability", "graceful shutdown"],
       "criticality": "security",
       "implementation": ["haskell/app/Main.hs", "haskell/app/Trader/Api/**", "haskell/app/Trader/App/**", "haskell/app/Trader/Config.hs", "haskell/app/Trader/Cors.hs", "haskell/app/Trader/Http.hs"],
       "uses": ["G-FAIL-CLOSED", "G-TENANT", "G-SECRET", "G-BOUNDED", "G-IDEMPOTENT"],
       "dependsOn": ["H-TYPES", "H-MARKET-DATA"],
       "requires": [{ "id": "H-INTERFACE-R1", "statement": "A request is admissible iff its method/path exists, authentication and tenant evidence resolve, all parsed fields satisfy Args validation, and its body/time/resource limits hold." }],
       "ensures": [{ "id": "H-INTERFACE-E1", "statement": "Accepted synchronous and asynchronous requests invoke the same validated domain operation; terminal async states are exactly succeeded, failed, timed-out, or cancelled and are pollable by their tenant-scoped identifier." }],
-      "invariants": [{ "id": "H-INTERFACE-I1", "statement": "Route documentation has unique method/path pairs; authorization cannot be weakened by CORS; retries do not create a second trading mutation." }],
+      "invariants": [{ "id": "H-INTERFACE-I1", "statement": "Route documentation has unique method/path pairs; authorization cannot be weakened by CORS; retries do not create a second trading mutation; credential components trim ASCII boundary whitespace identically across runtimes, preserve the legacy namespace for separator-free values including Unicode credentials, and use domain-separated UTF-8 byte-length framing under platform:v2 only for separator-bearing tuples." }],
       "failures": [{ "id": "H-INTERFACE-F1", "statement": "Parse, auth, tenant, timeout, or capacity failure returns an explicit non-success response and performs no trade or cross-tenant state transition." }],
       "evidence": [
         { "level": "integration", "path": "haskell/test/Trader/Test/ApiRoutes.hs", "contains": "api endpoint docs have unique method/path pairs" },
         { "level": "integration", "path": "haskell/test/Trader/Test/Cors.hs", "contains": "tenant-scoped" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testTenantResolutionScopesMixedApiKeys" }
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testTenantResolutionScopesMixedApiKeys" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testTenantCredentialEncodingInjective" }
       ]
     },
     {
@@ -288,16 +289,19 @@
     {
       "id": "H-RISK",
       "title": "Risk halts, leverage, drawdown, loss limits, and canonical risk register",
-      "features": ["daily loss halt", "weekly loss halt", "drawdown halt", "expectancy halt", "position limit", "loss streak", "leverage sanity", "risk register"],
+      "features": ["daily loss halt", "weekly loss halt", "drawdown halt", "expectancy halt", "position limit", "loss streak", "leverage sanity", "canonical risk metadata", "risk register projections"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/Formal/Risk.hs", "haskell/app/Trader/Formal/RiskRegister.hs"],
+      "implementation": ["haskell/app/Trader/Formal/Risk.hs", "haskell/app/Trader/Formal/RiskRegister.hs", "scripts/verify-formal-specs.mjs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-REDUCE-ONLY"],
       "dependsOn": ["H-TYPES"],
       "requires": [{ "id": "H-RISK-R1", "statement": "All active limits and observed loss/drawdown/position/leverage metrics are finite and in their declared domain; reset events are explicit." }],
       "ensures": [{ "id": "H-RISK-E1", "statement": "The first reason in documented precedence is returned; daily/weekly halts reset only at their matching boundary and immediately re-halt on a current breach." }],
-      "invariants": [{ "id": "H-RISK-I1", "statement": "For each valid configured limit, breach iff the corresponding halt is returned when no higher-priority reason exists; increasing loss cannot remove a halt." }],
+      "invariants": [{ "id": "H-RISK-I1", "statement": "For each valid configured limit, breach iff the corresponding halt is returned when no higher-priority reason exists; increasing loss cannot remove a halt; canonical risk IDs are unique and their ordered severity/status projections agree exactly across JSON, Haskell, and Markdown." }],
       "failures": [{ "id": "H-RISK-F1", "statement": "Malformed risk limit or metric returns a named invalid/non-finite halt; negative loss-streak limits cannot disable protection." }],
-      "evidence": [{ "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Risk.hs", "contains": "verifyFormalRisk" }]
+      "evidence": [
+        { "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Risk.hs", "contains": "verifyFormalRisk" },
+        { "level": "regression", "path": "test/formal-specs.test.mjs", "contains": "canonical risk register has unique ordered IDs and coherent projections" }
+      ]
     },
     {
       "id": "H-METRICS",
@@ -423,18 +427,20 @@
     {
       "id": "W-TRANSPORT",
       "title": "Web API transport, deployment target, tenant, storage, and clipboard",
-      "features": ["API fallback", "timeouts", "async polling", "cancellation", "tenant headers", "runtime deployment config", "browser storage", "clipboard"],
+      "features": ["API fallback", "timeouts", "async polling", "cancellation", "tenant headers", "browser tenant canonical-vector parity", "bot status safety-envelope response decoding", "runtime deployment config", "browser storage", "clipboard"],
       "criticality": "security",
       "implementation": ["haskell/web/src/lib/**"],
       "uses": ["G-FAIL-CLOSED", "G-TENANT", "G-SECRET", "G-IDEMPOTENT", "G-BOUNDED"],
       "dependsOn": ["H-INTERFACE"],
       "requires": [{ "id": "W-TRANSPORT-R1", "statement": "Target URL/host, tenant key, request body, timeout, and expected response schema validate before transport; client-visible tokens are never classified as secrets." }],
       "ensures": [{ "id": "W-TRANSPORT-E1", "statement": "Requests use the resolved origin exactly, preserve query/path, attach only authorized tenant headers, and stop polling after terminal/cancel/timeout." }],
-      "invariants": [{ "id": "W-TRANSPORT-I1", "statement": "Fallback cannot redirect to malformed authority, retries cannot duplicate trade intent, and runtime decoding precedes UI state mutation." }],
+      "invariants": [{ "id": "W-TRANSPORT-I1", "statement": "Fallback cannot redirect to malformed authority; retries cannot duplicate trade intent; runtime bot decoding precedes UI state mutation, requires non-empty aligned core running series, and binds reported tenant identities plus unambiguous single-status symbols to request expectations." }],
       "failures": [{ "id": "W-TRANSPORT-F1", "statement": "Malformed target/response, timeout, abort, or storage error becomes an explicit UI error and cannot synthesize successful trading state." }],
       "evidence": [
         { "level": "regression", "path": "haskell/web/test/apiFallback.test.mjs", "contains": "fallback" },
-        { "level": "regression", "path": "haskell/web/test/deployConfig.test.mjs", "contains": "fly.dev" }
+        { "level": "regression", "path": "haskell/web/test/apiFallback.test.mjs", "contains": "bot status decoder rejects malformed position evidence" },
+        { "level": "regression", "path": "haskell/web/test/deployConfig.test.mjs", "contains": "fly.dev" },
+        { "level": "regression", "path": "haskell/web/test/tenant.test.mjs", "contains": "tenant identity preserves unambiguous ASCII keys" }
       ]
     },
     {
@@ -552,16 +558,19 @@
     {
       "id": "D-FLY-AWS-RENDER",
       "title": "Fly, AWS, Render, and container deployment",
-      "features": ["backend Docker image", "optimized image", "Fly trading", "Fly research", "Render service", "AWS App Runner", "AWS network/EIP setup", "AWS teardown"],
+      "features": ["backend Docker image", "optimized image", "Fly trading", "Fly research", "Render service", "AWS App Runner", "AWS network/EIP setup", "AWS tenant canonical-vector parity", "AWS teardown"],
       "criticality": "security",
       "implementation": ["Dockerfile", "Dockerfile.optimized", "fly.toml", "fly.research.toml", "render.yaml", "deploy-aws-quick.sh", "deploy/aws/**"],
-      "uses": ["G-SECRET", "G-PROMOTION", "G-IDEMPOTENT", "G-BOUNDED"],
+      "uses": ["G-SECRET", "G-TENANT", "G-PROMOTION", "G-IDEMPOTENT", "G-BOUNDED"],
       "dependsOn": ["H-EXECUTABLES", "A-VERIFICATION"],
       "requires": [{ "id": "D-FLY-AWS-RENDER-R1", "statement": "Deployment identifies an already verified commit/image digest, validates required secret references without interpolating plaintext JSON, and declares rollback/health criteria." }],
       "ensures": [{ "id": "D-FLY-AWS-RENDER-E1", "statement": "Running service reports the selected commit, exposes only intended ports/routes, uses injected secrets, and reaches health before promotion succeeds." }],
-      "invariants": [{ "id": "D-FLY-AWS-RENDER-I1", "statement": "Research and trading roles remain isolated; temporary credential material is removed on every exit path; rerun converges idempotently." }],
+      "invariants": [{ "id": "D-FLY-AWS-RENDER-I1", "statement": "Research and trading roles remain isolated; deployment tenant derivation matches backend canonical legacy and v2 vectors; temporary credential material is removed on every exit path; rerun converges idempotently." }],
       "failures": [{ "id": "D-FLY-AWS-RENDER-F1", "statement": "Build, secret, migration, health, or promotion failure leaves the last healthy release active and emits no secret." }],
-      "evidence": [{ "level": "static", "path": "Dockerfile", "contains": "cabal" }]
+      "evidence": [
+        { "level": "static", "path": "Dockerfile", "contains": "cabal" },
+        { "level": "regression", "path": "test/tenant-identity.test.mjs", "contains": "AWS tenant derivation matches the canonical legacy and v2 vectors" }
+      ]
     },
     {
       "id": "D-HETZNER",

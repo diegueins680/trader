@@ -25,7 +25,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import System.Directory (removeFile)
 import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
-import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
+import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
@@ -184,6 +184,8 @@ import Trader.Optimizer.Optimize (
     normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
     optimizerRecordsShouldRetryDiscovery,
+    optimizerSoftSearchEligible,
+    optimizerSoftSearchFilterReason,
     optimizerTechniqueSummaryJson,
     optimizerTopJsonSortKey,
     parseOptimizerCorrelationGuidance,
@@ -495,6 +497,7 @@ main = do
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
+    testTenantCredentialEncodingInjective
     testMarketLinearFit
     testSignalGateEntryBoundaryWitness
     testSignalGateEntryThresholdFeasibilityInvariant
@@ -601,6 +604,7 @@ main = do
     testOptimizerRecordMetricsCarryWalkForwardSummary
     testOptimizerRecordsRetryDiscoveryForCostFloorFilters
     testOptimizerRecordsRetryDiscoveryStopsWhenEligible
+    testOptimizerSoftSearchEligibility
     testTopComboBacktestPrunesRoiLosers
     testMetricsConsumesTradingPublicResults
     testMetricsFiniteInputBoundary
@@ -3678,6 +3682,48 @@ testTenantResolutionScopesMixedApiKeys = do
                 "explicit Coinbase tenant matches mixed credentials when unscoped"
                 (resolveTenantKeyFromParams (Just (T.unpack coinbaseTenant)) bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
         _ -> assert "tenant derivation for test credentials succeeds" False
+
+testTenantCredentialEncodingInjective :: IO ()
+testTenantCredentialEncodingInjective = do
+    let legacyBinance = tenantKeyFromBinanceKeys (Just "alpha") (Just "beta")
+        expectedLegacyBinance = Just (T.pack ("binance:" ++ hashKeyHex "alpha:beta"))
+        ambiguousBinanceLeft = tenantKeyFromBinanceKeys (Just "alpha:beta") (Just "gamma")
+        ambiguousBinanceRight = tenantKeyFromBinanceKeys (Just "alpha") (Just "beta:gamma")
+        ambiguousCoinbaseFirst = tenantKeyFromCoinbaseKeys (Just "alpha:beta") (Just "gamma") (Just "delta")
+        ambiguousCoinbaseSecond = tenantKeyFromCoinbaseKeys (Just "alpha") (Just "beta:gamma") (Just "delta")
+        ambiguousCoinbaseThird = tenantKeyFromCoinbaseKeys (Just "alpha") (Just "beta") (Just "gamma:delta")
+        unicodeBinance = tenantKeyFromBinanceKeys (Just "cl\233") (Just "\31192\23494")
+        unicodeBoundaryBinance = tenantKeyFromBinanceKeys (Just "\65279alpha\65279") (Just "beta")
+        unicodeSpaceBoundaryBinance = tenantKeyFromBinanceKeys (Just "\160alpha\160") (Just "beta")
+        oldAmbiguousBinance = "binance:" ++ hashKeyHex "alpha:beta:gamma"
+    assert "colon-free Binance credentials retain the legacy tenant identity" (legacyBinance == expectedLegacyBinance)
+    assert
+        "Binance credential tuples that collide under separator concatenation have distinct tenant identities"
+        ( ambiguousBinanceLeft /= ambiguousBinanceRight
+            && all (maybe False (("binance:v2:" `isPrefixOf`) . T.unpack)) [ambiguousBinanceLeft, ambiguousBinanceRight]
+            && ambiguousBinanceLeft == Just "binance:v2:f7819a271a2175eacb13121b5ec1557b788a259f5103edf6c4c3ad05e9a28234"
+            && ambiguousBinanceRight == Just "binance:v2:b0f0389b4a3d94ff85ab3cfd9049536e3354c388284831431fee67c3c192dfc0"
+        )
+    assert
+        "Coinbase separator placement cannot alias another normalized credential tuple"
+        ( let tenants = [ambiguousCoinbaseFirst, ambiguousCoinbaseSecond, ambiguousCoinbaseThird]
+           in all (maybe False (("coinbase:v2:" `isPrefixOf`) . T.unpack)) tenants
+                && length (nub tenants) == length tenants
+        )
+    assert
+        "separator-free non-ASCII credentials retain the legacy tenant identity"
+        (unicodeBinance == Just "binance:117516d499c35af490f5de85d93a10c22e12015d1edc7c65204ecd58cb9f09f3")
+    assert
+        "non-ASCII credential boundaries are preserved consistently across runtimes"
+        ( unicodeBoundaryBinance == Just "binance:4707291792a1aa7652d15cbd0b513b35dd91f34ee7c3c92b5df042d8453a57c4"
+            && unicodeSpaceBoundaryBinance == Just "binance:5eb0587b34a05af33bce33fe00a16f9f226e7c4974307b935faad765e6c6877d"
+        )
+    assert
+        "an ambiguous legacy tenant alias is rejected when separator-bearing credentials are supplied"
+        ( case resolveTenantKeyFromParams (Just oldAmbiguousBinance) (Just "alpha:beta") (Just "gamma") Nothing Nothing Nothing of
+            Left _ -> True
+            Right _ -> False
+        )
 
 testMarketLinearFit :: IO ()
 testMarketLinearFit = do
@@ -8073,6 +8119,67 @@ testOptimizerRecordsRetryDiscoveryStopsWhenEligible = do
     assert
         "a primary run with any eligible record does not spend a recovery pass"
         (not (optimizerRecordsShouldRetryDiscovery summary))
+
+testOptimizerSoftSearchEligibility :: IO ()
+testOptimizerSoftSearchEligibility = do
+    let searchMaxWfSharpeStd = 1.0
+        activityFloor = 5
+        annualizedReturnFloor = 1.0
+        eligible reason wfStd activityCount annualizedReturn =
+            optimizerSoftSearchEligible
+                reason
+                wfStd
+                searchMaxWfSharpeStd
+                activityCount
+                activityFloor
+                annualizedReturn
+                annualizedReturnFloor
+        softReasons =
+            [ "activityCount<20"
+            , "exposure<0.100"
+            , "wfSharpeMean<0.800"
+            , "wfSharpeStd>0.500"
+            , "sharpe<1.000"
+            , "calmar<0.800"
+            , "annualizedReturn<1.500"
+            , "winRate<0.450"
+            , "profitFactor<1.100"
+            , "turnover>3.000"
+            ]
+        hardReasons =
+            [ "openThresholdOutsideActiveRange[0.001000,0.020000]"
+            , "minEdge<0.001000(costFloor)"
+            , "kellyLiteExposureMissing"
+            , "walkForwardMissing"
+            ]
+    assert
+        "optimizer classifies only explicitly approved quality filters as search-soft"
+        ( all (optimizerSoftSearchFilterReason . Just) softReasons
+            && not (any (optimizerSoftSearchFilterReason . Just) hardReasons)
+            && not (optimizerSoftSearchFilterReason Nothing)
+        )
+    assert
+        "hard optimizer filters never become search-only candidates"
+        (all (\reason -> not (eligible (Just reason) (Just 0.4) 6 1.1)) hardReasons)
+    assert
+        "soft-search eligibility fails closed without walk-forward evidence"
+        (not (eligible (Just "sharpe<1.000") Nothing 6 1.1))
+    assert
+        "soft-search eligibility rejects candidates at or below the survivor activity floor"
+        ( not (eligible (Just "sharpe<1.000") (Just 0.4) activityFloor 1.1)
+            && not (eligible (Just "sharpe<1.000") (Just 0.4) 0 1.1)
+        )
+    assert
+        "soft-search eligibility rejects candidates at or below the survivor return floor"
+        ( not (eligible (Just "sharpe<1.000") (Just 0.4) 6 annualizedReturnFloor)
+            && not (eligible (Just "sharpe<1.000") (Just 0.4) 6 0.5)
+        )
+    assert
+        "a quality-filtered candidate with stable walk-forward, activity, and return evidence remains search-only eligible"
+        (eligible (Just "sharpe<1.000") (Just 0.4) 6 1.1)
+    assert
+        "soft-search eligibility enforces the relaxed walk-forward dispersion ceiling"
+        (not (eligible (Just "sharpe<1.000") (Just 1.1) 6 1.1))
 
 -- Public-interface invariant: metrics/reporting must be able to consume the
 -- BacktestResult/Trade/ExitReason constructors re-exported by Trader.Trading.

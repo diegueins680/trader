@@ -23,6 +23,7 @@ import type {
   StateSyncImportResponse,
   StateSyncPayload,
 } from "./types";
+import { METHOD_IDS } from "../app/contracts";
 import { TRADER_UI_CONFIG } from "./deployConfig";
 import { readJson, writeJson } from "./storage";
 
@@ -62,6 +63,18 @@ export class UnexpectedResponseError extends Error {
     this.status = status;
     this.contentType = contentType;
     this.bodySnippet = bodySnippet;
+  }
+}
+
+export class InvalidApiResponseError extends Error {
+  readonly endpoint: string;
+  readonly field: string;
+
+  constructor(endpoint: string, field: string) {
+    super(`Invalid ${endpoint} response: ${field}`);
+    this.name = "InvalidApiResponseError";
+    this.endpoint = endpoint;
+    this.field = field;
   }
 }
 
@@ -105,6 +118,358 @@ export type CacheStatsResponse = {
 };
 
 export type CacheClearResponse = { ok: boolean; atMs: number };
+
+type UnknownRecord = Record<string, unknown>;
+const MAX_BOT_STATUS_POINTS = 100_000;
+
+type BotStatusDecodeExpectations = {
+  tenantKey?: string;
+  symbol?: string;
+  allowMultiForExpectedSymbol?: boolean;
+};
+
+function isUnknownRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidBotStatus(endpoint: string, field: string): never {
+  throw new InvalidApiResponseError(endpoint, field);
+}
+
+function requireBotRecord(value: unknown, endpoint: string, field: string): UnknownRecord {
+  if (!isUnknownRecord(value)) invalidBotStatus(endpoint, `${field} must be an object`);
+  return value;
+}
+
+function requireBotBoolean(value: unknown, endpoint: string, field: string): boolean {
+  if (typeof value !== "boolean") invalidBotStatus(endpoint, `${field} must be a boolean`);
+  return value;
+}
+
+function requireBotString(value: unknown, endpoint: string, field: string): string {
+  if (typeof value !== "string" || !value.trim()) invalidBotStatus(endpoint, `${field} must be a non-empty string`);
+  return value;
+}
+
+function requireBotFinite(value: unknown, endpoint: string, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    invalidBotStatus(endpoint, `${field} must be a finite number`);
+  }
+  return value;
+}
+
+function requireBotSafeInteger(value: unknown, endpoint: string, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    invalidBotStatus(endpoint, `${field} must be a safe integer`);
+  }
+  return value;
+}
+
+function validateOptionalBotBoolean(record: UnknownRecord, key: string, endpoint: string, field: string): void {
+  if (record[key] !== undefined) requireBotBoolean(record[key], endpoint, `${field}.${key}`);
+}
+
+function validateOptionalBotFinite(record: UnknownRecord, key: string, endpoint: string, field: string): void {
+  if (record[key] !== undefined) requireBotFinite(record[key], endpoint, `${field}.${key}`);
+}
+
+function validateOptionalBotSafeInteger(record: UnknownRecord, key: string, endpoint: string, field: string): void {
+  if (record[key] !== undefined) requireBotSafeInteger(record[key], endpoint, `${field}.${key}`);
+}
+
+function requireBotArray(record: UnknownRecord, key: string, endpoint: string, field: string): unknown[] {
+  const value = record[key];
+  if (!Array.isArray(value)) invalidBotStatus(endpoint, `${field}.${key} must be an array`);
+  return value;
+}
+
+function validateFiniteBotArray(values: unknown[], endpoint: string, field: string, nullable = false): void {
+  for (let i = 0; i < values.length; i += 1) {
+    if (nullable && values[i] === null) continue;
+    requireBotFinite(values[i], endpoint, `${field}[${i}]`);
+  }
+}
+
+function validateSafeIntegerBotArray(values: unknown[], endpoint: string, field: string): void {
+  for (let i = 0; i < values.length; i += 1) {
+    requireBotSafeInteger(values[i], endpoint, `${field}[${i}]`);
+  }
+}
+
+function validatePositionBotArray(values: unknown[], endpoint: string, field: string): void {
+  for (let i = 0; i < values.length; i += 1) {
+    const position = requireBotSafeInteger(values[i], endpoint, `${field}[${i}]`);
+    if (position !== -1 && position !== 0 && position !== 1) {
+      invalidBotStatus(endpoint, `${field}[${i}] must be -1, 0, or 1`);
+    }
+  }
+}
+
+function validateBoundedBotSeries(values: unknown[], endpoint: string, field: string): void {
+  if (values.length > MAX_BOT_STATUS_POINTS) {
+    invalidBotStatus(endpoint, `${field} exceeds the supported status limit`);
+  }
+}
+
+function normalizeExpectedBotIdentity(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function normalizeBotSymbol(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+function validateBotTenantKey(
+  record: UnknownRecord,
+  endpoint: string,
+  field: string,
+  expectedTenantKey: string | undefined,
+  required: boolean,
+): string | undefined {
+  if (record.tenantKey === undefined && !required) return undefined;
+  const tenantKey = requireBotString(record.tenantKey, endpoint, `${field}.tenantKey`);
+  if (tenantKey !== tenantKey.trim()) invalidBotStatus(endpoint, `${field}.tenantKey must be normalized`);
+  if (expectedTenantKey !== undefined && tenantKey !== expectedTenantKey) {
+    invalidBotStatus(endpoint, `${field}.tenantKey does not match the requested tenant`);
+  }
+  return tenantKey;
+}
+
+function validateBotSymbol(
+  value: unknown,
+  endpoint: string,
+  field: string,
+  expectedSymbol: string | undefined,
+): string {
+  const symbol = requireBotString(value, endpoint, field);
+  if (expectedSymbol !== undefined && normalizeBotSymbol(symbol) !== normalizeBotSymbol(expectedSymbol)) {
+    invalidBotStatus(endpoint, `${field} does not match the requested symbol`);
+  }
+  return symbol;
+}
+
+function validateAlignedBotSeries(series: Array<{ key: string; values: unknown[] }>, endpoint: string, field: string): void {
+  const [first, ...rest] = series;
+  if (!first) invalidBotStatus(endpoint, `${field}.prices must not be empty`);
+  const expectedLength = first.values.length;
+  if (expectedLength === 0) invalidBotStatus(endpoint, `${field}.${first.key} must not be empty`);
+  for (const item of rest) {
+    if (item.values.length !== expectedLength) {
+      invalidBotStatus(endpoint, `${field}.${item.key} must align with ${field}.${first.key}`);
+    }
+  }
+}
+
+function validateBotRunning(
+  record: UnknownRecord,
+  endpoint: string,
+  field: string,
+  expectations: BotStatusDecodeExpectations,
+): void {
+  validateBotTenantKey(record, endpoint, field, expectations.tenantKey, true);
+  requireBotBoolean(record.live, endpoint, `${field}.live`);
+  validateBotSymbol(record.symbol, endpoint, `${field}.symbol`, expectations.symbol);
+  requireBotString(record.interval, endpoint, `${field}.interval`);
+  if (record.market !== "spot" && record.market !== "margin" && record.market !== "futures") {
+    invalidBotStatus(endpoint, `${field}.market is unsupported`);
+  }
+  if (typeof record.method !== "string" || !(METHOD_IDS as readonly string[]).includes(record.method)) {
+    invalidBotStatus(endpoint, `${field}.method is unsupported`);
+  }
+  requireBotFinite(record.threshold, endpoint, `${field}.threshold`);
+  validateOptionalBotFinite(record, "openThreshold", endpoint, field);
+  validateOptionalBotFinite(record, "closeThreshold", endpoint, field);
+
+  const settings = requireBotRecord(record.settings, endpoint, `${field}.settings`);
+  requireBotBoolean(settings.tradeEnabled, endpoint, `${field}.settings.tradeEnabled`);
+  const maxPoints = requireBotSafeInteger(settings.maxPoints, endpoint, `${field}.settings.maxPoints`);
+  if (maxPoints < 100 || maxPoints > MAX_BOT_STATUS_POINTS) {
+    invalidBotStatus(endpoint, `${field}.settings.maxPoints is outside the supported range`);
+  }
+  validateOptionalBotBoolean(settings, "protectionOrders", endpoint, `${field}.settings`);
+  validateOptionalBotBoolean(settings, "adoptExistingPosition", endpoint, `${field}.settings`);
+
+  const halted = requireBotBoolean(record.halted, endpoint, `${field}.halted`);
+  requireBotFinite(record.peakEquity, endpoint, `${field}.peakEquity`);
+  requireBotFinite(record.dayStartEquity, endpoint, `${field}.dayStartEquity`);
+  requireBotSafeInteger(record.consecutiveOrderErrors, endpoint, `${field}.consecutiveOrderErrors`);
+  requireBotSafeInteger(record.startIndex, endpoint, `${field}.startIndex`);
+  requireBotSafeInteger(record.startedAtMs, endpoint, `${field}.startedAtMs`);
+  requireBotSafeInteger(record.updatedAtMs, endpoint, `${field}.updatedAtMs`);
+  validateOptionalBotSafeInteger(record, "polledAtMs", endpoint, field);
+  validateOptionalBotSafeInteger(record, "haltedAtMs", endpoint, field);
+
+  const prices = requireBotArray(record, "prices", endpoint, field);
+  const openTimes = requireBotArray(record, "openTimes", endpoint, field);
+  const kalmanPredNext = requireBotArray(record, "kalmanPredNext", endpoint, field);
+  const lstmPredNext = requireBotArray(record, "lstmPredNext", endpoint, field);
+  const equityCurve = requireBotArray(record, "equityCurve", endpoint, field);
+  const positions = requireBotArray(record, "positions", endpoint, field);
+  requireBotArray(record, "operations", endpoint, field);
+  requireBotArray(record, "orders", endpoint, field);
+  requireBotArray(record, "trades", endpoint, field);
+
+  const coreSeries = [
+    { key: "prices", values: prices },
+    { key: "openTimes", values: openTimes },
+    { key: "kalmanPredNext", values: kalmanPredNext },
+    { key: "lstmPredNext", values: lstmPredNext },
+    { key: "equityCurve", values: equityCurve },
+    { key: "positions", values: positions },
+  ];
+  validateAlignedBotSeries(coreSeries, endpoint, field);
+
+  for (const item of coreSeries) validateBoundedBotSeries(item.values, endpoint, `${field}.${item.key}`);
+  validateFiniteBotArray(prices, endpoint, `${field}.prices`);
+  validateSafeIntegerBotArray(openTimes, endpoint, `${field}.openTimes`);
+  validateFiniteBotArray(kalmanPredNext, endpoint, `${field}.kalmanPredNext`, true);
+  validateFiniteBotArray(lstmPredNext, endpoint, `${field}.lstmPredNext`, true);
+  validateFiniteBotArray(equityCurve, endpoint, `${field}.equityCurve`);
+  validatePositionBotArray(positions, endpoint, `${field}.positions`);
+
+  if (record.latestSignal !== undefined && record.latestSignal !== null && !isUnknownRecord(record.latestSignal)) {
+    invalidBotStatus(endpoint, `${field}.latestSignal must be an object when present`);
+  }
+  if (record.error !== undefined && typeof record.error !== "string") {
+    invalidBotStatus(endpoint, `${field}.error must be a string when present`);
+  }
+  if (halted) {
+    requireBotString(record.haltReason, endpoint, `${field}.haltReason`);
+  } else if (record.haltReason !== undefined) {
+    invalidBotStatus(endpoint, `${field}.haltReason requires halted=true`);
+  }
+}
+
+function validateBotStopped(
+  record: UnknownRecord,
+  endpoint: string,
+  field: string,
+  expectations: BotStatusDecodeExpectations,
+): void {
+  const starting = record.starting === undefined ? false : requireBotBoolean(record.starting, endpoint, `${field}.starting`);
+  const symbol =
+    record.symbol === undefined
+      ? undefined
+      : validateBotSymbol(record.symbol, endpoint, `${field}.symbol`, expectations.symbol);
+  const tenantKey = validateBotTenantKey(record, endpoint, field, expectations.tenantKey, starting);
+  if (record.interval !== undefined) requireBotString(record.interval, endpoint, `${field}.interval`);
+  if (record.market !== undefined && record.market !== "spot" && record.market !== "margin" && record.market !== "futures") {
+    invalidBotStatus(endpoint, `${field}.market is unsupported`);
+  }
+  if (record.method !== undefined && (typeof record.method !== "string" || !(METHOD_IDS as readonly string[]).includes(record.method))) {
+    invalidBotStatus(endpoint, `${field}.method is unsupported`);
+  }
+  validateOptionalBotFinite(record, "threshold", endpoint, field);
+  validateOptionalBotFinite(record, "openThreshold", endpoint, field);
+  validateOptionalBotFinite(record, "closeThreshold", endpoint, field);
+  validateOptionalBotSafeInteger(record, "startedAtMs", endpoint, field);
+
+  if (starting) {
+    if (symbol === undefined) invalidBotStatus(endpoint, `${field}.symbol is required while starting`);
+    requireBotString(record.interval, endpoint, `${field}.interval`);
+    if (record.market !== "spot" && record.market !== "margin" && record.market !== "futures") {
+      invalidBotStatus(endpoint, `${field}.market is required while starting`);
+    }
+    if (typeof record.method !== "string" || !(METHOD_IDS as readonly string[]).includes(record.method)) {
+      invalidBotStatus(endpoint, `${field}.method is required while starting`);
+    }
+    requireBotSafeInteger(record.startedAtMs, endpoint, `${field}.startedAtMs`);
+  }
+
+  if (record.snapshot !== undefined) {
+    const snapshot = requireBotRecord(record.snapshot, endpoint, `${field}.snapshot`);
+    if ("multi" in snapshot || "bots" in snapshot) {
+      invalidBotStatus(endpoint, `${field}.snapshot must be a single-bot status`);
+    }
+    if (requireBotBoolean(snapshot.running, endpoint, `${field}.snapshot.running`) !== true) {
+      invalidBotStatus(endpoint, `${field}.snapshot.running must be true`);
+    }
+    validateBotRunning(snapshot, endpoint, `${field}.snapshot`, {
+      tenantKey: expectations.tenantKey ?? tenantKey,
+      symbol: expectations.symbol ?? symbol,
+    });
+    requireBotSafeInteger(record.snapshotAtMs, endpoint, `${field}.snapshotAtMs`);
+  } else if (record.snapshotAtMs !== undefined) {
+    invalidBotStatus(endpoint, `${field}.snapshotAtMs requires snapshot`);
+  }
+  if (record.error !== undefined && typeof record.error !== "string") {
+    invalidBotStatus(endpoint, `${field}.error must be a string when present`);
+  }
+}
+
+function validateBotSingle(
+  value: unknown,
+  endpoint: string,
+  field: string,
+  expectations: BotStatusDecodeExpectations,
+): UnknownRecord {
+  const record = requireBotRecord(value, endpoint, field);
+  if ("multi" in record || "bots" in record) {
+    invalidBotStatus(endpoint, `${field} must not contain multi-bot fields`);
+  }
+  const running = requireBotBoolean(record.running, endpoint, `${field}.running`);
+  if (running) validateBotRunning(record, endpoint, field, expectations);
+  else validateBotStopped(record, endpoint, field, expectations);
+  return record;
+}
+
+function validateBotMessageArray(record: UnknownRecord, key: "errors" | "queued", endpoint: string): number {
+  if (record[key] === undefined) return 0;
+  const values = requireBotArray(record, key, endpoint, "status");
+  const messageKey = key === "errors" ? "error" : "message";
+  for (let i = 0; i < values.length; i += 1) {
+    const item = requireBotRecord(values[i], endpoint, `status.${key}[${i}]`);
+    requireBotString(item.symbol, endpoint, `status.${key}[${i}].symbol`);
+    requireBotString(item[messageKey], endpoint, `status.${key}[${i}].${messageKey}`);
+  }
+  return values.length;
+}
+
+/**
+ * Decodes the safety-critical BotStatus envelope before it can update UI state.
+ * Lower-risk telemetry fields remain forward-compatible, while running/live,
+ * arming, halt, identity, and position evidence fail closed on malformed input.
+ */
+export function decodeBotStatus(
+  payload: unknown,
+  endpoint = "/bot/status",
+  expectations: BotStatusDecodeExpectations = {},
+): BotStatus {
+  const normalizedExpectations = {
+    ...expectations,
+    tenantKey: normalizeExpectedBotIdentity(expectations.tenantKey),
+    symbol: normalizeExpectedBotIdentity(expectations.symbol),
+  };
+  const record = requireBotRecord(payload, endpoint, "status");
+  if (!("multi" in record) && !("bots" in record)) {
+    return validateBotSingle(record, endpoint, "status", normalizedExpectations) as BotStatus;
+  }
+
+  if (normalizedExpectations.symbol !== undefined && !normalizedExpectations.allowMultiForExpectedSymbol) {
+    invalidBotStatus(endpoint, "status must be single-bot for the requested symbol");
+  }
+  if (record.multi !== true) invalidBotStatus(endpoint, "status.multi must be true");
+  const running = requireBotBoolean(record.running, endpoint, "status.running");
+  const botsRaw = requireBotArray(record, "bots", endpoint, "status");
+  const bots = botsRaw.map((bot, index) =>
+    validateBotSingle(bot, endpoint, `status.bots[${index}]`, { tenantKey: normalizedExpectations.tenantKey }),
+  );
+  validateBotMessageArray(record, "errors", endpoint);
+  const queuedCount = validateBotMessageArray(record, "queued", endpoint);
+  const derivedRunning = bots.some((bot) => bot.running === true);
+  const derivedStarting = queuedCount > 0 || bots.some((bot) => bot.running === false && bot.starting === true);
+  if (running !== derivedRunning) invalidBotStatus(endpoint, "status.running disagrees with status.bots");
+  if (record.starting !== undefined) {
+    const starting = requireBotBoolean(record.starting, endpoint, "status.starting");
+    if (starting !== derivedStarting) invalidBotStatus(endpoint, "status.starting disagrees with status.bots");
+  } else if (derivedStarting) {
+    invalidBotStatus(endpoint, "status.starting is required when a bot is starting");
+  }
+  validateOptionalBotSafeInteger(record, "snapshotAtMs", endpoint, "status");
+  return record as BotStatus;
+}
+
 type AsyncJobOptions = FetchJsonOptions & {
   onJobId?: (jobId: string) => void;
   retryStart?: boolean;
@@ -1176,8 +1541,17 @@ export async function binanceTrades(
   );
 }
 
+function requestedSingleBotSymbol(params: ApiParams): string | undefined {
+  const symbols = params.botSymbols
+    ?.map((symbol) => normalizeExpectedBotIdentity(symbol))
+    .filter((symbol): symbol is string => symbol !== undefined)
+    .map(normalizeBotSymbol)
+    .filter((symbol, index, all) => all.indexOf(symbol) === index);
+  return symbols?.length === 1 ? symbols[0] : undefined;
+}
+
 export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BotStatus> {
-  return fetchJsonWithTransientRetry<BotStatus>(
+  const payload = await fetchJsonWithTransientRetry<unknown>(
     baseUrl,
     "/bot/start",
     {
@@ -1188,6 +1562,11 @@ export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJ
     opts,
     { maxRetries: 2 },
   );
+  return decodeBotStatus(payload, "/bot/start", {
+    tenantKey: params.tenantKey,
+    symbol: requestedSingleBotSymbol(params),
+    allowMultiForExpectedSymbol: true,
+  });
 }
 
 export async function botStop(baseUrl: string, opts?: FetchJsonOptions, symbol?: string, tenantKey?: string): Promise<BotStatus> {
@@ -1195,7 +1574,8 @@ export async function botStop(baseUrl: string, opts?: FetchJsonOptions, symbol?:
   if (symbol) query.set("symbol", symbol);
   if (tenantKey) query.set("tenantKey", tenantKey);
   const path = query.size > 0 ? `/bot/stop?${query.toString()}` : "/bot/stop";
-  return fetchJson<BotStatus>(baseUrl, path, { method: "POST" }, opts);
+  const payload = await fetchJson<unknown>(baseUrl, path, { method: "POST" }, opts);
+  return decodeBotStatus(payload, "/bot/stop", { tenantKey, symbol });
 }
 
 export async function botStatus(
@@ -1211,7 +1591,8 @@ export async function botStatus(
   if (symbol) query.set("symbol", symbol);
   if (tenantKey) query.set("tenantKey", tenantKey);
   const path = query.size > 0 ? `/bot/status?${query.toString()}` : "/bot/status";
-  return fetchJson<BotStatus>(baseUrl, path, { method: "GET" }, opts);
+  const payload = await fetchJson<unknown>(baseUrl, path, { method: "GET" }, opts);
+  return decodeBotStatus(payload, "/bot/status", { tenantKey, symbol });
 }
 
 export async function ops(

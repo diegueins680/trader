@@ -71,7 +71,7 @@ bash scripts/verify.sh full
 
 Equivalent npm commands are `npm run verify:haskell`, `npm run verify:web`, `npm run verify:automation`, and `npm run verify`.
 
-The automation gate validates Fly TOML, both Hetzner Compose roles, formal-spec coverage, and root automation regressions. Formal feature contracts live in `formal/specifications.json` and are explained in `docs/formal-specifications.md`.
+The automation gate validates Fly TOML, both Hetzner Compose roles, formal-spec coverage, the canonical risk register, and root automation regressions. Formal feature contracts live in `formal/specifications.json`; canonical risk IDs and lifecycle state live in `formal/risk-register.json`; the verification model is explained in `docs/formal-specifications.md`.
 
 ## CLI and API
 
@@ -97,6 +97,10 @@ Important operational endpoints:
 
 On SIGTERM or SIGINT, serve mode marks readiness as draining, rejects new compute/order/bot-start work, persists `server.stop` and bot snapshots, stops workers and jobs, closes PostgreSQL, and observes `TRADER_API_SHUTDOWN_TIMEOUT_SEC` (default `20`).
 
+The web client runtime-validates the safety envelope returned by `/bot/start`, `/bot/status`, and `/bot/stop` before updating bot state. Malformed successful responses become explicit errors and are not retried as mutations.
+
+Optimizer result filters remain authoritative: a filtered trial is never emitted as an eligible result. Trials rejected only by selected soft performance filters may remain internal search parents when they have final equity, present walk-forward stability evidence within the search cap, and exceed the configured survivor activity and annual-return floors. Configuration, risk, data, edge, Kelly, and missing-walk-forward failures remain hard exclusions.
+
 ## Live-trading safety
 
 Real Binance orders require all applicable controls to agree:
@@ -110,6 +114,8 @@ Real Binance orders require all applicable controls to agree:
 Applying an optimizer combo changes parameters only. Starting a live bot is a separate explicit action, and stale, unauthenticated, or failed API states disable that action.
 
 Credentials must remain in environment variables or ignored `.env` files. Never put credentials in committed files or logs.
+
+Tenant identity is derived consistently by the backend, browser, and AWS deployment helper. Credential boundaries trim only ASCII whitespace so all three runtimes agree; separator-free tuples, including Unicode credentials, retain their existing `platform:<hash>` key. Tuples containing `:` use collision-resistant `platform:v2:<hash>` framing. This intentionally changes the key for those exceptional existing tenants: migrate tenant-scoped database rows, bot snapshots/object keys, and any explicit `TRADER_STATE_SYNC_TENANT_KEY` together. When updating an existing App Runner service to a v2 target, set `TRADER_STATE_SYNC_SOURCE_TENANT_KEY` to the tenant key used by the deployed service; the deploy exports from that source and imports into the v2 target, and refuses the update when the source is omitted. An old ambiguous alias cannot be accepted safely.
 
 ## Neural-governor rollout
 
