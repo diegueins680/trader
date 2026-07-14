@@ -463,7 +463,8 @@ import Trader.Predictors (
     trainPredictorsWithInputsWithMarketConfig,
     updateHMM,
  )
-import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs, withExternalInputs)
+import Trader.Predictors.ExogenousFetch (binanceStatsPeriodForInterval, fetchExogenousInputs)
+import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs, withExogenousInputs, withExternalInputs)
 import Trader.Predictors.OnlineNeural (
     OnlineNeuralConfig,
     OnlineNeuralSignal (..),
@@ -2744,6 +2745,7 @@ argsPublicJson args =
             , "lookbackWindow" .= argLookbackWindow args
             , "lookbackBars" .= argLookbackBars args
             , "lookbackBarsResolved" .= lookback
+            , "exogenousDerivatives" .= argExogenousDerivatives args
             , "externalData" .= argExternalData args
             , "externalDataCsv" .= argExternalDataCsv args
             , "externalDataJsonSources" .= length (argExternalDataJson args)
@@ -16188,6 +16190,7 @@ argsCacheJsonSignal args =
             , "bars" .= barsResolved
             , "lookbackBars" .= lookbackResolved
             , "binanceTestnet" .= argBinanceTestnet args
+            , "exogenousDerivatives" .= argExogenousDerivatives args
             , "normalization" .= show (argNormalization args)
             , "hiddenSize" .= argHiddenSize args
             , "epochs" .= argEpochs args
@@ -16433,6 +16436,7 @@ argsCacheJsonBacktest args =
             , "bars" .= barsResolved
             , "lookbackBars" .= lookbackResolved
             , "binanceTestnet" .= argBinanceTestnet args
+            , "exogenousDerivatives" .= argExogenousDerivatives args
             , "normalization" .= show (argNormalization args)
             , "hiddenSize" .= argHiddenSize args
             , "epochs" .= argEpochs args
@@ -29306,7 +29310,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodBanditRouter -> MethodBoth
                     _ -> methodRequested
         pricesV = V.fromList prices
-        allFeatureInputs =
+        allFeatureInputs0 =
             withExternalInputs mExternalInputs $
                 withCoinbaseInputs mCoinbaseCloses $
                     featureInputsFromLists
@@ -29315,15 +29319,6 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         (Just highsAll)
                         (Just lowsAll)
                         (Just volumesAll)
-        fitFeatureInputs =
-            withExternalInputs (takeExternalFeatureInputs predStart <$> mExternalInputs) $
-                withCoinbaseInputs (V.take predStart <$> mCoinbaseCloses) $
-                    featureInputsFromLists
-                        fitPrices
-                        (take predStart <$> opensAll)
-                        (Just (take predStart highsAll))
-                        (Just (take predStart lowsAll))
-                        (Just (take predStart volumesAll))
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
         volPerBarForTechnical = volPerBarFromPrices prices
@@ -29344,6 +29339,22 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , lcGradClip = argGradClip args
                 , lcSeed = argSeed args
                 }
+
+    allFeatureInputs <- buildBacktestExogenousInputs args mBinanceEnv openTimesAll allFeatureInputs0
+    let fitFeatureInputs =
+            withExogenousInputs
+                (V.take predStart <$> fiFunding allFeatureInputs)
+                (V.take predStart <$> fiOpenInterest allFeatureInputs)
+                (V.take predStart <$> fiBasis allFeatureInputs)
+                (V.take predStart <$> fiTakerFlow allFeatureInputs)
+                $ withExternalInputs (takeExternalFeatureInputs predStart <$> mExternalInputs)
+                $ withCoinbaseInputs (V.take predStart <$> mCoinbaseCloses)
+                $ featureInputsFromLists
+                    fitPrices
+                    (take predStart <$> opensAll)
+                    (Just (take predStart highsAll))
+                    (Just (take predStart lowsAll))
+                    (Just (take predStart volumesAll))
 
     mMarketModel <-
         case (methodForComputation, mBinanceEnv, argBinanceSymbol args) of
@@ -35079,6 +35090,42 @@ buildCrossExchangeCoinbase args pricesV mOpenTimes
             _ -> pure Nothing
   where
     n = V.length pricesV
+
+{- | Opt-in derivatives enrichment for research backtests. Keep the source and
+execution checks here as defense in depth even though CLI validation rejects
+unsafe flag combinations; internal callers frequently derive 'Args' records
+without re-running validation.
+-}
+buildBacktestExogenousInputs :: Args -> Maybe BinanceEnv -> Maybe [Int64] -> FeatureInputs -> IO FeatureInputs
+buildBacktestExogenousInputs args mEnv mOpenTimes inputs
+    | not researchOnly = pure inputs
+    | not binanceFuturesSource = pure inputs
+    | otherwise =
+        case (mEnv, argBinanceSymbol args, mOpenTimes, binanceStatsPeriodForInterval (argInterval args), parseIntervalSeconds (argInterval args)) of
+            (Just env, Just symbol, Just openTimes, Just period, Just intervalSeconds)
+                | beMarket env == MarketFutures
+                , intervalSeconds > 0
+                , not (V.null (fiClose inputs))
+                , length openTimes == V.length (fiClose inputs) ->
+                    fetchExogenousInputs
+                        env
+                        symbol
+                        period
+                        (V.fromList openTimes)
+                        (fromIntegral intervalSeconds * 1000)
+                        inputs
+            _ -> pure inputs
+  where
+    researchOnly =
+        argExogenousDerivatives args
+            && not (argTradeOnly args)
+            && not (argBinanceTrade args)
+            && not (argBinanceLive args)
+            && not (argServe args)
+    binanceFuturesSource =
+        argPlatform args == PlatformBinance
+            && argBinanceMarket args == MarketFutures
+            && isNothing (argData args)
 
 buildExternalFeatureInputs :: Args -> Maybe String -> V.Vector Double -> Maybe [Int64] -> IO (Maybe ExternalFeatureInputs)
 buildExternalFeatureInputs args mSymbol pricesV mOpenTimes = do

@@ -99,7 +99,31 @@ On SIGTERM or SIGINT, serve mode marks readiness as draining, rejects new comput
 
 The web client runtime-validates the safety envelope returned by `/bot/start`, `/bot/status`, and `/bot/stop` before updating bot state. Malformed successful responses become explicit errors and are not retried as mutations.
 
-Optimizer result filters remain authoritative: a filtered trial is never emitted as an eligible result. Trials rejected only by selected soft performance filters may remain internal search parents when they have final equity, present walk-forward stability evidence within the search cap, and exceed the configured survivor activity and annual-return floors. Configuration, risk, data, edge, Kelly, and missing-walk-forward failures remain hard exclusions.
+Optimizer result filters remain authoritative: a filtered trial is never emitted as an eligible result. Trials rejected only by selected soft performance filters may remain internal search parents when they have final equity and present walk-forward stability evidence within the search cap; the stricter survivor activity and annual-return floors still govern exploitation parent selection. Configuration, risk, data, edge, Kelly, and missing-walk-forward failures remain hard exclusions.
+
+## Edge research campaign
+
+Run the pre-registered residual-momentum campaign from the repository root:
+
+```bash
+python3 scripts/research/run_edge_campaign.py \
+  BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT \
+  DOGEUSDT ADAUSDT AVAXUSDT LINKUSDT LTCUSDT
+```
+
+The campaign evaluates exactly 15 causal trials: `24h`, `72h`, and `168h` residual momentum crossed with base, funding/basis, open-interest, taker-flow, and all-feature ablations. Close-derived signals activate one full bar later. Final selection and every nested outer fold use the same expanding inner-OOS Sharpe rule with an exact label-horizon embargo; the stitched OOS path charges direct cross-fold position turnover. Cost and additional-delay stresses keep the base outer-fold selections frozen and must clear block-bootstrap OOS confidence gates. Formal deflated Sharpe and balanced CSCV probability-of-backtest-overfitting diagnostics use complete daily-compounded trial returns and fail closed when evidence is incomplete, sparse, or degenerate.
+
+Generated evidence is written to `.tmp/research/edge-campaign/`, including an immutable code/config/data manifest, panel hash, complete trial ledger, gross/net/turnover/weight paths, aligned return matrices, final-selection and inner/outer fold records, nested OOS returns, daily diagnostic blocks, stressed OOS paths, regime/fold metrics, and promotion-gate results. Cached data is used unless `--refresh` is passed. The final chronological 20% holdout is sealed by default; `--open-final-holdout` evaluates it only after all sample-size, activity, derivatives-coverage, uncertainty, fold, regime, DSR/PBO, doubled-cost, and additional-delay gates pass. A persistent data-window identity under `.tmp/research/edge-campaign-holdouts/` makes successful or interrupted openings one-shot across output directories; blocked requests do not consume it.
+
+The Haskell backtester can opt into the same point-in-time Binance derivatives inputs:
+
+```bash
+cd haskell
+cabal run trader-hs -- \
+  --symbol BTCUSDT --futures --exogenous-derivatives --json
+```
+
+`--exogenous-derivatives` is research-backtest-only. CLI validation rejects CSV, spot, trade-only, order, live, and server combinations, and unavailable fetches leave the existing neutral features unchanged.
 
 ## Live-trading safety
 

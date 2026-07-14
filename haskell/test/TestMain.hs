@@ -216,7 +216,8 @@ import Trader.PredictionMarkets (
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel (..), fitConformal, initAdaptiveConformal, predictInterval, updateAdaptiveConformal)
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
-import Trader.Predictors.Exogenous (alignToBars)
+import Trader.Predictors.Exogenous (alignToBars, alignedFeatureSeries)
+import Trader.Predictors.ExogenousFetch (binanceStatsPeriodForInterval)
 import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
@@ -568,6 +569,7 @@ main = do
     testLiveGapFeedback
     testAlignToBarsPointInTime
     testAlignToBarsFailClosedOnMalformedInputs
+    testExogenousDerivativesBacktestWiring
     testPointInTimeUniverseSelectsHistoricalSnapshot
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
@@ -5846,6 +5848,44 @@ testAlignToBarsFailClosedOnMalformedInputs = do
         "alignToBars fails closed when a bar close time would overflow"
         (alignToBars (V.fromList [maxBound :: Int64]) (2 :: Int64) [(maxBound, 7.0)] == V.fromList [Nothing])
 
+testExogenousDerivativesBacktestWiring :: IO ()
+testExogenousDerivativesBacktestWiring = do
+    assert
+        "Binance derivatives stats periods cover short, intermediate, and long bar intervals"
+        ( binanceStatsPeriodForInterval "1m" == Just "5m"
+            && binanceStatsPeriodForInterval "8h" == Just "12h"
+            && binanceStatsPeriodForInterval "3d" == Just "1d"
+            && isNothing (binanceStatsPeriodForInterval "bad")
+        )
+
+    let bars = V.fromList [1000, 2000 :: Int64]
+        intervalMs = 1000 :: Int64
+    assert
+        "a fetched series with no point-in-time overlap does not opt the model into all-zero exogenous features"
+        (isNothing (alignedFeatureSeries bars intervalMs [(5000, 9.0)]))
+    assert
+        "an overlapping fetched series is neutral-filled only before its first admissible observation"
+        (alignedFeatureSeries bars intervalMs [(2500, 9.0)] == Just (V.fromList [0, 9.0]))
+
+    assert
+        "the derivatives flag is accepted for a non-trading Binance futures backtest"
+        ( case parseAndValidateCliArgs ["--binance-symbol", "BTCUSDT", "--futures", "--exogenous-derivatives"] of
+            Right args -> argExogenousDerivatives args
+            Left _ -> False
+        )
+    assert
+        "the derivatives flag rejects spot, CSV, signal/trade, live, and server paths"
+        ( all
+            (isLeft . parseAndValidateCliArgs)
+            [ ["--binance-symbol", "BTCUSDT", "--exogenous-derivatives"]
+            , ["--data", "prices.csv", "--futures", "--exogenous-derivatives"]
+            , ["--binance-symbol", "BTCUSDT", "--futures", "--exogenous-derivatives", "--trade-only"]
+            , ["--binance-symbol", "BTCUSDT", "--futures", "--exogenous-derivatives", "--binance-trade"]
+            , ["--binance-symbol", "BTCUSDT", "--futures", "--exogenous-derivatives", "--binance-live"]
+            , ["--serve", "--futures", "--exogenous-derivatives"]
+            ]
+        )
+
 testPointInTimeUniverseSelectsHistoricalSnapshot :: IO ()
 testPointInTimeUniverseSelectsHistoricalSnapshot = do
     (path, h) <- openTempFile "/tmp" "pit-universe.csv"
@@ -8123,17 +8163,11 @@ testOptimizerRecordsRetryDiscoveryStopsWhenEligible = do
 testOptimizerSoftSearchEligibility :: IO ()
 testOptimizerSoftSearchEligibility = do
     let searchMaxWfSharpeStd = 1.0
-        activityFloor = 5
-        annualizedReturnFloor = 1.0
-        eligible reason wfStd activityCount annualizedReturn =
+        eligible reason wfStd =
             optimizerSoftSearchEligible
                 reason
                 wfStd
                 searchMaxWfSharpeStd
-                activityCount
-                activityFloor
-                annualizedReturn
-                annualizedReturnFloor
         softReasons =
             [ "activityCount<20"
             , "exposure<0.100"
@@ -8160,26 +8194,16 @@ testOptimizerSoftSearchEligibility = do
         )
     assert
         "hard optimizer filters never become search-only candidates"
-        (all (\reason -> not (eligible (Just reason) (Just 0.4) 6 1.1)) hardReasons)
+        (all (\reason -> not (eligible (Just reason) (Just 0.4))) hardReasons)
     assert
         "soft-search eligibility fails closed without walk-forward evidence"
-        (not (eligible (Just "sharpe<1.000") Nothing 6 1.1))
+        (not (eligible (Just "sharpe<1.000") Nothing))
     assert
-        "soft-search eligibility rejects candidates at or below the survivor activity floor"
-        ( not (eligible (Just "sharpe<1.000") (Just 0.4) activityFloor 1.1)
-            && not (eligible (Just "sharpe<1.000") (Just 0.4) 0 1.1)
-        )
-    assert
-        "soft-search eligibility rejects candidates at or below the survivor return floor"
-        ( not (eligible (Just "sharpe<1.000") (Just 0.4) 6 annualizedReturnFloor)
-            && not (eligible (Just "sharpe<1.000") (Just 0.4) 6 0.5)
-        )
-    assert
-        "a quality-filtered candidate with stable walk-forward, activity, and return evidence remains search-only eligible"
-        (eligible (Just "sharpe<1.000") (Just 0.4) 6 1.1)
+        "a quality-filtered candidate with stable walk-forward evidence remains search-only eligible"
+        (eligible (Just "sharpe<1.000") (Just 0.4))
     assert
         "soft-search eligibility enforces the relaxed walk-forward dispersion ceiling"
-        (not (eligible (Just "sharpe<1.000") (Just 1.1) 6 1.1))
+        (not (eligible (Just "sharpe<1.000") (Just 1.1)))
 
 -- Public-interface invariant: metrics/reporting must be able to consume the
 -- BacktestResult/Trade/ExitReason constructors re-exported by Trader.Trading.

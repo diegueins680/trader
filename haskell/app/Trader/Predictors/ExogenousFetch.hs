@@ -10,12 +10,14 @@ left unset (its features stay neutral 0), so this never blocks model
 construction or trading.
 -}
 module Trader.Predictors.ExogenousFetch (
+    binanceStatsPeriodForInterval,
     fetchExogenousInputs,
 ) where
 
 import Control.Exception (SomeException, try)
 import Data.Either (fromRight)
 import Data.Int (Int64)
+import Data.List (find)
 import qualified Data.Vector as V
 
 import Trader.Binance (
@@ -25,8 +27,35 @@ import Trader.Binance (
     fetchOpenInterestHist,
     fetchTakerLongShortRatio,
  )
+import Trader.Duration (parseIntervalSeconds)
 import Trader.Predictors.Exogenous (alignedFeatureSeries)
 import Trader.Predictors.Features (FeatureInputs, withExogenousInputs)
+
+{- | Select the smallest Binance derivatives-stats period that is at least as
+wide as one price bar. Sub-five-minute bars use Binance's minimum @5m@ period;
+bars wider than one day use its maximum @1d@ period.
+-}
+binanceStatsPeriodForInterval :: String -> Maybe String
+binanceStatsPeriodForInterval interval = do
+    intervalSeconds <- parseIntervalSeconds interval
+    if intervalSeconds <= 0
+        then Nothing
+        else pure $
+            case find ((>= intervalSeconds) . fst) supportedPeriods of
+                Just (_, period) -> period
+                Nothing -> "1d"
+  where
+    supportedPeriods =
+        [ (5 * 60, "5m")
+        , (15 * 60, "15m")
+        , (30 * 60, "30m")
+        , (60 * 60, "1h")
+        , (2 * 60 * 60, "2h")
+        , (4 * 60 * 60, "4h")
+        , (6 * 60 * 60, "6h")
+        , (12 * 60 * 60, "12h")
+        , (24 * 60 * 60, "1d")
+        ]
 
 {- | Fetch funding / open-interest / taker-flow / basis for @symbol@, align each
 onto @barOpenTimes@ (ascending closed-bar open times, @intervalMs@ apart), and
