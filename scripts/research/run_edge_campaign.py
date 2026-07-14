@@ -34,6 +34,7 @@ CAMPAIGN_ID = "residual_momentum_derivatives_ablation_v1"
 REGISTRATION_VERSION = 1
 HOLDOUT_REGISTRY_VERSION = 3
 IMPLEMENTATION_FILES = (
+    "datafeed.py",
     "diagnostics.py",
     "edge_campaign.py",
     "harness.py",
@@ -493,22 +494,22 @@ def _score_frame(frame: pd.DataFrame, cost_per_turnover: float) -> float:
 def _nested_input(
     matrix: pd.DataFrame, details: Mapping[str, pd.DataFrame]
 ) -> tuple[pd.DataFrame, dict[str, dict[str, object]]]:
-    frame = pd.DataFrame({"openTime": matrix.index.to_numpy()})
+    columns = {"openTime": matrix.index.to_numpy()}
     candidates = {}
     for name in matrix.columns:
         detail = details[name].reindex(matrix.index)
         weight_columns = [column for column in detail if column.startswith("weight_")]
         gross_column = f"{name}__gross"
         renamed_weights = [f"{name}__{column}" for column in weight_columns]
-        frame[gross_column] = detail["gross"].to_numpy(dtype=float)
+        columns[gross_column] = detail["gross"].to_numpy(dtype=float)
         for source, target in zip(weight_columns, renamed_weights):
-            frame[target] = detail[source].to_numpy(dtype=float)
+            columns[target] = detail[source].to_numpy(dtype=float)
         candidates[name] = {
             "grossColumn": gross_column,
             "inputWeightColumns": tuple(renamed_weights),
             "outputWeightColumns": tuple(weight_columns),
         }
-    return frame, candidates
+    return pd.DataFrame(columns), candidates
 
 
 def _evaluate_nested_candidate(

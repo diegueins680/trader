@@ -115,6 +115,17 @@ The campaign evaluates exactly 15 causal trials: `24h`, `72h`, and `168h` residu
 
 Generated evidence is written to `.tmp/research/edge-campaign/`, including an immutable code/config/data manifest, panel hash, complete trial ledger, gross/net/turnover/weight paths, aligned return matrices, separate daily DSR and CSCV/PBO matrices, final-selection and inner/outer fold records, nested OOS returns, stressed OOS paths, regime/fold metrics, and promotion-gate results. Cached data is used unless `--refresh` is passed. The final chronological 20% holdout is sealed by default; `--open-final-holdout` evaluates it only after all sample-size, activity, joint finite derivatives-coverage, uncertainty, fold, regime, DSR/PBO, doubled-cost, and additional-delay gates pass. An overlap-aware registry under `.tmp/research/edge-campaign-holdouts/` makes successful or interrupted openings one-shot across output directories for intersecting symbol/time windows, including the final candle's outcome interval; blocked requests do not consume it, and completed entries reference atomically persisted evidence.
 
+The public OI, basis, and taker endpoints retain only about 30 days. The collector retrieves a safely bounded version of that retained window in fixed, last-closed-bar chunks and merges it into the append-only cache, but it cannot backfill days that have already expired. Run it hourly or daily from an external scheduler, with a persistent cache outside the checkout when appropriate:
+
+```bash
+TRADER_RESEARCH_CACHE=/var/lib/trader-research \
+  python3 scripts/research/datafeed.py \
+  BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT \
+  DOGEUSDT ADAUSDT AVAXUSDT LINKUSDT LTCUSDT
+```
+
+Each derivatives series refresh is atomic on an API/page error. Missing intervals in otherwise successful pages remain null. In both cases the merge preserves previously cached point-in-time values instead of forward-filling incomplete fresh evidence over them. Scheduling or archival ingestion remains necessary before sparse-history, PBO, OOS-count, and confidence gates can pass.
+
 The Haskell backtester can opt into the same point-in-time Binance derivatives inputs:
 
 ```bash

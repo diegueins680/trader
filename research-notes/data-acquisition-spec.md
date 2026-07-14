@@ -18,7 +18,7 @@
 | Taker buy/sell | Binance `/futures/data/takerlongshortRatio` | buySellRatio | 5m–1d | **~30 days only** | same |
 | Long/short ratios | Binance `/futures/data/global...Ratio`, `top...Ratio` | account/position ratios | 5m–1d | ~30 days | accumulate |
 
-**Action:** schedule `python3 scripts/research/datafeed.py <symbols>` (hourly/daily) so the 30-day-limited series build a permanent history in `data/research/`. Cost: $0; you just need to start now — every day not collecting is lost.
+**Action:** schedule `python3 scripts/research/datafeed.py <symbols>` (hourly/daily) so the 30-day-limited series build a permanent history in `data/research/`. The collector requests a safely bounded retained OI/basis/taker window in fixed chunks ending at the last closed bar, leaves missing intervals null, and merges the point-in-time evidence into the cache; it cannot recover observations that expired before collection began. Cost: $0; you just need to start now — every day not collecting is lost.
 
 ## Tier 1 — paid archival (highest value; buys the history Tier 0 can't backfill)
 
