@@ -16,7 +16,7 @@ module Trader.Predictors.Exogenous (
 
 import Data.Int (Int64)
 import Data.List (sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Vector as V
 
 {- | Forward-fill an irregular @(timestampMs, value)@ series onto @barOpenTimes@,
@@ -65,11 +65,14 @@ neutralFill :: V.Vector (Maybe Double) -> V.Vector Double
 neutralFill = V.map (fromMaybe 0)
 
 {- | Convenience: align a raw series to bars and pack it for 'FeatureInputs'.
-Returns 'Nothing' when the series is empty (so the feature stays fully neutral),
-otherwise @Just@ a dense, point-in-time, neutral-filled vector aligned 1:1 with
-the bar grid.
+Returns 'Nothing' when the series is empty or has no observation admissible on
+the bar grid (so the feature stays fully neutral), otherwise @Just@ a dense,
+point-in-time, neutral-filled vector aligned 1:1 with the bar grid.
 -}
 alignedFeatureSeries :: V.Vector Int64 -> Int64 -> [(Int64, Double)] -> Maybe (V.Vector Double)
 alignedFeatureSeries _ _ [] = Nothing
 alignedFeatureSeries barOpenTimes intervalMs series =
-    Just (neutralFill (alignToBars barOpenTimes intervalMs series))
+    let aligned = alignToBars barOpenTimes intervalMs series
+     in if V.any isJust aligned
+            then Just (neutralFill aligned)
+            else Nothing
