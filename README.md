@@ -115,16 +115,26 @@ The campaign evaluates exactly 15 causal trials: `24h`, `72h`, and `168h` residu
 
 Generated evidence is written to `.tmp/research/edge-campaign/`, including an immutable code/config/data manifest, panel hash, complete trial ledger, gross/net/turnover/weight paths, aligned return matrices, separate daily DSR and CSCV/PBO matrices, final-selection and inner/outer fold records, nested OOS returns, stressed OOS paths, regime/fold metrics, and promotion-gate results. Cached data is used unless `--refresh` is passed. The final chronological 20% holdout is sealed by default; `--open-final-holdout` evaluates it only after all sample-size, activity, joint finite derivatives-coverage, uncertainty, fold, regime, DSR/PBO, doubled-cost, and additional-delay gates pass. An overlap-aware registry under `.tmp/research/edge-campaign-holdouts/` makes successful or interrupted openings one-shot across output directories for intersecting symbol/time windows, including the final candle's outcome interval; blocked requests do not consume it, and completed entries reference atomically persisted evidence.
 
-The public OI, basis, and taker endpoints retain only about 30 days. The collector retrieves a safely bounded version of that retained window in fixed, last-closed-bar chunks and merges it into the append-only cache, but it cannot backfill days that have already expired. Run it hourly or daily from an external scheduler, with a persistent cache outside the checkout when appropriate:
+The public OI, basis, and taker endpoints retain only about 30 days. The collector retrieves a safely bounded version of that retained window in fixed, last-closed-bar chunks and merges it into the append-only cache, but it cannot backfill days that have already expired. Run one locked refresh of the fixed ten-symbol, 1-hour campaign cache with:
 
 ```bash
-TRADER_RESEARCH_CACHE=/var/lib/trader-research \
-  python3 scripts/research/datafeed.py \
-  BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT \
-  DOGEUSDT ADAUSDT AVAXUSDT LINKUSDT LTCUSDT
+python3 scripts/research/collect_datafeed.py
 ```
 
-Each derivatives series refresh is atomic on an API/page error. Missing intervals in otherwise successful pages remain null. In both cases the merge preserves previously cached point-in-time values instead of forward-filling incomplete fresh evidence over them. Scheduling or archival ingestion remains necessary before sparse-history, PBO, OOS-count, and confidence gates can pass.
+On macOS, install the repo-native hourly LaunchAgent after exporting any optional public values documented in `.env.example`:
+
+```bash
+scripts/install-research-datafeed-launchagent.sh install
+scripts/install-research-datafeed-launchagent.sh status
+# To stop collection without deleting the cache:
+scripts/install-research-datafeed-launchagent.sh uninstall
+```
+
+The job runs at minute `10` of each hour, does not load exchange credentials, never uses `KeepAlive`, and records bounded per-symbol status under `data/research/.collector/last-run.json` by default. `TRADER_RESEARCH_CACHE` may point to a persistent absolute path, `TRADER_RESEARCH_SYMBOLS` overrides the fixed universe, `TRADER_RESEARCH_COLLECT_MINUTE` changes the minute after the hour, and `TRADER_RESEARCH_MAX_RUN_SECONDS` sets the wall-clock deadline (default `3000`; the installer accepts `60` through `3500`). The atomic plist is the installed configuration source, so later `status`, `restart`, and `uninstall` commands do not require those overrides or another Python executable on `PATH`.
+
+Every cache-mutating entry point shares one writer lock, and panel reads hold it across the complete cross-symbol snapshot; scheduled overlap exits cleanly while direct and campaign work waits instead of racing a read/merge/replace transaction. CSV, status, and plist files use same-filesystem atomic replacement, so interruption cannot expose a partial file. A symbol is `ok` only when the refresh fetched a current closed kline and every derivatives series returned recent finite observations. Empty/stale klines and empty, stale, or unavailable funding, OI, basis, or taker evidence make the run a nonzero `partial_failure` without starving later symbols. New point-in-time alignment stops carrying an observation past its freshness bound, while merge precedence retains newer non-null evidence already accumulated from an earlier successful response.
+
+Each derivatives series refresh is isolated on an API/page error. Missing intervals in otherwise successful pages remain null. In both cases the merge preserves previously cached point-in-time values instead of forward-filling incomplete fresh evidence over them. SIGINT/SIGTERM records `interrupted`; the deadline records `timeout` and exits `124`; a manual `restart` starts a new bounded run. A loaded service must stop successfully before uninstall removes its plist. The local LaunchAgent is an interim accumulator because laptop sleep/offline periods still lose collection opportunities; archival ingestion or an always-on persistent collector remains necessary before sparse-history, PBO, OOS-count, and confidence gates can pass.
 
 The Haskell backtester can opt into the same point-in-time Binance derivatives inputs:
 

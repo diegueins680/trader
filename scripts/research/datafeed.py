@@ -17,8 +17,11 @@ public.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -47,6 +50,37 @@ INTERVAL_MS = {
 STATS_RETENTION_MS = 30 * 86_400_000
 STATS_RETENTION_SAFETY_MS = 300_000
 STATS_PAGE_LIMIT = 500
+FUNDING_FRESHNESS_MS = 9 * 3_600_000
+COLLECTOR_STATE_DIR = ".collector"
+COLLECTOR_LOCK_FILE = "collector.lock"
+
+
+class CacheWriterBusy(RuntimeError):
+    """Raised when a non-blocking cache writer cannot acquire the shared lock."""
+
+
+@contextmanager
+def cache_writer_lock(*, blocking: bool = True):
+    """Serialize every read/merge/replace transaction against the cache."""
+    state_dir = os.path.join(CACHE_DIR, COLLECTOR_STATE_DIR)
+    os.makedirs(state_dir, exist_ok=True)
+    lock_path = os.path.join(state_dir, COLLECTOR_LOCK_FILE)
+    with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+        operation = fcntl.LOCK_EX
+        if not blocking:
+            operation |= fcntl.LOCK_NB
+        try:
+            fcntl.flock(lock_handle.fileno(), operation)
+        except BlockingIOError as error:
+            raise CacheWriterBusy(f"research cache writer already active for {CACHE_DIR}") from error
+        lock_handle.seek(0)
+        lock_handle.truncate()
+        lock_handle.write(f"pid={os.getpid()} acquired={time.time():.3f}\n")
+        lock_handle.flush()
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def _get(path: str, tries: int = 4, **params):
@@ -265,17 +299,29 @@ def fetch_taker(
     )
 
 
-def align_pit(bar_close: np.ndarray, series: list[tuple[int, float]]) -> np.ndarray:
+def align_pit(
+    bar_close: np.ndarray,
+    series: list[tuple[int, float]],
+    *,
+    max_age_ms: int | None = None,
+) -> np.ndarray:
     """Point-in-time forward-fill: value at each bar is the latest observation
     with timestamp <= that bar's CLOSE. No future obs can affect an earlier bar."""
     series = sorted(series)
     out = np.full(len(bar_close), np.nan)
-    j, last = 0, np.nan
+    j, last, last_timestamp = 0, np.nan, None
     for i, c in enumerate(bar_close):
         while j < len(series) and series[j][0] <= c:
-            last = series[j][1]
+            last_timestamp, last = series[j]
             j += 1
-        out[i] = last
+        if (
+            max_age_ms is not None
+            and last_timestamp is not None
+            and c - last_timestamp > max_age_ms
+        ):
+            out[i] = np.nan
+        else:
+            out[i] = last
     return out
 
 
@@ -303,10 +349,63 @@ def merge_cache_frames(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFr
     return merged.sort_index().reset_index()
 
 
-def update_cache(symbols, interval="1h", kline_limit=1500):
+def write_cache_atomic(frame: pd.DataFrame, path: str) -> None:
+    """Replace a cache CSV atomically without exposing a partial write."""
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        dir=directory,
+        prefix=f".{os.path.basename(path)}.",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            frame.to_csv(handle, index=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def _series_refresh_result(
+    series: list[tuple[int, float]], snapshot_end: int, max_lag_ms: int
+) -> dict[str, object]:
+    bounded = [(timestamp, value) for timestamp, value in series if timestamp <= snapshot_end]
+    finite = [
+        (timestamp, value)
+        for timestamp, value in bounded
+        if np.isfinite(value)
+    ]
+    latest_observation = max(bounded, default=None, key=lambda item: item[0])
+    latest_timestamp = max((timestamp for timestamp, _ in finite), default=None)
+    lag_ms = snapshot_end - latest_timestamp if latest_timestamp is not None else None
+    if latest_timestamp is None:
+        status = "empty"
+    elif latest_observation is not None and not np.isfinite(latest_observation[1]):
+        status = "missing_tail"
+    elif lag_ms > max_lag_ms:
+        status = "stale"
+    else:
+        status = "ok"
+    return {
+        "status": status,
+        "observations": len(series),
+        "finite": len(finite),
+        "latestTimestamp": int(latest_timestamp) if latest_timestamp is not None else None,
+        "latestObservationTimestamp": (
+            int(latest_observation[0]) if latest_observation is not None else None
+        ),
+        "lagMs": int(lag_ms) if lag_ms is not None else None,
+    }
+
+
+def _update_cache_unlocked(symbols, interval="1h", kline_limit=1500):
     """Fetch the latest window for each symbol and merge (dedup by openTime) into
     the append-only CSV cache. Stats columns are stored already point-in-time
     aligned to the bars present at write time."""
+    outcomes: dict[str, dict[str, object]] = {}
     os.makedirs(CACHE_DIR, exist_ok=True)
     ms = INTERVAL_MS[interval]
     period = interval if interval in {"5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"} else "1h"
@@ -314,7 +413,15 @@ def update_cache(symbols, interval="1h", kline_limit=1500):
         k = fetch_klines(sym, interval, kline_limit)
         if k.empty:
             print(f"  {sym}: no klines")
+            outcomes[sym] = {
+                "status": "no_klines",
+                "freshRows": 0,
+                "freshLatestOpenTime": None,
+                "series": {},
+            }
             continue
+        fresh_rows = len(k)
+        fresh_latest_open_time = int(k["openTime"].iloc[-1])
         bclose = (k["openTime"] + ms - 1).to_numpy()
         snapshot_end = int(bclose[-1])
         # Stay just inside the documented retention boundary so the oldest
@@ -337,25 +444,62 @@ def update_cache(symbols, interval="1h", kline_limit=1500):
                 sym, period, start_time=stats_start, end_time=snapshot_end
             ),
         }
+        series_results: dict[str, dict[str, object]] = {}
         for column, fetch in fetchers.items():
             try:
-                k[column] = align_pit(bclose, fetch())
+                series = fetch()
+                max_lag_ms = FUNDING_FRESHNESS_MS if column == "funding" else 2 * ms
+                series_results[column] = _series_refresh_result(
+                    series, snapshot_end, max_lag_ms
+                )
+                k[column] = align_pit(bclose, series, max_age_ms=max_lag_ms)
             except Exception as e:  # each best-effort series is atomic
                 print(f"  {sym}: {column} unavailable ({str(e)[:50]})")
+                series_results[column] = {
+                    "status": "error",
+                    "error": str(e).replace("\n", " ")[:240],
+                    "observations": 0,
+                    "finite": 0,
+                    "latestTimestamp": None,
+                    "latestObservationTimestamp": None,
+                    "lagMs": None,
+                }
                 k[column] = np.nan
         path = _cache_path(sym, interval)
         if os.path.exists(path):
             old = pd.read_csv(path)
             k = merge_cache_frames(old, k)
-        k.to_csv(path, index=False)
+        write_cache_atomic(k, path)
         print(f"  {sym}: cached {len(k)} bars -> {os.path.relpath(path)}")
+        outcomes[sym] = {
+            "status": "updated",
+            "freshRows": fresh_rows,
+            "freshLatestOpenTime": fresh_latest_open_time,
+            "cacheRows": len(k),
+            "series": series_results,
+        }
+    return outcomes
 
 
-def load_panel(symbols, interval="1h", refresh=True):
-    """Return {sym: DataFrame} with ohlcv + funding/oi/basis/taker + derived
-    columns (ret, fwd_ret). Refreshes the cache first unless refresh=False."""
-    if refresh:
-        update_cache(symbols, interval)
+def update_cache(
+    symbols,
+    interval="1h",
+    kline_limit=1500,
+    *,
+    acquire_lock: bool = True,
+):
+    """Refresh the cache and return explicit per-symbol acquisition evidence.
+
+    Cache mutation takes the shared writer lock by default. A caller that owns
+    ``cache_writer_lock`` across a larger transaction may opt out explicitly.
+    """
+    if acquire_lock:
+        with cache_writer_lock():
+            return _update_cache_unlocked(symbols, interval, kline_limit)
+    return _update_cache_unlocked(symbols, interval, kline_limit)
+
+
+def _load_panel_unlocked(symbols, interval):
     panel = {}
     for sym in symbols:
         path = _cache_path(sym, interval)
@@ -364,9 +508,27 @@ def load_panel(symbols, interval="1h", refresh=True):
         df = pd.read_csv(path).sort_values("openTime").reset_index(drop=True)
         lp = np.log(df["close"].to_numpy())
         df["ret"] = np.concatenate([[0.0], np.diff(lp)])
-        df["fwd_ret"] = np.concatenate([np.diff(lp), [np.nan]])  # t -> t+1 (the label)
+        df["fwd_ret"] = np.concatenate(
+            [np.diff(lp), [np.nan]]
+        )  # t -> t+1 (the label)
         panel[sym] = df
     return panel
+
+
+def load_panel(symbols, interval="1h", refresh=True):
+    """Load one cross-symbol snapshot, optionally refreshing it first."""
+    if refresh:
+        with cache_writer_lock():
+            _update_cache_unlocked(symbols, interval)
+            return _load_panel_unlocked(symbols, interval)
+    try:
+        with cache_writer_lock():
+            return _load_panel_unlocked(symbols, interval)
+    except OSError:
+        if os.access(CACHE_DIR, os.W_OK):
+            raise
+        # A genuinely immutable mount cannot race a writer on that mount.
+        return _load_panel_unlocked(symbols, interval)
 
 
 if __name__ == "__main__":

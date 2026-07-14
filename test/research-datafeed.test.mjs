@@ -134,6 +134,13 @@ late_only = datafeed.fetch_oi(
 assert len(short_calls) == 2
 assert late_only == [(end_time, 42.0)]
 
+missing_tail = datafeed._series_refresh_result(
+    [(end_time - 2 * hour, 42.0), (end_time - hour, np.nan)],
+    end_time,
+    2 * hour,
+)
+assert missing_tail["status"] == "missing_tail"
+
 def error_get(_path, **_params):
     if _params["startTime"] == 0:
         return [{"timestamp": 0, "sumOpenInterest": "1"}]
@@ -191,16 +198,80 @@ with tempfile.TemporaryDirectory() as cache_dir:
         or [(0, 1.6)]
     )
     datafeed.time.time = lambda: now / 1000
-    datafeed.update_cache(["BTCUSDT"], "1h", 3)
+    outcome = datafeed.update_cache(["BTCUSDT"], "1h", 3)
 
     refreshed = pd.read_csv(datafeed._cache_path("BTCUSDT", "1h"))
     assert refreshed["openTime"].tolist() == [0, now - 2 * hour, now - hour]
     assert refreshed["oi"].tolist() == [100.0, 20.0, 300.0]
     assert refreshed["funding"].tolist() == [0.01, 0.02, 0.03]
-    assert refreshed["basis"].tolist() == [0.6, 0.6, 0.6]
-    assert refreshed["taker"].tolist() == [1.6, 1.6, 1.6]
+    assert refreshed["basis"].tolist() == [0.6, 0.2, 0.3]
+    assert refreshed["taker"].tolist() == [1.6, 1.1, 1.2]
     assert observed_ends == [snapshot_end] * 4
     assert observed_starts == [expected_start, expected_start, expected_start]
+    assert outcome["BTCUSDT"]["status"] == "updated"
+    assert outcome["BTCUSDT"]["series"]["funding"]["status"] == "error"
+    assert outcome["BTCUSDT"]["series"]["oi"]["status"] == "ok"
+    assert outcome["BTCUSDT"]["series"]["basis"]["status"] == "stale"
+
+    datafeed.fetch_klines = lambda *_args, **_kwargs: pd.DataFrame()
+    empty_outcome = datafeed.update_cache(["ETHUSDT"], "1h", 3)
+    assert empty_outcome["ETHUSDT"]["status"] == "no_klines"
+
+    stale_bars = bars.iloc[[0, 1, 2]].copy()
+    stale_bars["openTime"] = [now - 20 * hour, now - 10 * hour, now - hour]
+    stale_funding_time = now - 19 * hour - 1
+    datafeed.fetch_klines = lambda *_args, **_kwargs: stale_bars.copy()
+    datafeed.fetch_funding = lambda _sym, *, end_time: [(stale_funding_time, 0.01)]
+    datafeed.fetch_oi = lambda _sym, _period, *, start_time, end_time: [(end_time, 1.0)]
+    datafeed.fetch_basis = lambda _sym, _period, *, start_time, end_time: [(end_time, 0.1)]
+    datafeed.fetch_taker = lambda _sym, _period, *, start_time, end_time: [(end_time, 1.1)]
+    stale_outcome = datafeed.update_cache(["ETHUSDT"], "1h", 3)
+    stale_cache = pd.read_csv(datafeed._cache_path("ETHUSDT", "1h"))
+    assert stale_outcome["ETHUSDT"]["series"]["funding"]["status"] == "stale"
+    assert np.isfinite(stale_cache["funding"].iloc[0])
+    assert stale_cache["funding"].iloc[1:].isna().all()
+
+    atomic_path = os.path.join(cache_dir, "atomic.csv")
+    old_bytes = b"openTime,close\n1,10\n"
+    with open(atomic_path, "wb") as handle:
+        handle.write(old_bytes)
+    replacement = pd.DataFrame({"openTime": [1, 2], "close": [11.0, 12.0]})
+    original_replace = datafeed.os.replace
+    try:
+        def fail_replace(_source, _target):
+            raise OSError("simulated interrupted replace")
+        datafeed.os.replace = fail_replace
+        try:
+            datafeed.write_cache_atomic(replacement, atomic_path)
+        except OSError as error:
+            assert "simulated" in str(error)
+        else:
+            raise AssertionError("failed replacement must propagate")
+    finally:
+        datafeed.os.replace = original_replace
+    with open(atomic_path, "rb") as handle:
+        assert handle.read() == old_bytes
+    assert not [name for name in os.listdir(cache_dir) if name.endswith(".tmp")]
+
+    datafeed.write_cache_atomic(replacement, atomic_path)
+    atomically_written = pd.read_csv(atomic_path)
+    assert atomically_written["openTime"].tolist() == [1, 2]
+    assert atomically_written["close"].tolist() == [11.0, 12.0]
+
+with tempfile.TemporaryDirectory() as read_only_cache:
+    datafeed.CACHE_DIR = read_only_cache
+    read_only_frame = pd.DataFrame({
+        "openTime": [1, 2],
+        "close": [10.0, 11.0],
+    })
+    read_only_frame.to_csv(datafeed._cache_path("BTCUSDT", "1h"), index=False)
+    os.chmod(read_only_cache, 0o555)
+    try:
+        immutable_panel = datafeed.load_panel(["BTCUSDT"], "1h", refresh=False)
+        assert immutable_panel["BTCUSDT"]["close"].tolist() == [10.0, 11.0]
+        assert not os.path.exists(os.path.join(read_only_cache, ".collector"))
+    finally:
+        os.chmod(read_only_cache, 0o755)
 `;
     const run = spawnSync("python3", ["-c", program, RESEARCH_DIR], {
       encoding: "utf8",
