@@ -31,6 +31,7 @@ This is bounded/executable formal verification, not a claim of unbounded mathema
 21. Credential tuples were joined with a separator, so distinct credentials containing `:` could derive the same tenant. Backend, browser, and AWS now trim the same ASCII boundary whitespace, preserve legacy keys for separator-free tuples including Unicode credentials, and use a domain-separated, UTF-8 byte-length-framed `platform:v2` identity only for separator-bearing tuples; collision and Unicode-boundary vectors agree across all three runtimes.
 22. Successful bot lifecycle responses relied on compile-time TypeScript shapes. Bot start/status/stop now decode the safety envelope before UI mutation, require non-empty aligned core running series, bind applicable response tenant/symbol identities to the request, and reject malformed snapshot or multi-bot evidence without retrying a successful mutation.
 23. Risk IDs and lifecycle state drifted between duplicate Markdown rows and a partial Haskell representation. `formal/risk-register.json` is now canonical, with automation enforcing unique ordered IDs and exact severity/status parity in both projections.
+24. The research edge campaign was covered only by a broad script glob, leaving its specific nested-validation, formal DSR, CSCV/PBO, derivatives-ablation, and one-shot final-holdout guarantees implicit. `A-RESEARCH` now names those obligations and links direct regression evidence.
 
 ## Remaining conformance gaps
 
@@ -42,7 +43,7 @@ The registry specifies these behaviors, but current evidence is incomplete and m
 - Web orchestration, SSE EOF/reconnect behavior, and multi-chunk state-sync partial failure lack a full state-machine test harness.
 - Client runtime API tokens are public credentials by construction and must never be treated as server secrets.
 - Venue signing/filter/pagination behavior, S3/state-sync atomicity, outbox delivery, migrations, and deployment rollback have static/integration witnesses rather than model-checked proofs.
-- Research and optimizer no-lookahead contracts need generated prefix/walk-forward properties across every preprocessing path.
+- Optimizer no-lookahead contracts and non-edge research preprocessing paths need generated prefix/walk-forward properties across every preprocessing path.
 - Hetzner exact remote projection, watchdog process identity, radio SSRF restrictions, AWS temporary-secret cleanup, and transactional state sync need additional implementation hardening.
 
 The strongest next step is a small pure core library with QuickCheck/Hedgehog properties and SBV/Z3 proofs for time arithmetic, gates, execution, and risk transitions, followed by a state-machine refinement test shared by live and backtest paths.

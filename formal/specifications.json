@@ -502,16 +502,34 @@
     {
       "id": "A-RESEARCH",
       "title": "Research acquisition, point-in-time cache, walk-forward harness, and statistical analysis",
-      "features": ["research data feed", "append-only cache", "walk-forward harness", "cost model", "bootstrap", "deflated Sharpe", "regime experiment", "cross-sectional example"],
+      "features": ["research data feed", "append-only cache", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
       "criticality": "correctness",
       "implementation": ["scripts/research/**", "scripts/fetch-data-pipeline.sh"],
       "uses": ["G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-IDEMPOTENT"],
       "dependsOn": ["H-MARKET-DATA", "H-METRICS"],
-      "requires": [{ "id": "A-RESEARCH-R1", "statement": "Every observation has event/publication time, preprocessing is fit only on each training prefix, and cache overlap has an explicit field-level merge policy." }],
-      "ensures": [{ "id": "A-RESEARCH-E1", "statement": "Walk-forward results use disjoint chronological evaluation folds; overlapping refresh cannot replace known historical values with missing data; seed/config/data revision are recorded." }],
-      "invariants": [{ "id": "A-RESEARCH-I1", "statement": "A future row cannot change earlier standardized features or signals; transaction costs are applied only after a causal decision." }],
-      "failures": [{ "id": "A-RESEARCH-F1", "statement": "Missing publication metadata, incomplete overlap, or failed acquisition preserves prior cache and marks the experiment incomplete." }],
-      "evidence": [{ "level": "regression", "path": "haskell/scripts/test_review_bot_day.py", "contains": "unittest" }]
+      "requires": [
+        { "id": "A-RESEARCH-R1", "statement": "Every observation has event/publication time, preprocessing is fit only on each training prefix, and cache overlap has an explicit field-level merge policy." },
+        { "id": "A-RESEARCH-R2", "statement": "Pre-registered edge campaigns enumerate the complete trial grid, align all symbol/feature panels to an exact chronological bar grid, and seal the final holdout unless all promotion gates pass." }
+      ],
+      "ensures": [
+        { "id": "A-RESEARCH-E1", "statement": "Walk-forward results use disjoint chronological evaluation folds; overlapping refresh cannot replace known historical values with missing data; seed/config/data revision are recorded." },
+        { "id": "A-RESEARCH-E2", "statement": "Nested selection fits only embargoed training prefixes, evaluates the frozen selected candidate once on each untouched outer fold, and records complete trial-return matrices for formal DSR and CSCV/PBO diagnostics." }
+      ],
+      "invariants": [
+        { "id": "A-RESEARCH-I1", "statement": "A future row cannot change earlier standardized features or signals; transaction costs are applied only after a causal decision." },
+        { "id": "A-RESEARCH-I2", "statement": "Formal multiple-testing diagnostics operate on complete finite aligned return matrices; final-holdout openings are one-shot across overlapping symbol/time windows and completed entries reference atomically written evidence." }
+      ],
+      "failures": [
+        { "id": "A-RESEARCH-F1", "statement": "Missing publication metadata, incomplete overlap, or failed acquisition preserves prior cache and marks the experiment incomplete." },
+        { "id": "A-RESEARCH-F2", "statement": "Sparse, incomplete, non-finite, misaligned, or ambiguous edge-campaign evidence fails closed before promotion or final-holdout consumption." }
+      ],
+      "evidence": [
+        { "level": "regression", "path": "haskell/scripts/test_review_bot_day.py", "contains": "unittest" },
+        { "level": "regression", "path": "test/research-edge-campaign.test.mjs", "contains": "edge campaign is causal, complete, and cost monotone" },
+        { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "formal DSR matches a fixed cross-trial benchmark" },
+        { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "CSCV PBO separates a stable winner" },
+        { "level": "regression", "path": "test/research-validation.test.mjs", "contains": "nested validation selects on inner rows" }
+      ]
     },
     {
       "id": "A-CALIBRATION",
