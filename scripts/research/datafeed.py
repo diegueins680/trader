@@ -44,6 +44,9 @@ INTERVAL_MS = {
     "12h": 43_200_000,
     "1d": 86_400_000,
 }
+STATS_RETENTION_MS = 30 * 86_400_000
+STATS_RETENTION_SAFETY_MS = 300_000
+STATS_PAGE_LIMIT = 500
 
 
 def _get(path: str, tries: int = 4, **params):
@@ -90,8 +93,12 @@ def fetch_klines(sym: str, interval: str, limit: int = 1500) -> pd.DataFrame:
 def _stats(sym_or_pair_key: str, path: str, ts_key: str, val_key: str, **params):
     time.sleep(0.3)  # gentle pacing to avoid /futures/data rate limits
     rows = _get(path, **params)
-    if not isinstance(rows, list):  # error responses come back as a dict
-        return []
+    if isinstance(rows, dict):
+        code = rows.get("code", "unknown")
+        message = rows.get("msg", "unknown Binance stats error")
+        raise RuntimeError(f"Binance stats error {code}: {message}")
+    if not isinstance(rows, list):
+        raise RuntimeError("Binance stats response is not a list")
     return [
         (int(r[ts_key]), float(r[val_key]))
         for r in rows
@@ -99,20 +106,163 @@ def _stats(sym_or_pair_key: str, path: str, ts_key: str, val_key: str, **params)
     ]
 
 
-def fetch_funding(sym, limit=1000):
-    return _stats(sym, "/fapi/v1/fundingRate", "fundingTime", "fundingRate", symbol=sym, limit=limit)
+def _stats_window(
+    sym_or_pair_key: str,
+    path: str,
+    ts_key: str,
+    val_key: str,
+    period_ms: int,
+    start_time: int,
+    end_time: int,
+    page_limit: int = STATS_PAGE_LIMIT,
+    **params,
+) -> list[tuple[int, float]]:
+    """Fetch a fixed stats snapshot, leaving missing intervals unavailable."""
+    if period_ms <= 0:
+        raise ValueError("stats period must be positive")
+    if not 2 <= page_limit <= STATS_PAGE_LIMIT:
+        raise ValueError("bounded stats page limit must be between 2 and 500")
+    if start_time > end_time:
+        return []
+
+    values: dict[int, float] = {}
+    chunk_start = int(start_time)
+    snapshot_end = int(end_time)
+    chunk_span = (page_limit - 1) * period_ms
+    while chunk_start <= snapshot_end:
+        chunk_end = min(snapshot_end, chunk_start + chunk_span)
+        rows = _stats(
+            sym_or_pair_key,
+            path,
+            ts_key,
+            val_key,
+            **params,
+            limit=page_limit,
+            startTime=chunk_start,
+            endTime=chunk_end,
+        )
+        for timestamp, value in rows:
+            if chunk_start <= timestamp <= chunk_end:
+                values[timestamp] = value
+        chunk_start = chunk_end + 1
+    ordered = sorted(values.items())
+    completed: list[tuple[int, float]] = []
+    for timestamp, value in ordered:
+        if completed:
+            delta = timestamp - completed[-1][0]
+            if delta % period_ms != 0:
+                raise RuntimeError("Binance stats snapshot is off the requested grid")
+            missing_time = completed[-1][0] + period_ms
+            while missing_time < timestamp:
+                completed.append((missing_time, float("nan")))
+                missing_time += period_ms
+        completed.append((timestamp, value))
+    if completed:
+        missing_time = completed[-1][0] + period_ms
+        while missing_time <= snapshot_end:
+            completed.append((missing_time, float("nan")))
+            missing_time += period_ms
+    return completed
 
 
-def fetch_oi(sym, period, limit=500):
-    return _stats(sym, "/futures/data/openInterestHist", "timestamp", "sumOpenInterest", symbol=sym, period=period, limit=limit)
+def fetch_funding(sym, limit=1000, *, end_time=None):
+    params = dict(symbol=sym, limit=limit)
+    if end_time is not None:
+        params["endTime"] = int(end_time)
+    return _stats(
+        sym,
+        "/fapi/v1/fundingRate",
+        "fundingTime",
+        "fundingRate",
+        **params,
+    )
 
 
-def fetch_basis(sym, period, limit=500):
-    return _stats(sym, "/futures/data/basis", "timestamp", "basisRate", pair=sym, contractType="PERPETUAL", period=period, limit=limit)
+def fetch_oi(sym, period, limit=STATS_PAGE_LIMIT, *, start_time=None, end_time=None):
+    if start_time is None and end_time is None:
+        return _stats(
+            sym,
+            "/futures/data/openInterestHist",
+            "timestamp",
+            "sumOpenInterest",
+            symbol=sym,
+            period=period,
+            limit=limit,
+        )
+    if start_time is None or end_time is None:
+        raise ValueError("bounded OI fetch requires start_time and end_time")
+    return _stats_window(
+        sym,
+        "/futures/data/openInterestHist",
+        "timestamp",
+        "sumOpenInterest",
+        INTERVAL_MS[period],
+        start_time,
+        end_time,
+        limit,
+        symbol=sym,
+        period=period,
+    )
 
 
-def fetch_taker(sym, period, limit=500):
-    return _stats(sym, "/futures/data/takerlongshortRatio", "timestamp", "buySellRatio", symbol=sym, period=period, limit=limit)
+def fetch_basis(
+    sym, period, limit=STATS_PAGE_LIMIT, *, start_time=None, end_time=None
+):
+    if start_time is None and end_time is None:
+        return _stats(
+            sym,
+            "/futures/data/basis",
+            "timestamp",
+            "basisRate",
+            pair=sym,
+            contractType="PERPETUAL",
+            period=period,
+            limit=limit,
+        )
+    if start_time is None or end_time is None:
+        raise ValueError("bounded basis fetch requires start_time and end_time")
+    return _stats_window(
+        sym,
+        "/futures/data/basis",
+        "timestamp",
+        "basisRate",
+        INTERVAL_MS[period],
+        start_time,
+        end_time,
+        limit,
+        pair=sym,
+        contractType="PERPETUAL",
+        period=period,
+    )
+
+
+def fetch_taker(
+    sym, period, limit=STATS_PAGE_LIMIT, *, start_time=None, end_time=None
+):
+    if start_time is None and end_time is None:
+        return _stats(
+            sym,
+            "/futures/data/takerlongshortRatio",
+            "timestamp",
+            "buySellRatio",
+            symbol=sym,
+            period=period,
+            limit=limit,
+        )
+    if start_time is None or end_time is None:
+        raise ValueError("bounded taker fetch requires start_time and end_time")
+    return _stats_window(
+        sym,
+        "/futures/data/takerlongshortRatio",
+        "timestamp",
+        "buySellRatio",
+        INTERVAL_MS[period],
+        start_time,
+        end_time,
+        limit,
+        symbol=sym,
+        period=period,
+    )
 
 
 def align_pit(bar_close: np.ndarray, series: list[tuple[int, float]]) -> np.ndarray:
@@ -166,16 +316,33 @@ def update_cache(symbols, interval="1h", kline_limit=1500):
             print(f"  {sym}: no klines")
             continue
         bclose = (k["openTime"] + ms - 1).to_numpy()
-        try:
-            k["funding"] = align_pit(bclose, fetch_funding(sym))
-            k["oi"] = align_pit(bclose, fetch_oi(sym, period))
-            k["basis"] = align_pit(bclose, fetch_basis(sym, period))
-            k["taker"] = align_pit(bclose, fetch_taker(sym, period))
-        except Exception as e:  # stats are best-effort; OHLCV still cached
-            print(f"  {sym}: stats partial ({str(e)[:50]})")
-            for c in ("funding", "oi", "basis", "taker"):
-                if c not in k:
-                    k[c] = np.nan
+        snapshot_end = int(bclose[-1])
+        # Stay just inside the documented retention boundary so the oldest
+        # request remains valid while the fixed snapshot is collected.
+        stats_start = max(
+            int(bclose[0]),
+            int(time.time() * 1000)
+            - STATS_RETENTION_MS
+            + STATS_RETENTION_SAFETY_MS,
+        )
+        fetchers = {
+            "funding": lambda: fetch_funding(sym, end_time=snapshot_end),
+            "oi": lambda: fetch_oi(
+                sym, period, start_time=stats_start, end_time=snapshot_end
+            ),
+            "basis": lambda: fetch_basis(
+                sym, period, start_time=stats_start, end_time=snapshot_end
+            ),
+            "taker": lambda: fetch_taker(
+                sym, period, start_time=stats_start, end_time=snapshot_end
+            ),
+        }
+        for column, fetch in fetchers.items():
+            try:
+                k[column] = align_pit(bclose, fetch())
+            except Exception as e:  # each best-effort series is atomic
+                print(f"  {sym}: {column} unavailable ({str(e)[:50]})")
+                k[column] = np.nan
         path = _cache_path(sym, interval)
         if os.path.exists(path):
             old = pd.read_csv(path)

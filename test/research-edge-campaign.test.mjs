@@ -21,6 +21,7 @@ import json
 import numpy as np
 import pandas as pd
 import tempfile
+import warnings
 
 from edge_campaign import (
     CampaignConfig,
@@ -70,6 +71,39 @@ assert list(matrix.columns) == [spec.name for spec in specs]
 assert np.isfinite(matrix.to_numpy()).all()
 assert set(details) == set(matrix.columns)
 assert returned_specs == specs
+assert "datafeed.py" in runner.IMPLEMENTATION_FILES
+
+wide_index = pd.Index([10, 20, 30], name="openTime")
+wide_names = [f"trial_{index:02d}" for index in range(15)]
+wide_matrix = pd.DataFrame(
+    {name: np.arange(3, dtype=float) for name in wide_names},
+    index=wide_index,
+)
+wide_details = {}
+expected_columns = ["openTime"]
+for trial_index, name in enumerate(wide_names):
+    detail_columns = {"gross": np.full(3, trial_index + 0.5)}
+    expected_columns.append(f"{name}__gross")
+    for weight_index in range(10):
+        source = f"weight_S{weight_index:02d}"
+        detail_columns[source] = np.full(3, trial_index * 10 + weight_index)
+        expected_columns.append(f"{name}__{source}")
+    wide_details[name] = pd.DataFrame(detail_columns, index=wide_index)
+
+with warnings.catch_warnings():
+    warnings.simplefilter("error", pd.errors.PerformanceWarning)
+    wide_frame, wide_candidates = runner._nested_input(wide_matrix, wide_details)
+assert wide_frame.shape == (3, 166)
+assert list(wide_frame.columns) == expected_columns
+np.testing.assert_allclose(wide_frame["trial_07__gross"], [7.5, 7.5, 7.5])
+np.testing.assert_allclose(wide_frame["trial_07__weight_S04"], [74.0, 74.0, 74.0])
+assert wide_candidates["trial_07"] == {
+    "grossColumn": "trial_07__gross",
+    "inputWeightColumns": tuple(
+        f"trial_07__weight_S{index:02d}" for index in range(10)
+    ),
+    "outputWeightColumns": tuple(f"weight_S{index:02d}" for index in range(10)),
+}
 
 prepared = prepare_panel(panel, config)
 poison_row = 250
