@@ -4989,7 +4989,14 @@ export function App() {
               setForm((f) => ({ ...f, ...next }));
             }
           }
-          setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
+          setState((s) => ({
+            ...s,
+            backtest: out,
+            latestSignal: out.latestSignal ?? null,
+            trade: null,
+            loading: false,
+            error: null,
+          }));
           appendDataLog(`${logLabelBase} Response${logSuffix}`, out, { background: logBackground });
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");

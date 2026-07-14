@@ -198,6 +198,7 @@ data Args = Args
     , argPositioning :: Positioning
     , argOptimizeOperations :: Bool
     , argSweepThreshold :: Bool
+    , argExogenousDerivatives :: Bool
     , argCrossExchangeCoinbase :: Bool
     , argCrossExchangeSymbol :: Maybe String
     , argExternalData :: Bool
@@ -1085,6 +1086,7 @@ opts = do
             )
     argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/meta_hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router/cross_sectional_momentum), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split; TA methods are fixed-method and can use --sweep-threshold)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
+    argExogenousDerivatives <- switch (long "exogenous-derivatives" <> help "Enrich a non-trading Binance futures backtest with point-in-time funding, open-interest, basis, and taker-flow history. Research-only: incompatible with CSV, --trade-only, --trade/--binance-trade, --binance-live, and --serve; fetches fail open.")
     argCrossExchangeCoinbase <- switch (long "cross-exchange-coinbase" <> help "Enrich LSTM features and Kalman market-context with same-asset Coinbase data (e.g. BTCUSDT<->BTC-USD basis/lead-lag). Applies to backtests, latest signals, trades, and live bots; fail-open to Binance-only if Coinbase is unavailable or the interval is unsupported")
     argCrossExchangeSymbol <- optional (strOption (long "cross-exchange-symbol" <> metavar "SYMBOL" <> help "Binance symbol to map to a Coinbase product for cross-exchange enrichment when the price data comes from --data (CSV), where --symbol cannot be used. Falls back to --symbol when omitted."))
     argExternalData <- switch (long "external-data" <> help "Attach optional exogenous data families (microstructure/options/on-chain/macro/COT/news/filings) from configured CSV, JSON, FRED, Deribit, Glassnode, GDELT, and SEC sources. Fetches fail open and are point-in-time aligned.")
@@ -1796,6 +1798,16 @@ validateArgs args0 = do
     ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
     ensure "--binance-live is only supported on Binance/Coinbase" (supportsLiveMode || not (argBinanceLive args))
     ensure "--binance-trade is only supported on trading platforms" (supportsTrading || not (argBinanceTrade args))
+    ensure
+        "--exogenous-derivatives requires a Binance futures --symbol data source"
+        ( not (argExogenousDerivatives args)
+            || (isBinance && argBinanceFutures args && isNothing (argData args) && present (argBinanceSymbol args))
+        )
+    ensure
+        "--exogenous-derivatives is research-backtest only and cannot be used with --trade-only, --binance-trade, --binance-live, or --serve"
+        ( not (argExogenousDerivatives args)
+            || not (argTradeOnly args || argBinanceTrade args || argBinanceLive args || argServe args)
+        )
     ensure "--dry-run requires --binance-trade" (not (argDryRun args) || argBinanceTrade args)
     ensure
         "--binance-trade requires --symbol/--binance-symbol (or --dex-base-token/--dex-quote-token for DEX platforms)"

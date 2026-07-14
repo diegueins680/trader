@@ -41,6 +41,7 @@ TRADER_MULTI_USER="${TRADER_MULTI_USER:-true}"
 TRADER_OPS_ROLLUP_ON_DEPLOY="${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"
 TRADER_OPS_ROLLUP_STRICT="${TRADER_OPS_ROLLUP_STRICT:-false}"
 TRADER_STATE_SYNC_TENANT_KEY="${TRADER_STATE_SYNC_TENANT_KEY:-}"
+TRADER_STATE_SYNC_SOURCE_TENANT_KEY="${TRADER_STATE_SYNC_SOURCE_TENANT_KEY:-}"
 TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
@@ -171,6 +172,7 @@ Environment variables (equivalents):
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
   TRADER_STATE_SYNC_TENANT_KEY
+  TRADER_STATE_SYNC_SOURCE_TENANT_KEY (required when an existing App Runner service migrates to a platform:v2 tenant; export source only)
   TRADER_BINANCE_PROXY_URL
   TRADER_BINANCE_PROXY_CLEAR
   TRADER_BINANCE_PROXY_HEALTHCHECK
@@ -255,28 +257,109 @@ sha256_hex() {
   echo ""
 }
 
+trim_credential() {
+  local LC_ALL=C
+  local value="${1:-}"
+  while [[ "$value" == [[:space:]]* ]]; do
+    value="${value#?}"
+  done
+  while [[ "$value" == *[[:space:]] ]]; do
+    value="${value%?}"
+  done
+  printf '%s' "$value"
+}
+
+legacy_tenant_component_safe() {
+  local value="${1:-}"
+  [[ "$value" != *:* ]]
+}
+
+tenant_tuple_v2_payload() {
+  local LC_ALL=C
+  local payload="tenant-key-v2|"
+  local component=""
+  for component in "$@"; do
+    payload+="${#component}:${component}"
+  done
+  printf '%s' "$payload"
+}
+
+tenant_key_from_components() {
+  local platform="${1:-}"
+  shift || true
+
+  local component=""
+  local legacy_safe="true"
+  for component in "$@"; do
+    if ! legacy_tenant_component_safe "$component"; then
+      legacy_safe="false"
+      break
+    fi
+  done
+
+  local payload=""
+  local prefix="$platform"
+  if [[ "$legacy_safe" == "true" ]]; then
+    local separator=""
+    for component in "$@"; do
+      payload+="${separator}${component}"
+      separator=":"
+    done
+  else
+    payload="$(tenant_tuple_v2_payload "$@")"
+    prefix="${platform}:v2"
+  fi
+
+  local hash=""
+  hash="$(sha256_hex "$payload")"
+  if [[ -n "$hash" ]]; then
+    printf '%s:%s' "$prefix" "$hash"
+  fi
+  return 0
+}
+
 resolve_state_sync_tenant_key() {
   if [[ -n "${TRADER_STATE_SYNC_TENANT_KEY:-}" ]]; then
     echo "$TRADER_STATE_SYNC_TENANT_KEY"
     return 0
   fi
-  if [[ -n "${BINANCE_API_KEY:-}" && -n "${BINANCE_API_SECRET:-}" ]]; then
-    local hash=""
-    hash="$(sha256_hex "${BINANCE_API_KEY}:${BINANCE_API_SECRET}")"
-    if [[ -n "$hash" ]]; then
-      echo "binance:${hash}"
-      return 0
-    fi
+  local binance_key=""
+  local binance_secret=""
+  binance_key="$(trim_credential "${BINANCE_API_KEY:-}")"
+  binance_secret="$(trim_credential "${BINANCE_API_SECRET:-}")"
+  if [[ -n "$binance_key" && -n "$binance_secret" ]]; then
+    tenant_key_from_components "binance" "$binance_key" "$binance_secret"
+    return 0
   fi
-  if [[ -n "${COINBASE_API_KEY:-}" && -n "${COINBASE_API_SECRET:-}" && -n "${COINBASE_API_PASSPHRASE:-}" ]]; then
-    local hash=""
-    hash="$(sha256_hex "${COINBASE_API_KEY}:${COINBASE_API_SECRET}:${COINBASE_API_PASSPHRASE}")"
-    if [[ -n "$hash" ]]; then
-      echo "coinbase:${hash}"
-      return 0
-    fi
+  local coinbase_key=""
+  local coinbase_secret=""
+  local coinbase_passphrase=""
+  coinbase_key="$(trim_credential "${COINBASE_API_KEY:-}")"
+  coinbase_secret="$(trim_credential "${COINBASE_API_SECRET:-}")"
+  coinbase_passphrase="$(trim_credential "${COINBASE_API_PASSPHRASE:-}")"
+  if [[ -n "$coinbase_key" && -n "$coinbase_secret" && -n "$coinbase_passphrase" ]]; then
+    tenant_key_from_components "coinbase" "$coinbase_key" "$coinbase_secret" "$coinbase_passphrase"
+    return 0
   fi
   echo ""
+}
+
+state_sync_tenant_key_is_v2() {
+  local tenant_key="${1:-}"
+  [[ "$tenant_key" =~ ^[^:]+:v2: ]]
+}
+
+resolve_state_sync_source_tenant_key() {
+  local target_tenant_key="${1:-}"
+  if [[ -n "${TRADER_STATE_SYNC_SOURCE_TENANT_KEY:-}" ]]; then
+    printf '%s' "$TRADER_STATE_SYNC_SOURCE_TENANT_KEY"
+    return 0
+  fi
+  if state_sync_tenant_key_is_v2 "$target_tenant_key"; then
+    echo -e "${RED}Error: refusing to update an existing App Runner service for a platform:v2 tenant without TRADER_STATE_SYNC_SOURCE_TENANT_KEY. Set it to the tenant key used by the currently deployed service; export uses that source key and import uses the v2 target.${NC}" >&2
+    return 1
+  fi
+  printf '%s' "$target_tenant_key"
 }
 
 state_sync_endpoint() {
@@ -784,8 +867,6 @@ if is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
   DEPLOY_API="false"
   DEPLOY_UI="false"
 fi
-
-echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
 
 # Check prerequisites
 check_prerequisites() {
@@ -1766,7 +1847,8 @@ create_app_runner() {
   local ecr_uri="$1"
   local image_identifier="${ecr_uri}:latest"
   local state_sync_payload=""
-  local state_sync_tenant_key=""
+  local state_sync_source_tenant_key=""
+  local state_sync_target_tenant_key=""
   
   echo "Creating App Runner service..." >&2
   
@@ -1963,7 +2045,10 @@ create_app_runner() {
   fi
 
   if [[ -n "$existing_service_arn" ]]; then
-    state_sync_tenant_key="$(resolve_state_sync_tenant_key)"
+    state_sync_target_tenant_key="$(resolve_state_sync_tenant_key)"
+    if ! state_sync_source_tenant_key="$(resolve_state_sync_source_tenant_key "$state_sync_target_tenant_key")"; then
+      return 1
+    fi
   fi
 
   if [[ -n "$existing_service_arn" ]]; then
@@ -2200,12 +2285,12 @@ EOF
     echo "Waiting for any in-progress operation to finish..." >&2
     wait_for_apprunner_running "$service_arn" >/dev/null
 
-    if [[ -n "$state_sync_tenant_key" ]]; then
+    if [[ -n "$state_sync_target_tenant_key" ]]; then
       local existing_url=""
       existing_url="$(discover_apprunner_service_url "$existing_service_arn" || true)"
       if [[ -n "$existing_url" ]]; then
         state_sync_payload="$(mktemp)"
-        if state_sync_export "$existing_url" "$TRADER_API_TOKEN" "$state_sync_tenant_key" "$state_sync_payload"; then
+        if state_sync_export "$existing_url" "$TRADER_API_TOKEN" "$state_sync_source_tenant_key" "$state_sync_payload"; then
           echo -e "${YELLOW}✓ Backed up /state/sync before update${NC}" >&2
         else
           rm -f "$state_sync_payload"
@@ -2262,7 +2347,7 @@ EOF
   fi
 
   if [[ -n "$state_sync_payload" ]]; then
-    if state_sync_import "$APP_RUNNER_SERVICE_URL" "$TRADER_API_TOKEN" "$state_sync_tenant_key" "$state_sync_payload"; then
+    if state_sync_import "$APP_RUNNER_SERVICE_URL" "$TRADER_API_TOKEN" "$state_sync_target_tenant_key" "$state_sync_payload"; then
       echo -e "${GREEN}✓ Restored /state/sync after update${NC}" >&2
     else
       echo -e "${YELLOW}Warning: failed to restore /state/sync after update${NC}" >&2
@@ -2633,6 +2718,8 @@ PY
 
 # Main execution
 main() {
+  echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
+
   local need_docker="false"
   local need_npm="false"
   if [[ "$DEPLOY_API" == "true" ]]; then
@@ -2919,4 +3006,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

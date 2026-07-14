@@ -528,7 +528,7 @@ export type BacktestResponse = {
   } | null;
   baselines?: { name: string; metrics: BacktestMetrics }[];
   metrics: BacktestMetrics;
-  latestSignal: LatestSignal;
+  latestSignal?: LatestSignal | null;
   equityCurve: number[];
   prices: number[];
   openTimes?: number[] | null;
@@ -626,6 +626,8 @@ export type BotNeuralGovernor = {
 
 export type BotStatusRunning = {
   running: true;
+  live: boolean;
+  tenantKey: string;
   symbol: string;
   interval: string;
   market: Market;
@@ -633,7 +635,7 @@ export type BotStatusRunning = {
   threshold: number;
   openThreshold?: number;
   closeThreshold?: number;
-  settings?: {
+  settings: {
     pollSeconds: number;
     onlineEpochs: number;
     trainBars: number;
@@ -681,6 +683,7 @@ export type BotStatusStopped = {
   running: false;
   starting?: boolean;
   startingReason?: string;
+  tenantKey?: string;
   symbol?: string;
   interval?: string;
   market?: Market;

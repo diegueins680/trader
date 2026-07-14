@@ -1,36 +1,48 @@
 # Trader Firm — Risk Register
 
+`formal/risk-register.json` is the canonical machine-readable source for risk
+IDs, severities, and lifecycle statuses. This table and the typed Haskell
+projection in `app/Trader/Formal/RiskRegister.hs` must contain exactly the same
+entries in canonical ID order; automation rejects drift and duplicate IDs.
+
+Severity describes impact (`LOW`, `MEDIUM`, `HIGH`, or `CRITICAL`). Status
+describes lifecycle (`OPEN`, `MITIGATED`, or `CLOSED`). A mitigation does not
+change severity and a fixed risk is `CLOSED`, never encoded as a severity.
+
 | ID | Risk | Severity | Owner | Status | Next Action |
 |---|---|---|---|---|---|
-| SCHEMA-001 | Live trade log schema drift (16-field / ISO-8601 contract) | **CRITICAL** | trader-firm-cio | **RESOLVED** 2026-05-20 | CIO delivered schema; Data validated |
-| VOL-TARGET-001 | `volConfStatefulCloseDirection` regression breaks `cabal test` | **CRITICAL** | trader-firm-cto | OPEN | Deadline 2026-05-25 06:00 UTC missed; repro: `cd haskell && cabal test trader-tests`; escalate to CEO if not fixed by 2026-05-27 06:00 UTC |
-| THRESHOLD-FACTOR-001 | `thresholdFactor` not wired into simulation config | Medium | trader-firm-research | OPEN | Confirm research spec; handoff to Execution for wiring |
-| TRAILING-STOP-001 | Trailing-stop exit may re-enter on same bar (race) | Medium | trader-firm-execution | OPEN | Add bar-level re-entry lock after trailing-stop exit |
-| RISK-LIMIT-001 | Daily / weekly / drawdown limits not enforced in live trading loop | High | trader-firm-risk | **RESOLVED** 2026-05-24 | Runtime spec-coupled invariant checks landed; guardrail tests pass |
-| BINARY-HANG-001 | `trader-hs` binary occasionally hangs on shutdown (SIGTERM) | Medium | trader-firm-cto | **MITIGATED / VALIDATION PENDING** 2026-07-12 | Bounded SIGTERM/SIGINT drain, Warp timeout, worker/job cleanup, state persistence, and PostgreSQL close are implemented with helper-level deadline tests; confirm with a serve-mode subprocess SIGTERM test against PostgreSQL before closing |
-| GITHUB-502-001 | Autoloop GitHub API 502 retries are unbounded | **MEDIUM** | trader-firm-cto | OPEN | Fix deployed 5c64c508 (exponential backoff + 3 retries). Cycle 166 observed. Severity reduces to LOW if 2 more clean cycles confirm by 18:00 UTC. |
-| EXECUTION-DATASET-001 | Dataset generation for backtests is non-deterministic | Medium | trader-firm-data | OPEN | Seed RNG and snapshot dataset hash in test output |
-| AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on same repo | High | trader-firm-cto | OPEN | Add PID file / lockfile in `scripts/autoloop-forever.mjs` |
-| AUTOLOOP-STALL-001 | Autoloop stall detection is manual (no heartbeat) | **CRITICAL** | trader-firm-cto | **RESOLVED** 2026-05-25 | Telemetry recovered (cycle 163 at 01:10 UTC); heartbeat NDJSON emitted every 60s; alert if >5 min gap |
-| **CIO-DEAFNESS-001** | CIO missed deadlines; no report since 18:31 UTC | **CRITICAL** | trader-firm-ceo | OPEN | CEO to ping CIO; GO/NO-GO deadlines 2026-05-25 22:00 UTC and 2026-05-26 22:00 UTC both missed; escalate to owner |
-| **ZERO-VIABLE-SIGNAL-001** | No method achieves Sharpe >= 0.20 on >= 5000-bar data | **CRITICAL** | trader-firm-cio / trader-firm-research | OPEN | Research deadline 2026-05-25 23:30 UTC missed; no new data since 2026-05-25 03:52 UTC; escalate to CEO |
-| **KALMAN-NUMSTAB-001** | Kalman filter numerical instability / zero trades / hangs | **MEDIUM** | trader-firm-cto | OPEN | Fix committed 8d41af11 (p0→10·I, std floor 1e-6). Risk assessed by trader-firm-risk: tail risks acceptable. Severity reduces to LOW if 2 more clean cycles confirm by 18:00 UTC. |
-| **EXECUTION-MISSING-001** | Execution missed 5+ consecutive deadlines; no trade-log spec | **CRITICAL** | trader-firm-execution | OPEN | Execution deadlines 2026-05-25 23:00 UTC and 2026-05-26 22:00 UTC both missed; escalate to CEO |
-| **AUTOLOOP-SINGLETON-001** | Multiple autoloop instances may race on same repo | High | trader-firm-cto | OPEN | PID 70643 healthy (cycle 48); metrics path divergence noted; add PID file / lockfile in `scripts/autoloop-forever.mjs` |
-| **TRADE-LOG-GAP-001** | Missing `exit_reason` / `halt_reason` in trade-log schema | **HIGH** | trader-firm-cio | **RESOLVED** 2026-05-29 | CIO schema contract v1.0 (2026-05-24) includes `exit_reason` (field #9, §3.2). Execution `--trade-log` flag landed at 0bbc386f. Risk downgraded. |
-| **TRADE-LOG-GAP-002** | Missing native drawdown, daily/weekly loss, expectancy fields | **MEDIUM** | trader-firm-cio | OPEN | Add computed risk-state snapshot or derived fields to schema v1.1 by 2026-05-27 18:00 UTC (deadline missed; re-assess) |
-| **AUTOLOOP-DOWN-003** | Autoloop DOWN — no process alive | **CRITICAL** | trader-firm-cto | OPEN | No autoloop-forever.mjs process alive. Metrics NDJSON last entry: cycle 384 at 2026-05-29 21:27 UTC. Operational outage. CTO to restart or diagnose immediately. |
-| **KALMAN-NUMSTAB-001** | Kalman filter numerical instability / zero trades / hangs | **MEDIUM** | trader-firm-cto | OPEN | Fix committed 8d41af11. **UNVALIDATED** — autoloop DOWN since 2026-05-29 21:27 UTC. Cannot confirm clean cycles. Severity remains MEDIUM until live validation resumes. |
-| **GITHUB-502-001** | Autoloop GitHub API 502 retries are unbounded | **MEDIUM** | trader-firm-cto | OPEN | Fix deployed 5c64c508. **UNVALIDATED** — autoloop DOWN since 2026-05-29 21:27 UTC. Cannot confirm clean cycles. Severity remains MEDIUM until live validation resumes. |
-| **MAX-POSITION-GUARDRAIL-001** | `maxPositionSize <= 0` silently disables all trades with no error | **RESOLVED** 2026-05-30 | trader-firm-risk | CLOSED | Runtime guardrail landed in `simulateEnsembleLongFlatVWithHLChecked`: rejects `maxPositionSize <= 0` or non-finite with explicit `Left` error. Tests updated to expect rejection. Commit pending. |
+| AUTOLOOP-DOWN-003 | Autoloop process was not alive at the last recorded operational review | CRITICAL | trader-firm-cto | OPEN | Restart or diagnose the supervisor and replace stale evidence with a fresh health witness |
+| AUTOLOOP-RESET-2026-05-30 | Autoloop cycle counter reset and broke continuity assumptions | CRITICAL | trader-firm-cto | OPEN | Establish and verify durable monotone cycle identity across supervisor restarts |
+| AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on the same repository | HIGH | trader-firm-cto | OPEN | Enforce one process with a verified lock and stale-owner recovery |
+| AUTOLOOP-STALL-001 | Autoloop stall detection depended on manual observation | CRITICAL | trader-firm-cto | CLOSED | Heartbeat telemetry and a bounded stale-heartbeat alert are implemented |
+| BINARY-HANG-001 | The trader binary could hang while draining after a termination signal | MEDIUM | trader-firm-cto | MITIGATED | Close after a serve-mode PostgreSQL subprocess termination witness |
+| CIO-DEAFNESS-001 | The CIO reporting lane missed recorded deadlines | CRITICAL | trader-firm-ceo | OPEN | Obtain a current owner report and explicitly close or reassign the obligation |
+| EXECUTION-DATASET-001 | Backtest dataset generation is not fully reproducible | MEDIUM | trader-firm-data | OPEN | Seed randomness and record the source dataset hash in test output |
+| EXECUTION-MISSING-001 | The execution reporting lane missed recorded trade-log deadlines | CRITICAL | trader-firm-execution | OPEN | Obtain a current execution report and explicitly close or reassign the obligation |
+| EXPECTANCY-INVALID-001 | Missing or non-finite expectancy could bypass a configured minimum | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed expectancy and bounded verification covers it |
+| GITHUB-502-001 | Transient GitHub API failures can interrupt automation | MEDIUM | trader-firm-cto | OPEN | Replace stale outage evidence with current bounded-retry operational validation |
+| KALMAN-NUMSTAB-001 | Kalman numerical instability could produce zero trades or hangs | MEDIUM | trader-firm-cto | OPEN | Obtain current operational validation of the implemented numerical guards |
+| LEVERAGE-INVALID-001 | Malformed leverage configuration could bypass position-size protection | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed leverage and live futures leverage is capped |
+| LEVERAGE-SANITY-001 | Corrupted or absurd venue leverage evidence could bypass size limits | CRITICAL | trader-firm-risk | CLOSED | Venue evidence is capped and configuration validation rejects malformed values |
+| LOSS-STREAK-LIMIT-INVALID-001 | A negative loss-streak limit could silently disable protection | CRITICAL | trader-firm-risk | CLOSED | Negative limits fail closed while zero remains the documented disabled boundary |
+| MARKET-DATA-TIMESTAMP-OVERFLOW-001 | Timestamp overflow could make stale or discontinuous evidence appear valid | CRITICAL | trader-firm-data | CLOSED | Checked arithmetic fails closed across market-data time validation |
+| MAX-POSITION-GUARDRAIL-001 | Malformed maximum-position configuration could silently disable every trade | HIGH | trader-firm-risk | CLOSED | Checked simulation rejects non-positive or non-finite configuration |
+| RISK-LIMIT-001 | Daily, weekly, and drawdown limits were not enforced in the live loop | HIGH | trader-firm-risk | CLOSED | Runtime invariant checks and guardrail regressions are implemented |
+| RISK-LIMIT-NON-FINITE-001 | Non-finite risk limits could silently disable halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects non-finite limits and bounded verification covers it |
+| RISK-METRIC-INVALID-001 | Malformed loss or drawdown evidence could bypass live halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` validates risk evidence before threshold comparisons |
+| SCHEMA-001 | Live trade-log schema could drift from its declared contract | CRITICAL | trader-firm-cio | CLOSED | The schema contract and executable validation are tracked |
+| THRESHOLD-FACTOR-001 | `thresholdFactor` may not be wired into simulation configuration | MEDIUM | trader-firm-research | OPEN | Confirm the research contract and add a simulation integration witness |
+| TRADE-LOG-GAP-001 | Trade-log records lacked required exit and halt evidence | HIGH | trader-firm-cio | CLOSED | The schema includes `exit_reason` and the trade-log implementation is tracked |
+| TRADE-LOG-GAP-002 | Trade logs lack a native snapshot of derived risk-state metrics | MEDIUM | trader-firm-cio | OPEN | Define whether schema or deterministic derivation owns the snapshot |
+| TRAILING-STOP-001 | A trailing-stop exit may re-enter on the same bar | MEDIUM | trader-firm-execution | OPEN | Add and verify a bar-level re-entry lock after trailing-stop exits |
+| VOL-TARGET-001 | A stateful volatility-target regression was reported in the Haskell tests | CRITICAL | trader-firm-cto | OPEN | Reproduce against the current canonical Haskell wrapper and close or update the stale report |
+| VOL-TARGET-INVALID-001 | Malformed volatility-target configuration could bypass scaling limits | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed targets and bounded verification covers it |
+| ZERO-VIABLE-SIGNAL-001 | No strategy signal had met the recorded long-sample viability threshold | CRITICAL | trader-firm-research | OPEN | Run and record a current long-dataset viability evaluation |
 
----
+## Update rule
 
-*Last updated: 2026-05-30 00:10 UTC by trader-firm-risk*
-*Next review: 2026-05-30 06:00 UTC or upon any status change*
+Change `formal/risk-register.json` first, then update both projections in the
+same commit. IDs are permanent. Reopening a risk changes its status rather than
+creating a duplicate row; a materially different risk receives a new ID.
 
-## Recent Changes (2026-05-30)
-- **AUTOLOOP-DOWN-003**: NEW — Autoloop fully DOWN (no process alive). Last metrics: cycle 384 at 2026-05-29 21:27 UTC. Replaces AUTOLOOP-STALL-002.
-- **AUTOLOOP-STALL-002**: CLOSED — superseded by AUTOLOOP-DOWN-003 (process no longer alive).
-- **KALMAN-NUMSTAB-001 / GITHUB-502-001**: Status changed to **UNVALIDATED** — fixes committed/deployed but cannot confirm without live autoloop.
-- **TRADE-LOG-GAP-001**: CLOSED — Schema contract v1.0 includes `exit_reason`; `--trade-log` flag landed.
+Last reconciled: 2026-07-12.

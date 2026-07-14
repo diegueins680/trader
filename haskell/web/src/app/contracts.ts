@@ -55,6 +55,7 @@ export const METHOD_IDS = [
   "softmax_blend",
   "smooth_softmax_blend",
   "hedge_blend",
+  "meta_hedge_blend",
   "net_softmax_blend",
   "edge_blend",
   "edge_pick",
@@ -69,6 +70,8 @@ export const METHOD_IDS = [
   "ta_breakout",
   "ta_best",
   "ta_regime_switch",
+  "sma_cross",
+  "sma_cross_regime",
   "kalman_physics_error",
 ] as const;
 

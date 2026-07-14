@@ -1421,7 +1421,10 @@ metricInt m key def =
                     fromMaybe def (scientificToBoundedInt n)
                 _ -> def
 
--- | Whether a deployability failure is safe to retain for search only.
+{- | Whether a soft-filtered trial is safe to retain for internal search.
+Deployability still uses the stricter promotion gates; this only keeps
+walk-forward-stable soft failures available for survivor breeding.
+-}
 optimizerSoftSearchFilterReason :: Maybe String -> Bool
 optimizerSoftSearchFilterReason filterReason =
     case filterReason of
@@ -1441,15 +1444,13 @@ optimizerSoftSearchFilterReason filterReason =
                 , "turnover>"
                 ]
 
-{- | Retain a soft-filtered candidate only with present walk-forward evidence
-and the same strict activity/return floors used by survivor parents.
+{- | Retain a soft-filtered candidate when it has walk-forward evidence and
+stays within the search-only walk-forward dispersion cap.
 -}
-optimizerSoftSearchEligible :: Maybe String -> Maybe Double -> Double -> Int -> Int -> Double -> Double -> Bool
-optimizerSoftSearchEligible filterReason mWfSharpeStd searchMaxWfSharpeStd activityCount activityFloor annualizedReturn annualizedReturnFloor =
+optimizerSoftSearchEligible :: Maybe String -> Maybe Double -> Double -> Bool
+optimizerSoftSearchEligible filterReason mWfSharpeStd searchMaxWfSharpeStd =
     optimizerSoftSearchFilterReason filterReason
         && maybe False wfSharpeStdWithinSearchLimit mWfSharpeStd
-        && activityCount > activityFloor
-        && annualizedReturn > annualizedReturnFloor
   where
     wfSharpeStdWithinSearchLimit std = searchMaxWfSharpeStd <= 0 || std <= searchMaxWfSharpeStd
 
@@ -7067,17 +7068,11 @@ runOptimizer args0 = do
                                                                                 searchMetricsOk =
                                                                                     case trMetrics tr0 of
                                                                                         Nothing -> False
-                                                                                        Just metrics ->
-                                                                                            let activityCount = survivorParentActivityCount (Just metrics)
-                                                                                                annRet = metricFloat (Just metrics) "annualizedReturn" 0
-                                                                                             in optimizerSoftSearchEligible
-                                                                                                    filterReason
-                                                                                                    mSearchWfSharpeStd
-                                                                                                    searchMaxWfSharpeStd
-                                                                                                    activityCount
-                                                                                                    survivorParentActivityFloor
-                                                                                                    annRet
-                                                                                                    survivorParentAnnualizedReturnFloor
+                                                                                        Just _ ->
+                                                                                            optimizerSoftSearchEligible
+                                                                                                filterReason
+                                                                                                mSearchWfSharpeStd
+                                                                                                searchMaxWfSharpeStd
                                                                                 softSearchEligible =
                                                                                     trOk tr0
                                                                                         && isJust (trFinalEquity tr0)

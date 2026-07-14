@@ -19,7 +19,7 @@ import Data.ByteArray (convert)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import Data.Char (toLower, toUpper)
-import Data.List (nub)
+import Data.List (dropWhileEnd, intercalate, nub)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -41,8 +41,16 @@ normalizeBinanceCredential raw =
     case raw of
         Nothing -> Nothing
         Just v ->
-            let trimmed = trim v
+            let trimmed = trimCredential v
              in if null trimmed then Nothing else Just trimmed
+
+-- Keep credential normalization identical in Haskell, the browser, and the
+-- deployment helper. Only ASCII boundary whitespace is normalization; every
+-- other character remains part of the credential.
+trimCredential :: String -> String
+trimCredential = dropWhileEnd isCredentialWhitespace . dropWhile isCredentialWhitespace
+  where
+    isCredentialWhitespace c = c `elem` [' ', '\t', '\n', '\r', '\f', '\v']
 
 type TenantKey = Text
 
@@ -51,6 +59,12 @@ tenantKeyPrefixBinance = "binance"
 
 tenantKeyPrefixCoinbase :: String
 tenantKeyPrefixCoinbase = "coinbase"
+
+tenantKeyVersionV2 :: String
+tenantKeyVersionV2 = "v2"
+
+credentialSeparator :: Char
+credentialSeparator = ':'
 
 normalizeTenantKey :: Maybe String -> Maybe TenantKey
 normalizeTenantKey raw =
@@ -64,16 +78,37 @@ tenantKeyFromBinanceKeys :: Maybe String -> Maybe String -> Maybe TenantKey
 tenantKeyFromBinanceKeys mKey mSecret = do
     key <- normalizeBinanceCredential mKey
     secret <- normalizeBinanceCredential mSecret
-    let payload = key ++ ":" ++ secret
-    pure (T.pack (tenantKeyPrefixBinance ++ ":" ++ hashKeyHex payload))
+    pure (tenantKeyFromCredentialTuple tenantKeyPrefixBinance [key, secret])
 
 tenantKeyFromCoinbaseKeys :: Maybe String -> Maybe String -> Maybe String -> Maybe TenantKey
 tenantKeyFromCoinbaseKeys mKey mSecret mPass = do
     key <- normalizeBinanceCredential mKey
     secret <- normalizeBinanceCredential mSecret
     passphrase <- normalizeBinanceCredential mPass
-    let payload = key ++ ":" ++ secret ++ ":" ++ passphrase
-    pure (T.pack (tenantKeyPrefixCoinbase ++ ":" ++ hashKeyHex payload))
+    pure (tenantKeyFromCredentialTuple tenantKeyPrefixCoinbase [key, secret, passphrase])
+
+tenantKeyFromCredentialTuple :: String -> [String] -> TenantKey
+tenantKeyFromCredentialTuple prefix components
+    | all legacyCredentialComponentSafe components =
+        renderTenantKey prefix Nothing (intercalate [credentialSeparator] components)
+    | otherwise =
+        renderTenantKey prefix (Just tenantKeyVersionV2) (encodeCredentialTupleV2 components)
+
+legacyCredentialComponentSafe :: String -> Bool
+legacyCredentialComponentSafe component =
+    credentialSeparator `notElem` component
+
+renderTenantKey :: String -> Maybe String -> String -> TenantKey
+renderTenantKey prefix version payload =
+    T.pack (intercalate ":" (prefix : catMaybes [version] ++ [hashKeyHex payload]))
+
+encodeCredentialTupleV2 :: [String] -> String
+encodeCredentialTupleV2 components =
+    "tenant-key-v2|" ++ concatMap encodeCredentialComponentV2 components
+
+encodeCredentialComponentV2 :: String -> String
+encodeCredentialComponentV2 component =
+    show (BS.length (TE.encodeUtf8 (T.pack component))) ++ ":" ++ component
 
 tenantKeysFromParams ::
     Maybe String ->
