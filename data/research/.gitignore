@@ -3,4 +3,5 @@
 *.csv
 *.parquet
 *.feather
+.collector/
 !.gitignore

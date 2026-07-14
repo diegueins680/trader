@@ -502,9 +502,9 @@
     {
       "id": "A-RESEARCH",
       "title": "Research acquisition, point-in-time cache, walk-forward harness, and statistical analysis",
-      "features": ["research data feed", "append-only cache", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
+      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
       "criticality": "correctness",
-      "implementation": ["scripts/research/**", "scripts/fetch-data-pipeline.sh"],
+      "implementation": ["scripts/research/**", "scripts/fetch-data-pipeline.sh", "scripts/install-research-datafeed-launchagent.sh"],
       "uses": ["G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-IDEMPOTENT"],
       "dependsOn": ["H-MARKET-DATA", "H-METRICS"],
       "requires": [
@@ -512,7 +512,7 @@
         { "id": "A-RESEARCH-R2", "statement": "Pre-registered edge campaigns enumerate the complete trial grid, align all symbol/feature panels to an exact chronological bar grid, and seal the final holdout unless all promotion gates pass." }
       ],
       "ensures": [
-        { "id": "A-RESEARCH-E1", "statement": "Walk-forward results use disjoint chronological evaluation folds; overlapping refresh cannot replace known historical values with missing data; seed/config/data revision are recorded." },
+        { "id": "A-RESEARCH-E1", "statement": "Walk-forward results use disjoint chronological evaluation folds; cache mutation and cross-symbol snapshots use one shared lock plus atomic replacement; acquisition is wall-clock bounded; stale or degraded evidence cannot report pass or extend new point-in-time alignment past its freshness bound; seed/config/data revision are recorded." },
         { "id": "A-RESEARCH-E2", "statement": "Nested selection fits only embargoed training prefixes, evaluates the frozen selected candidate once on each untouched outer fold, and records complete trial-return matrices for formal DSR and CSCV/PBO diagnostics." }
       ],
       "invariants": [
@@ -525,6 +525,7 @@
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/scripts/test_review_bot_day.py", "contains": "unittest" },
+        { "level": "regression", "path": "test/research-datafeed-scheduler.test.mjs", "contains": "scheduled research collector serializes writers" },
         { "level": "regression", "path": "test/research-edge-campaign.test.mjs", "contains": "edge campaign is causal, complete, and cost monotone" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "formal DSR matches a fixed cross-trial benchmark" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "CSCV PBO separates a stable winner" },
