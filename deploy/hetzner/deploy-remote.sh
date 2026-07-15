@@ -159,6 +159,13 @@ rsync -az --human-readable \
   -e "ssh ${ssh_opts[*]}" \
   "${repo_root}/" "${ssh_user}@${host}:${repo_dir}/"
 
+# The general overlay deliberately never deletes server files, but hashed web
+# bundles are disposable. Prune this directory so an old cached HTML document
+# cannot keep loading a historical UI bundle after the API has been replaced.
+rsync -az --delete --human-readable \
+  -e "ssh ${ssh_opts[*]}" \
+  "${repo_root}/haskell/web/dist/" "${ssh_user}@${host}:${repo_dir}/haskell/web/dist/"
+
 if [[ -n "$env_overrides_file" ]]; then
   echo "==> Uploading env overrides to ${host}"
   remote_env_overrides_file="$(ssh "${ssh_opts[@]}" "${ssh_user}@${host}" "mktemp")"
@@ -166,10 +173,30 @@ if [[ -n "$env_overrides_file" ]]; then
 fi
 
 echo "==> Building and starting containers on ${host}"
-ssh "${ssh_opts[@]}" "${ssh_user}@${host}" \
-  "REPO_DIR='${repo_dir}' ENV_FILE='${env_file}' MANAGED_ENV_FILE='${managed_env_file}' ENV_OVERRIDES_FILE='${remote_env_overrides_file}' COMPOSE_FILE='${compose_file}'" \
-  "TRADER_GIT_COMMIT='${commit}' DEPLOY_HEALTH_TIMEOUT_SEC='${health_timeout}' ROLLBACK_IMAGE='${rollback_image}' bash -s" <<'REMOTE'
+# Send one explicit remote command. Passing the assignments as separate ssh
+# arguments made a partial rsync appear successful in CI while the remote
+# compose/attestation phase produced no output and did not replace the API.
+quote_remote_arg() {
+  printf '%q' "$1"
+}
+
+remote_command="env"
+for assignment in \
+  "REPO_DIR=${repo_dir}" \
+  "ENV_FILE=${env_file}" \
+  "MANAGED_ENV_FILE=${managed_env_file}" \
+  "ENV_OVERRIDES_FILE=${remote_env_overrides_file}" \
+  "COMPOSE_FILE=${compose_file}" \
+  "TRADER_GIT_COMMIT=${commit}" \
+  "DEPLOY_HEALTH_TIMEOUT_SEC=${health_timeout}" \
+  "ROLLBACK_IMAGE=${rollback_image}"; do
+  remote_command+=" $(quote_remote_arg "$assignment")"
+done
+remote_command+=" bash -s"
+
+ssh "${ssh_opts[@]}" "${ssh_user}@${host}" "$remote_command" <<'REMOTE'
 set -Eeuo pipefail
+echo "==> Remote deployment started for ${TRADER_GIT_COMMIT}"
 cd "$REPO_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -285,7 +312,12 @@ rollback_deployment() {
 
 trap 'rollback_deployment $?' ERR
 
-"${compose[@]}" up -d --build --remove-orphans
+# Build and recreate the API explicitly. `up -d --build` is allowed to retain
+# an already-running container when Compose decides its configuration is
+# unchanged; that would update the static UI but leave the API's commit stale.
+"${compose[@]}" build api
+"${compose[@]}" up -d --no-deps --force-recreate api
+"${compose[@]}" up -d --remove-orphans
 wait_for_api_health
 
 health_json="$(api_health_json)"

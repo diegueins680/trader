@@ -12,6 +12,7 @@ Trader is a Haskell trading research and execution system with a React operation
 - Cost, exposure, drawdown, stale-data, capital-preservation, and execution gates
 - Walk-forward and overfit-aware optimizer evidence with top-combo adoption controls
 - React monitoring UI for signals, bots, positions, trades, optimizer results, and operations
+- Persisted bot ownership for exchange positions, so system-opened positions remain attributable across bot restarts
 - Machine-checked formal-spec registry and repo-wide verification wrappers
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example](.env.example) for the complete runtime configuration surface.
@@ -225,7 +226,7 @@ TRADER_BOT_NEURAL_GOVERNOR_ROLLBACK_ADVANTAGE_FLOOR=-0.02
 - Render: [deploy/render/README.md](deploy/render/README.md)
 - Fly: `fly.toml`, `fly.research.toml`, and `haskell/web/fly.frontend.toml`
 
-For Hetzner CI, both trading and research boxes are mandatory. The workflow requires the SSH key, both role hosts, and pinned `known_hosts` entries, and deploys only the latest green commit. Deployments retain the previous API image, wait for container health, verify the exact `/health` commit, and roll back automatically if health or attestation fails.
+For Hetzner CI, both trading and research boxes are mandatory. The workflow requires the SSH key, both role hosts, and pinned `known_hosts` entries, and deploys only the latest green commit. Each release explicitly builds and recreates the API, retains the previous image, waits for container health, and verifies the exact `/health` commit. CI rejects a deploy that exits without the remote attestation and rolls back on failed health or commit attestation.
 
 ## Automation and maintenance
 

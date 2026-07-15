@@ -332,6 +332,8 @@ export type BinancePosition = {
   leverage?: number | null;
   marginType?: string | null;
   positionSide?: string | null;
+  /** Persisted system bot that opened this position, when known. */
+  botId?: number | null;
 };
 
 export type BinancePositionChart = {

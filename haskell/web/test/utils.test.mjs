@@ -548,6 +548,11 @@ const bots = [{ symbol: "FILUSDT", status: { running: false, starting: true, mar
 const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
 assert.equal(orphans.length, 0);
 });
+test("buildOrphanedPositions treats a persisted bot owner as adopted when runtime status is unavailable", () => {
+const positions = [{ symbol: "FILUSDT", positionAmt: 1.2, positionSide: "LONG", botId: 42 }];
+const orphans = buildOrphanedPositions(positions, [], { market: "futures" });
+assert.equal(orphans.length, 0);
+});
 test("buildOrphanedPositions ignores flat/dust positions even with stale explicit sides", () => {
 const positions = [
 { symbol: "BTCUSDT", positionAmt: 0, positionSide: "LONG" },

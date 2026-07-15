@@ -132,7 +132,7 @@ jobs:
 
       # The box serves haskell/web/dist via Caddy; it is gitignored, so build it
       # here and rsync it to the box (matches the existing local-build flow).
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -260,7 +260,11 @@ jobs:
             set -e
 
             if [[ "$deploy_status" -eq 0 ]]; then
-              exit 0
+              if grep -Fq "Deploy healthy and commit-attested (${TRADER_GIT_COMMIT})" "$deploy_log"; then
+                exit 0
+              fi
+              echo "::error::Hetzner ${ROLE} deploy exited successfully without remote commit attestation."
+              deploy_status=1
             fi
 
             if is_transient_ssh_failure "$deploy_log" && [[ "$attempt" -lt 3 ]]; then

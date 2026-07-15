@@ -210,7 +210,7 @@ function uniqueSides(sides: Array<"LONG" | "SHORT">): Array<"LONG" | "SHORT"> {
   return Array.from(new Set(sides));
 }
 
-export function buildOrphanedPositions<T extends { symbol: string; positionAmt: number; positionSide?: string | null }>(
+export function buildOrphanedPositions<T extends { symbol: string; positionAmt: number; positionSide?: string | null; botId?: number | null }>(
   positions: T[],
   botEntries: Array<{ symbol: string; status: BotStatusSingle }>,
   opts?: OrphanedPositionsOptions,
@@ -232,6 +232,9 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
   return positions
     .map((pos): OrphanedPosition<T> | null => {
       if (isEffectivelyFlatPositionAmount(pos.positionAmt)) return null;
+      // A durable position-to-bot link is authoritative even when the bot runtime
+      // is temporarily unavailable after a restart or status-fetch failure.
+      if (typeof pos.botId === "number" && Number.isSafeInteger(pos.botId) && pos.botId > 0) return null;
       const statuses = statusesBySymbol.get(normalizeSymbolKey(pos.symbol)) ?? [];
       const activeStatuses = statuses.filter((status) => status.running || status.starting === true);
       const activeTradingStatuses = activeStatuses.filter((status) => botTradeEnabled(status) !== false);
