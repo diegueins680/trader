@@ -260,7 +260,11 @@ jobs:
             set -e
 
             if [[ "$deploy_status" -eq 0 ]]; then
-              exit 0
+              if grep -Fq "Deploy healthy and commit-attested (${TRADER_GIT_COMMIT})" "$deploy_log"; then
+                exit 0
+              fi
+              echo "::error::Hetzner ${ROLE} deploy exited successfully without remote commit attestation."
+              deploy_status=1
             fi
 
             if is_transient_ssh_failure "$deploy_log" && [[ "$attempt" -lt 3 ]]; then

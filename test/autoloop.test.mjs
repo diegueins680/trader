@@ -1491,6 +1491,8 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(workflow, /for attempt in 1 2 3; do/);
   assert.match(workflow, /Transient \$\{ROLE\} Hetzner SSH failure on attempt \$\{attempt\}; retrying\./);
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
+  assert.match(workflow, /deploy exited successfully without remote commit attestation/);
+  assert.match(workflow, /Deploy healthy and commit-attested \(\$\{TRADER_GIT_COMMIT\}\)/);
   assert.doesNotMatch(workflow, /HETZNER_RESEARCH_REQUIRED/);
   assert.doesNotMatch(workflow, /skipping research deploy/);
   assert.match(workflow, /HETZNER_\$\{ROLE\^\^\}_KNOWN_HOSTS is required; host-key TOFU is not permitted/);
@@ -1504,9 +1506,14 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(deployScript, /--exclude 'haskell\/\.stack-root\/'/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-work\/'/);
   assert.match(deployScript, /--exclude '\.venv\/'/);
+  assert.match(deployScript, /rsync -az --delete --human-readable/);
+  assert.match(deployScript, /haskell\/web\/dist\//);
   assert.match(deployScript, /docker image tag "\$previous_image_id" "\$ROLLBACK_IMAGE"/);
   assert.match(deployScript, /wait_for_api_health/);
   assert.match(deployScript, /\/health reported commit/);
+  assert.match(deployScript, /Remote deployment started for \$\{TRADER_GIT_COMMIT\}/);
+  assert.match(deployScript, /\"\$\{compose\[@\]\}\" build api/);
+  assert.match(deployScript, /--force-recreate api/);
   assert.match(deployScript, /Rolling API back to/);
   assert.match(deployScript, /TRADER_API_IMAGE="\$ROLLBACK_IMAGE"/);
 });
