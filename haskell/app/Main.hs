@@ -2652,6 +2652,7 @@ isOpsConnectionFailure e =
             , "server closed the connection unexpectedly"
             , "terminating connection"
             , "connection refused"
+            , "another command is already in progress"
             ]
 
 withOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
@@ -22486,7 +22487,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
     let baseUrl = selectBinanceBaseUrl urls testnet market
         (interval, limitSafe) = binancePositionsIntervalLimit baseArgs params
         mTenantKey =
-            either (const Nothing) id (resolveTenantKeyFromBinancePositionsRequest params)
+            fromRight Nothing (resolveTenantKeyFromBinancePositionsRequest params)
                 <|> tenantKeyFromBinanceKeys apiKey apiSecret
     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
     advanceRequestProgressMaybe mTracker "positions" (Just ("positionRisk timeout " ++ show positionsTimeoutSec ++ "s"))
@@ -22564,7 +22565,7 @@ computeBinancePositionsResponseWithDeadline :: Maybe (RequestProgressStore, Stri
 computeBinancePositionsResponseWithDeadline mTracker mOps baseArgs market testnet params positionsTimeoutSec = do
     let (interval, limitSafe) = binancePositionsIntervalLimit baseArgs params
         timeoutMsg = binancePositionsTimeoutMessage positionsTimeoutSec
-        mTenantKey = either (const Nothing) id (resolveTenantKeyFromBinancePositionsRequest params)
+        mTenantKey = fromRight Nothing (resolveTenantKeyFromBinancePositionsRequest params)
     mResult <-
         timeout
             (binancePositionsOverallTimeoutMicros positionsTimeoutSec)
