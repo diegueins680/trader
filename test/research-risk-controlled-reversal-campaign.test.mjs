@@ -134,6 +134,29 @@ for invalid_cost in (0.0005, 0.003):
         assert "cost_per_turnover" in str(error)
     else:
         raise AssertionError("unregistered turnover cost was accepted")
+
+assert config.gross_exposure == 0.5
+assert config.registered_gross_exposure == 0.5
+v2_config = replace(
+    config,
+    gross_exposure=0.25,
+    registered_gross_exposure=0.25,
+)
+v2_decisions = R.decision_weights_for_trial(momentum, specs[0], v2_config)
+np.testing.assert_allclose(
+    v2_decisions.iloc[0], [0.125, 0, 0, 0, -0.125, 0, 0, 0]
+)
+for invalid_exposure in (
+    replace(config, gross_exposure=0.25),
+    replace(config, registered_gross_exposure=0.25),
+    replace(config, gross_exposure=0.3, registered_gross_exposure=0.3),
+):
+    try:
+        R.weights_for_trial(momentum, specs[1], invalid_exposure)
+    except ValueError as error:
+        assert "gross_exposure" in str(error)
+    else:
+        raise AssertionError("unregistered or mismatched gross exposure was accepted")
 `);
   },
 );

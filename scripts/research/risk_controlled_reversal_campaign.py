@@ -1,9 +1,9 @@
-"""Pure mechanics for the locked risk-controlled reversal campaign.
+"""Pure mechanics for the locked risk-controlled reversal campaign family.
 
 The campaign changes one alpha-execution mechanism: exit-rank-three rank
-hysteresis versus a fixed exit-rank-one matched control. All portfolios share
-the same lower exposure, close-to-close risk constraints, funding accounting,
-and charged terminal liquidation.
+hysteresis versus a fixed exit-rank-one matched control. Each campaign pins one
+of the explicitly registered gross exposures while sharing close-to-close risk
+constraints, funding accounting, and charged terminal liquidation.
 """
 
 from __future__ import annotations
@@ -114,6 +114,7 @@ class RiskControlledReversalConfig:
     minimum_shock_equity_fraction: float = 0.50
     minimum_shock_maintenance_coverage: float = 2.0
     charge_terminal_liquidation: bool = True
+    registered_gross_exposure: float = 0.5
 
 
 def campaign_specs(interval_ms: int) -> tuple[RiskControlledReversalSpec, ...]:
@@ -734,7 +735,6 @@ def _validate_config(config: RiskControlledReversalConfig) -> None:
     campaign_specs(config.interval_ms)
     expected = {
         "rebalance_anchor_open_time": REBALANCE_ANCHOR_OPEN_TIME,
-        "gross_exposure": 0.5,
         "equity_floor": 0.75,
         "maximum_drawdown": 0.20,
         "maximum_endpoint_gross_leverage": 1.0,
@@ -751,6 +751,10 @@ def _validate_config(config: RiskControlledReversalConfig) -> None:
     for name, value in expected.items():
         if getattr(config, name) != value:
             raise ValueError(f"{name} changed from the locked campaign")
+    if config.registered_gross_exposure not in (0.5, 0.25):
+        raise ValueError("registered_gross_exposure is not a locked campaign value")
+    if config.gross_exposure != config.registered_gross_exposure:
+        raise ValueError("gross_exposure changed from the locked campaign")
     if config.rebalance_anchor_open_time % config.interval_ms != 0:
         raise ValueError("rebalance anchor must lie on the absolute interval grid")
     if config.cost_per_turnover not in (0.001, 0.002):

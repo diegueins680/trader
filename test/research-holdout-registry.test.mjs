@@ -21,14 +21,303 @@ test(
         String.raw`
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import tempfile
 
 sys.path.insert(0, sys.argv[1])
 import campaign_runner as runner
 
+with tempfile.TemporaryDirectory() as layout_temporary:
+    layout = runner.Path(layout_temporary)
+    canonical = layout / "canonical repo"
+    linked = layout / "linked worktree"
+    stale = layout / "stale worktree"
+    subprocess.run(["git", "init", str(canonical)], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", "-C", str(canonical), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(canonical), "config", "user.name", "Registry Test"],
+        check=True,
+    )
+    (canonical / "tracked").write_text("test\n")
+    subprocess.run(["git", "-C", str(canonical), "add", "tracked"], check=True)
+    subprocess.run(
+        ["git", "-C", str(canonical), "commit", "-m", "fixture"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    for worktree in (linked, stale):
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(canonical),
+                "worktree",
+                "add",
+                "--detach",
+                str(worktree),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+
+    assert runner._shared_repository_root(canonical) == canonical.resolve()
+    assert runner._shared_repository_root(linked) == canonical.resolve()
+    assert runner._git_common_directory(canonical) == (canonical / ".git").resolve()
+    assert runner._git_common_directory(linked) == (canonical / ".git").resolve()
+    canonical_registry = runner._configured_shared_holdout_registry(
+        runner._shared_repository_root(canonical), {}
+    )
+    linked_registry = runner._configured_shared_holdout_registry(
+        runner._shared_repository_root(linked), {}
+    )
+    assert canonical_registry == linked_registry
+    previous_override = os.environ.get("TRADER_EDGE_HOLDOUT_REGISTRY")
+    os.environ["TRADER_EDGE_HOLDOUT_REGISTRY"] = str(layout / "ignored")
+    try:
+        assert runner._configured_shared_holdout_registry(canonical) == (
+            canonical / runner.SHARED_HOLDOUT_REGISTRY_RELATIVE
+        ).resolve()
+    finally:
+        if previous_override is None:
+            del os.environ["TRADER_EDGE_HOLDOUT_REGISTRY"]
+        else:
+            os.environ["TRADER_EDGE_HOLDOUT_REGISTRY"] = previous_override
+    absolute_override = layout / "absolute-registry"
+    assert runner._configured_shared_holdout_registry(
+        canonical,
+        {"TRADER_EDGE_HOLDOUT_REGISTRY": str(absolute_override)},
+    ) == absolute_override.resolve()
+
+    try:
+        runner._configured_shared_holdout_registry(
+            canonical, {"TRADER_EDGE_HOLDOUT_REGISTRY": "relative/registry"}
+        )
+    except ValueError as error:
+        assert "must be absolute" in str(error)
+    else:
+        raise AssertionError("relative shared-registry overrides must fail closed")
+
+    malformed = layout / "malformed"
+    malformed.mkdir()
+    (malformed / ".git").write_text("not-gitdir-metadata\n")
+    try:
+        runner._shared_repository_root(malformed)
+    except ValueError as error:
+        assert "unable to resolve Git worktree metadata" in str(error)
+    else:
+        raise AssertionError("malformed linked-worktree metadata must fail closed")
+
+    legacy_registry = linked / runner.SHARED_HOLDOUT_REGISTRY_RELATIVE
+    legacy_registry.mkdir(parents=True)
+    (legacy_registry / ("a" * 64 + ".json")).write_text("{}")
+    try:
+        runner._assert_shared_registry_reconciled(
+            canonical, canonical, canonical_registry
+        )
+    except ValueError as error:
+        assert "require reconciliation" in str(error)
+    else:
+        raise AssertionError("legacy worktree-local markers must fail closed")
+
+    original_repository_root = runner.REPOSITORY_ROOT
+    original_shared_root = runner.SHARED_REPOSITORY_ROOT
+    original_canonical_registry = runner.CANONICAL_SHARED_HOLDOUT_REGISTRY_DIR
+    original_shared_registry = runner.SHARED_HOLDOUT_REGISTRY_DIR
+    original_resolution_error = runner.SHARED_REPOSITORY_RESOLUTION_ERROR
+    guard_output = layout / "guard-output"
+    guard_output.mkdir()
+    guard_marker = canonical_registry / ("c" * 64 + ".json")
+    guard_output_record = guard_output / "final-holdout-opened.json"
+    runner.REPOSITORY_ROOT = canonical
+    runner.SHARED_REPOSITORY_ROOT = canonical
+    runner.CANONICAL_SHARED_HOLDOUT_REGISTRY_DIR = canonical_registry
+    runner.SHARED_HOLDOUT_REGISTRY_DIR = canonical_registry
+    runner.SHARED_REPOSITORY_RESOLUTION_ERROR = None
+    try:
+        try:
+            runner._reserve_holdout(
+                canonical_registry,
+                guard_marker,
+                runner._holdout_window(["AAA"], "8h", 100, 200),
+                guard_output_record,
+                {},
+            )
+        except ValueError as error:
+            assert "require reconciliation" in str(error)
+        else:
+            raise AssertionError(
+                "shared reservation must reconcile every linked worktree"
+            )
+        assert not guard_marker.exists()
+        assert not guard_output_record.exists()
+        runner.SHARED_REPOSITORY_RESOLUTION_ERROR = "synthetic failure"
+        try:
+            runner._assert_output_holdout_not_consumed(
+                canonical_registry, guard_output
+            )
+        except ValueError as error:
+            assert "official shared holdout registry cannot be resolved" in str(error)
+        else:
+            raise AssertionError("official fallback registries must fail closed")
+    finally:
+        runner.REPOSITORY_ROOT = original_repository_root
+        runner.SHARED_REPOSITORY_ROOT = original_shared_root
+        runner.CANONICAL_SHARED_HOLDOUT_REGISTRY_DIR = original_canonical_registry
+        runner.SHARED_HOLDOUT_REGISTRY_DIR = original_shared_registry
+        runner.SHARED_REPOSITORY_RESOLUTION_ERROR = original_resolution_error
+    next(legacy_registry.glob("*.json")).unlink()
+
+    # Git still reports prunable paths. Their remaining directory must be
+    # scanned even if the .git indirection was deleted.
+    (stale / ".git").unlink()
+    stale_registry = stale / runner.SHARED_HOLDOUT_REGISTRY_RELATIVE
+    stale_registry.mkdir(parents=True)
+    (stale_registry / ("b" * 64 + ".json")).write_text("{}")
+    try:
+        runner._assert_shared_registry_reconciled(
+            canonical, canonical, canonical_registry
+        )
+    except ValueError as error:
+        assert str(stale_registry.resolve()) in str(error)
+    else:
+        raise AssertionError("prunable worktree markers must fail closed")
+
+    separate_root = layout / "separate root"
+    separate_git = layout / "separate metadata"
+    subprocess.run(
+        [
+            "git",
+            "init",
+            "--separate-git-dir",
+            str(separate_git),
+            str(separate_root),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    assert runner._shared_repository_root(separate_root) == separate_root.resolve()
+    assert runner._git_common_directory(separate_root) == separate_git.resolve()
+    subprocess.run(
+        ["git", "-C", str(separate_root), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(separate_root), "config", "user.name", "Registry Test"],
+        check=True,
+    )
+    (separate_root / "tracked").write_text("test\n")
+    subprocess.run(
+        ["git", "-C", str(separate_root), "add", "tracked"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(separate_root), "commit", "-m", "fixture"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    separate_linked = layout / "separate linked"
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(separate_root),
+            "worktree",
+            "add",
+            "--detach",
+            str(separate_linked),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    for checkout in (separate_root, separate_linked):
+        try:
+            runner._shared_repository_root(checkout)
+        except ValueError as error:
+            assert "separate-git-dir with linked worktrees" in str(error)
+        else:
+            raise AssertionError(
+                "separate-git-dir linked worktrees must fail closed"
+            )
+
 with tempfile.TemporaryDirectory() as temporary:
     root = runner.Path(temporary)
+    unsafe_output = root / "unsafe-output"
+    unsafe_output.mkdir()
+    campaign_lock_target = root / "campaign-lock-target"
+    (unsafe_output / ".campaign.lock").symlink_to(campaign_lock_target)
+    try:
+        with runner._campaign_output_lock(unsafe_output):
+            raise AssertionError("unsafe campaign lock unexpectedly acquired")
+    except ValueError as error:
+        assert "lock path is unsafe" in str(error)
+    assert not campaign_lock_target.exists()
+
+    unsafe_registry = root / "unsafe-registry"
+    unsafe_registry.mkdir()
+    registry_lock_target = root / "registry-lock-target"
+    (unsafe_registry / ".registry.lock").symlink_to(registry_lock_target)
+    try:
+        with runner._holdout_registry_lock(unsafe_registry):
+            raise AssertionError("unsafe registry lock unexpectedly acquired")
+    except ValueError as error:
+        assert "lock path is unsafe" in str(error)
+    assert not registry_lock_target.exists()
+
+    dangling_output = root / "dangling-output"
+    dangling_output.mkdir()
+    dangling_target = root / "missing-output-record-target"
+    dangling_record = dangling_output / "final-holdout-opened.json"
+    dangling_record.symlink_to(dangling_target)
+    dangling_registry = root / "dangling-registry"
+    dangling_marker = dangling_registry / ("d" * 64 + ".json")
+    try:
+        runner._assert_output_holdout_not_consumed(
+            dangling_registry, dangling_output
+        )
+    except ValueError as error:
+        assert "output record path is unsafe" in str(error)
+    else:
+        raise AssertionError("dangling output-record symlinks must fail closed")
+    try:
+        runner._reserve_holdout(
+            dangling_registry,
+            dangling_marker,
+            runner._holdout_window(["AAA"], "8h", 100, 200),
+            dangling_record,
+            {},
+        )
+    except ValueError as error:
+        assert "output record path is unsafe" in str(error)
+    else:
+        raise AssertionError("reservation followed a dangling output record")
+    assert not dangling_marker.exists()
+    assert not dangling_target.exists()
+
+    locked_registry = root / "locked-registry"
+    escaped_registry = root / "escaped-registry"
+    escaped_registry.mkdir()
+    escaped_marker = escaped_registry / ("e" * 64 + ".json")
+    escaped_output = root / "escaped-output"
+    escaped_output.mkdir()
+    try:
+        runner._reserve_holdout(
+            locked_registry,
+            escaped_marker,
+            runner._holdout_window(["AAA"], "8h", 100, 200),
+            escaped_output / "final-holdout-opened.json",
+            {},
+        )
+    except ValueError as error:
+        assert "marker escaped its locked registry" in str(error)
+    else:
+        raise AssertionError("holdout marker escaped the registry lock domain")
+    assert not escaped_marker.exists()
+    assert not locked_registry.exists()
+
     window = runner._holdout_window(["AAA", "BBB"], "8h", 100, 200)
     campaign = "residual_reversal_rank_hysteresis_risk_v1"
     panel_sha = "3" * 64
