@@ -9,44 +9,76 @@ Generated artifacts go under ``.tmp/research/edge-campaign`` by default.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 from dataclasses import replace
-import fcntl
-import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import sys
-import tempfile
-from typing import Iterator, Mapping, Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
 import datafeed as feed
-import diagnostics
+from campaign_runner import (
+    HOLDOUT_REGISTRY_DIR,
+    HOLDOUT_REGISTRY_VERSION,
+    REPOSITORY_ROOT,
+    _assert_holdout_available,
+    _assert_output_holdout_not_consumed,
+    _bootstrap_ci,
+    _campaign_output_lock,
+    _campaign_status,
+    _ci_json,
+    _common_times,
+    _derived_nested_sizes,
+    _diagnostics,
+    _evaluate_nested_candidate,
+    _evaluate_outer_choices,
+    _file_digest,
+    _finite_number,
+    _fold_metrics,
+    _holdout_registry_lock,
+    _holdout_window,
+    _json_digest,
+    _json_records,
+    _market_regime_labels,
+    _metrics,
+    _nested_input,
+    _panel_on_times,
+    _periods_per_year,
+    _registry_window,
+    _regime_report,
+    _reprice_details,
+    _reprice_path,
+    _reserve_holdout,
+    _rolling_select_candidate,
+    _run_nested_selector,
+    _score_frame,
+    _truncate_panel,
+    _validate_market_grid,
+    _windows_overlap,
+    _write_csv_atomic,
+    _write_json,
+    _write_json_exclusive,
+)
+from campaign_runner import _implementation_digest as _digest_implementation_files
+from campaign_runner import _panel_digest as _digest_panel
 from edge_campaign import CampaignConfig, campaign_specs, run_trial_matrix
-import harness as H
 
 
 CAMPAIGN_ID = "residual_momentum_derivatives_ablation_v1"
 REGISTRATION_VERSION = 1
-HOLDOUT_REGISTRY_VERSION = 3
 IMPLEMENTATION_FILES = (
+    "campaign_runner.py",
     "datafeed.py",
     "diagnostics.py",
     "edge_campaign.py",
     "harness.py",
     "run_edge_campaign.py",
 )
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-HOLDOUT_REGISTRY_DIR = Path(
-    os.environ.get(
-        "TRADER_EDGE_HOLDOUT_REGISTRY",
-        str(REPOSITORY_ROOT / ".tmp/research/edge-campaign-holdouts"),
-    )
-).expanduser()
+REGISTERED_PANEL_COLUMNS = ("openTime", "close", "funding", "oi", "basis", "taker")
 
 DEFAULT_SYMBOLS = [
     "BTCUSDT",
@@ -151,90 +183,14 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must be >= 0")
 
 
-def _common_times(panel: Mapping[str, pd.DataFrame]) -> list[int]:
-    common: set[int] | None = None
-    for frame in panel.values():
-        times = set(pd.to_numeric(frame["openTime"], errors="raise").astype(np.int64))
-        common = times if common is None else common.intersection(times)
-    return sorted(common or [])
-
-
-def _truncate_panel(
-    panel: Mapping[str, pd.DataFrame], cutoff_time: int
-) -> dict[str, pd.DataFrame]:
-    return {
-        symbol: frame[pd.to_numeric(frame["openTime"]) <= cutoff_time].copy()
-        for symbol, frame in panel.items()
-    }
-
-
-def _panel_on_times(
-    panel: Mapping[str, pd.DataFrame], times: Sequence[int]
-) -> dict[str, pd.DataFrame]:
-    allowed = set(times)
-    return {
-        symbol: frame[
-            pd.to_numeric(frame["openTime"], errors="raise").isin(allowed)
-        ].copy()
-        for symbol, frame in panel.items()
-    }
-
-
-def _validate_market_grid(
-    panel: Mapping[str, pd.DataFrame], common_times: Sequence[int], interval_ms: int
-) -> None:
-    timestamps = np.asarray(common_times, dtype=np.int64)
-    if len(timestamps) < 2 or not np.all(np.diff(timestamps) == interval_ms):
-        raise ValueError("aligned market data must be exactly one interval apart")
-    aligned = _panel_on_times(panel, common_times)
-    for symbol, frame in aligned.items():
-        if len(frame) != len(common_times) or frame["openTime"].duplicated().any():
-            raise ValueError(f"{symbol} does not have one row per aligned timestamp")
-        close = pd.to_numeric(frame["close"], errors="coerce").to_numpy(dtype=float)
-        if not np.isfinite(close).all() or np.any(close <= 0):
-            raise ValueError(f"{symbol} close prices must be finite and positive")
-
-
 def _implementation_digest() -> str:
-    root = Path(__file__).resolve().parent
-    digest = hashlib.sha256()
-    for name in IMPLEMENTATION_FILES:
-        digest.update(name.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update((root / name).read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
+    return _digest_implementation_files(
+        Path(__file__).resolve().parent, IMPLEMENTATION_FILES
+    )
 
 
 def _panel_digest(panel: Mapping[str, pd.DataFrame]) -> str:
-    columns = ("openTime", "close", "funding", "oi", "basis", "taker")
-    digest = hashlib.sha256()
-    for symbol, frame in sorted(panel.items()):
-        missing = set(columns).difference(frame.columns)
-        if missing:
-            raise ValueError(
-                f"{symbol} is missing registered columns: {', '.join(sorted(missing))}"
-            )
-        canonical = frame.loc[:, columns].sort_values("openTime")
-        digest.update(symbol.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(
-            canonical.to_csv(
-                index=False,
-                lineterminator="\n",
-                na_rep="NA",
-                float_format="%.17g",
-            ).encode("utf-8")
-        )
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _json_digest(value: object) -> str:
-    encoded = json.dumps(
-        value, allow_nan=False, separators=(",", ":"), sort_keys=True
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return _digest_panel(panel, REGISTERED_PANEL_COLUMNS)
 
 
 def _registration_parameters(
@@ -411,568 +367,16 @@ def _minimum_joint_derivatives_coverage(
     return float(min(ratios)) if ratios else 0.0
 
 
-def _periods_per_year(interval_ms: int) -> float:
-    return 365.0 * 86_400_000 / interval_ms
-
-
-def _metrics(
-    values: pd.Series | np.ndarray,
-    periods_per_year: float,
-    active: pd.Series | np.ndarray | None = None,
-) -> dict[str, object]:
-    net = np.asarray(values, dtype=float)
-    if net.ndim != 1 or len(net) == 0 or not np.isfinite(net).all():
-        raise ValueError("metrics require a non-empty finite return series")
-    equity = np.cumprod(1 + net)
-    peak = np.maximum.accumulate(np.concatenate([[1.0], equity]))[1:]
-    drawdown = 1 - equity / np.maximum(peak, 1e-12)
-    std = float(np.std(net, ddof=1)) if len(net) > 1 else 0.0
-    sharpe = float(np.sqrt(periods_per_year) * np.mean(net) / std) if std > 0 else 0.0
-    active_observations = (
-        int(np.count_nonzero(np.asarray(active, dtype=float) > 0))
-        if active is not None
-        else int(np.count_nonzero(np.abs(net) > 1e-15))
-    )
-    return {
-        "observations": len(net),
-        "activeObservations": active_observations,
-        "totalReturn": float(equity[-1] - 1),
-        "meanReturn": float(np.mean(net)),
-        "annualizedSharpe": sharpe,
-        "maxDrawdown": float(np.max(drawdown)),
-    }
-
-
-def _reprice_path(frame: pd.DataFrame, cost_per_turnover: float) -> pd.DataFrame:
-    if frame.empty:
-        raise ValueError("cannot price an empty evaluation path")
-    weight_columns = sorted(
-        column for column in frame.columns if str(column).startswith("weight_")
-    )
-    if not weight_columns:
-        raise ValueError("evaluation path has no portfolio weights")
-    priced = frame.copy().reset_index(drop=True)
-    gross = priced["gross"].to_numpy(dtype=float)
-    weights = priced[weight_columns].to_numpy(dtype=float)
-    if not np.isfinite(gross).all() or not np.isfinite(weights).all():
-        raise ValueError("evaluation path contains non-finite gross returns or weights")
-    previous = np.vstack([np.zeros((1, weights.shape[1])), weights[:-1]])
-    turnover = np.abs(weights - previous).sum(axis=1)
-    priced["turnover"] = turnover
-    priced["net"] = gross - cost_per_turnover * turnover
-    priced["active"] = np.count_nonzero(np.abs(weights) > 1e-12, axis=1)
-    return priced
-
-
-def _reprice_details(
-    details: Mapping[str, pd.DataFrame],
-    index: pd.Index,
-    cost_per_turnover: float,
-) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    repriced = {}
-    for name, frame in details.items():
-        path = frame.reindex(index).reset_index()
-        if path.isna().any().any():
-            raise ValueError(f"trial {name} is incomplete on the evaluation index")
-        repriced[name] = _reprice_path(path, cost_per_turnover).set_index(
-            "openTime"
-        )
-    matrix = pd.DataFrame(
-        {name: frame["net"] for name, frame in repriced.items()}, index=index
-    )
-    return matrix, repriced
-
-
-def _score_frame(frame: pd.DataFrame, cost_per_turnover: float) -> float:
-    values = _reprice_path(frame, cost_per_turnover)["net"].to_numpy(dtype=float)
-    if len(values) < 2:
-        return float("-inf")
-    std = float(np.std(values, ddof=1))
-    return float(np.mean(values) / std) if std > 1e-15 else float("-inf")
-
-
-def _nested_input(
-    matrix: pd.DataFrame, details: Mapping[str, pd.DataFrame]
-) -> tuple[pd.DataFrame, dict[str, dict[str, object]]]:
-    columns = {"openTime": matrix.index.to_numpy()}
-    candidates = {}
-    for name in matrix.columns:
-        detail = details[name].reindex(matrix.index)
-        weight_columns = [column for column in detail if column.startswith("weight_")]
-        gross_column = f"{name}__gross"
-        renamed_weights = [f"{name}__{column}" for column in weight_columns]
-        columns[gross_column] = detail["gross"].to_numpy(dtype=float)
-        for source, target in zip(weight_columns, renamed_weights):
-            columns[target] = detail[source].to_numpy(dtype=float)
-        candidates[name] = {
-            "grossColumn": gross_column,
-            "inputWeightColumns": tuple(renamed_weights),
-            "outputWeightColumns": tuple(weight_columns),
-        }
-    return pd.DataFrame(columns), candidates
-
-
-def _evaluate_nested_candidate(
-    candidate: Mapping[str, object], test: pd.DataFrame
-) -> pd.DataFrame:
-    gross = test[str(candidate["grossColumn"])].to_numpy(dtype=float)
-    input_columns = list(candidate["inputWeightColumns"])
-    output_columns = list(candidate["outputWeightColumns"])
-    result = pd.DataFrame({"gross": gross})
-    for source, target in zip(input_columns, output_columns):
-        result[str(target)] = test[str(source)].to_numpy(dtype=float)
-    return result
-
-
-def _run_nested_selector(
-    frame: pd.DataFrame,
-    candidates: Mapping[str, Mapping[str, object]],
-    sizes: Mapping[str, int],
-    label_horizon: int,
-    cost_per_turnover: float,
-) -> H.NestedRollingResult:
-    nested = H.nested_rolling_origin(
-        frame,
-        candidates,
-        fit_candidate=lambda candidate, _train: candidate,
-        evaluate_candidate=_evaluate_nested_candidate,
-        score_candidate=lambda validation: _score_frame(
-            validation, cost_per_turnover
-        ),
-        initial_train_size=sizes["initialTrain"],
-        outer_test_size=sizes["outerTest"],
-        inner_initial_train_size=sizes["innerInitialTrain"],
-        inner_test_size=sizes["innerTest"],
-        label_horizon=label_horizon,
-    )
-    return replace(nested, oos=_reprice_path(nested.oos, cost_per_turnover))
-
-
-def _rolling_select_candidate(
-    frame: pd.DataFrame,
-    candidates: Mapping[str, Mapping[str, object]],
-    initial_train_size: int,
-    test_size: int,
-    label_horizon: int,
-    cost_per_turnover: float,
-) -> tuple[str, pd.DataFrame, pd.DataFrame]:
-    splits = H.rolling_origin_splits(
-        len(frame), initial_train_size, test_size, label_horizon
-    )
-    if not splits:
-        raise ValueError("not enough observations for final rolling selection")
-    score_rows = []
-    for name, candidate in candidates.items():
-        validation_frames = []
-        for split in splits:
-            validation = frame.iloc[split.test_slice]
-            evaluated = _evaluate_nested_candidate(candidate, validation)
-            evaluated.insert(0, "openTime", validation["openTime"].to_numpy())
-            evaluated.insert(
-                0,
-                "row_position",
-                np.arange(split.test_start, split.test_stop, dtype=int),
-            )
-            validation_frames.append(evaluated)
-        combined = pd.concat(validation_frames, ignore_index=True)
-        score_rows.append(
-            {
-                "candidate": name,
-                "score": _score_frame(combined, cost_per_turnover),
-                "folds": len(splits),
-                "validationRows": len(combined),
-            }
-        )
-    scores = pd.DataFrame(score_rows)
-    finite = scores[np.isfinite(scores["score"])]
-    if finite.empty:
-        raise ValueError("all final rolling-selection scores are non-finite")
-    champion = str(finite.loc[finite["score"].idxmax(), "candidate"])
-    folds = pd.DataFrame(
-        [
-            {
-                "fold": split.fold,
-                "trainStart": split.train_start,
-                "trainStop": split.train_stop,
-                "embargoStart": split.embargo_start,
-                "embargoStop": split.embargo_stop,
-                "testStart": split.test_start,
-                "testStop": split.test_stop,
-            }
-            for split in splits
-        ]
-    )
-    return champion, scores, folds
-
-
-def _evaluate_outer_choices(
-    frame: pd.DataFrame,
-    candidates: Mapping[str, Mapping[str, object]],
-    outer_folds: pd.DataFrame,
-    cost_per_turnover: float,
-) -> pd.DataFrame:
-    evaluations = []
-    for fold in outer_folds.to_dict("records"):
-        name = str(fold["selected_candidate"])
-        start = int(fold["test_start"])
-        stop = int(fold["test_stop"])
-        test = frame.iloc[start:stop]
-        evaluated = _evaluate_nested_candidate(candidates[name], test)
-        evaluated.insert(0, "selected_candidate", name)
-        evaluated.insert(0, "outer_fold", int(fold["outer_fold"]))
-        evaluated.insert(0, "openTime", test["openTime"].to_numpy())
-        evaluated.insert(0, "row_position", np.arange(start, stop, dtype=int))
-        evaluations.append(evaluated)
-    combined = pd.concat(evaluations, ignore_index=True)
-    positions = combined["row_position"].to_numpy(dtype=int)
-    if len(positions) > 1 and not np.all(np.diff(positions) == 1):
-        raise ValueError("outer evaluation folds do not form one contiguous path")
-    return _reprice_path(combined, cost_per_turnover)
-
-
-def _derived_nested_sizes(args: argparse.Namespace, observations: int) -> dict[str, int]:
-    initial = args.initial_train or max(60, observations // 2)
-    outer_test = args.outer_test_size or max(12, observations // 10)
-    inner_initial = args.inner_initial_train or max(30, initial // 2)
-    inner_test = args.inner_test_size or max(6, outer_test // 2)
-    return {
-        "initialTrain": initial,
-        "outerTest": outer_test,
-        "innerInitialTrain": inner_initial,
-        "innerTest": inner_test,
-    }
-
-
-def _bootstrap_ci(
-    values: pd.Series | np.ndarray,
-    periods_per_year: float,
-    interval_ms: int,
-    reps: int,
-    seed: int,
-) -> tuple[float, float]:
-    block = max(2, round(86_400_000 / interval_ms))
-    lo, hi = H.block_bootstrap_sharpe_ci(
-        values,
-        periods_per_year,
-        block=block,
-        n_boot=reps,
-        seed=seed,
-    )
-    return float(lo), float(hi)
-
-
-def _ci_json(interval: tuple[float, float]) -> list[float | None]:
-    return [float(value) if math.isfinite(value) else None for value in interval]
-
-
-def _finite_number(value: object) -> float | None:
-    number = float(value)
-    return number if math.isfinite(number) else None
-
-
-def _json_records(frame: pd.DataFrame) -> list[dict[str, object]]:
-    safe = frame.replace([np.inf, -np.inf], np.nan).astype(object)
-    safe = safe.where(pd.notna(safe), None)
-    return safe.to_dict("records")
-
-
-def _fold_metrics(
-    oos: pd.DataFrame, periods_per_year: float
-) -> dict[str, dict[str, object]]:
-    return {
-        str(fold): _metrics(group["net"], periods_per_year, group["active"])
-        for fold, group in oos.groupby("outer_fold", sort=True)
-    }
-
-
-def _market_regime_labels(
-    panel: Mapping[str, pd.DataFrame], interval_ms: int
-) -> pd.Series:
-    times = pd.Index(_common_times(panel), name="openTime")
-    closes = pd.DataFrame(
-        {
-            symbol: pd.to_numeric(
-                frame.set_index("openTime")["close"].reindex(times), errors="coerce"
-            )
-            for symbol, frame in sorted(panel.items())
-        },
-        index=times,
-    )
-    market = closes.pct_change(fill_method=None).mean(axis=1, skipna=False)
-    day = max(2, round(86_400_000 / interval_ms))
-    week = max(day, 7 * day)
-    volatility = market.rolling(day, min_periods=day).std(ddof=1)
-    causal_median = volatility.expanding(min_periods=day).median().shift(1)
-    trend = (1 + market).rolling(week, min_periods=week).apply(np.prod, raw=True) - 1
-    labels = pd.Series(index=times, dtype=object)
-    known = volatility.notna() & causal_median.notna() & trend.notna()
-    volatility_label = pd.Series(
-        np.where(
-            volatility.loc[known] >= causal_median.loc[known],
-            "high_vol",
-            "low_vol",
-        ),
-        index=times[known],
-    )
-    trend_label = pd.Series(
-        np.where(trend.loc[known] >= 0, "_up", "_down"),
-        index=times[known],
-    )
-    labels.loc[known] = volatility_label + trend_label
-    return labels
-
-
-def _regime_report(
-    oos: pd.DataFrame,
-    labels: pd.Series,
-    periods_per_year: float,
-    min_observations: int,
-    max_loss: float,
-) -> tuple[dict[str, object], bool, pd.DataFrame]:
-    labelled = oos.copy()
-    labelled["regime"] = labelled["openTime"].map(labels)
-    if labelled["regime"].isna().any():
-        raise ValueError("nested OOS rows are missing causal market-regime labels")
-    metrics = {
-        str(regime): _metrics(group["net"], periods_per_year, group["active"])
-        for regime, group in labelled.groupby("regime", sort=True)
-    }
-    loss_cap_passed = bool(metrics) and all(
-        float(values["totalReturn"]) >= -max_loss for values in metrics.values()
-    )
-    observation_coverage_passed = len(metrics) >= 2 and all(
-        int(values["observations"]) >= min_observations
-        for values in metrics.values()
-    )
-    eligible = sorted(
-        regime
-        for regime, values in metrics.items()
-        if int(values["observations"]) >= min_observations
-    )
-    passed = loss_cap_passed and observation_coverage_passed
-    return (
-        {
-            "minimumObservations": min_observations,
-            "maximumAllowedLoss": max_loss,
-            "observedRegimes": sorted(metrics),
-            "eligibleRegimes": eligible,
-            "lossCapPassed": loss_cap_passed,
-            "observationCoveragePassed": observation_coverage_passed,
-            "metrics": metrics,
-        },
-        passed,
-        labelled,
-    )
-
-
-def _diagnostics(
-    matrix: pd.DataFrame,
-    champion: str,
-    periods_per_year: float,
-    interval_ms: int,
-    requested_slices: int,
-) -> tuple[dict[str, object], pd.DataFrame, pd.DataFrame]:
-    aggregation_bars = max(1, round(86_400_000 / interval_ms))
-    aggregated = diagnostics.compound_return_matrix(matrix, aggregation_bars)
-    remainder = len(aggregated.matrix) % requested_slices
-    dsr_matrix = aggregated.matrix.copy()
-    pbo_matrix = dsr_matrix.iloc[remainder:].copy()
-    report: dict[str, object] = {
-        "aggregation": aggregated.to_dict(),
-        "periodsPerYear": periods_per_year / aggregation_bars,
-        "requestedSlices": requested_slices,
-        "pboRowsDroppedFromStart": remainder,
-        "observations": len(dsr_matrix),
-        "dsrObservations": len(dsr_matrix),
-        "pboObservations": len(pbo_matrix),
-    }
-    errors = {}
-    try:
-        report["deflatedSharpe"] = diagnostics.deflated_sharpe_ratio(
-            dsr_matrix,
-            selected_trial=champion,
-            periods_per_year=periods_per_year / aggregation_bars,
-        ).to_dict()
-    except (KeyError, TypeError, ValueError) as error:
-        errors["deflatedSharpe"] = str(error)
-    if len(pbo_matrix) < requested_slices:
-        errors["pbo"] = "not enough aligned observations for requested CSCV slices"
-    else:
-        try:
-            report["pbo"] = diagnostics.cscv_pbo(
-                pbo_matrix, n_slices=requested_slices
-            ).to_dict()
-        except (TypeError, ValueError) as error:
-            errors["pbo"] = str(error)
-    if errors:
-        report["errors"] = errors
-    return report, dsr_matrix, pbo_matrix
-
-
-def _write_json(path: Path, value: object) -> None:
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(
-            json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _write_json_exclusive(path: Path, value: object) -> None:
-    payload = json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n"
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.link(temporary, path)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-def _write_csv_atomic(frame: pd.DataFrame, path: Path, **kwargs: object) -> None:
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        frame.to_csv(temporary, **kwargs)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _file_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _holdout_window(
-    symbols: Sequence[str], interval: str, start_time: int, end_time: int
-) -> dict[str, object]:
-    interval_ms = feed.INTERVAL_MS.get(interval)
-    if not symbols or interval_ms is None or start_time > end_time:
-        raise ValueError("final holdout window is invalid")
-    return {
-        "symbols": sorted(set(symbols)),
-        "interval": interval,
-        "startOpenTime": int(start_time),
-        "endOpenTime": int(end_time),
-        "outcomeEndTimeExclusive": int(end_time) + interval_ms,
-    }
-
-
-def _registry_window(path: Path, record: object) -> dict[str, object]:
-    try:
-        if not isinstance(record, dict):
-            raise TypeError
-        if record.get("registryVersion") != HOLDOUT_REGISTRY_VERSION:
-            raise ValueError
-        if record.get("status") not in {"opening", "completed"}:
-            raise ValueError
-        window = record["window"]
-        if not isinstance(window, dict):
-            raise TypeError
-        symbols = window["symbols"]
-        interval = window["interval"]
-        start_time = int(window["startOpenTime"])
-        end_time = int(window["endOpenTime"])
-        outcome_end_time = int(window["outcomeEndTimeExclusive"])
-        if (
-            not isinstance(symbols, list)
-            or not symbols
-            or any(not isinstance(symbol, str) or not symbol for symbol in symbols)
-            or not isinstance(interval, str)
-            or not interval
-            or start_time > end_time
-        ):
-            raise ValueError
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError(f"holdout registry entry {path.name} is invalid") from error
-    canonical = _holdout_window(symbols, interval, start_time, end_time)
-    if canonical["outcomeEndTimeExclusive"] != outcome_end_time:
-        raise ValueError(f"holdout registry entry {path.name} is invalid")
-    return canonical
-
-
-def _windows_overlap(
-    left: Mapping[str, object], right: Mapping[str, object]
-) -> bool:
-    if not set(left["symbols"]).intersection(right["symbols"]):
-        return False
-    return int(left["startOpenTime"]) < int(
-        right["outcomeEndTimeExclusive"]
-    ) and int(right["startOpenTime"]) < int(left["outcomeEndTimeExclusive"])
-
-
-def _assert_holdout_available(
-    registry_dir: Path,
-    window: Mapping[str, object],
-    output_record: Path,
-) -> None:
-    if output_record.exists():
-        raise ValueError("final holdout was already consumed for this output directory")
-    if not registry_dir.exists():
-        return
-    for path in sorted(registry_dir.glob("*.json")):
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as error:
-            raise ValueError(f"holdout registry entry {path.name} is unreadable") from error
-        registered_window = _registry_window(path, record)
-        if _windows_overlap(window, registered_window):
-            raise ValueError(
-                "final holdout overlaps an already consumed symbol/time window"
-            )
-
-
-@contextmanager
-def _holdout_registry_lock(registry_dir: Path) -> Iterator[None]:
-    registry_dir.mkdir(parents=True, exist_ok=True)
-    with (registry_dir / ".registry.lock").open("a+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def _reserve_holdout(
-    registry_dir: Path,
-    marker: Path,
-    window: Mapping[str, object],
-    output_record: Path,
-    opening_record: Mapping[str, object],
-) -> None:
-    with _holdout_registry_lock(registry_dir):
-        _assert_holdout_available(registry_dir, window, output_record)
-        _write_json_exclusive(marker, opening_record)
-
-
-def _campaign_status(
-    ready_for_holdout: bool, final_holdout: Mapping[str, object]
-) -> str:
-    holdout_status = final_holdout.get("status")
-    if holdout_status == "pass":
-        return "final_holdout_passed"
-    if holdout_status == "fail":
-        return "final_holdout_failed"
-    if holdout_status != "reserved":
-        raise ValueError("final holdout status is invalid")
-    return "ready_for_final_holdout" if ready_for_holdout else "insufficient_evidence"
-
-
 def run(args: argparse.Namespace) -> dict[str, object]:
     validate_args(args)
+    output_dir = Path(args.output_dir)
+    with _campaign_output_lock(output_dir):
+        return _run_locked(args, output_dir)
+
+
+def _run_locked(
+    args: argparse.Namespace, output_dir: Path
+) -> dict[str, object]:
     symbols = list(args.symbols or DEFAULT_SYMBOLS)
     if len(set(symbols)) != len(symbols):
         raise ValueError("symbols must be unique")
@@ -1007,8 +411,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("fewer than 100 aligned panel rows are available")
     _validate_market_grid(panel, common_times, interval_ms)
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    _assert_output_holdout_not_consumed(HOLDOUT_REGISTRY_DIR, output_dir)
     parameters = _registration_parameters(args, symbols, config)
     manifest, registered_panel, registered_times, registration_sha = _registered_inputs(
         output_dir, panel, common_times, parameters
@@ -1225,7 +628,6 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             output_holdout_record,
             opening_record,
         )
-        _write_json(output_holdout_record, opening_record)
         full_matrix_raw, full_details, _ = run_trial_matrix(
             registered_panel, config
         )
@@ -1346,21 +748,35 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "finalHoldout": final_holdout,
     }
 
-    matrix.to_csv(output_dir / "trial-returns.csv", index_label="openTime")
-    diagnostic_matrix.to_csv(
-        output_dir / "diagnostic-trial-returns.csv", index_label="openTime"
+    _write_csv_atomic(
+        matrix, output_dir / "trial-returns.csv", index_label="openTime"
     )
-    pbo_matrix.to_csv(
-        output_dir / "pbo-trial-returns.csv", index_label="openTime"
+    _write_csv_atomic(
+        diagnostic_matrix,
+        output_dir / "diagnostic-trial-returns.csv",
+        index_label="openTime",
     )
-    labelled_nested_oos.to_csv(output_dir / "nested-oos.csv", index=False)
-    nested.outer_folds.to_csv(output_dir / "outer-folds.csv", index=False)
-    nested.inner_scores.to_csv(output_dir / "inner-scores.csv", index=False)
-    final_selection_scores.to_csv(
-        output_dir / "final-selection-scores.csv", index=False
+    _write_csv_atomic(
+        pbo_matrix, output_dir / "pbo-trial-returns.csv", index_label="openTime"
     )
-    final_selection_folds.to_csv(
-        output_dir / "final-selection-folds.csv", index=False
+    _write_csv_atomic(
+        labelled_nested_oos, output_dir / "nested-oos.csv", index=False
+    )
+    _write_csv_atomic(
+        nested.outer_folds, output_dir / "outer-folds.csv", index=False
+    )
+    _write_csv_atomic(
+        nested.inner_scores, output_dir / "inner-scores.csv", index=False
+    )
+    _write_csv_atomic(
+        final_selection_scores,
+        output_dir / "final-selection-scores.csv",
+        index=False,
+    )
+    _write_csv_atomic(
+        final_selection_folds,
+        output_dir / "final-selection-folds.csv",
+        index=False,
     )
     trial_paths = pd.concat(
         [
@@ -1371,9 +787,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         ],
         ignore_index=True,
     )
-    trial_paths.to_csv(output_dir / "trial-paths.csv", index=False)
+    _write_csv_atomic(trial_paths, output_dir / "trial-paths.csv", index=False)
     for label, path in stress_paths.items():
-        path.to_csv(output_dir / f"stress-{label}-nested-oos.csv", index=False)
+        _write_csv_atomic(
+            path, output_dir / f"stress-{label}-nested-oos.csv", index=False
+        )
     _write_json(
         output_dir / "trial-ledger.json",
         {

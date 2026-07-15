@@ -1,0 +1,149 @@
+{
+  "campaign": "residual_momentum_funding_only_v1",
+  "hypothesis": "Cross-sectional residual momentum survives explicit perpetual-funding cashflows, and excluding directionally crowded funding observations improves at least one fixed horizon without derivatives-feature data mining.",
+  "registeredOn": "2026-07-14",
+  "registrationVersion": 1,
+  "universe": {
+    "interval": "8h",
+    "intervalMilliseconds": 28800000,
+    "selection": "Fixed ex-post survivor universe selected before acquisition; no symbol may be added, removed, or substituted after registration.",
+    "survivorshipLimitation": "The campaign does not estimate delisting losses and cannot establish performance for a contemporaneously investable universe without survivor bias.",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "LTCUSDT"
+    ]
+  },
+  "registeredData": {
+    "acquisitionMaxSeconds": 3600,
+    "contractEndpoint": "/fapi/v1/continuousKlines",
+    "contractType": "PERPETUAL",
+    "fundingEndpoint": "/fapi/v1/fundingRate",
+    "fundingCompletenessEvidence": "Bounded forward pagination preserves every endpoint-returned event and an 8h+1m maximum-gap sanity check rejects gross truncation. Historical shorter-cadence schedules cannot be independently reconstructed, so resolved coverage is scoped to returned events.",
+    "markPriceEndpoint": "/fapi/v1/markPriceKlines",
+    "markPriceInterval": "1h",
+    "maximumFundingGapMilliseconds": 28860000,
+    "startOpenTime": 1600819200000,
+    "endOpenTime": 1777564800000,
+    "outcomeEndTimeExclusive": 1777593600000,
+    "rows": 6138,
+    "developmentRows": 4910,
+    "developmentCutoffOpenTime": 1742198400000,
+    "holdoutStartOpenTime": 1742227200000,
+    "holdoutBars": 1228,
+    "holdoutReturnRows": 1227,
+    "fundingWindowEndInclusive": 1777593599999,
+    "markFallback": "When fundingRate.markPrice is blank, use the open of the 1h mark-price candle containing fundingTime; never use that candle's future close.",
+    "settlementInterval": "For a position held from close[t] to close[t+1], include every event satisfying closeTime[t] < fundingTime <= closeTime[t+1]."
+  },
+  "strategy": {
+    "betaLookbackBars": 21,
+    "costBpsPerUnitTurnover": 5.0,
+    "fundingCrowdingZ": 2.0,
+    "fundingZLookbackBars": 21,
+    "grossExposure": 1.0,
+    "rebalanceBars": 1,
+    "signalDelayBars": 1,
+    "topNPerSide": 1,
+    "fundingCashflow": "-weight * resolvedMarkPrice / leftClose * fundingRate",
+    "fundingFeature": "At each bar close use the latest event with fundingTime <= closeTime, then standardize that rate against the previous 21 aligned bar values.",
+    "ranking": "Equal-weight market-beta residual momentum; long candidates must have positive scores and short candidates negative scores; stable within-side sort uses lexicographic symbol-column order for ties; one long and one short when both sides are eligible.",
+    "turnoverCostLimitation": "Charged turnover is the absolute target-weight change at each rebalance. Price-drift rebalancing and terminal liquidation are not charged, so modeled costs can understate executable costs."
+  },
+  "trials": [
+    {
+      "horizonBars": 3,
+      "horizonHours": 24,
+      "id": "resmom_24h_base",
+      "variant": "base"
+    },
+    {
+      "horizonBars": 3,
+      "horizonHours": 24,
+      "id": "resmom_24h_funding_only",
+      "variant": "funding_only"
+    },
+    {
+      "horizonBars": 9,
+      "horizonHours": 72,
+      "id": "resmom_72h_base",
+      "variant": "base"
+    },
+    {
+      "horizonBars": 9,
+      "horizonHours": 72,
+      "id": "resmom_72h_funding_only",
+      "variant": "funding_only"
+    },
+    {
+      "horizonBars": 21,
+      "horizonHours": 168,
+      "id": "resmom_168h_base",
+      "variant": "base"
+    },
+    {
+      "horizonBars": 21,
+      "horizonHours": 168,
+      "id": "resmom_168h_funding_only",
+      "variant": "funding_only"
+    }
+  ],
+  "validation": {
+    "bootstrapBlockBars": 3,
+    "bootstrapReplications": 2000,
+    "bootstrapSeed": 42,
+    "developmentEvaluationRows": 4888,
+    "featureWarmupRows": 21,
+    "innerInitialTrain": 1222,
+    "innerFoldPolicy": "Retain the final partial inner validation fold; candidate scores concatenate every embargoed validation row, including the partial tail.",
+    "innerTestSize": 244,
+    "labelHorizonBars": 1,
+    "lifetimeTrialCount": 21,
+    "newTrialCount": 6,
+    "outerInitialTrain": 2444,
+    "outerFoldCount": 7,
+    "outerFoldPolicy": "Use exactly seven complete 349-row outer folds; no partial outer fold is permitted.",
+    "outerTestSize": 349,
+    "pairedComparisonFamilyWiseAlpha": 0.05,
+    "pairedComparisonHypotheses": 3,
+    "pboSlices": 10,
+    "priorTrialCount": 15,
+    "priorTrialFamily": "residual_momentum_derivatives_ablation_v1",
+    "selectionRule": "Expanding rolling-origin inner-OOS Sharpe with a one-label embargo; ties follow registered trial order.",
+    "stressTests": [
+      "cost1_5x",
+      "cost2x",
+      "additionalDelay1bar"
+    ]
+  },
+  "promotion": {
+    "currentCampaignDeflatedSharpeProbabilityMinimum": 0.95,
+    "lifetimeBonferroniPsrProbabilityMinimum": 0.95,
+    "maximumPbo": 0.2,
+    "maximumRegimeLoss": 0.05,
+    "maximumWorstFoldLoss": 0.05,
+    "minimumActiveFraction": 0.25,
+    "minimumOuterOosObservations": 1500,
+    "minimumRegimeObservations": 50,
+    "minimumResolvedFundingFraction": 1.0,
+    "minimumSymbols": 10,
+    "requireAdditionalDelaySharpeCiAboveZero": true,
+    "requireCost2xSharpeCiAboveZero": true,
+    "requirePairedFundingImprovementSharpeCiAboveZero": true,
+    "requireOuterOosSharpeCiAboveZero": true
+  },
+  "holdoutPolicy": {
+    "openOnlyAfterEveryDevelopmentGatePasses": true,
+    "overlapAwareOneShotRegistry": true,
+    "reservedByDefault": true,
+    "sealLimitation": "The registry prevents this runner from evaluating the holdout early, but the underlying public market history remains independently retrievable and is not an access-control secret.",
+    "successRule": "The frozen champion's final-holdout block-bootstrap 95% Sharpe lower bound must exceed zero."
+  }
+}
