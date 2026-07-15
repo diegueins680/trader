@@ -502,7 +502,7 @@
     {
       "id": "A-RESEARCH",
       "title": "Research acquisition, point-in-time cache, walk-forward harness, and statistical analysis",
-      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "bounded historical snapshot", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "funding settlement accounting", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "lifetime multiple-testing correction", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
+      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "bounded historical snapshot", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "residual-reversal turnover campaign", "funding settlement accounting", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "lifetime multiple-testing correction", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
       "criticality": "correctness",
       "implementation": ["scripts/research/**", "scripts/fetch-data-pipeline.sh", "scripts/install-research-datafeed-launchagent.sh"],
       "uses": ["G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-IDEMPOTENT"],
@@ -534,6 +534,8 @@
         { "level": "regression", "path": "test/research-historical-datafeed.test.mjs", "contains": "historical Binance snapshots are bounded, complete, and atomic" },
         { "level": "regression", "path": "test/research-funding-campaign.test.mjs", "contains": "funding campaign is fixed, causal, and accounts for every settlement" },
         { "level": "regression", "path": "test/research-historical-funding-campaign.test.mjs", "contains": "historical funding runner seals inputs and leaves blocked holdout untouched" },
+        { "level": "regression", "path": "test/research-historical-reversal-campaign.test.mjs", "contains": "historical reversal runner reuses sealed development inputs and preserves the holdout" },
+        { "level": "regression", "path": "test/research-reversal-campaign.test.mjs", "contains": "residual reversal campaign is fixed, causal, phased, and fully accounted" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "formal DSR matches a fixed cross-trial benchmark" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "CSCV PBO separates a stable winner" },
         { "level": "regression", "path": "test/research-validation.test.mjs", "contains": "nested validation selects on inner rows" }

@@ -1,0 +1,268 @@
+{
+  "campaign": "residual_reversal_turnover_v1",
+  "hypothesis": "Cross-sectional residual reversal can overcome modeled perpetual-funding and turnover costs when target weights are refreshed every three bars instead of every bar, without using funding as a signal filter.",
+  "registeredOn": "2026-07-15",
+  "registrationVersion": 1,
+  "researchProcess": {
+    "protocolStatus": "locked_after_disclosed_development_smoke",
+    "protocolLockScope": "locked_before_any_final_holdout_access",
+    "hypothesisOrigin": "This hypothesis was generated adaptively after observing the complete development result from residual_momentum_funding_only_v1, including its negative nested outer-OOS return, turnover diagnostics, and failed promotion gates.",
+    "developmentContamination": "The reused 4,910-bar development window has already influenced the reversal direction, rebalance choices, and turnover threshold. Results on it are research-process-contaminated and are not independent confirmation of the hypothesis.",
+    "preMergeDevelopmentSmoke": {
+      "occurred": true,
+      "authorizationStatus": "prohibited_pre_merge_execution",
+      "dataScope": "registered_development_only",
+      "finalHoldoutAccessed": false,
+      "researchChoicesChangedAfterSmoke": false,
+      "observations": [
+        {
+          "trialId": "resrev_24h_rebalance_3bar",
+          "rebalancePhaseBars": 0,
+          "outcome": "portfolio_equity_exhausted",
+          "closeTime": 1611907199999,
+          "closeTimeSemantics": "interval_left_close",
+          "outcomeCloseTime": 1611935999999
+        },
+        {
+          "trialId": "resrev_72h_rebalance_3bar",
+          "rebalancePhaseBars": 0,
+          "outcome": "completed_near_zero_equity",
+          "maximumTurnoverApprox": 208.51
+        },
+        {
+          "trialId": "resrev_168h_rebalance_3bar",
+          "rebalancePhaseBars": 0,
+          "outcome": "completed_near_zero_equity",
+          "maximumTurnoverApprox": 234.69
+        },
+        {
+          "trialScope": "all_three_rebalance_3bar_horizons",
+          "rebalancePhaseBars": [
+            1,
+            2
+          ],
+          "outcome": "completed",
+          "maximumTurnoverApproxRange": [
+            2.4,
+            3.24
+          ]
+        }
+      ],
+      "postSmokeProtocolCorrections": [
+        {
+          "correction": "Treat any primary-path equity exhaustion as a typed campaign-level mechanical rejection.",
+          "classification": "conservative_fail_closed_policy"
+        },
+        {
+          "correction": "Carry the actual drifted portfolio state through frozen outer-fold candidate changes instead of stitching independently simulated states.",
+          "classification": "accounting_correctness_fix"
+        },
+        {
+          "correction": "Use full causal feature history but start final-holdout execution from cash and charge the initial cash-to-frozen-target turnover.",
+          "classification": "holdout_boundary_correctness_fix"
+        },
+        {
+          "correction": "Record equity exhaustion on derived development paths as structured insufficient evidence and on a consumed final-holdout path as a structured failed result with a completed registry lifecycle, without broadening the primary-path mechanically-invalid rule.",
+          "classification": "conservative_fail_closed_policy"
+        },
+        {
+          "correction": "Enforce the already stated rebalance-phase robustness rule by confidence-gating both the frozen outer-fold composite and frozen final-champion paths.",
+          "classification": "implementation_conformance_fix"
+        }
+      ],
+      "outcomeUseForCorrections": "The exposed development outcomes were not used to change the strategy, trial family, phases, thresholds, selection rule, or holdout success rule. The post-smoke corrections are fail-closed, implementation-conformance, or accounting-boundary corrections and cannot rescue the observed bankrupt path."
+    },
+    "inferenceScope": "This protocol is not preregistered relative to development: a prohibited pre-merge implementation smoke accessed the reused development window and exposed the observations recorded above. The trial set, phases, thresholds, selection rules, and failure policy are now locked without alteration after that disclosure. Nested rolling-origin validation can limit later within-campaign selection bias but cannot restore independent development evidence. The still-sealed one-shot final holdout was not accessed and could provide new confirmatory evidence only if every locked development gate, including bankruptcy-free execution, passed.",
+    "adaptationLimit": "The pre-smoke trial set, 0/1/2-bar phase choices, thresholds, and strategy definitions remain unchanged. No funding filter, feature sweep, rank-hysteresis parameter, alternative rebalance interval, return clipping, absorbing bankruptcy convention, portfolio restart, trial substitution, or post-smoke tuning may be introduced in this campaign."
+  },
+  "universe": {
+    "interval": "8h",
+    "intervalMilliseconds": 28800000,
+    "selection": "Reuse the exact fixed ex-post survivor universe from residual_momentum_funding_only_v1; no symbol may be added, removed, or substituted.",
+    "survivorshipLimitation": "The campaign does not estimate delisting losses and cannot establish performance for a contemporaneously investable universe without survivor bias.",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "LTCUSDT"
+    ]
+  },
+  "registeredData": {
+    "sourceCampaign": "residual_momentum_funding_only_v1",
+    "sourceCampaignDirectory": ".tmp/research/historical-funding-campaign-v1",
+    "sourceCampaignManifest": "campaign-manifest.json",
+    "sourceCampaignManifestSha256": "686ddb5ae44c4b2e461ffedd5c2b8199da4399b75d14c9075636ac062a008776",
+    "sourceRegistrationSha256": "cedaea5af05c880af732ceb1a78c39d4056efc2b1065157bc7a1ce31ff684d9f",
+    "snapshotDirectory": ".tmp/research/historical-funding-snapshot-v1",
+    "snapshotManifest": "snapshot-manifest.json",
+    "snapshotManifestSha256": "0e970ef24bbda0a2ceff24af5b83bc1a70de60a96ab4940a729c505e9a9c801e",
+    "developmentPanel": "registered-development-panel.csv",
+    "developmentPanelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+    "developmentSettlements": "registered-development-settlements.csv",
+    "developmentSettlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+    "fullPanelDigestSha256": "11d0af89e1603fad91bceffae3847dfdaed819bf56a45fe6f9d6bec45c953c0a",
+    "fullSettlementsDigestSha256": "cc0daa4d86d8c2d64285cf12baae86dcb1d9cb5606525074cf023f77bd59c795",
+    "reuseRule": "Load the two registered development CSVs only after the source campaign manifest file hash and its declared registration, snapshot-manifest, full-panel, and full-settlement digests match these pins, then verify both CSV file hashes directly. The runner need not read raw snapshot files and must not reacquire, realign, extend, truncate, or otherwise replace either development artifact.",
+    "startOpenTime": 1600819200000,
+    "endOpenTime": 1777564800000,
+    "outcomeEndTimeExclusive": 1777593600000,
+    "rows": 6138,
+    "developmentRows": 4910,
+    "developmentCutoffOpenTime": 1742198400000,
+    "holdoutStartOpenTime": 1742227200000,
+    "holdoutBars": 1228,
+    "holdoutReturnRows": 1227,
+    "settlementInterval": "For a position held from close[t] to close[t+1], include every source-campaign settlement satisfying closeTime[t] < fundingTime <= closeTime[t+1]."
+  },
+  "strategy": {
+    "direction": "residual_reversal",
+    "betaLookbackBars": 21,
+    "costBpsPerUnitTurnover": 5.0,
+    "fundingFilter": "none",
+    "fundingUsage": "Funding is charged only as a realized signed cashflow; its level, z-score, and crowding state cannot affect eligibility, ranking, or target weights.",
+    "grossExposure": 1.0,
+    "rebalanceAnchorOpenTime": 1600819200000,
+    "rebalancePhaseBars": 0,
+    "signalDelayBars": 1,
+    "topNPerSide": 1,
+    "fundingCashflow": "-weight * resolvedMarkPrice / leftClose * fundingRate",
+    "ranking": "Compute the same equal-weight market-beta residual return as the predecessor, then reverse it: long the single most-negative eligible residual score and short the single most-positive eligible residual score. Rank scores ascending with a stable registered symbol-column order, taking the first short candidate and last long candidate exactly as in the predecessor. Both signs must be present.",
+    "rebalance": "A primary signal decision is scheduled only when ((openTime - rebalanceAnchorOpenTime) / intervalMilliseconds) modulo the trial's rebalanceBars equals rebalancePhaseBars on the exact registered grid. Adopt that decision after the registered one-bar delay and hold the resulting futures positions between activations.",
+    "positionEvolution": "Between delayed target activations, hold the futures position quantities so their notionals and effective portfolio weights drift with contract prices and with equity after funding cashflows and transaction costs. At every scheduled activation, compute charged turnover from those drifted pretrade weights to the new target weights; do not silently reset weights on intervening bars.",
+    "turnoverCostLimitation": "Charge absolute drifted-pretrade-to-target weight turnover at every scheduled activation, including direct changes across evaluation-fold boundaries. Only terminal liquidation is uncharged, so modeled costs can still understate executable exit costs.",
+    "executionRiskLimitation": "Endpoint 1 + netReturn > 0 establishes only modeled accounting solvency, not exchange executability. The model does not simulate intrabar liquidation, maintenance margin, leverage limits, an equity buffer, market impact, or an absolute turnover cap. A positive but near-zero equity path can therefore produce extreme drifted weights and turnover while remaining mechanically valid."
+  },
+  "trials": [
+    {
+      "championEligible": false,
+      "horizonBars": 3,
+      "horizonHours": 24,
+      "id": "resrev_24h_rebalance_1bar",
+      "rebalanceBars": 1
+    },
+    {
+      "championEligible": true,
+      "horizonBars": 3,
+      "horizonHours": 24,
+      "id": "resrev_24h_rebalance_3bar",
+      "rebalanceBars": 3
+    },
+    {
+      "championEligible": false,
+      "horizonBars": 9,
+      "horizonHours": 72,
+      "id": "resrev_72h_rebalance_1bar",
+      "rebalanceBars": 1
+    },
+    {
+      "championEligible": true,
+      "horizonBars": 9,
+      "horizonHours": 72,
+      "id": "resrev_72h_rebalance_3bar",
+      "rebalanceBars": 3
+    },
+    {
+      "championEligible": false,
+      "horizonBars": 21,
+      "horizonHours": 168,
+      "id": "resrev_168h_rebalance_1bar",
+      "rebalanceBars": 1
+    },
+    {
+      "championEligible": true,
+      "horizonBars": 21,
+      "horizonHours": 168,
+      "id": "resrev_168h_rebalance_3bar",
+      "rebalanceBars": 3
+    }
+  ],
+  "validation": {
+    "bootstrapBlockBars": 3,
+    "bootstrapDependenceLimitation": "The registered three-bar moving block spans one day and is shorter than the longest 21-bar overlapping signal horizon and potentially persistent held-position state. Sharpe confidence intervals may understate uncertainty when dependence extends beyond three bars. No alternative block length will be tried in this campaign.",
+    "bootstrapReplications": 2000,
+    "bootstrapSeed": 42,
+    "developmentEvaluationRows": 4888,
+    "featureWarmupRows": 21,
+    "innerInitialTrain": 1222,
+    "innerFoldPolicy": "Retain the final partial inner validation fold; candidate scores concatenate every embargoed validation row, including the partial tail.",
+    "innerTestSize": 244,
+    "labelHorizonBars": 1,
+    "lifetimeTrialCount": 33,
+    "newTrialCount": 12,
+    "outerInitialTrain": 2444,
+    "outerFoldCount": 7,
+    "outerFoldPolicy": "Use exactly seven complete 349-row outer folds; no partial outer fold is permitted.",
+    "outerTestSize": 349,
+    "pairedComparison": "At each horizon, form the row-wise paired net-return spread as the 3-bar trial return minus its matched 1-bar control return on identical chronological rows, then estimate the annualized Sharpe of that spread. Construct three Bonferroni-simultaneous block-bootstrap confidence intervals for these spread Sharpes; this is not a difference between two separately estimated Sharpe ratios. The selected champion's matched spread-Sharpe lower bound must exceed zero.",
+    "pairedComparisonFamilyWiseAlpha": 0.05,
+    "pairedComparisonHypotheses": 3,
+    "phaseStressConfigurationCount": 6,
+    "pboSlices": 10,
+    "primaryTrialCount": 6,
+    "priorTrialCount": 21,
+    "priorTrialFamily": "residual_momentum_derivatives_ablation_v1 plus residual_momentum_funding_only_v1",
+    "rebalancePhaseStress": "For the three rebalanceBars=3 horizons, rerun the registered strategy with rebalancePhaseBars=1 and rebalancePhaseBars=2 while freezing every primary final and outer-fold horizon selection. Each phase produces both a frozen outer-fold composite path and the frozen final champion's path on the same chronological OOS rows used by final rolling selection; both block-bootstrap Sharpe confidence lower bounds must exceed zero. The six horizon-by-phase configurations join the six primary trials in the complete current-campaign DSR and CSCV/PBO matrices and in new and lifetime trial accounting.",
+    "selectionRule": "Expanding rolling-origin inner-OOS Sharpe considers only the three registered rebalanceBars=3 trials with a one-label embargo; ties follow registered eligible-trial order. The matched rebalanceBars=1 trials are diagnostics and paired controls only.",
+    "stressTests": [
+      "cost1_5x",
+      "cost2x",
+      "additionalDelay1bar",
+      "rebalancePhase1bar",
+      "rebalancePhase2bar"
+    ],
+    "turnoverRatio": "For the selected final 3-bar champion, divide mean charged drifted-pretrade-to-target turnover by its matched 1-bar control's mean on all identical development evaluation rows; a non-positive or non-finite control denominator fails closed."
+  },
+  "bankruptcyPolicy": {
+    "pathScope": "all_six_primary_phase_zero_development_paths",
+    "triggerExpression": "1 + netReturn <= 0",
+    "campaignStatusOnTrigger": "mechanically_invalid",
+    "requireEveryPrimaryDevelopmentPathBankruptcyFree": true,
+    "allowReturnClipping": false,
+    "allowAbsorbingBankruptcy": false,
+    "allowPortfolioRestart": false,
+    "allowTrialSubstitution": false,
+    "allowParameterTuning": false,
+    "failureOutput": "structured_mechanical_rejection_only",
+    "holdoutDispositionOnTrigger": "reserved_unopened",
+    "nonPrimaryDevelopmentDisposition": "structured_insufficient_evidence",
+    "finalHoldoutDisposition": "structured_failure_and_completed_registry"
+  },
+  "promotion": {
+    "currentCampaignDeflatedSharpeProbabilityMinimum": 0.95,
+    "lifetimeBonferroniPsrProbabilityMinimum": 0.95,
+    "maximumChampionTurnoverRatio": 0.5,
+    "maximumPbo": 0.2,
+    "maximumRegimeLoss": 0.05,
+    "maximumWorstFoldLoss": 0.05,
+    "minimumActiveFraction": 0.25,
+    "minimumOuterOosObservations": 1500,
+    "minimumRegimeObservations": 50,
+    "minimumResolvedFundingFraction": 1.0,
+    "minimumSymbols": 10,
+    "requireEveryPrimaryDevelopmentPathBankruptcyFree": true,
+    "requireAdditionalDelaySharpeCiAboveZero": true,
+    "requireAllRegisteredStressPathsEvaluable": true,
+    "requireChampionRebalanceBars": 3,
+    "requireCost2xSharpeCiAboveZero": true,
+    "requireAllRebalancePhaseSharpeCiAboveZero": true,
+    "requireMatchedRebalanceImprovementSharpeCiAboveZero": true,
+    "requireOuterOosSharpeCiAboveZero": true
+  },
+  "holdoutPolicy": {
+    "blockOnMechanicallyInvalidDevelopment": true,
+    "executionStateAtStart": "cash",
+    "featureHistory": "full_registered_history_through_holdout_decision_time",
+    "chargeInitialCashToFrozenTargetTurnover": true,
+    "openOnlyAfterEveryDevelopmentGatePasses": true,
+    "overlapAwareOneShotRegistry": true,
+    "reservedByDefault": true,
+    "sealLimitation": "The shared registry prevents this runner from evaluating the overlapping holdout early or more than once, but the underlying public market history remains independently retrievable and is not an access-control secret.",
+    "successRule": "The frozen 3-bar champion's final-holdout block-bootstrap 95% Sharpe lower bound must exceed zero."
+  }
+}
