@@ -313,3 +313,67 @@ print(json.dumps({
     assert.equal(result.proxyClaim, true);
   },
 );
+
+test(
+  "circular block bootstrap is deterministic and includes wrapped blocks",
+  { skip: !PYTHON_RESEARCH_DEPS },
+  () => {
+    const result = runResearchPython(String.raw`
+import json
+import sys
+
+import numpy as np
+
+sys.path.insert(0, sys.argv[1])
+import harness
+
+values = np.arange(1.0, 9.0) / 1000.0
+actual = harness.circular_block_bootstrap_sharpe_ci(
+    values, 1095.0, block=3, n_boot=250, alpha=0.10, seed=17
+)
+
+blocks = values[
+    (np.arange(len(values), dtype=np.int64)[:, None] + np.arange(3))
+    % len(values)
+]
+rng = np.random.default_rng(17)
+sharpes = []
+for _ in range(250):
+    starts = rng.integers(0, len(values), size=3)
+    sample = blocks[starts].reshape(-1)[:len(values)]
+    sharpes.append(harness.sharpe(sample, 1095.0))
+expected = np.quantile(sharpes, [0.05, 0.95])
+
+errors = []
+for kwargs in (
+    {"block": True},
+    {"block": 9},
+    {"block": 3, "n_boot": 0},
+    {"block": 3, "alpha": 1.0},
+):
+    try:
+        harness.circular_block_bootstrap_sharpe_ci(values, 1095.0, **kwargs)
+    except (TypeError, ValueError) as error:
+        errors.append(str(error))
+
+print(json.dumps({
+    "actual": actual,
+    "expected": expected.tolist(),
+    "wrappedLastBlock": blocks[-1].tolist(),
+    "repeat": harness.circular_block_bootstrap_sharpe_ci(
+        values, 1095.0, block=3, n_boot=250, alpha=0.10, seed=17
+    ),
+    "errors": errors,
+}))
+`);
+
+    assert.deepEqual(result.actual, result.expected);
+    assert.deepEqual(result.repeat, result.actual);
+    assert.deepEqual(result.wrappedLastBlock, [0.008, 0.001, 0.002]);
+    assert.equal(result.errors.length, 4);
+    assert.match(result.errors[0], /positive integer/);
+    assert.match(result.errors[1], /fit within/);
+    assert.match(result.errors[2], /positive integer/);
+    assert.match(result.errors[3], /strictly between/);
+  },
+);
