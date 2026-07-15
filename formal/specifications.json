@@ -502,31 +502,38 @@
     {
       "id": "A-RESEARCH",
       "title": "Research acquisition, point-in-time cache, walk-forward harness, and statistical analysis",
-      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
+      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "bounded historical snapshot", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "funding settlement accounting", "cost model", "bootstrap", "deflated Sharpe", "CSCV PBO", "lifetime multiple-testing correction", "one-shot final holdout registry", "regime experiment", "cross-sectional example"],
       "criticality": "correctness",
       "implementation": ["scripts/research/**", "scripts/fetch-data-pipeline.sh", "scripts/install-research-datafeed-launchagent.sh"],
       "uses": ["G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-IDEMPOTENT"],
       "dependsOn": ["H-MARKET-DATA", "H-METRICS"],
       "requires": [
         { "id": "A-RESEARCH-R1", "statement": "Every observation has event/publication time, preprocessing is fit only on each training prefix, and cache overlap has an explicit field-level merge policy." },
-        { "id": "A-RESEARCH-R2", "statement": "Pre-registered edge campaigns enumerate the complete trial grid, align all symbol/feature panels to an exact chronological bar grid, and seal the final holdout unless all promotion gates pass." }
+        { "id": "A-RESEARCH-R2", "statement": "Pre-registered edge campaigns enumerate the complete trial grid, align all symbol/feature panels to an exact chronological bar grid, and seal the final holdout unless all promotion gates pass." },
+        { "id": "A-RESEARCH-R3", "statement": "Historical funding campaigns bound every public acquisition window, preserve every endpoint-returned settlement event, causally resolve omitted marks, and hash raw plus aligned inputs before producing returns." }
       ],
       "ensures": [
         { "id": "A-RESEARCH-E1", "statement": "Walk-forward results use disjoint chronological evaluation folds; cache mutation and cross-symbol snapshots use one shared lock plus atomic replacement; acquisition is wall-clock bounded; stale or degraded evidence cannot report pass or extend new point-in-time alignment past its freshness bound; seed/config/data revision are recorded." },
-        { "id": "A-RESEARCH-E2", "statement": "Nested selection fits only embargoed training prefixes, evaluates the frozen selected candidate once on each untouched outer fold, and records complete trial-return matrices for formal DSR and CSCV/PBO diagnostics." }
+        { "id": "A-RESEARCH-E2", "statement": "Nested selection fits only embargoed training prefixes, evaluates the frozen selected candidate once on each untouched outer fold, and records complete trial-return matrices for formal DSR and CSCV/PBO diagnostics." },
+        { "id": "A-RESEARCH-E3", "statement": "Perpetual returns attribute price, signed funding cashflow, turnover, and costs on exact close-to-close intervals; lifetime trial counts receive an explicit family-wise correction separate from current-campaign DSR/PBO." }
       ],
       "invariants": [
         { "id": "A-RESEARCH-I1", "statement": "A future row cannot change earlier standardized features or signals; transaction costs are applied only after a causal decision." },
-        { "id": "A-RESEARCH-I2", "statement": "Formal multiple-testing diagnostics operate on complete finite aligned return matrices; final-holdout openings are one-shot across overlapping symbol/time windows and completed entries reference atomically written evidence." }
+        { "id": "A-RESEARCH-I2", "statement": "Formal multiple-testing diagnostics operate on complete finite aligned return matrices; final-holdout openings are one-shot across overlapping symbol/time windows and completed entries reference atomically written evidence." },
+        { "id": "A-RESEARCH-I3", "statement": "Each funding event is charged exactly once in (left close, right close], and a missing historical event mark can use only the containing hourly mark open rather than a future close." }
       ],
       "failures": [
         { "id": "A-RESEARCH-F1", "statement": "Missing publication metadata, incomplete overlap, or failed acquisition preserves prior cache and marks the experiment incomplete." },
-        { "id": "A-RESEARCH-F2", "statement": "Sparse, incomplete, non-finite, misaligned, or ambiguous edge-campaign evidence fails closed before promotion or final-holdout consumption." }
+        { "id": "A-RESEARCH-F2", "statement": "Sparse, incomplete, non-finite, misaligned, or ambiguous edge-campaign evidence fails closed before promotion or final-holdout consumption." },
+        { "id": "A-RESEARCH-F3", "statement": "Historical page, grid, settlement, mark-resolution, schedule-gap, registration, or artifact-integrity failures produce no campaign result and consume no blocked final holdout." }
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/scripts/test_review_bot_day.py", "contains": "unittest" },
         { "level": "regression", "path": "test/research-datafeed-scheduler.test.mjs", "contains": "scheduled research collector serializes writers" },
         { "level": "regression", "path": "test/research-edge-campaign.test.mjs", "contains": "edge campaign is causal, complete, and cost monotone" },
+        { "level": "regression", "path": "test/research-historical-datafeed.test.mjs", "contains": "historical Binance snapshots are bounded, complete, and atomic" },
+        { "level": "regression", "path": "test/research-funding-campaign.test.mjs", "contains": "funding campaign is fixed, causal, and accounts for every settlement" },
+        { "level": "regression", "path": "test/research-historical-funding-campaign.test.mjs", "contains": "historical funding runner seals inputs and leaves blocked holdout untouched" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "formal DSR matches a fixed cross-trial benchmark" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "CSCV PBO separates a stable winner" },
         { "level": "regression", "path": "test/research-validation.test.mjs", "contains": "nested validation selects on inner rows" }

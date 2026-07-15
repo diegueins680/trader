@@ -30,9 +30,24 @@ from edge_campaign import (
     run_trial_matrix,
     scores_for_spec,
 )
+import campaign_runner as shared_runner
 import run_edge_campaign as runner
 
 assert runner.HOLDOUT_REGISTRY_DIR.is_absolute()
+assert runner.HOLDOUT_REGISTRY_DIR == shared_runner.HOLDOUT_REGISTRY_DIR
+assert runner.HOLDOUT_REGISTRY_VERSION == shared_runner.HOLDOUT_REGISTRY_VERSION == 3
+for helper in (
+    "_assert_holdout_available",
+    "_campaign_output_lock",
+    "_holdout_registry_lock",
+    "_holdout_window",
+    "_reserve_holdout",
+    "_windows_overlap",
+):
+    assert getattr(runner, helper) is getattr(shared_runner, helper)
+assert shared_runner._holdout_window(["AAA"], "8h", 0, 0)[
+    "outcomeEndTimeExclusive"
+] == 8 * 3_600_000
 
 rng = np.random.default_rng(17)
 n = 420
@@ -320,6 +335,21 @@ with tempfile.TemporaryDirectory() as reservation_root:
     else:
         raise AssertionError("an exclusive reservation must not be replaced")
     assert json.loads(reservation_path.read_text()) == {"complete": True}
+
+    locked_output = runner.Path(reservation_root) / "locked-output"
+    locked_output.mkdir()
+    with (locked_output / ".campaign.lock").open("a+") as held_lock:
+        shared_runner.fcntl.flock(held_lock.fileno(), shared_runner.fcntl.LOCK_EX)
+        try:
+            try:
+                with runner._campaign_output_lock(locked_output, 0.01):
+                    raise AssertionError("a held campaign output lock cannot be entered")
+            except TimeoutError as error:
+                assert "output lock deadline" in str(error)
+        finally:
+            shared_runner.fcntl.flock(
+                held_lock.fileno(), shared_runner.fcntl.LOCK_UN
+            )
 
 runner.feed.load_panel = lambda *_args, **_kwargs: panel
 with tempfile.TemporaryDirectory() as output_dir:
