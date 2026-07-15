@@ -31,7 +31,7 @@ import run_historical_reversal_campaign as V1
 CAMPAIGN_ID = "residual_reversal_rank_hysteresis_risk_v1"
 REGISTRATION_VERSION = 1
 REGISTRATION_SHA256 = (
-    "cf3036bc34f34e9a14562221d4a2b74a93dc02a706aa28b4597e1e8af19f9170"
+    "9491cb3ddb94ce346900872707cf393c62339cec410e21893f20cb2318fe701d"
 )
 REGISTRATION_PATH = (
     C.REPOSITORY_ROOT
@@ -282,7 +282,12 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         "overlapAwareOneShotRegistry": True,
         "reservedByDefault": True,
         "registryVersion": C.HOLDOUT_REGISTRY_VERSION,
+        "legacyRegistryCampaigns": sorted(C.LEGACY_HOLDOUT_IDENTITY_CAMPAIGNS),
         "registryDirectory": ".tmp/research/edge-campaign-holdouts",
+        "outputBindingFormula": (
+            "SHA-256 of canonical JSON containing holdoutIdentitySha256 and "
+            "the absolute resolved outputDirectory"
+        ),
     }
     for key, expected in expected_holdout.items():
         _require_exact(holdout.get(key), expected, f"holdoutPolicy {key}")
@@ -1560,6 +1565,12 @@ def _open_final_holdout(
         "campaignManifestSha256": campaign_manifest_sha,
         "holdoutIdentitySha256": identity,
         "panelSha256": data["fullPanelDigestSha256"],
+        "outputBindingSha256": C._json_digest(
+            {
+                "holdoutIdentitySha256": identity,
+                "outputDirectory": str(output_dir.resolve()),
+            }
+        ),
         "candidate": champion,
         "window": window,
         "executionStateAtStart": policy["executionStateAtStart"],

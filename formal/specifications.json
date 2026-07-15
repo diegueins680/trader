@@ -523,7 +523,7 @@
         { "id": "A-RESEARCH-I1", "statement": "A future row cannot change earlier standardized features or signals; transaction costs are applied only after a causal decision." },
         { "id": "A-RESEARCH-I2", "statement": "Formal multiple-testing diagnostics operate on complete finite aligned return matrices; final-holdout openings are one-shot across overlapping symbol/time windows and completed entries reference atomically written evidence." },
         { "id": "A-RESEARCH-I3", "statement": "Each funding event is charged exactly once in (left close, right close], and a missing historical event mark can use only the containing hourly mark open rather than a future close." },
-        { "id": "A-RESEARCH-I4", "statement": "A risk breach cannot be clipped, restarted, substituted, or continued as synthetic cash; strict holdout markers bind campaign, panel digest, canonical overlap window, registration, manifest, and filename identity under the shared registry lock." }
+        { "id": "A-RESEARCH-I4", "statement": "A risk breach cannot be clipped, restarted, substituted, or continued as synthetic cash; strict holdout markers bind campaign, panel digest, canonical overlap window, registration, manifest, filename identity, and resolved output directory under the shared registry lock." }
       ],
       "failures": [
         { "id": "A-RESEARCH-F1", "statement": "Missing publication metadata, incomplete overlap, or failed acquisition preserves prior cache and marks the experiment incomplete." },

@@ -332,11 +332,17 @@
     "explicitOpenFlagRequired": true,
     "openFlag": "--open-final-holdout",
     "registryVersion": 3,
+    "legacyRegistryCampaigns": [
+      "residual_momentum_derivatives_ablation_v1",
+      "residual_momentum_funding_only_v1",
+      "residual_reversal_turnover_v1"
+    ],
     "overlapAwareOneShotRegistry": true,
     "registryDirectory": ".tmp/research/edge-campaign-holdouts",
     "registryPathOverridePolicy": "An official run must use the registered shared directory. A different registry path is test-only and cannot produce official evidence.",
-    "registryIntegrityRule": "Under the shared lock, unreadable, malformed, wrong-version, identity-mismatched, or overlapping opening/completed records fail closed. Marker identity alone never permits reuse of an overlapping symbol/outcome window.",
+    "registryIntegrityRule": "Under the shared lock, every opening/completed record must have a readable version, status, canonical window, and absolute output-directory mapping, and every overlapping symbol/outcome window or repeated output directory fails closed. This campaign's version-3 records always use the strict identity schema and must bind their filename, campaign, panel, registration, manifest, and output-directory digests. Only the three explicitly known predecessor campaign IDs may use their legacy version-3 schema without panelSha256; each such marker must resolve its recorded campaign manifest, recover the registered panel digest, match registration and manifest provenance, and recompute the legacy filename identity before it can act as a canonical-window and output-consumption blocker. Removing panelSha256 from any other campaign, relabeling a strict marker, changing its output mapping, or presenting missing legacy provenance is invalid rather than a schema downgrade. Marker identity alone never permits reuse of an overlapping window.",
     "identityFormula": "SHA-256 of canonical JSON containing this campaign ID, the registered full-panel digest, and the canonical sorted-symbol holdout window",
+    "outputBindingFormula": "SHA-256 of canonical JSON containing holdoutIdentitySha256 and the absolute resolved outputDirectory",
     "predecessorHoldoutIdentitySha256": "5b09051047e062332269b7ef9c47f8fc595ef555378b943c32e08d4106c6ac5c",
     "symbols": [
       "BTCUSDT",

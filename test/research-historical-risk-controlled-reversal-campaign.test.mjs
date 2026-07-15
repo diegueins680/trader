@@ -496,6 +496,7 @@ with tempfile.TemporaryDirectory() as temporary:
         assert calls == []
 
         shared_only_output = root / "shared-only-output"
+        shared_only_output.mkdir()
         shared_only_registry = root / "shared-only-registry"
         shared_only_registry.mkdir()
         window = common._holdout_window(
@@ -513,16 +514,35 @@ with tempfile.TemporaryDirectory() as temporary:
                 "window": window,
             }
         )
+        shared_manifest = {
+            "campaign": runner.CAMPAIGN_ID,
+            "registrationSha256": "a" * 64,
+            "registeredData": {
+                "fullPanelDigestSha256": synthetic["registeredData"][
+                    "fullPanelDigestSha256"
+                ]
+            },
+        }
+        shared_manifest_path = shared_only_output / "campaign-manifest.json"
+        shared_manifest_path.write_text(json.dumps(shared_manifest, indent=2))
         shared_record = {
             "registryVersion": common.HOLDOUT_REGISTRY_VERSION,
             "status": "opening",
             "campaign": runner.CAMPAIGN_ID,
             "registrationSha256": "a" * 64,
-            "campaignManifestSha256": "b" * 64,
+            "campaignManifestSha256": common._file_digest(
+                shared_manifest_path
+            ),
             "holdoutIdentitySha256": identity,
             "panelSha256": synthetic["registeredData"][
                 "fullPanelDigestSha256"
             ],
+            "outputBindingSha256": common._json_digest(
+                {
+                    "holdoutIdentitySha256": identity,
+                    "outputDirectory": str(shared_only_output.resolve()),
+                }
+            ),
             "window": window,
             "artifacts": {"outputDirectory": str(shared_only_output.resolve())},
         }
@@ -543,7 +563,7 @@ with tempfile.TemporaryDirectory() as temporary:
         finally:
             runner.HOLDOUT_REGISTRY_DIR = saved_registry
             runner.TEST_ONLY_ALLOW_REGISTRY_OVERRIDE = saved_override
-        assert not (shared_only_output / "campaign-manifest.json").exists()
+        assert shared_manifest_path.is_file()
         assert calls == []
 
         runner._trials_on_panel = lambda *_args: (_ for _ in ()).throw(FakeBreach())
@@ -622,6 +642,22 @@ with tempfile.TemporaryDirectory() as temporary:
         for outcome in ("success", "breach", "integrity", "execution"):
             output = root / f"holdout-{outcome}"
             output.mkdir()
+            campaign_manifest = {
+                "campaign": runner.CAMPAIGN_ID,
+                "registrationSha256": "a" * 64,
+                "registeredData": {
+                    "fullPanelDigestSha256": holdout_registration[
+                        "registeredData"
+                    ]["fullPanelDigestSha256"]
+                },
+            }
+            campaign_manifest_path = output / "campaign-manifest.json"
+            campaign_manifest_path.write_text(
+                json.dumps(campaign_manifest, indent=2)
+            )
+            campaign_manifest_sha = common._file_digest(
+                campaign_manifest_path
+            )
             registry = root / f"registry-{outcome}"
             runner.HOLDOUT_REGISTRY_DIR = registry
             observations = []
@@ -673,7 +709,7 @@ with tempfile.TemporaryDirectory() as temporary:
                 holdout_registration,
                 "a" * 64,
                 "c" * 64,
-                "b" * 64,
+                campaign_manifest_sha,
                 "resrev_24h_exit3_hysteresis",
                 specs,
                 common._periods_per_year(feed.CONTRACT_INTERVAL_MS),
