@@ -132,7 +132,7 @@ jobs:
 
       # The box serves haskell/web/dist via Caddy; it is gitignored, so build it
       # here and rsync it to the box (matches the existing local-build flow).
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
