@@ -1886,6 +1886,7 @@ data ApiBinancePosition = ApiBinancePosition
     , abpLeverage :: !Double
     , abpMarginType :: !(Maybe String)
     , abpPositionSide :: !(Maybe String)
+    , abpBotId :: !(Maybe Int64)
     }
     deriving (Eq, Show, Generic)
 
@@ -5734,6 +5735,57 @@ persistBinancePositions store market positions =
                             )
                     pure ()
 
+data PersistedPositionOwnerRow = PersistedPositionOwnerRow
+    { pporSymbol :: !Text
+    , pporSide :: !(Maybe Text)
+    , pporBotId :: !Int64
+    }
+    deriving (Eq, Show)
+
+instance FromRow PersistedPositionOwnerRow where
+    fromRow = PersistedPositionOwnerRow <$> field <*> field <*> field
+
+positionOwnerKey :: String -> Maybe String -> Double -> String
+positionOwnerKey symbol mSide quantity =
+    let side =
+            case fmap normalizeKey mSide of
+                Just "long" -> "long"
+                Just "short" -> "short"
+                _ -> if quantity < 0 then "short" else "long"
+     in normalizeKey symbol ++ ":" ++ side
+
+loadPersistedPositionOwnersMaybe :: Maybe OpsStore -> Maybe TenantKey -> BinanceMarket -> IO (M.Map String Int64)
+loadPersistedPositionOwnersMaybe mOps mTenantKey market =
+    case mOps of
+        Nothing -> pure M.empty
+        Just store -> do
+            result <- try $ withOpsConnection store $ \conn -> do
+                let marketText = normalizeMarketText (T.pack (marketCode market))
+                query
+                    conn
+                    ( "SELECT p.symbol, p.side, p.bot_id "
+                        <> "FROM positions p "
+                        <> "JOIN platforms pl ON p.platform_id = pl.id "
+                        <> "JOIN bots b ON p.bot_id = b.id "
+                        <> "WHERE pl.code = ? "
+                        <> "AND lower(coalesce(p.market, '')) = ? "
+                        <> "AND b.tenant_key IS NOT DISTINCT FROM ? "
+                        <> "AND p.bot_id IS NOT NULL "
+                        <> "AND abs(coalesce(p.quantity, 0)) > 1e-12 "
+                        <> "ORDER BY p.updated_at_ms DESC NULLS LAST"
+                    )
+                    ("binance" :: Text, marketText, mTenantKey)
+            case result :: Either SomeException [PersistedPositionOwnerRow] of
+                Left ex -> do
+                    hPutStrLn stderr ("WARN: failed to load persisted position owners: " ++ displayException ex)
+                    pure M.empty
+                Right rows ->
+                    pure $
+                        foldl'
+                            (\owners row -> M.insertWith (\_ existing -> existing) (positionOwnerKey (T.unpack (pporSymbol row)) (T.unpack <$> pporSide row) 1) (pporBotId row) owners)
+                            M.empty
+                            rows
+
 data CachedBinancePositionRow = CachedBinancePositionRow
     { cbprSymbol :: !Text
     , cbprSide :: !(Maybe Text)
@@ -5792,10 +5844,11 @@ cachedBinancePositionToApi row =
             , abpLeverage = fromMaybe 0 (cbprLeverage row)
             , abpMarginType = positionJsonString mJson "marginType"
             , abpPositionSide = positionJsonString mJson "positionSide" <|> sideFallback
+            , abpBotId = Nothing
             }
 
-cachedBinancePositionsResponse :: Maybe OpsStore -> BinanceMarket -> Bool -> String -> Int -> Maybe String -> IO (Maybe ApiBinancePositionsResponse)
-cachedBinancePositionsResponse mOps market testnet interval limitSafe mErr =
+cachedBinancePositionsResponse :: Maybe OpsStore -> Maybe TenantKey -> BinanceMarket -> Bool -> String -> Int -> Maybe String -> IO (Maybe ApiBinancePositionsResponse)
+cachedBinancePositionsResponse mOps mTenantKey market testnet interval limitSafe mErr =
     case mOps of
         Nothing -> pure Nothing
         Just store -> do
@@ -5827,10 +5880,18 @@ cachedBinancePositionsResponse mOps market testnet interval limitSafe mErr =
                 Right [] -> pure Nothing
                 Right rows -> do
                     now <- getTimestampMs
+                    positionOwners <- loadPersistedPositionOwnersMaybe mOps mTenantKey market
                     let fetchedAt =
                             case mapMaybe cbprUpdatedAtMs rows of
                                 [] -> now
                                 xs -> maximum xs
+                        positions =
+                            map
+                                ( \row ->
+                                    let pos = cachedBinancePositionToApi row
+                                     in pos{abpBotId = M.lookup (positionOwnerKey (abpSymbol pos) (abpPositionSide pos) (abpPositionAmt pos)) positionOwners}
+                                )
+                                rows
                     pure $
                         Just
                             ApiBinancePositionsResponse
@@ -5838,7 +5899,7 @@ cachedBinancePositionsResponse mOps market testnet interval limitSafe mErr =
                                 , abprTestnet = testnet
                                 , abprInterval = interval
                                 , abprLimit = limitSafe
-                                , abprPositions = map cachedBinancePositionToApi rows
+                                , abprPositions = positions
                                 , abprCharts = []
                                 , abprFetchedAtMs = fetchedAt
                                 , abprAccountUid = Nothing
@@ -13680,6 +13741,11 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                                                     }
                                         _ <- swapMVar stVar st1'
                                         persistBotStatusMaybe mBotStateDir st1'
+                                        when (vectorLastOr 0 (botPositions st) /= vectorLastOr 0 (botPositions st1')) $ do
+                                            -- Persist the durable position-to-bot association as soon as an order changes exposure.
+                                            -- The periodic status log is intentionally too slow to be the sole ownership writer.
+                                            botStatusLogMaybe mOps True st1'
+                                            writeIORef lastStatusLogRef tProc1
                                         logStatusIfDue st1'
                                         loop
 
@@ -22419,6 +22485,9 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
     urls <- resolveBinanceBaseUrls
     let baseUrl = selectBinanceBaseUrl urls testnet market
         (interval, limitSafe) = binancePositionsIntervalLimit baseArgs params
+        mTenantKey =
+            either (const Nothing) id (resolveTenantKeyFromBinancePositionsRequest params)
+                <|> tenantKeyFromBinanceKeys apiKey apiSecret
     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
     advanceRequestProgressMaybe mTracker "positions" (Just ("positionRisk timeout " ++ show positionsTimeoutSec ++ "s"))
     let positionRiskHttpTimeoutMicros = binancePositionsOverallTimeoutMicros positionsTimeoutSec
@@ -22433,14 +22502,14 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
         Left ex -> throwIO ex
         Right Nothing -> do
             let msg = binancePositionsTimeoutMessage positionsTimeoutSec
-            mCached <- cachedBinancePositionsResponse mOps market testnet interval limitSafe (Just msg)
+            mCached <- cachedBinancePositionsResponse mOps mTenantKey market testnet interval limitSafe (Just msg)
             case mCached of
                 Just cached -> pure cached
                 Nothing -> throwIO (userError msg)
         Right (Just positions) -> do
             let openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
                 totalOpenPositions = length openPositions
-                toApiPosition p =
+                toApiPosition owners p =
                     ApiBinancePosition
                         { abpSymbol = fprSymbol p
                         , abpPositionAmt = fprPositionAmt p
@@ -22452,6 +22521,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
                         , abpLeverage = fprLeverage p
                         , abpMarginType = fprMarginType p
                         , abpPositionSide = fprPositionSide p
+                        , abpBotId = M.lookup (positionOwnerKey (fprSymbol p) (fprPositionSide p) (fprPositionAmt p)) owners
                         }
                 formatKlineDetail idx sym =
                     sym ++ " (" ++ show idx ++ "/" ++ show totalOpenPositions ++ ")"
@@ -22470,6 +22540,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
                                         , abpcPrices = map kClose ks
                                         }
             timeBinancePositionsStep "persist" (persistBinancePositionsMaybe mOps market openPositions)
+            positionOwners <- timeBinancePositionsStep "owners" (loadPersistedPositionOwnersMaybe mOps mTenantKey market)
             let chartConcurrency = 4
             chartsRaw <-
                 mapConcurrentlyBounded chartConcurrency fetchPositionChart (zip [1 ..] openPositions)
@@ -22480,7 +22551,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
                     , abprTestnet = testnet
                     , abprInterval = interval
                     , abprLimit = limitSafe
-                    , abprPositions = map toApiPosition openPositions
+                    , abprPositions = map (toApiPosition positionOwners) openPositions
                     , abprCharts = catMaybes chartsRaw
                     , abprFetchedAtMs = now
                     , abprAccountUid = Nothing
@@ -22493,6 +22564,7 @@ computeBinancePositionsResponseWithDeadline :: Maybe (RequestProgressStore, Stri
 computeBinancePositionsResponseWithDeadline mTracker mOps baseArgs market testnet params positionsTimeoutSec = do
     let (interval, limitSafe) = binancePositionsIntervalLimit baseArgs params
         timeoutMsg = binancePositionsTimeoutMessage positionsTimeoutSec
+        mTenantKey = either (const Nothing) id (resolveTenantKeyFromBinancePositionsRequest params)
     mResult <-
         timeout
             (binancePositionsOverallTimeoutMicros positionsTimeoutSec)
@@ -22509,7 +22581,7 @@ computeBinancePositionsResponseWithDeadline mTracker mOps baseArgs market testne
         Just out -> pure out
         Nothing -> do
             advanceRequestProgressMaybe mTracker "timeout" (Just timeoutMsg)
-            mCached <- cachedBinancePositionsResponse mOps market testnet interval limitSafe (Just timeoutMsg)
+            mCached <- cachedBinancePositionsResponse mOps mTenantKey market testnet interval limitSafe (Just timeoutMsg)
             case mCached of
                 Just cached -> pure cached
                 Nothing -> throwIO (userError timeoutMsg)

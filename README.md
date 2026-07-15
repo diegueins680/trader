@@ -12,6 +12,7 @@ Trader is a Haskell trading research and execution system with a React operation
 - Cost, exposure, drawdown, stale-data, capital-preservation, and execution gates
 - Walk-forward and overfit-aware optimizer evidence with top-combo adoption controls
 - React monitoring UI for signals, bots, positions, trades, optimizer results, and operations
+- Persisted bot ownership for exchange positions, so system-opened positions remain attributable across bot restarts
 - Machine-checked formal-spec registry and repo-wide verification wrappers
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example](.env.example) for the complete runtime configuration surface.
