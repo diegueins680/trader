@@ -440,6 +440,54 @@ def block_bootstrap_sharpe_ci(net, ppy, block=24, n_boot=2000, alpha=0.05, seed=
     return (float(lo), float(hi))
 
 
+def circular_block_bootstrap_sharpe_ci(
+    net, ppy, block=24, n_boot=2000, alpha=0.05, seed=0
+):
+    """Circular moving-block bootstrap interval for annualized Sharpe.
+
+    Every observation can start a block; blocks that cross the right boundary
+    wrap to the beginning. This avoids assigning fewer possible blocks to the
+    end of a fixed chronological sample while retaining local dependence.
+    """
+    values = np.asarray(net, dtype=float)
+    if values.ndim != 1 or not np.isfinite(values).all():
+        raise ValueError("net returns must be one-dimensional and finite")
+    if not np.isfinite(ppy) or ppy <= 0:
+        raise ValueError("periods per year must be positive and finite")
+    if isinstance(block, (bool, np.bool_)) or not isinstance(
+        block, (int, np.integer)
+    ):
+        raise TypeError("block must be a positive integer")
+    if isinstance(n_boot, (bool, np.bool_)) or not isinstance(
+        n_boot, (int, np.integer)
+    ):
+        raise TypeError("n_boot must be a positive integer")
+    block = int(block)
+    n_boot = int(n_boot)
+    if block < 1 or block > len(values):
+        raise ValueError("block must fit within the return sample")
+    if n_boot < 1:
+        raise ValueError("n_boot must be a positive integer")
+    if not np.isfinite(alpha) or not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be strictly between zero and one")
+    if len(values) < block * 2:
+        return (float("nan"), float("nan"))
+
+    offsets = np.arange(block, dtype=np.int64)
+    circular_blocks = values[
+        (np.arange(len(values), dtype=np.int64)[:, None] + offsets) % len(values)
+    ]
+    blocks_per_sample = int(np.ceil(len(values) / block))
+    rng = np.random.default_rng(seed)
+    bootstrapped = np.empty(n_boot, dtype=float)
+    for bootstrap in range(n_boot):
+        starts = rng.integers(0, len(values), size=blocks_per_sample)
+        sample = circular_blocks[starts].reshape(-1)[: len(values)]
+        bootstrapped[bootstrap] = sharpe(sample, ppy)
+    lo, hi = np.quantile(bootstrapped, [alpha / 2, 1 - alpha / 2])
+    return (float(lo), float(hi))
+
+
 def multiple_testing_sharpe_proxy(sr_ann, n_obs, ppy, n_trials=1):
     """Cheap Sidak-style Sharpe probability proxy.
 

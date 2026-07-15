@@ -30,6 +30,20 @@ import harness as H
 HOLDOUT_REGISTRY_VERSION = 3
 HOLDOUT_REGISTRY_LOCK_TIMEOUT_SECONDS = 30.0
 CAMPAIGN_OUTPUT_LOCK_TIMEOUT_SECONDS = 3600.0
+LEGACY_HOLDOUT_PANEL_FIELDS = {
+    "residual_momentum_derivatives_ablation_v1": "panelSha256",
+    "residual_momentum_funding_only_v1": "panelSha256",
+    "residual_reversal_turnover_v1": "fullPanelDigestSha256",
+}
+LEGACY_HOLDOUT_IDENTITY_CAMPAIGNS = frozenset(LEGACY_HOLDOUT_PANEL_FIELDS)
+LEGACY_HOLDOUT_MANIFEST_DIGEST_MODES = {
+    "residual_momentum_funding_only_v1": "canonical-json",
+    "residual_reversal_turnover_v1": "raw-bytes",
+}
+STRICT_HOLDOUT_MANIFEST_PANEL_FIELDS = (
+    "panelSha256",
+    "fullPanelDigestSha256",
+)
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HOLDOUT_REGISTRY_DIR = Path(
     os.environ.get(
@@ -628,7 +642,20 @@ def _holdout_window(
     }
 
 
-def _registry_window(path: Path, record: object) -> dict[str, object]:
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _registry_window(
+    path: Path,
+    record: object,
+    *,
+    strict_identity: bool = False,
+) -> dict[str, object]:
     try:
         if not isinstance(record, dict):
             raise TypeError
@@ -636,6 +663,24 @@ def _registry_window(path: Path, record: object) -> dict[str, object]:
             raise ValueError
         if record.get("status") not in {"opening", "completed"}:
             raise ValueError
+        if strict_identity:
+            identity = record["holdoutIdentitySha256"]
+            registration_sha = record["registrationSha256"]
+            manifest_sha = record["campaignManifestSha256"]
+            panel_sha = record["panelSha256"]
+            output_binding_sha = record["outputBindingSha256"]
+            campaign = record["campaign"]
+            if (
+                not _is_sha256(identity)
+                or path.name != f"{identity}.json"
+                or not _is_sha256(registration_sha)
+                or not _is_sha256(manifest_sha)
+                or not _is_sha256(panel_sha)
+                or not _is_sha256(output_binding_sha)
+                or not isinstance(campaign, str)
+                or not campaign
+            ):
+                raise ValueError
         window = record["window"]
         if not isinstance(window, dict):
             raise TypeError
@@ -658,7 +703,159 @@ def _registry_window(path: Path, record: object) -> dict[str, object]:
     canonical = _holdout_window(symbols, interval, start_time, end_time)
     if canonical["outcomeEndTimeExclusive"] != outcome_end_time:
         raise ValueError(f"holdout registry entry {path.name} is invalid")
+    if strict_identity:
+        output_directory = _registry_output_directory(path, record)
+        expected_identity = _json_digest(
+            {
+                "campaign": campaign,
+                "panelSha256": panel_sha,
+                "window": canonical,
+            }
+        )
+        if identity != expected_identity:
+            raise ValueError(f"holdout registry entry {path.name} is invalid")
+        expected_output_binding = _json_digest(
+            {
+                "holdoutIdentitySha256": identity,
+                "outputDirectory": str(output_directory),
+            }
+        )
+        if output_binding_sha != expected_output_binding:
+            raise ValueError(f"holdout registry entry {path.name} is invalid")
+        _validate_strict_registry_manifest(
+            path,
+            output_directory,
+            campaign,
+            registration_sha,
+            manifest_sha,
+            panel_sha,
+        )
     return canonical
+
+
+def _registry_output_directory(path: Path, record: object) -> Path:
+    try:
+        if not isinstance(record, Mapping):
+            raise TypeError
+        artifacts = record["artifacts"]
+        if not isinstance(artifacts, Mapping):
+            raise TypeError
+        output_directory = artifacts["outputDirectory"]
+        if not isinstance(output_directory, str) or not output_directory:
+            raise TypeError
+        output_path = Path(output_directory)
+        if not output_path.is_absolute():
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"holdout registry entry {path.name} is invalid") from error
+    return output_path.resolve()
+
+
+def _validate_strict_registry_manifest(
+    path: Path,
+    output_directory: Path,
+    campaign: str,
+    registration_sha: str,
+    manifest_sha: str,
+    panel_sha: str,
+) -> None:
+    manifest_path = output_directory / "campaign-manifest.json"
+    try:
+        manifest_payload = manifest_path.read_bytes()
+        manifest = json.loads(manifest_payload)
+        if (
+            not isinstance(manifest, Mapping)
+            or manifest.get("campaign") != campaign
+            or manifest.get("registrationSha256") != registration_sha
+            or hashlib.sha256(manifest_payload).hexdigest() != manifest_sha
+        ):
+            raise ValueError
+        registered_data = manifest["registeredData"]
+        if not isinstance(registered_data, Mapping) or not any(
+            registered_data.get(field) == panel_sha
+            for field in STRICT_HOLDOUT_MANIFEST_PANEL_FIELDS
+        ):
+            raise ValueError
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError(f"holdout registry entry {path.name} is invalid") from error
+
+
+def _legacy_registry_window(
+    path: Path,
+    record: Mapping[str, object],
+) -> dict[str, object]:
+    campaign = record.get("campaign")
+    panel_field = LEGACY_HOLDOUT_PANEL_FIELDS.get(campaign)
+    if panel_field is None:
+        raise ValueError(f"holdout registry entry {path.name} is invalid")
+    canonical = _registry_window(path, record)
+    output_directory = _registry_output_directory(path, record)
+    manifest_path = output_directory / "campaign-manifest.json"
+    try:
+        manifest_payload = manifest_path.read_bytes()
+        manifest = json.loads(manifest_payload)
+        if not isinstance(manifest, Mapping) or manifest.get("campaign") != campaign:
+            raise ValueError
+        registered_data = manifest["registeredData"]
+        if not isinstance(registered_data, Mapping):
+            raise TypeError
+        panel_sha = registered_data[panel_field]
+        identity = record["holdoutIdentitySha256"]
+        registration_sha = record["registrationSha256"]
+        if (
+            not _is_sha256(panel_sha)
+            or not _is_sha256(identity)
+            or not _is_sha256(registration_sha)
+        ):
+            raise ValueError
+        if path.name != f"{identity}.json":
+            raise ValueError
+        expected_identity = _json_digest(
+            {
+                "campaign": campaign,
+                "panelSha256": panel_sha,
+                "window": canonical,
+            }
+        )
+        if identity != expected_identity:
+            raise ValueError
+        if campaign == "residual_momentum_derivatives_ablation_v1":
+            expected_registration_sha = _json_digest(manifest)
+        else:
+            expected_registration_sha = manifest["registrationSha256"]
+        if registration_sha != expected_registration_sha:
+            raise ValueError
+        manifest_digest_mode = LEGACY_HOLDOUT_MANIFEST_DIGEST_MODES.get(campaign)
+        if manifest_digest_mode is not None:
+            manifest_sha = record["campaignManifestSha256"]
+            expected_manifest_sha = (
+                _json_digest(manifest)
+                if manifest_digest_mode == "canonical-json"
+                else hashlib.sha256(manifest_payload).hexdigest()
+            )
+            if not _is_sha256(manifest_sha) or manifest_sha != expected_manifest_sha:
+                raise ValueError
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError(f"holdout registry entry {path.name} is invalid") from error
+    return canonical
+
+
+def _registry_window_for_scan(
+    path: Path,
+    record: object,
+    *,
+    strict_identity: bool,
+) -> dict[str, object]:
+    """Validate strict markers while retaining overlap safety for legacy v3."""
+    legacy_schema = (
+        strict_identity
+        and isinstance(record, Mapping)
+        and record.get("campaign") in LEGACY_HOLDOUT_IDENTITY_CAMPAIGNS
+        and "panelSha256" not in record
+    )
+    if legacy_schema:
+        return _legacy_registry_window(path, record)
+    return _registry_window(path, record, strict_identity=strict_identity)
 
 
 def _windows_overlap(
@@ -675,6 +872,8 @@ def _assert_holdout_available(
     registry_dir: Path,
     window: Mapping[str, object],
     output_record: Path,
+    *,
+    strict_identity: bool = False,
 ) -> None:
     if output_record.exists():
         raise ValueError("final holdout was already consumed for this output directory")
@@ -685,7 +884,18 @@ def _assert_holdout_available(
             record = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as error:
             raise ValueError(f"holdout registry entry {path.name} is unreadable") from error
-        registered_window = _registry_window(path, record)
+        registered_window = _registry_window_for_scan(
+            path, record, strict_identity=strict_identity
+        )
+        if (
+            strict_identity
+            and _registry_output_directory(path, record)
+            == output_record.parent.resolve()
+        ):
+            raise ValueError(
+                "final holdout was already consumed for this output directory; "
+                "use its existing registry evidence"
+            )
         if _windows_overlap(window, registered_window):
             raise ValueError(
                 "final holdout overlaps an already consumed symbol/time window"
@@ -743,7 +953,10 @@ def _holdout_registry_lock(
 
 
 def _assert_output_holdout_not_consumed(
-    registry_dir: Path, output_dir: Path
+    registry_dir: Path,
+    output_dir: Path,
+    *,
+    strict_identity: bool = False,
 ) -> None:
     output_record = output_dir / "final-holdout-opened.json"
     if output_record.exists():
@@ -770,10 +983,20 @@ def _assert_output_holdout_not_consumed(
                 raise ValueError(
                     f"holdout registry entry {path.name} is invalid"
                 ) from error
+            _registry_window_for_scan(
+                path, record, strict_identity=strict_identity
+            )
             artifacts = record.get("artifacts") if isinstance(record, Mapping) else None
             if not isinstance(artifacts, Mapping):
+                if strict_identity:
+                    raise ValueError(
+                        f"holdout registry entry {path.name} is invalid"
+                    )
                 continue
-            if artifacts.get("outputDirectory") != resolved_output:
+            registered_output: object = artifacts.get("outputDirectory")
+            if strict_identity:
+                registered_output = str(_registry_output_directory(path, record))
+            if registered_output != resolved_output:
                 continue
             if record.get("status") not in {"opening", "completed"}:
                 raise ValueError(f"holdout registry entry {path.name} is invalid")
@@ -789,9 +1012,28 @@ def _reserve_holdout(
     window: Mapping[str, object],
     output_record: Path,
     opening_record: Mapping[str, object],
+    *,
+    strict_identity: bool = False,
 ) -> None:
     with _holdout_registry_lock(registry_dir):
-        _assert_holdout_available(registry_dir, window, output_record)
+        if strict_identity:
+            recorded_window = _registry_window(
+                marker, dict(opening_record), strict_identity=True
+            )
+            if (
+                recorded_window != dict(window)
+                or _registry_output_directory(marker, opening_record)
+                != output_record.parent.resolve()
+            ):
+                raise ValueError(
+                    f"holdout registry entry {marker.name} is invalid"
+                )
+        _assert_holdout_available(
+            registry_dir,
+            window,
+            output_record,
+            strict_identity=strict_identity,
+        )
         _write_json_exclusive(marker, opening_record)
         _write_json_exclusive(output_record, opening_record)
 
