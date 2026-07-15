@@ -2652,6 +2652,7 @@ isOpsConnectionFailure e =
             , "server closed the connection unexpectedly"
             , "terminating connection"
             , "connection refused"
+            , "another command is already in progress"
             ]
 
 withOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
