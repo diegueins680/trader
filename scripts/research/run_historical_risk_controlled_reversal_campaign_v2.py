@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the locked risk-controlled residual-reversal campaign.
+"""Run the locked v2 risk-controlled residual-reversal campaign.
 
 Development runs consume only the predecessor campaign's hash-pinned CSV
 artifacts. The raw snapshot is not read unless all development gates pass and
@@ -9,6 +9,7 @@ artifacts. The raw snapshot is not read unless all development gates pass and
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -26,23 +27,27 @@ import historical_datafeed as feed
 import risk_controlled_reversal_campaign as R
 import run_historical_funding_campaign as H
 import run_historical_reversal_campaign as V1
+import run_historical_risk_controlled_reversal_campaign as PRIOR
 
 
-CAMPAIGN_ID = "residual_reversal_rank_hysteresis_risk_v1"
+CAMPAIGN_ID = "residual_reversal_rank_hysteresis_risk_v2"
 REGISTRATION_VERSION = 1
 REGISTRATION_SHA256 = (
-    "9491cb3ddb94ce346900872707cf393c62339cec410e21893f20cb2318fe701d"
+    "b097722d1527e3f6203ca28dc50edaeec8a15d0f27a0600405a4fede5e6130cb"
 )
 REGISTRATION_PATH = (
     C.REPOSITORY_ROOT
-    / "research-notes/registrations/residual-reversal-rank-hysteresis-risk-v1.json"
+    / "research-notes/registrations/residual-reversal-rank-hysteresis-risk-v2.json"
 )
 SOURCE_CAMPAIGN_ID = H.CAMPAIGN_ID
 SOURCE_CAMPAIGN_DIRECTORY = ".tmp/research/historical-funding-campaign-v1"
 PREDECESSOR_CAMPAIGN_DIRECTORY = ".tmp/research/historical-reversal-campaign-v1"
+ADAPTIVE_PREDECESSOR_CAMPAIGN_DIRECTORY = (
+    ".tmp/research/historical-risk-controlled-reversal-campaign-v1"
+)
 SNAPSHOT_DIRECTORY = ".tmp/research/historical-funding-snapshot-v1"
-OUTPUT_DIRECTORY = ".tmp/research/historical-risk-controlled-reversal-campaign-v1"
-HOLDOUT_REGISTRY_DIR = C.HOLDOUT_REGISTRY_DIR
+OUTPUT_DIRECTORY = ".tmp/research/historical-risk-controlled-reversal-campaign-v2"
+HOLDOUT_REGISTRY_DIR = C.SHARED_HOLDOUT_REGISTRY_DIR
 REGISTERED_HOLDOUT_REGISTRY_DIR = C.CANONICAL_SHARED_HOLDOUT_REGISTRY_DIR
 TEST_ONLY_ALLOW_REGISTRY_OVERRIDE = False
 
@@ -59,6 +64,33 @@ REGISTERED_END_OPEN_TIME = V1.REGISTERED_END_OPEN_TIME
 REGISTERED_OUTCOME_END_EXCLUSIVE = V1.REGISTERED_OUTCOME_END_EXCLUSIVE
 REGISTERED_DEVELOPMENT_ROWS = V1.REGISTERED_DEVELOPMENT_ROWS
 REGISTERED_HOLDOUT_RETURN_ROWS = V1.REGISTERED_HOLDOUT_RETURN_ROWS
+REGISTERED_STABLE_TIE_ORDER = tuple(REGISTERED_SYMBOLS)
+DEVELOPMENT_READY_SUMMARY = "development-ready-summary.json"
+DEVELOPMENT_READY_INDEX = "development-ready-index.json"
+PROMOTION_GATE_NAMES = (
+    "minimumSymbols",
+    "fundingCoverage",
+    "everyPrimaryPathRiskSafeAndComplete",
+    "nestedOuterOosObservations",
+    "minimumActiveFraction",
+    "maximumNestedOuterOosDrawdown",
+    "nestedOuterOosSharpeCiAboveZeroAllBlocks",
+    "cost2xSharpeCiAboveZeroAllBlocks",
+    "additionalDelaySharpeCiAboveZeroAllBlocks",
+    "matchedHysteresisImprovementSharpeCiAboveZeroAllBlocks",
+    "championMeanTurnoverRatio",
+    "championEveryOuterFoldTurnoverRatio",
+    "minimumPositiveOuterFolds",
+    "maximumWorstOuterFoldLoss",
+    "regimeRobustness",
+    "currentCampaignDeflatedSharpe",
+    "lifetimeBonferroniPsr",
+    "pbo",
+    "championExitRank",
+    "allRegisteredStressPathsEvaluable",
+    "allRegisteredStressConfidenceGates",
+    "allDiagnosticsFinite",
+)
 
 IMPLEMENTATION_FILES = (
     "campaign_runner.py",
@@ -71,12 +103,13 @@ IMPLEMENTATION_FILES = (
     "run_historical_funding_campaign.py",
     "run_historical_reversal_campaign.py",
     "run_historical_risk_controlled_reversal_campaign.py",
+    "run_historical_risk_controlled_reversal_campaign_v2.py",
 )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the locked risk-controlled residual-reversal campaign"
+        description="Run the locked v2 risk-controlled residual-reversal campaign"
     )
     parser.add_argument(
         "--predecessor-campaign-dir",
@@ -99,11 +132,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Registered risk-controlled campaign evidence directory",
     )
     parser.add_argument("--open-final-holdout", action="store_true")
+    parser.add_argument(
+        "--development-audit-sha256",
+        help=(
+            "SHA-256 of the immutable development-ready index; required only "
+            "for a later --open-final-holdout invocation"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def _read_json_object(path: Path) -> dict[str, object]:
     return V1._read_json_object(path)
+
+
+def _read_canonical_json_object(path: Path, label: str) -> dict[str, object]:
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"{label} is unreadable") from error
+    value = V1._json_object_from_bytes(payload, path)
+    canonical = (
+        json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if payload != canonical:
+        raise ValueError(f"{label} bytes changed")
+    return value
 
 
 def _registration() -> dict[str, object]:
@@ -139,6 +193,27 @@ def _require_exact(value: object, expected: object, label: str) -> None:
         raise ValueError(f"registered {label} changed")
 
 
+def _registered_stable_tie_order(
+    registration: Mapping[str, object],
+) -> tuple[str, ...]:
+    strategy = _require_mapping(registration, "strategy")
+    value = strategy.get("stableTieOrder")
+    if not isinstance(value, list) or not value:
+        raise ValueError("registered strategy stableTieOrder must be a nonempty list")
+    if any(not isinstance(symbol, str) or not symbol for symbol in value):
+        raise ValueError("registered strategy stableTieOrder has an invalid symbol")
+    order = tuple(value)
+    if len(set(order)) != len(order):
+        raise ValueError("registered strategy stableTieOrder contains duplicates")
+    if set(order) != set(REGISTERED_SYMBOLS):
+        raise ValueError(
+            "registered strategy stableTieOrder does not cover the universe"
+        )
+    if order != REGISTERED_STABLE_TIE_ORDER:
+        raise ValueError("registered strategy stableTieOrder changed")
+    return order
+
+
 def _validate_registration(registration: Mapping[str, object]) -> None:
     """Fail closed if any locked campaign definition changes."""
     _require_exact(registration.get("campaign"), CAMPAIGN_ID, "campaign identity")
@@ -157,6 +232,8 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
     validation = _require_mapping(registration, "validation")
     promotion = _require_mapping(registration, "promotion")
     holdout = _require_mapping(registration, "holdoutPolicy")
+    artifact_policy = _require_mapping(registration, "artifactPolicy")
+    _require_mapping(registration, "adaptivePredecessorEvidence")
 
     expected_universe = {
         "interval": feed.CONTRACT_INTERVAL,
@@ -198,7 +275,10 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         "direction": "residual_reversal",
         "betaLookbackBars": 21,
         "costBpsPerUnitTurnover": 10.0,
-        "grossExposure": 0.5,
+        "grossExposure": 0.25,
+        "longTargetWeight": 0.125,
+        "shortTargetWeight": -0.125,
+        "stableTieOrder": list(REGISTERED_STABLE_TIE_ORDER),
         "entryRank": 1,
         "hysteresisExitRank": 3,
         "controlExitRank": 1,
@@ -210,6 +290,7 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         "chargeInitialCashToTargetTurnover": True,
         "chargeTerminalLiquidation": True,
     }
+    _registered_stable_tie_order(registration)
     for key, expected in expected_strategy.items():
         _require_exact(strategy.get(key), expected, f"strategy {key}")
 
@@ -239,7 +320,7 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         "innerInitialTrain": 1222,
         "innerTestSize": 244,
         "labelHorizonBars": 1,
-        "lifetimeTrialCount": 39,
+        "lifetimeTrialCount": 45,
         "newTrialCount": 6,
         "outerInitialTrain": 2444,
         "outerFoldCount": 7,
@@ -248,7 +329,7 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         "pairedComparisonFamilyWiseAlpha": 0.05,
         "pboSlices": 10,
         "currentCampaignTrialCount": 6,
-        "priorTrialCount": 33,
+        "priorTrialCount": 39,
     }
     for key, expected in expected_validation.items():
         _require_exact(validation.get(key), expected, f"validation {key}")
@@ -277,6 +358,15 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         "chargeInitialCashToFrozenTargetTurnover": True,
         "chargeTerminalLiquidation": True,
         "openOnlyAfterEveryDevelopmentGatePasses": True,
+        "explicitOpenFlagRequired": True,
+        "separateInvocationRequired": True,
+        "immutableDevelopmentReadySummaryRequired": True,
+        "immutableDevelopmentReadyIndexRequired": True,
+        "developmentReadySummary": DEVELOPMENT_READY_SUMMARY,
+        "developmentReadyIndex": DEVELOPMENT_READY_INDEX,
+        "openFlag": "--open-final-holdout",
+        "developmentAuditFlag": "--development-audit-sha256",
+        "developmentAuditSha256Required": True,
         "overlapAwareOneShotRegistry": True,
         "reservedByDefault": True,
         "registryVersion": C.HOLDOUT_REGISTRY_VERSION,
@@ -289,6 +379,17 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
     }
     for key, expected in expected_holdout.items():
         _require_exact(holdout.get(key), expected, f"holdoutPolicy {key}")
+
+    expected_artifacts = {
+        "developmentReadySummary": DEVELOPMENT_READY_SUMMARY,
+        "developmentReadyIndex": DEVELOPMENT_READY_INDEX,
+        "summary": "summary.json",
+        "evidenceIndex": "evidence-index.json",
+    }
+    for key, expected in expected_artifacts.items():
+        _require_exact(
+            artifact_policy.get(key), expected, f"artifactPolicy {key}"
+        )
 
     specs = R.campaign_specs(feed.CONTRACT_INTERVAL_MS)
     registered_trials = registration.get("trials")
@@ -305,15 +406,13 @@ def _validate_registration(registration: Mapping[str, object]) -> None:
         raise ValueError("campaign registration differs from the locked document")
 
 
-def _campaign_manifest(
-    output_dir: Path,
+def _campaign_manifest_value(
     registration: Mapping[str, object],
     registration_sha: str,
     implementation_artifacts: Mapping[str, str],
     source_evidence: Mapping[str, object],
-) -> tuple[dict[str, object], str]:
-    path = output_dir / "campaign-manifest.json"
-    expected = {
+) -> dict[str, object]:
+    return {
         "campaign": CAMPAIGN_ID,
         "registrationVersion": REGISTRATION_VERSION,
         "registrationSha256": registration_sha,
@@ -326,6 +425,22 @@ def _campaign_manifest(
         "riskPolicy": dict(registration["riskPolicy"]),
         "registeredData": dict(registration["registeredData"]),
     }
+
+
+def _campaign_manifest(
+    output_dir: Path,
+    registration: Mapping[str, object],
+    registration_sha: str,
+    implementation_artifacts: Mapping[str, str],
+    source_evidence: Mapping[str, object],
+) -> tuple[dict[str, object], str]:
+    path = output_dir / "campaign-manifest.json"
+    expected = _campaign_manifest_value(
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        source_evidence,
+    )
     if path.exists():
         observed = _read_json_object(path)
         if observed != expected:
@@ -347,32 +462,89 @@ def _campaign_manifest(
     return expected, C._file_digest(path)
 
 
+def _validate_current_terminal_manifest(
+    output_dir: Path,
+    summary: Mapping[str, object],
+    registration: Mapping[str, object],
+    registration_sha: str,
+    implementation_artifacts: Mapping[str, str],
+    source_evidence: Mapping[str, object],
+) -> dict[str, object]:
+    if summary.get("registrationSha256") != registration_sha:
+        raise ValueError("terminal evidence registration changed")
+    manifest_path = output_dir / "campaign-manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError("terminal campaign manifest path is unsafe")
+    manifest = _read_canonical_json_object(
+        manifest_path, "terminal campaign manifest"
+    )
+    expected = _campaign_manifest_value(
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        source_evidence,
+    )
+    if manifest != expected:
+        raise ValueError("terminal campaign manifest semantics changed")
+    if summary.get("campaignManifestSha256") != C._file_digest(manifest_path):
+        raise ValueError("terminal campaign manifest cross-link changed")
+    return manifest
+
+
 def _assert_inputs_unchanged(
     predecessor_dir: Path,
     source_dir: Path,
     registration: Mapping[str, object],
     registration_sha: str,
     implementation_sha: str,
-) -> None:
+) -> dict[str, object]:
     if registration_sha != REGISTRATION_SHA256:
         raise ValueError("campaign registration identity changed during this run")
     if C._file_digest(REGISTRATION_PATH) != registration_sha:
         raise ValueError("campaign registration changed during this run")
     if _implementation_sha() != implementation_sha:
         raise ValueError("campaign implementation changed during this run")
-    _validate_predecessor_evidence(predecessor_dir, registration)
+    predecessor_evidence = _validate_predecessor_evidence(
+        predecessor_dir, registration
+    )
+    adaptive_predecessor_evidence = _validate_adaptive_predecessor_evidence(
+        registration
+    )
     data = _require_mapping(registration, "registeredData")
-    V1._require_file_digest(
+    source_registration_sha = V1._require_file_digest(
         H.REGISTRATION_PATH, data["sourceRegistrationSha256"]
     )
+    source_hashes: dict[str, str] = {}
     for name_key, sha_key in (
         ("sourceCampaignManifest", "sourceCampaignManifestSha256"),
         ("developmentPanel", "developmentPanelSha256"),
         ("developmentSettlements", "developmentSettlementsSha256"),
     ):
-        V1._require_file_digest(
+        source_hashes[sha_key] = V1._require_file_digest(
             V1._artifact_path(source_dir, data[name_key]), data[sha_key]
         )
+    registered_development = {
+        "directory": str(source_dir),
+        "campaignManifest": Path(str(data["sourceCampaignManifest"])).name,
+        "campaignManifestSha256": source_hashes[
+            "sourceCampaignManifestSha256"
+        ],
+        "developmentPanel": Path(str(data["developmentPanel"])).name,
+        "developmentPanelSha256": source_hashes["developmentPanelSha256"],
+        "developmentSettlements": Path(
+            str(data["developmentSettlements"])
+        ).name,
+        "developmentSettlementsSha256": source_hashes[
+            "developmentSettlementsSha256"
+        ],
+        "sourceRegistration": str(H.REGISTRATION_PATH),
+        "sourceRegistrationSha256": source_registration_sha,
+    }
+    return {
+        "predecessor": dict(predecessor_evidence),
+        "adaptivePredecessor": dict(adaptive_predecessor_evidence),
+        "registeredDevelopment": registered_development,
+    }
 
 
 def _validate_predecessor_evidence(
@@ -504,6 +676,179 @@ def _validate_predecessor_evidence(
     }
 
 
+def _validate_adaptive_predecessor_evidence(
+    registration: Mapping[str, object],
+) -> dict[str, object]:
+    """Verify the immutable v1 risk rejection before reusing development."""
+    predecessor = _require_mapping(registration, "adaptivePredecessorEvidence")
+    _require_exact(
+        predecessor.get("campaign"),
+        PRIOR.CAMPAIGN_ID,
+        "adaptive predecessor campaign identity",
+    )
+    _require_exact(
+        predecessor.get("directory"),
+        ADAPTIVE_PREDECESSOR_CAMPAIGN_DIRECTORY,
+        "adaptive predecessor directory",
+    )
+    registration_path_value = predecessor.get("registration")
+    if not isinstance(registration_path_value, str):
+        raise ValueError("adaptive predecessor registration path is invalid")
+    predecessor_registration_path = C.REPOSITORY_ROOT / registration_path_value
+    predecessor_registration_payload, predecessor_registration_sha = (
+        V1._read_pinned_bytes(
+            predecessor_registration_path, predecessor["registrationSha256"]
+        )
+    )
+    predecessor_registration = V1._json_object_from_bytes(
+        predecessor_registration_payload, predecessor_registration_path
+    )
+    if predecessor_registration.get("campaign") != PRIOR.CAMPAIGN_ID:
+        raise ValueError("adaptive predecessor registration campaign changed")
+    if predecessor_registration_sha != PRIOR.REGISTRATION_SHA256:
+        raise ValueError("adaptive predecessor registration identity changed")
+    implementation_artifacts = dict(predecessor["implementationArtifacts"])
+    if C._json_digest(implementation_artifacts) != predecessor["implementationSha256"]:
+        raise ValueError("adaptive predecessor implementation digest is invalid")
+
+    predecessor_dir = (
+        C.SHARED_REPOSITORY_ROOT / ADAPTIVE_PREDECESSOR_CAMPAIGN_DIRECTORY
+    )
+    required_files = predecessor.get("requiredArtifactSet")
+    forbidden_files = predecessor.get("forbiddenArtifacts")
+    if not isinstance(required_files, list) or not isinstance(forbidden_files, list):
+        raise ValueError("adaptive predecessor artifact policy is invalid")
+    if not predecessor_dir.is_dir():
+        raise ValueError("adaptive predecessor evidence directory is missing")
+    observed_files = sorted(path.name for path in predecessor_dir.iterdir())
+    if observed_files != sorted(str(name) for name in required_files):
+        raise ValueError("adaptive predecessor terminal artifact set changed")
+    if any((predecessor_dir / str(name)).exists() for name in forbidden_files):
+        raise ValueError("adaptive predecessor contains a holdout artifact")
+
+    artifacts: dict[str, tuple[Path, bytes, str]] = {}
+    for key, sha_key in (
+        ("campaignManifest", "campaignManifestSha256"),
+        ("riskFailure", "riskFailureSha256"),
+        ("riskLedger", "riskLedgerSha256"),
+        ("summary", "summarySha256"),
+        ("evidenceIndex", "evidenceIndexSha256"),
+    ):
+        path = V1._artifact_path(predecessor_dir, predecessor[key])
+        payload, digest = V1._read_pinned_bytes(path, predecessor[sha_key])
+        artifacts[key] = (path, payload, digest)
+
+    parsed = {
+        key: V1._json_object_from_bytes(payload, path)
+        for key, (path, payload, _digest) in artifacts.items()
+    }
+    manifest = parsed["campaignManifest"]
+    failure = parsed["riskFailure"]
+    ledger = parsed["riskLedger"]
+    summary = parsed["summary"]
+    evidence_index = parsed["evidenceIndex"]
+    manifest_sha = artifacts["campaignManifest"][2]
+    failure_sha = artifacts["riskFailure"][2]
+    ledger_sha = artifacts["riskLedger"][2]
+    summary_sha = artifacts["summary"][2]
+
+    expected_manifest = {
+        "campaign": PRIOR.CAMPAIGN_ID,
+        "registrationSha256": predecessor["registrationSha256"],
+        "implementationSha256": predecessor["implementationSha256"],
+        "implementationArtifacts": implementation_artifacts,
+    }
+    for key, expected in expected_manifest.items():
+        if manifest.get(key) != expected:
+            raise ValueError(f"adaptive predecessor manifest {key} changed")
+
+    required_result = _require_mapping(predecessor, "requiredResult")
+    expected_failure = _require_mapping(required_result, "riskFailure")
+    expected_holdout = _require_mapping(required_result, "finalHoldout")
+    observed_failure = failure.get("riskFailure")
+    observed_holdout = failure.get("finalHoldout")
+    summary_failure = summary.get("riskFailure")
+    summary_holdout = summary.get("finalHoldout")
+    checks = {
+        "failure campaign": failure.get("campaign") == PRIOR.CAMPAIGN_ID,
+        "failure manifest link": failure.get("campaignManifestSha256")
+        == manifest_sha,
+        "failure registration link": failure.get("registrationSha256")
+        == predecessor["registrationSha256"],
+        "failure status": failure.get("status") == required_result["status"],
+        "failure payload": all(
+            isinstance(observed_failure, Mapping)
+            and observed_failure.get(key) == expected
+            for key, expected in expected_failure.items()
+        ),
+        "failure holdout": all(
+            isinstance(observed_holdout, Mapping)
+            and observed_holdout.get(key) == expected
+            for key, expected in expected_holdout.items()
+        ),
+        "ledger status": ledger.get("status") == required_result["status"],
+        "ledger failure": ledger.get("primaryFailure") == observed_failure,
+        "summary campaign": summary.get("campaign") == PRIOR.CAMPAIGN_ID,
+        "summary manifest link": summary.get("campaignManifestSha256")
+        == manifest_sha,
+        "summary registration link": summary.get("registrationSha256")
+        == predecessor["registrationSha256"],
+        "summary status": summary.get("status") == required_result["status"],
+        "summary gates": summary.get("promotionGates")
+        == required_result["promotionGates"],
+        "summary failure": summary_failure == observed_failure,
+        "summary holdout": all(
+            isinstance(summary_holdout, Mapping)
+            and summary_holdout.get(key) == expected
+            for key, expected in expected_holdout.items()
+        ),
+        "summary failure hash": isinstance(summary.get("evidence"), Mapping)
+        and summary["evidence"].get("riskFailureSha256") == failure_sha,
+        "summary ledger hash": isinstance(summary.get("evidence"), Mapping)
+        and summary["evidence"].get("riskLedgerSha256") == ledger_sha,
+        "index campaign": evidence_index.get("campaign") == PRIOR.CAMPAIGN_ID,
+        "index status": evidence_index.get("status") == required_result["status"],
+        "index manifest link": evidence_index.get("campaignManifestSha256")
+        == manifest_sha,
+        "index registration link": evidence_index.get("registrationSha256")
+        == predecessor["registrationSha256"],
+    }
+    indexed_artifacts = evidence_index.get("artifacts")
+    expected_index_hashes = {
+        "campaignManifest": manifest_sha,
+        "risk-failure": failure_sha,
+        "risk-ledger": ledger_sha,
+        "summary": summary_sha,
+    }
+    checks["index artifact hashes"] = isinstance(indexed_artifacts, Mapping) and all(
+        isinstance(indexed_artifacts.get(name), Mapping)
+        and indexed_artifacts[name].get("sha256") == digest
+        for name, digest in expected_index_hashes.items()
+    )
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise ValueError(
+            "adaptive predecessor terminal evidence violates registration: "
+            + ", ".join(failed)
+        )
+    return {
+        "directory": str(predecessor_dir.resolve()),
+        "registration": str(predecessor_registration_path),
+        "registrationSha256": predecessor_registration_sha,
+        "campaignManifest": artifacts["campaignManifest"][0].name,
+        "campaignManifestSha256": manifest_sha,
+        "riskFailure": artifacts["riskFailure"][0].name,
+        "riskFailureSha256": failure_sha,
+        "riskLedger": artifacts["riskLedger"][0].name,
+        "riskLedgerSha256": ledger_sha,
+        "summary": artifacts["summary"][0].name,
+        "summarySha256": summary_sha,
+        "evidenceIndex": artifacts["evidenceIndex"][0].name,
+        "evidenceIndexSha256": artifacts["evidenceIndex"][2],
+        "terminalStatus": summary["status"],
+    }
+
+
 def _terminal_evidence_index(
     output_dir: Path,
     status: str,
@@ -514,6 +859,13 @@ def _terminal_evidence_index(
     path = output_dir / "evidence-index.json"
     if path.exists():
         raise ValueError("campaign already has immutable terminal evidence")
+    for artifact in artifacts.values():
+        if (
+            artifact.is_symlink()
+            or not artifact.is_file()
+            or artifact.parent.resolve() != output_dir.resolve()
+        ):
+            raise ValueError("terminal evidence artifact path is unsafe")
     indexed = {
         name: {
             "path": str(artifact.resolve()),
@@ -544,6 +896,7 @@ def _strategy_config(
         interval_ms=feed.CONTRACT_INTERVAL_MS,
         rebalance_anchor_open_time=int(strategy["rebalanceAnchorOpenTime"]),
         gross_exposure=float(strategy["grossExposure"]),
+        registered_gross_exposure=0.25,
         cost_per_turnover=float(strategy["costBpsPerUnitTurnover"])
         / 10_000
         * cost_multiplier,
@@ -571,7 +924,13 @@ def _trial_inputs(
     panel: Mapping[str, pd.DataFrame], registration: Mapping[str, object]
 ) -> tuple[pd.DataFrame, dict[int, pd.DataFrame]]:
     strategy = _require_mapping(registration, "strategy")
+    stable_order = _registered_stable_tie_order(registration)
+    if set(panel) != set(stable_order) or len(panel) != len(stable_order):
+        raise ValueError("panel symbols do not match registered stableTieOrder")
     close = H._close_frame(panel)
+    if not close.columns.is_unique or set(close.columns) != set(stable_order):
+        raise ValueError("close columns do not match registered stableTieOrder")
+    close = close.loc[:, list(stable_order)]
     horizons = tuple(
         dict.fromkeys(
             spec.horizon_hours
@@ -581,6 +940,8 @@ def _trial_inputs(
     residual = H._residual_momentum(
         close, int(strategy["betaLookbackBars"]), horizons
     )
+    if any(tuple(frame.columns) != stable_order for frame in residual.values()):
+        raise ValueError("residual columns do not preserve registered stableTieOrder")
     return close, residual
 
 
@@ -1161,18 +1522,62 @@ def _existing_terminal_result(output_dir: Path) -> dict[str, object] | None:
     index_path = output_dir / "evidence-index.json"
     if not index_path.exists():
         return None
-    index = _read_json_object(index_path)
+    if index_path.is_symlink() or not index_path.is_file():
+        raise ValueError("terminal evidence index path is unsafe")
+    try:
+        index_payload = index_path.read_bytes()
+    except OSError as error:
+        raise ValueError("terminal evidence index is unreadable") from error
+    index = V1._json_object_from_bytes(index_payload, index_path)
+    canonical_index_payload = (
+        json.dumps(index, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if index_payload != canonical_index_payload:
+        raise ValueError("terminal evidence index bytes changed")
+    if set(index) != {
+        "campaign",
+        "status",
+        "registrationSha256",
+        "campaignManifestSha256",
+        "artifacts",
+    }:
+        raise ValueError("terminal evidence index fields changed")
     if index.get("campaign") != CAMPAIGN_ID:
         raise ValueError("terminal evidence index campaign changed")
+    _require_sha256(
+        index.get("registrationSha256"), "terminal registration"
+    )
+    _require_sha256(
+        index.get("campaignManifestSha256"), "terminal campaign manifest"
+    )
     artifacts = index.get("artifacts")
     if not isinstance(artifacts, Mapping) or "summary" not in artifacts:
         raise ValueError("terminal evidence index is incomplete")
     indexed_names = {".campaign.lock", "evidence-index.json"}
     for name, record in artifacts.items():
-        if not isinstance(name, str) or not isinstance(record, Mapping):
+        if (
+            not isinstance(name, str)
+            or not isinstance(record, Mapping)
+            or set(record) != {"path", "sha256"}
+        ):
             raise ValueError("terminal evidence index has an invalid artifact")
+        _require_sha256(record.get("sha256"), "terminal artifact")
         path = Path(str(record.get("path", "")))
-        if path.parent.resolve() != output_dir.resolve() or path.name in indexed_names:
+        expected_key = (
+            "campaignManifest"
+            if path.name == "campaign-manifest.json"
+            else path.stem
+        )
+        if name != expected_key:
+            raise ValueError("terminal evidence index artifact key changed")
+        expected_path = output_dir.resolve() / path.name
+        if (
+            not path.is_absolute()
+            or path != expected_path
+            or path.parent.resolve() != output_dir.resolve()
+            or path.name in indexed_names
+            or path.is_symlink()
+        ):
             raise ValueError(
                 "terminal evidence index path escaped its output directory"
             )
@@ -1188,7 +1593,9 @@ def _existing_terminal_result(output_dir: Path) -> dict[str, object] | None:
     ) != manifest_record.get("sha256"):
         raise ValueError("terminal evidence manifest cross-link changed")
     summary_record = artifacts["summary"]
-    summary = _read_json_object(Path(str(summary_record["path"])))
+    summary = _read_canonical_json_object(
+        Path(str(summary_record["path"])), "terminal summary"
+    )
     if (
         index.get("status") != summary.get("status")
         or summary.get("campaign") != CAMPAIGN_ID
@@ -1203,6 +1610,7 @@ def _existing_terminal_result(output_dir: Path) -> dict[str, object] | None:
     }
     if indexed_artifacts != expected:
         raise ValueError("terminal evidence contains an unexpected artifact set")
+    _validate_terminal_summary_evidence(output_dir, summary, artifacts)
     return summary
 
 
@@ -1215,7 +1623,32 @@ def _expected_terminal_artifact_names(
         return base | {"risk-failure.json"}
     if status == "insufficient_evidence" and "developmentExecutionFailure" in summary:
         return base | {"development-execution-failure.json"}
-    analysis = base | {
+
+    analysis = {"summary.json"} | _development_analysis_artifact_names()
+    if status == "insufficient_evidence":
+        return analysis
+    if status in {"final_holdout_passed", "final_holdout_failed"}:
+        holdout = summary.get("finalHoldout")
+        if not isinstance(holdout, Mapping):
+            raise ValueError("terminal holdout summary is invalid")
+        result = analysis | {
+            DEVELOPMENT_READY_SUMMARY,
+            DEVELOPMENT_READY_INDEX,
+            "final-holdout-opened.json",
+            "final-holdout-result.json",
+        }
+        evidence = holdout.get("evidence")
+        if isinstance(evidence, Mapping) and evidence.get("returnsSha256"):
+            result.add("final-holdout-returns.csv")
+        return result
+    raise ValueError("evidence index cannot terminate a non-terminal campaign status")
+
+
+def _development_analysis_artifact_names() -> set[str]:
+    """Artifacts frozen by the ready receipt, excluding mutable summary.json."""
+    return {
+        "campaign-manifest.json",
+        "risk-ledger.json",
         "nested-outer-oos.csv",
         "nested-inner-scores.csv",
         "nested-outer-folds.csv",
@@ -1232,21 +1665,243 @@ def _expected_terminal_artifact_names(
         "stress-additional-delay1bar-nested-outer-oos.csv",
         "stress-additional-delay1bar-final-champion.csv",
     }
-    if status == "insufficient_evidence":
-        return analysis
-    if status in {"final_holdout_passed", "final_holdout_failed"}:
-        holdout = summary.get("finalHoldout")
-        if not isinstance(holdout, Mapping):
-            raise ValueError("terminal holdout summary is invalid")
-        result = analysis | {
-            "final-holdout-opened.json",
-            "final-holdout-result.json",
+
+
+def _ready_index_artifact_names() -> set[str]:
+    return _development_analysis_artifact_names() | {DEVELOPMENT_READY_SUMMARY}
+
+
+def _auditable_development_artifact_names() -> tuple[str, ...]:
+    return (
+        "risk-ledger.json",
+        "nested-outer-oos.csv",
+        "nested-inner-scores.csv",
+        "nested-outer-folds.csv",
+        "final-selection.csv",
+        "final-selection-folds.csv",
+        "nested-outer-oos-regimes.csv",
+        "diagnostic-dsr-matrix.csv",
+        "diagnostic-pbo-matrix.csv",
+        "primary-trial-returns.csv",
+        "primary-trial-paths.csv",
+        "final-champion-development.csv",
+        "stress-cost2x-nested-outer-oos.csv",
+        "stress-cost2x-final-champion.csv",
+        "stress-additional-delay1bar-nested-outer-oos.csv",
+        "stress-additional-delay1bar-final-champion.csv",
+    )
+
+
+def _artifact_records_by_filename(
+    artifacts: Mapping[str, object],
+) -> dict[str, Mapping[str, object]]:
+    result: dict[str, Mapping[str, object]] = {}
+    for record in artifacts.values():
+        if not isinstance(record, Mapping):
+            raise ValueError("terminal evidence index has an invalid artifact")
+        path = Path(str(record.get("path", "")))
+        if path.name in result:
+            raise ValueError("terminal evidence index repeats an artifact path")
+        result[path.name] = record
+    return result
+
+
+def _require_summary_evidence_reference(
+    output_dir: Path,
+    evidence: Mapping[str, object],
+    indexed: Mapping[str, Mapping[str, object]],
+    filename: str,
+    path_key: str,
+    sha_key: str,
+) -> None:
+    record = indexed.get(filename)
+    expected_path = str((output_dir / filename).resolve())
+    if (
+        not isinstance(record, Mapping)
+        or evidence.get(path_key) != expected_path
+        or evidence.get(sha_key) != record.get("sha256")
+    ):
+        raise ValueError(f"terminal summary evidence changed: {filename}")
+
+
+def _validate_terminal_summary_evidence(
+    output_dir: Path,
+    summary: Mapping[str, object],
+    artifacts: Mapping[str, object],
+) -> None:
+    evidence = summary.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise ValueError("terminal summary evidence is invalid")
+    indexed = _artifact_records_by_filename(artifacts)
+    status = summary.get("status")
+    if status in {"risk_invalid", "insufficient_evidence"}:
+        final_holdout = summary.get("finalHoldout")
+        if (
+            not isinstance(final_holdout, Mapping)
+            or final_holdout.get("status") != "reserved"
+            or final_holdout.get("openRequested") is not False
+        ):
+            raise ValueError("non-final terminal holdout state is invalid")
+
+    if status == "risk_invalid":
+        if (
+            summary.get("promotionGates")
+            != {"everyPrimaryPathRiskSafeAndComplete": False}
+            or not isinstance(summary.get("riskFailure"), Mapping)
+        ):
+            raise ValueError("risk-invalid terminal state is incompatible")
+        if set(evidence) != {
+            "riskFailure",
+            "riskFailureSha256",
+            "riskLedger",
+            "riskLedgerSha256",
+        }:
+            raise ValueError("risk-invalid summary evidence fields changed")
+        _require_summary_evidence_reference(
+            output_dir,
+            evidence,
+            indexed,
+            "risk-failure.json",
+            "riskFailure",
+            "riskFailureSha256",
+        )
+        _require_summary_evidence_reference(
+            output_dir,
+            evidence,
+            indexed,
+            "risk-ledger.json",
+            "riskLedger",
+            "riskLedgerSha256",
+        )
+        failure = _read_canonical_json_object(
+            output_dir / "risk-failure.json", "risk failure evidence"
+        )
+        expected_failure = {
+            key: summary.get(key)
+            for key in (
+                "campaign",
+                "status",
+                "registrationSha256",
+                "campaignManifestSha256",
+                "riskFailure",
+                "finalHoldout",
+            )
         }
-        evidence = holdout.get("evidence")
-        if isinstance(evidence, Mapping) and evidence.get("returnsSha256"):
-            result.add("final-holdout-returns.csv")
-        return result
-    raise ValueError("evidence index cannot terminate a non-terminal campaign status")
+        ledger = _read_canonical_json_object(
+            output_dir / "risk-ledger.json", "risk ledger evidence"
+        )
+        if failure != expected_failure or ledger != {
+            "status": "risk_invalid",
+            "primaryFailure": summary.get("riskFailure"),
+        }:
+            raise ValueError("risk-invalid terminal evidence cross-links changed")
+        return
+
+    if status == "insufficient_evidence" and "developmentExecutionFailure" in summary:
+        if (
+            summary.get("primaryPathsRiskSafeAndComplete") is not True
+            or summary.get("derivedPathsRiskSafeAndComplete") is not False
+            or summary.get("promotionGates")
+            != {
+                "everyPrimaryPathRiskSafeAndComplete": True,
+                "allRegisteredStressPathsEvaluable": False,
+            }
+            or not isinstance(summary.get("developmentExecutionFailure"), Mapping)
+        ):
+            raise ValueError("derived-failure terminal state is incompatible")
+        if set(evidence) != {
+            "developmentExecutionFailure",
+            "developmentExecutionFailureSha256",
+            "riskLedger",
+            "riskLedgerSha256",
+        }:
+            raise ValueError("derived-failure summary evidence fields changed")
+        _require_summary_evidence_reference(
+            output_dir,
+            evidence,
+            indexed,
+            "development-execution-failure.json",
+            "developmentExecutionFailure",
+            "developmentExecutionFailureSha256",
+        )
+        _require_summary_evidence_reference(
+            output_dir,
+            evidence,
+            indexed,
+            "risk-ledger.json",
+            "riskLedger",
+            "riskLedgerSha256",
+        )
+        failure = _read_canonical_json_object(
+            output_dir / "development-execution-failure.json",
+            "development execution failure evidence",
+        )
+        expected_failure = {
+            key: summary.get(key)
+            for key in (
+                "campaign",
+                "status",
+                "registrationSha256",
+                "campaignManifestSha256",
+                "developmentExecutionFailure",
+            )
+        }
+        ledger = _read_canonical_json_object(
+            output_dir / "risk-ledger.json", "risk ledger evidence"
+        )
+        if failure != expected_failure or ledger != {
+            "status": "derived_path_risk_breach",
+            "failure": summary.get("developmentExecutionFailure"),
+        }:
+            raise ValueError("derived-failure terminal evidence cross-links changed")
+        return
+
+    if status not in {
+        "ready_for_final_holdout",
+        "insufficient_evidence",
+        "final_holdout_passed",
+        "final_holdout_failed",
+    }:
+        raise ValueError("terminal summary has unsupported evidence semantics")
+    if status == "insufficient_evidence":
+        gates = summary.get("promotionGates")
+        champion = summary.get("champion")
+        eligible = set(_eligible_names(R.campaign_specs(feed.CONTRACT_INTERVAL_MS)))
+        if (
+            summary.get("primaryPathsRiskSafeAndComplete") is not True
+            or summary.get("derivedPathsRiskSafeAndComplete") is not True
+            or not isinstance(gates, Mapping)
+            or set(gates) != set(PROMOTION_GATE_NAMES)
+            or any(not isinstance(value, bool) for value in gates.values())
+            or all(gates.values())
+            or not isinstance(champion, str)
+            or champion not in eligible
+        ):
+            raise ValueError("insufficient-evidence terminal state is incompatible")
+    if set(evidence) != {"auditablePaths"}:
+        raise ValueError("development summary evidence fields changed")
+    auditable = evidence.get("auditablePaths")
+    expected_names = _auditable_development_artifact_names()
+    expected_keys = {Path(name).stem for name in expected_names}
+    if not isinstance(auditable, Mapping) or set(auditable) != expected_keys:
+        raise ValueError("development summary auditable artifact set changed")
+    for filename in expected_names:
+        key = Path(filename).stem
+        record = auditable.get(key)
+        indexed_record = indexed.get(filename)
+        if (
+            not isinstance(record, Mapping)
+            or set(record) != {"path", "sha256"}
+            or not isinstance(indexed_record, Mapping)
+            or record.get("path") != str((output_dir / filename).resolve())
+            or record.get("sha256") != indexed_record.get("sha256")
+        ):
+            raise ValueError(
+                f"development summary evidence changed: {filename}"
+            )
+    _read_canonical_json_object(
+        output_dir / "risk-ledger.json", "risk ledger evidence"
+    )
 
 
 def _validate_completed_holdout_registry(
@@ -1258,24 +1913,107 @@ def _validate_completed_holdout_registry(
     }:
         return
     local_path = output_dir / "final-holdout-opened.json"
+    result_path = output_dir / "final-holdout-result.json"
+    if local_path.is_symlink() or result_path.is_symlink():
+        raise ValueError("completed holdout artifact path is unsafe")
     local = _read_json_object(local_path)
+    result_record = _read_json_object(result_path)
     identity = local.get("holdoutIdentitySha256")
     if not isinstance(identity, str):
         raise ValueError("completed local holdout identity is invalid")
     marker = HOLDOUT_REGISTRY_DIR / f"{identity}.json"
     with C._holdout_registry_lock(HOLDOUT_REGISTRY_DIR):
-        if not marker.is_file():
+        if marker.is_symlink() or not marker.is_file():
             raise ValueError("completed shared holdout marker is missing")
         shared = _read_json_object(marker)
         C._registry_window(marker, shared, strict_identity=True)
         if shared != local or shared.get("status") != "completed":
             raise ValueError("completed local and shared holdout records differ")
     final_holdout = summary.get("finalHoldout")
+    audit_sha = _require_sha256(
+        summary.get("developmentAuditSha256"), "terminal development audit"
+    )
+    local_artifacts = local.get("artifacts")
+    result_artifacts = result_record.get("artifacts")
+    cross_link_fields = (
+        "campaign",
+        "registrationSha256",
+        "campaignManifestSha256",
+        "developmentAuditSha256",
+        "holdoutIdentitySha256",
+        "panelSha256",
+        "outputBindingSha256",
+        "candidate",
+        "window",
+    )
     if (
         not isinstance(final_holdout, Mapping)
         or final_holdout.get("identitySha256") != identity
+        or final_holdout.get("candidate") != summary.get("champion")
+        or final_holdout.get("openRequested") is not True
+        or (
+            summary.get("status") == "final_holdout_passed"
+            and final_holdout.get("status") != "pass"
+        )
+        or (
+            summary.get("status") == "final_holdout_failed"
+            and final_holdout.get("status") != "fail"
+        )
+        or local.get("developmentAuditSha256") != audit_sha
+        or local.get("result") != final_holdout
+        or not isinstance(local_artifacts, Mapping)
+        or not isinstance(result_artifacts, Mapping)
+        or local_artifacts.get("resultSha256") != C._file_digest(result_path)
+        or result_record.get("developmentAuditSha256") != audit_sha
+        or result_record.get("status") != "evaluated"
+        or result_record.get("result") != final_holdout
+        or any(local.get(field) != result_record.get(field) for field in cross_link_fields)
+        or summary.get("champion") != local.get("candidate")
+        or summary.get("registrationSha256") != local.get("registrationSha256")
+        or summary.get("campaignManifestSha256")
+        != local.get("campaignManifestSha256")
     ):
-        raise ValueError("completed holdout summary identity changed")
+        raise ValueError("completed holdout evidence cross-links changed")
+
+    expected_paths = {
+        "outputDirectory": str(output_dir.resolve()),
+        "returns": str((output_dir / "final-holdout-returns.csv").resolve()),
+        "result": str(result_path.resolve()),
+    }
+    if any(
+        local_artifacts.get(key) != value
+        or result_artifacts.get(key) != value
+        for key, value in expected_paths.items()
+    ):
+        raise ValueError("completed holdout artifact paths changed")
+    returns_path = output_dir / "final-holdout-returns.csv"
+    holdout_evidence = final_holdout.get("evidence")
+    if isinstance(holdout_evidence, Mapping) and holdout_evidence.get(
+        "returnsSha256"
+    ):
+        returns_sha = _require_sha256(
+            holdout_evidence.get("returnsSha256"), "holdout returns"
+        )
+        if (
+            returns_path.is_symlink()
+            or not returns_path.is_file()
+            or C._file_digest(returns_path) != returns_sha
+            or holdout_evidence.get("returns") != str(returns_path.resolve())
+            or local_artifacts.get("returnsWritten") is not True
+            or result_artifacts.get("returnsWritten") is not True
+            or local_artifacts.get("returnsSha256") != returns_sha
+            or result_artifacts.get("returnsSha256") != returns_sha
+        ):
+            raise ValueError("completed holdout returns cross-links changed")
+    elif (
+        summary.get("status") == "final_holdout_passed"
+        or returns_path.exists()
+        or local_artifacts.get("returnsWritten") is not False
+        or result_artifacts.get("returnsWritten") is not False
+        or "returnsSha256" in local_artifacts
+        or "returnsSha256" in result_artifacts
+    ):
+        raise ValueError("failed holdout unexpectedly contains returns evidence")
 
 
 def _finalize_terminal(
@@ -1294,6 +2032,12 @@ def _finalize_terminal(
     }
     if observed_names != expected_names:
         raise ValueError("terminal output contains an unexpected artifact set")
+    if any(
+        path.is_symlink()
+        for path in output_dir.iterdir()
+        if path.name != ".campaign.lock"
+    ):
+        raise ValueError("terminal output contains a symlinked artifact")
     artifacts = {
         path.stem if path.name != "campaign-manifest.json" else "campaignManifest": path
         for path in output_dir.iterdir()
@@ -1528,8 +2272,10 @@ def _open_final_holdout(
     snapshot_dir: Path,
     registration: Mapping[str, object],
     registration_sha: str,
+    implementation_artifacts: Mapping[str, str],
     implementation_sha: str,
     campaign_manifest_sha: str,
+    development_audit_sha: str,
     champion: str,
     specs: Sequence[R.RiskControlledReversalSpec],
     periods_per_year: float,
@@ -1571,6 +2317,7 @@ def _open_final_holdout(
         "campaign": CAMPAIGN_ID,
         "registrationSha256": registration_sha,
         "campaignManifestSha256": campaign_manifest_sha,
+        "developmentAuditSha256": development_audit_sha,
         "holdoutIdentitySha256": identity,
         "panelSha256": data["fullPanelDigestSha256"],
         "outputBindingSha256": C._json_digest(
@@ -1724,6 +2471,33 @@ def _open_final_holdout(
         }
         artifacts["returnsWritten"] = False
 
+    try:
+        _validate_ready_development_evidence(
+            output_dir,
+            registration,
+            registration_sha,
+            implementation_artifacts,
+            expected_audit_sha256=development_audit_sha,
+            allowed_additional_names={"final-holdout-opened.json"},
+        )
+    except Exception as error:
+        completed_returns = None
+        final_holdout = {
+            **_holdout_descriptor(args, registration),
+            "status": "fail",
+            "openRequested": True,
+            "identitySha256": identity,
+            "candidate": champion,
+            "evaluationStatus": "execution_error",
+            "successRuleEvaluated": False,
+            "failure": {
+                "reason": "development_ready_evidence_changed",
+                "errorType": type(error).__name__,
+                "message": str(error),
+            },
+        }
+        artifacts["returnsWritten"] = False
+
     if completed_returns is not None:
         C._write_csv_atomic(completed_returns, returns_path, index=False)
         returns_sha = C._file_digest(returns_path)
@@ -1753,8 +2527,432 @@ def _open_final_holdout(
     return final_holdout
 
 
+def _require_sha256(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or value != value.lower()
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _validate_open_authorization_args(args: argparse.Namespace) -> None:
+    audit_sha = args.development_audit_sha256
+    if args.open_final_holdout:
+        if audit_sha is None:
+            raise ValueError(
+                "--open-final-holdout requires --development-audit-sha256"
+            )
+        _require_sha256(audit_sha, "development audit")
+    elif audit_sha is not None:
+        raise ValueError(
+            "--development-audit-sha256 is valid only with --open-final-holdout"
+        )
+
+
+def _ready_output_names() -> set[str]:
+    return {
+        ".campaign.lock",
+        "summary.json",
+        DEVELOPMENT_READY_INDEX,
+        *_ready_index_artifact_names(),
+    }
+
+
+def _validate_ready_development_evidence(
+    output_dir: Path,
+    registration: Mapping[str, object],
+    registration_sha: str,
+    implementation_artifacts: Mapping[str, str],
+    *,
+    expected_audit_sha256: str | None,
+    allowed_additional_names: set[str] | None = None,
+    require_mutable_summary_match: bool = True,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Validate the immutable development receipt without rerunning analysis."""
+    ready_summary_path = output_dir / DEVELOPMENT_READY_SUMMARY
+    ready_index_path = output_dir / DEVELOPMENT_READY_INDEX
+    if (
+        ready_summary_path.is_symlink()
+        or ready_index_path.is_symlink()
+        or not ready_summary_path.is_file()
+        or not ready_index_path.is_file()
+        or ready_index_path.resolve().parent != output_dir.resolve()
+    ):
+        raise ValueError(
+            "final holdout opening requires complete immutable development-ready evidence"
+        )
+    try:
+        index_payload = ready_index_path.read_bytes()
+    except OSError as error:
+        raise ValueError("immutable development-ready index is unreadable") from error
+    audit_sha = hashlib.sha256(index_payload).hexdigest()
+    if expected_audit_sha256 is not None:
+        expected = _require_sha256(
+            expected_audit_sha256, "development audit"
+        )
+        if audit_sha != expected:
+            raise ValueError("development audit SHA-256 does not match ready index")
+
+    observed_names = {path.name for path in output_dir.iterdir()}
+    expected_output_names = _ready_output_names() | (
+        set() if allowed_additional_names is None else allowed_additional_names
+    )
+    if observed_names != expected_output_names:
+        raise ValueError("development-ready output artifact set changed")
+
+    index = V1._json_object_from_bytes(index_payload, ready_index_path)
+    canonical_index_payload = (
+        json.dumps(index, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if index_payload != canonical_index_payload:
+        raise ValueError("development-ready index bytes changed")
+    expected_index_fields = {
+        "campaign",
+        "status",
+        "registrationSha256",
+        "implementationSha256",
+        "campaignManifestSha256",
+        "champion",
+        "promotionGateNames",
+        "artifacts",
+    }
+    if set(index) != expected_index_fields:
+        raise ValueError("development-ready index fields changed")
+    implementation_sha = C._json_digest(implementation_artifacts)
+    if (
+        index.get("campaign") != CAMPAIGN_ID
+        or index.get("status") != "ready_for_final_holdout"
+        or index.get("registrationSha256") != registration_sha
+        or index.get("implementationSha256") != implementation_sha
+        or index.get("promotionGateNames") != list(PROMOTION_GATE_NAMES)
+    ):
+        raise ValueError("development-ready index provenance changed")
+
+    artifacts = index.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != (
+        _ready_index_artifact_names()
+    ):
+        raise ValueError("development-ready index artifact set changed")
+    artifact_payloads: dict[str, bytes] = {}
+    for name in sorted(_ready_index_artifact_names()):
+        record = artifacts.get(name)
+        if not isinstance(record, Mapping) or set(record) != {"path", "sha256"}:
+            raise ValueError("development-ready index has an invalid artifact")
+        artifact_path = output_dir / name
+        expected_path = output_dir.resolve() / name
+        if (
+            record.get("path") != str(expected_path)
+            or artifact_path.is_symlink()
+            or not artifact_path.is_file()
+            or artifact_path.parent.resolve() != output_dir.resolve()
+        ):
+            raise ValueError(f"development-ready artifact changed: {name}")
+        try:
+            payload = artifact_path.read_bytes()
+        except OSError as error:
+            raise ValueError(
+                f"development-ready artifact is unreadable: {name}"
+            ) from error
+        if hashlib.sha256(payload).hexdigest() != record.get("sha256"):
+            raise ValueError(f"development-ready artifact changed: {name}")
+        artifact_payloads[name] = payload
+
+    summary_path = output_dir / "summary.json"
+    if summary_path.is_symlink():
+        raise ValueError("mutable summary is not a regular campaign artifact")
+    try:
+        mutable_summary_payload = summary_path.read_bytes()
+    except OSError as error:
+        raise ValueError("mutable campaign summary is unreadable") from error
+    ready_summary_payload = artifact_payloads[DEVELOPMENT_READY_SUMMARY]
+    if require_mutable_summary_match and mutable_summary_payload != ready_summary_payload:
+        raise ValueError("mutable summary differs from immutable ready summary")
+    summary = V1._json_object_from_bytes(ready_summary_payload, ready_summary_path)
+    canonical_ready_summary = (
+        json.dumps(summary, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if ready_summary_payload != canonical_ready_summary:
+        raise ValueError("immutable development-ready summary bytes changed")
+    gates = summary.get("promotionGates")
+    final_holdout = summary.get("finalHoldout")
+    champion = summary.get("champion")
+    eligible = set(_eligible_names(R.campaign_specs(feed.CONTRACT_INTERVAL_MS)))
+    if (
+        summary.get("campaign") != CAMPAIGN_ID
+        or summary.get("registrationSha256") != registration_sha
+        or summary.get("campaignManifestSha256")
+        != index.get("campaignManifestSha256")
+        or summary.get("status") != "ready_for_final_holdout"
+        or summary.get("primaryPathsRiskSafeAndComplete") is not True
+        or summary.get("derivedPathsRiskSafeAndComplete") is not True
+        or not isinstance(gates, Mapping)
+        or set(gates) != set(PROMOTION_GATE_NAMES)
+        or any(value is not True for value in gates.values())
+        or not isinstance(champion, str)
+        or champion not in eligible
+        or champion != index.get("champion")
+        or not isinstance(final_holdout, Mapping)
+        or final_holdout.get("status") != "reserved"
+        or final_holdout.get("openRequested") is not False
+    ):
+        raise ValueError("immutable development-ready summary is invalid")
+    _validate_terminal_summary_evidence(output_dir, summary, artifacts)
+
+    manifest_path = output_dir / "campaign-manifest.json"
+    manifest_payload = artifact_payloads["campaign-manifest.json"]
+    manifest = V1._json_object_from_bytes(manifest_payload, manifest_path)
+    canonical_manifest = (
+        json.dumps(manifest, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if manifest_payload != canonical_manifest:
+        raise ValueError("development-ready campaign manifest bytes changed")
+    manifest_sha = hashlib.sha256(manifest_payload).hexdigest()
+    if (
+        manifest_sha != index.get("campaignManifestSha256")
+        or manifest.get("campaign") != CAMPAIGN_ID
+        or manifest.get("registrationSha256") != registration_sha
+        or manifest.get("implementationArtifacts")
+        != dict(implementation_artifacts)
+        or manifest.get("implementationSha256") != implementation_sha
+    ):
+        raise ValueError("development-ready campaign manifest changed")
+    return summary, index
+
+
+def _validate_terminal_ready_chain(
+    output_dir: Path,
+    summary: Mapping[str, object],
+    registration: Mapping[str, object],
+    registration_sha: str,
+    implementation_artifacts: Mapping[str, str],
+) -> None:
+    if summary.get("status") not in {
+        "final_holdout_passed",
+        "final_holdout_failed",
+    }:
+        return
+    audit_sha = _require_sha256(
+        summary.get("developmentAuditSha256"), "terminal development audit"
+    )
+    additional_names = {
+        "final-holdout-opened.json",
+        "final-holdout-result.json",
+    }
+    final_holdout = summary.get("finalHoldout")
+    if isinstance(final_holdout, Mapping):
+        evidence = final_holdout.get("evidence")
+        if isinstance(evidence, Mapping) and evidence.get("returnsSha256"):
+            additional_names.add("final-holdout-returns.csv")
+    if (output_dir / "evidence-index.json").exists():
+        additional_names.add("evidence-index.json")
+    frozen_summary, _ = _validate_ready_development_evidence(
+        output_dir,
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        expected_audit_sha256=audit_sha,
+        allowed_additional_names=additional_names,
+        require_mutable_summary_match=False,
+    )
+    expected_terminal_summary = {
+        **frozen_summary,
+        "status": summary.get("status"),
+        "developmentAuditSha256": audit_sha,
+        "finalHoldout": summary.get("finalHoldout"),
+    }
+    if dict(summary) != expected_terminal_summary:
+        raise ValueError("terminal development evidence differs from frozen receipt")
+    _validate_completed_holdout_registry(output_dir, summary)
+
+
+def _write_development_ready_evidence(
+    output_dir: Path,
+    summary: Mapping[str, object],
+    registration: Mapping[str, object],
+    registration_sha: str,
+    implementation_artifacts: Mapping[str, str],
+) -> dict[str, object]:
+    expected_before = {".campaign.lock"} | _development_analysis_artifact_names()
+    if {path.name for path in output_dir.iterdir()} != expected_before:
+        raise ValueError("development output is incomplete before readiness sealing")
+    summary_value = dict(summary)
+    C._write_json(output_dir / "summary.json", summary_value)
+    C._write_json_exclusive(
+        output_dir / DEVELOPMENT_READY_SUMMARY, summary_value
+    )
+    artifacts = {
+        name: {
+            "path": str((output_dir / name).resolve()),
+            "sha256": C._file_digest(output_dir / name),
+        }
+        for name in sorted(_ready_index_artifact_names())
+    }
+    index = {
+        "campaign": CAMPAIGN_ID,
+        "status": "ready_for_final_holdout",
+        "registrationSha256": registration_sha,
+        "implementationSha256": C._json_digest(implementation_artifacts),
+        "campaignManifestSha256": summary["campaignManifestSha256"],
+        "champion": summary["champion"],
+        "promotionGateNames": list(PROMOTION_GATE_NAMES),
+        "artifacts": artifacts,
+    }
+    C._write_json_exclusive(output_dir / DEVELOPMENT_READY_INDEX, index)
+    _validate_ready_development_evidence(
+        output_dir,
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        expected_audit_sha256=C._file_digest(
+            output_dir / DEVELOPMENT_READY_INDEX
+        ),
+    )
+    return summary_value
+
+
+def _open_from_ready(
+    args: argparse.Namespace, output_dir: Path
+) -> dict[str, object]:
+    registration, registration_sha = _registration_and_sha()
+    _validate_registry_policy(_require_mapping(registration, "holdoutPolicy"))
+    implementation_artifacts = _implementation_artifacts()
+    implementation_sha = C._json_digest(implementation_artifacts)
+    expected_audit_sha = _require_sha256(
+        args.development_audit_sha256, "development audit"
+    )
+    ready_summary, ready_index = _validate_ready_development_evidence(
+        output_dir,
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        expected_audit_sha256=expected_audit_sha,
+    )
+    predecessor_dir = Path(args.predecessor_campaign_dir)
+    source_dir = Path(args.source_campaign_dir)
+    source_evidence = _assert_inputs_unchanged(
+        predecessor_dir,
+        source_dir,
+        registration,
+        registration_sha,
+        implementation_sha,
+    )
+    _validate_current_terminal_manifest(
+        output_dir,
+        ready_summary,
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        source_evidence,
+    )
+    # Revalidate the frozen receipt immediately before irreversible reservation.
+    _validate_ready_development_evidence(
+        output_dir,
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        expected_audit_sha256=expected_audit_sha,
+    )
+    specs = R.campaign_specs(feed.CONTRACT_INTERVAL_MS)
+    final_holdout = _open_final_holdout(
+        args,
+        output_dir,
+        predecessor_dir,
+        source_dir,
+        Path(args.snapshot_dir),
+        registration,
+        registration_sha,
+        implementation_artifacts,
+        implementation_sha,
+        str(ready_index["campaignManifestSha256"]),
+        expected_audit_sha,
+        str(ready_summary["champion"]),
+        specs,
+        C._periods_per_year(feed.CONTRACT_INTERVAL_MS),
+    )
+    summary = {
+        **ready_summary,
+        "status": C._campaign_status(True, final_holdout),
+        "developmentAuditSha256": expected_audit_sha,
+        "finalHoldout": final_holdout,
+    }
+    _validate_terminal_ready_chain(
+        output_dir,
+        summary,
+        registration,
+        registration_sha,
+        implementation_artifacts,
+    )
+    return _finalize_terminal(
+        output_dir,
+        summary,
+        registration_sha,
+        str(ready_index["campaignManifestSha256"]),
+    )
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    return (
+        left == right
+        or left.is_relative_to(right)
+        or right.is_relative_to(left)
+    )
+
+
+def _validate_runtime_paths(args: argparse.Namespace) -> Path:
+    output_dir = Path(args.output_dir).resolve()
+    protected = {
+        "shared adaptive predecessor": (
+            C.SHARED_REPOSITORY_ROOT
+            / ADAPTIVE_PREDECESSOR_CAMPAIGN_DIRECTORY
+        ).resolve(),
+        "checkout adaptive predecessor": (
+            C.REPOSITORY_ROOT / ADAPTIVE_PREDECESSOR_CAMPAIGN_DIRECTORY
+        ).resolve(),
+        "shared registered predecessor": (
+            C.SHARED_REPOSITORY_ROOT / PREDECESSOR_CAMPAIGN_DIRECTORY
+        ).resolve(),
+        "checkout registered predecessor": (
+            C.REPOSITORY_ROOT / PREDECESSOR_CAMPAIGN_DIRECTORY
+        ).resolve(),
+        "shared registered source campaign": (
+            C.SHARED_REPOSITORY_ROOT / SOURCE_CAMPAIGN_DIRECTORY
+        ).resolve(),
+        "checkout registered source campaign": (
+            C.REPOSITORY_ROOT / SOURCE_CAMPAIGN_DIRECTORY
+        ).resolve(),
+        "shared registered snapshot": (
+            C.SHARED_REPOSITORY_ROOT / SNAPSHOT_DIRECTORY
+        ).resolve(),
+        "checkout registered snapshot": (
+            C.REPOSITORY_ROOT / SNAPSHOT_DIRECTORY
+        ).resolve(),
+        "supplied predecessor": Path(args.predecessor_campaign_dir).resolve(),
+        "supplied source campaign": Path(args.source_campaign_dir).resolve(),
+        "supplied snapshot": Path(args.snapshot_dir).resolve(),
+        "holdout registry": HOLDOUT_REGISTRY_DIR.resolve(),
+        "checkout registration directory": REGISTRATION_PATH.parent.resolve(),
+        "shared registration directory": (
+            C.SHARED_REPOSITORY_ROOT / "research-notes/registrations"
+        ).resolve(),
+        "checkout research implementation": Path(__file__).resolve().parent,
+        "shared research implementation": (
+            C.SHARED_REPOSITORY_ROOT / "scripts/research"
+        ).resolve(),
+        "checkout Git metadata": (C.REPOSITORY_ROOT / ".git").resolve(),
+        "common Git metadata": C.GIT_COMMON_DIR.resolve(),
+    }
+    for label, path in protected.items():
+        if _paths_overlap(output_dir, path):
+            raise ValueError(f"output directory overlaps protected {label} path")
+    return output_dir
+
+
 def run(args: argparse.Namespace) -> dict[str, object]:
-    output_dir = Path(args.output_dir)
+    _validate_open_authorization_args(args)
+    output_dir = _validate_runtime_paths(args)
     with C._campaign_output_lock(output_dir):
         interrupted = [
             name
@@ -1773,29 +2971,98 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             )
         existing = _existing_terminal_result(output_dir)
         if existing is not None:
+            if (
+                args.open_final_holdout
+                and args.development_audit_sha256
+                != existing.get("developmentAuditSha256")
+            ):
+                raise ValueError(
+                    "supplied development audit does not match terminal evidence"
+                )
             registration, registration_sha = _registration_and_sha()
+            implementation_artifacts = _implementation_artifacts()
             _validate_registry_policy(
                 _require_mapping(registration, "holdoutPolicy")
             )
-            manifest = _read_json_object(output_dir / "campaign-manifest.json")
-            if (
-                manifest.get("registrationSha256") != registration_sha
-                or manifest.get("implementationArtifacts")
-                != _implementation_artifacts()
-                or manifest.get("implementationSha256") != _implementation_sha()
-            ):
-                raise ValueError(
-                    "terminal evidence does not match the current implementation"
-                )
-            _assert_inputs_unchanged(
+            implementation_sha = C._json_digest(implementation_artifacts)
+            source_evidence = _assert_inputs_unchanged(
                 Path(args.predecessor_campaign_dir),
                 Path(args.source_campaign_dir),
                 registration,
                 registration_sha,
-                str(manifest["implementationSha256"]),
+                implementation_sha,
             )
-            _validate_completed_holdout_registry(output_dir, existing)
+            _validate_current_terminal_manifest(
+                output_dir,
+                existing,
+                registration,
+                registration_sha,
+                implementation_artifacts,
+                source_evidence,
+            )
+            _validate_terminal_ready_chain(
+                output_dir,
+                existing,
+                registration,
+                registration_sha,
+                implementation_artifacts,
+            )
             return existing
+        ready_artifacts = {
+            name
+            for name in (DEVELOPMENT_READY_SUMMARY, DEVELOPMENT_READY_INDEX)
+            if (output_dir / name).exists()
+        }
+        if ready_artifacts:
+            if ready_artifacts != {
+                DEVELOPMENT_READY_SUMMARY,
+                DEVELOPMENT_READY_INDEX,
+            }:
+                raise ValueError("immutable development-ready evidence is partial")
+            if args.open_final_holdout:
+                C._assert_output_holdout_not_consumed(
+                    HOLDOUT_REGISTRY_DIR,
+                    output_dir,
+                    strict_identity=True,
+                )
+                return _open_from_ready(args, output_dir)
+            registration, registration_sha = _registration_and_sha()
+            _validate_registry_policy(
+                _require_mapping(registration, "holdoutPolicy")
+            )
+            implementation_artifacts = _implementation_artifacts()
+            ready_summary, _ = _validate_ready_development_evidence(
+                output_dir,
+                registration,
+                registration_sha,
+                implementation_artifacts,
+                expected_audit_sha256=None,
+            )
+            source_evidence = _assert_inputs_unchanged(
+                Path(args.predecessor_campaign_dir),
+                Path(args.source_campaign_dir),
+                registration,
+                registration_sha,
+                C._json_digest(implementation_artifacts),
+            )
+            _validate_current_terminal_manifest(
+                output_dir,
+                ready_summary,
+                registration,
+                registration_sha,
+                implementation_artifacts,
+                source_evidence,
+            )
+            return ready_summary
+        if args.open_final_holdout:
+            raise ValueError(
+                "final holdout opening requires a prior immutable no-flag "
+                "development-ready result"
+            )
+        if {path.name for path in output_dir.iterdir()} != {".campaign.lock"}:
+            raise ValueError(
+                "campaign output contains incomplete evidence; use a new directory"
+            )
         C._assert_output_holdout_not_consumed(
             HOLDOUT_REGISTRY_DIR,
             output_dir,
@@ -1807,16 +3074,20 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 def _run_locked(
     args: argparse.Namespace, output_dir: Path
 ) -> dict[str, object]:
+    if args.open_final_holdout or args.development_audit_sha256 is not None:
+        raise ValueError("development analysis must run without holdout authorization")
     registration, registration_sha = _registration_and_sha()
     _validate_registry_policy(_require_mapping(registration, "holdoutPolicy"))
     implementation_artifacts = _implementation_artifacts()
     implementation_sha = C._json_digest(implementation_artifacts)
     predecessor_dir = Path(args.predecessor_campaign_dir)
     source_dir = Path(args.source_campaign_dir)
-    snapshot_dir = Path(args.snapshot_dir)
 
     predecessor_evidence = _validate_predecessor_evidence(
         predecessor_dir, registration
+    )
+    adaptive_predecessor_evidence = _validate_adaptive_predecessor_evidence(
+        registration
     )
     source_registration_sha = V1._require_file_digest(
         H.REGISTRATION_PATH,
@@ -1836,6 +3107,7 @@ def _run_locked(
     }
     source_evidence = {
         "predecessor": dict(predecessor_evidence),
+        "adaptivePredecessor": dict(adaptive_predecessor_evidence),
         "registeredDevelopment": dict(funding_source_evidence),
     }
     _, campaign_manifest_sha = _campaign_manifest(
@@ -1849,7 +3121,7 @@ def _run_locked(
         registration,
         registration_sha,
         campaign_manifest_sha,
-        funding_source_evidence,
+        source_evidence,
         predecessor_evidence,
         settlement_coverage,
     )
@@ -2151,17 +3423,7 @@ def _run_locked(
             )
             C._write_csv_atomic(frame, output_dir / filename, index=False)
 
-    auditable_paths = [
-        "risk-ledger.json",
-        "nested-outer-oos.csv",
-        "primary-trial-returns.csv",
-        "primary-trial-paths.csv",
-        "final-champion-development.csv",
-        "stress-cost2x-nested-outer-oos.csv",
-        "stress-cost2x-final-champion.csv",
-        "stress-additional-delay1bar-nested-outer-oos.csv",
-        "stress-additional-delay1bar-final-champion.csv",
-    ]
+    auditable_paths = _auditable_development_artifact_names()
     evidence_paths = {
         Path(name).stem: {
             "path": str((output_dir / name).resolve()),
@@ -2170,33 +3432,14 @@ def _run_locked(
         for name in auditable_paths
     }
 
-    blocked_by = [name for name, passed in gates.items() if not passed]
-    final_holdout = _holdout_descriptor(
-        args, registration, blocked_by=blocked_by if args.open_final_holdout else ()
+    final_holdout = _holdout_descriptor(args, registration)
+    _assert_inputs_unchanged(
+        predecessor_dir,
+        source_dir,
+        registration,
+        registration_sha,
+        implementation_sha,
     )
-    if args.open_final_holdout and ready_for_holdout:
-        final_holdout = _open_final_holdout(
-            args,
-            output_dir,
-            predecessor_dir,
-            source_dir,
-            snapshot_dir,
-            registration,
-            registration_sha,
-            implementation_sha,
-            campaign_manifest_sha,
-            champion,
-            specs,
-            periods_per_year,
-        )
-    else:
-        _assert_inputs_unchanged(
-            predecessor_dir,
-            source_dir,
-            registration,
-            registration_sha,
-            implementation_sha,
-        )
     summary = {
         **base,
         "status": C._campaign_status(ready_for_holdout, final_holdout),
@@ -2231,8 +3474,13 @@ def _run_locked(
     }
     status = str(summary["status"])
     if status == "ready_for_final_holdout":
-        C._write_json(output_dir / "summary.json", summary)
-        return summary
+        return _write_development_ready_evidence(
+            output_dir,
+            summary,
+            registration,
+            registration_sha,
+            implementation_artifacts,
+        )
     return _finalize_terminal(
         output_dir, summary, registration_sha, campaign_manifest_sha
     )

@@ -16,6 +16,8 @@ import json
 import math
 import os
 from pathlib import Path
+import stat
+import subprocess
 import tempfile
 import time
 from typing import Any, Iterator, Mapping, Sequence
@@ -45,12 +47,150 @@ STRICT_HOLDOUT_MANIFEST_PANEL_FIELDS = (
     "fullPanelDigestSha256",
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-HOLDOUT_REGISTRY_DIR = Path(
-    os.environ.get(
-        "TRADER_EDGE_HOLDOUT_REGISTRY",
-        str(REPOSITORY_ROOT / ".tmp/research/edge-campaign-holdouts"),
+SHARED_HOLDOUT_REGISTRY_RELATIVE = Path(
+    ".tmp/research/edge-campaign-holdouts"
+)
+
+
+def _git_worktree_roots(repository_root: Path) -> tuple[Path, ...]:
+    """Return Git's canonical and linked worktrees, including stale paths."""
+    command = [
+        "git",
+        "--no-optional-locks",
+        "-C",
+        str(repository_root.resolve()),
+    ]
+    try:
+        top_level = subprocess.run(
+            [*command, "rev-parse", "--show-toplevel"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5.0,
+        )
+        worktrees = subprocess.run(
+            [*command, "worktree", "list", "--porcelain", "-z"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError("unable to resolve Git worktree metadata") from error
+    if top_level.returncode != 0 or worktrees.returncode != 0:
+        raise ValueError("unable to resolve Git worktree metadata")
+    current_root = Path(os.fsdecode(top_level.stdout).strip()).resolve()
+    roots = tuple(
+        Path(os.fsdecode(field.removeprefix(b"worktree "))).resolve()
+        for field in worktrees.stdout.split(b"\0")
+        if field.startswith(b"worktree ")
     )
-).expanduser()
+    if not roots or current_root != repository_root.resolve():
+        raise ValueError("Git worktree metadata does not include this checkout")
+    if current_root not in roots:
+        # Git reports the metadata directory as the primary worktree for a
+        # separate-git-dir checkout. It cannot identify that primary checkout
+        # clone-wide once linked worktrees exist, so strict sharing is unsafe.
+        if len(roots) != 1:
+            raise ValueError(
+                "separate-git-dir with linked worktrees is unsupported"
+            )
+        return (current_root,)
+    canonical_git_path = roots[0] / ".git"
+    if len(roots) > 1 and not canonical_git_path.is_dir():
+        raise ValueError("separate-git-dir with linked worktrees is unsupported")
+    if not canonical_git_path.exists():
+        raise ValueError("canonical Git worktree is not a non-bare checkout")
+    return roots
+
+
+def _shared_repository_root(repository_root: Path) -> Path:
+    """Resolve the checkout shared by every linked worktree in one clone."""
+    return _git_worktree_roots(repository_root)[0]
+
+
+def _git_common_directory(repository_root: Path) -> Path:
+    """Return the absolute Git common directory for this clone."""
+    command = [
+        "git",
+        "--no-optional-locks",
+        "-C",
+        str(repository_root.resolve()),
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError("unable to resolve Git common directory") from error
+    if result.returncode != 0:
+        raise ValueError("unable to resolve Git common directory")
+    common_directory = Path(os.fsdecode(result.stdout).strip()).resolve()
+    if not common_directory.is_dir():
+        raise ValueError("Git common directory is not a directory")
+    return common_directory
+
+
+def _configured_shared_holdout_registry(
+    shared_root: Path, environment: Mapping[str, str] | None = None
+) -> Path:
+    # Production imports always use the clone-canonical registry. Tests may
+    # inject an explicit mapping to exercise override rejection paths.
+    source: Mapping[str, str] = {} if environment is None else environment
+    override = source.get("TRADER_EDGE_HOLDOUT_REGISTRY")
+    if override is None:
+        return (shared_root / SHARED_HOLDOUT_REGISTRY_RELATIVE).resolve()
+    configured = Path(override).expanduser()
+    if not configured.is_absolute():
+        raise ValueError("TRADER_EDGE_HOLDOUT_REGISTRY must be absolute")
+    return configured.resolve()
+
+
+def _assert_shared_registry_reconciled(
+    repository_root: Path,
+    shared_root: Path,
+    shared_registry: Path,
+) -> None:
+    """Reject hidden markers in every active worktree before shared use."""
+    canonical_registry = shared_registry.resolve()
+    roots = _git_worktree_roots(repository_root)
+    if roots[0] != shared_root.resolve():
+        raise ValueError("shared repository root changed during reconciliation")
+    for root in roots:
+        local_registry = (root / SHARED_HOLDOUT_REGISTRY_RELATIVE).resolve()
+        if local_registry == canonical_registry:
+            continue
+        if local_registry.is_dir() and any(local_registry.glob("*.json")):
+            raise ValueError(
+                "legacy worktree-local holdout markers require reconciliation: "
+                f"{local_registry}"
+            )
+
+
+try:
+    SHARED_REPOSITORY_ROOT = _shared_repository_root(REPOSITORY_ROOT)
+    GIT_COMMON_DIR = _git_common_directory(REPOSITORY_ROOT)
+    SHARED_REPOSITORY_RESOLUTION_ERROR: str | None = None
+except ValueError as error:
+    # Legacy research imports retain their former local behavior outside Git;
+    # strict campaigns must reject this fallback before opening a holdout.
+    SHARED_REPOSITORY_ROOT = REPOSITORY_ROOT
+    GIT_COMMON_DIR = (REPOSITORY_ROOT / ".git").resolve()
+    SHARED_REPOSITORY_RESOLUTION_ERROR = str(error)
+CANONICAL_SHARED_HOLDOUT_REGISTRY_DIR = (
+    SHARED_REPOSITORY_ROOT / SHARED_HOLDOUT_REGISTRY_RELATIVE
+).resolve()
+SHARED_HOLDOUT_REGISTRY_DIR = _configured_shared_holdout_registry(
+    SHARED_REPOSITORY_ROOT
+)
+HOLDOUT_REGISTRY_DIR = SHARED_HOLDOUT_REGISTRY_DIR
 
 # Registry entries need enough interval metadata to compare outcome windows.
 # Keep this independent of a campaign's acquisition feed; 8h is used by the
@@ -580,16 +720,37 @@ def _diagnostics(
     return report, dsr_matrix, pbo_matrix
 
 
-def _write_json(path: Path, value: object) -> None:
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
     try:
-        temporary.write_text(
-            json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(path)
+        os.fsync(descriptor)
     finally:
-        temporary.unlink(missing_ok=True)
+        os.close(descriptor)
+
+
+def _write_json(path: Path, value: object) -> None:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(
+                json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n"
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+        _fsync_directory(path.parent)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _write_json_exclusive(path: Path, value: object) -> None:
@@ -609,18 +770,34 @@ def _write_json_exclusive(path: Path, value: object) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.link(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+            _fsync_directory(path.parent)
 
 
 def _write_csv_atomic(frame: pd.DataFrame, path: Path, **kwargs: object) -> None:
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary: Path | None = None
     try:
-        frame.to_csv(temporary, **kwargs)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            frame.to_csv(handle, **kwargs)
+            handle.flush()
+            os.fsync(handle.fileno())
         temporary.replace(path)
+        _fsync_directory(path.parent)
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _file_digest(path: Path) -> str:
@@ -875,11 +1052,15 @@ def _assert_holdout_available(
     *,
     strict_identity: bool = False,
 ) -> None:
+    if output_record.is_symlink():
+        raise ValueError("final holdout output record path is unsafe")
     if output_record.exists():
         raise ValueError("final holdout was already consumed for this output directory")
     if not registry_dir.exists():
         return
     for path in sorted(registry_dir.glob("*.json")):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"holdout registry entry {path.name} is unsafe")
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as error:
@@ -902,6 +1083,40 @@ def _assert_holdout_available(
             )
 
 
+def _open_lock_file(path: Path) -> Any:
+    """Open a regular lock file without following a precreated symlink."""
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    if no_follow == 0:
+        raise RuntimeError("lock files require O_NOFOLLOW support")
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | no_follow
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"lock path is not a regular file: {path}")
+        handle = os.fdopen(descriptor, "a+", encoding="utf-8")
+        descriptor = None
+        return handle
+    except OSError as error:
+        raise ValueError(f"lock path is unsafe or unavailable: {path}") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _is_official_shared_registry(registry_dir: Path) -> bool:
+    return registry_dir.resolve() == SHARED_HOLDOUT_REGISTRY_DIR.resolve()
+
+
+def _assert_official_shared_registry_resolved(registry_dir: Path) -> None:
+    if (
+        _is_official_shared_registry(registry_dir)
+        and SHARED_REPOSITORY_RESOLUTION_ERROR is not None
+    ):
+        raise ValueError("official shared holdout registry cannot be resolved")
+
+
 @contextmanager
 def _campaign_output_lock(
     output_dir: Path,
@@ -911,7 +1126,7 @@ def _campaign_output_lock(
         raise ValueError("campaign output lock timeout must be positive and finite")
     deadline = time.monotonic() + timeout_seconds
     output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / ".campaign.lock").open("a+", encoding="utf-8") as handle:
+    with _open_lock_file(output_dir / ".campaign.lock") as handle:
         while True:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -936,7 +1151,7 @@ def _holdout_registry_lock(
         raise ValueError("holdout registry lock timeout must be positive and finite")
     deadline = time.monotonic() + timeout_seconds
     registry_dir.mkdir(parents=True, exist_ok=True)
-    with (registry_dir / ".registry.lock").open("a+", encoding="utf-8") as handle:
+    with _open_lock_file(registry_dir / ".registry.lock") as handle:
         while True:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -958,8 +1173,14 @@ def _assert_output_holdout_not_consumed(
     *,
     strict_identity: bool = False,
 ) -> None:
+    if strict_identity:
+        _assert_official_shared_registry_resolved(registry_dir)
     output_record = output_dir / "final-holdout-opened.json"
+    if output_record.is_symlink():
+        raise ValueError("final holdout output record path is unsafe")
     if output_record.exists():
+        if not output_record.is_file():
+            raise ValueError("final holdout output record path is unsafe")
         try:
             record = json.loads(output_record.read_text(encoding="utf-8"))
             status = record["status"]
@@ -977,6 +1198,10 @@ def _assert_output_holdout_not_consumed(
         return
     with _holdout_registry_lock(registry_dir):
         for path in sorted(registry_dir.glob("*.json")):
+            if path.is_symlink() or not path.is_file():
+                raise ValueError(
+                    f"holdout registry entry {path.name} is unsafe"
+                )
             try:
                 record = json.loads(path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError, TypeError) as error:
@@ -1015,7 +1240,20 @@ def _reserve_holdout(
     *,
     strict_identity: bool = False,
 ) -> None:
+    if marker.parent.resolve() != registry_dir.resolve():
+        raise ValueError("holdout marker escaped its locked registry")
     with _holdout_registry_lock(registry_dir):
+        if strict_identity:
+            _assert_official_shared_registry_resolved(registry_dir)
+        if (
+            _is_official_shared_registry(registry_dir)
+            and SHARED_REPOSITORY_RESOLUTION_ERROR is None
+        ):
+            _assert_shared_registry_reconciled(
+                REPOSITORY_ROOT,
+                SHARED_REPOSITORY_ROOT,
+                CANONICAL_SHARED_HOLDOUT_REGISTRY_DIR,
+            )
         if strict_identity:
             recorded_window = _registry_window(
                 marker, dict(opening_record), strict_identity=True
