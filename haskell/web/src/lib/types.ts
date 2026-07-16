@@ -626,6 +626,39 @@ export type BotNeuralGovernor = {
   state?: Record<string, unknown>;
 };
 
+export type BotPortfolioSelector = {
+  mode: "shadow" | "canary" | "enforce";
+  selectionValid: boolean;
+  evidenceAgeDays?: number | null;
+  selection?: {
+    generatedAtMs: number;
+    validUntilMs: number;
+    evidenceStartMs: number;
+    evidenceEndMs: number;
+    members: Array<{ uuid: string; symbol: string; weight: number }>;
+    metrics: {
+      annualizedReturnP10: number;
+      annualizedReturnP50: number;
+      annualizedReturnP90: number;
+      maxDrawdownP95: number;
+      averageCorrelation: number;
+      switchingCost: number;
+      pairedOutperformanceProbability: number;
+    };
+  } | null;
+  configuration?: {
+    maxBots: number;
+    maxBotWeight: number;
+    maxGrossWeight: number;
+    maxDrawdown: number;
+    minimumEvidenceDays: number;
+    bootstrapSamples: number;
+    bootstrapBlockDays: number;
+    rotationImprovementFloor: number;
+    rotationProbabilityFloor: number;
+  };
+};
+
 export type BotStatusRunning = {
   running: true;
   live: boolean;
@@ -677,6 +710,7 @@ export type BotStatusRunning = {
   decisionTrace?: DecisionTrace;
   marketGovernor?: BotMarketGovernor;
   neuralGovernor?: BotNeuralGovernor;
+  portfolioSelector?: BotPortfolioSelector;
   lastOrder?: ApiOrderResult;
   error?: string;
 };
@@ -697,6 +731,7 @@ export type BotStatusStopped = {
   error?: string;
   snapshot?: BotStatusRunning;
   snapshotAtMs?: number;
+  portfolioSelector?: BotPortfolioSelector;
 };
 
 export type BotStatusSingle = BotStatusRunning | BotStatusStopped;
@@ -709,6 +744,7 @@ export type BotStatusMulti = {
   errors?: Array<{ symbol: string; error: string }>;
   queued?: Array<{ symbol: string; message: string }>;
   snapshotAtMs?: number;
+  portfolioSelector?: BotPortfolioSelector;
 };
 
 export type BotStatus = BotStatusSingle | BotStatusMulti;

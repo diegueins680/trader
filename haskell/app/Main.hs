@@ -442,6 +442,23 @@ import Trader.Platform (
     poloniexIntervalSeconds,
  )
 import Trader.Poloniex (PoloniexCandle (..), fetchPoloniexCandles, poloniexBaseUrl, poloniexCandlesCacheStats)
+import Trader.PortfolioSelection (
+    PortfolioCandidate (..),
+    PortfolioDailyReturn (..),
+    PortfolioEvidence (..),
+    PortfolioMember (..),
+    PortfolioMetrics (..),
+    PortfolioRolloutMode (..),
+    PortfolioSelection (..),
+    PortfolioSelectorConfig (..),
+    defaultPortfolioSelectorConfig,
+    parsePortfolioRolloutMode,
+    portfolioRolloutModeCode,
+    portfolioSelectionShouldRotate,
+    portfolioSelectorConfigVersion,
+    refreshPortfolioSelection,
+    selectPortfolio,
+ )
 import Trader.PredictionMarkets (
     PredictionMarketFetchConfig (..),
     PredictionMarketSignal (..),
@@ -5988,6 +6005,8 @@ comboParamsRowToTopCombo uuid row = do
                 _ -> Nothing
         mBacktestRefreshedAtMs =
             metricsObj >>= KM.lookup (AK.fromString "backtestRefreshedAtMs") >>= AT.parseMaybe parseJSON
+        mPortfolioEvidence =
+            metricsObj >>= KM.lookup (AK.fromString "portfolioEvidence") >>= AT.parseMaybe parseJSON
     pure
         TopCombo
             { tcRank = Nothing
@@ -6002,6 +6021,7 @@ comboParamsRowToTopCombo uuid row = do
             , tcMetrics = metricsObj
             , tcCreatedAtMs = cprCreatedAtMs row
             , tcBacktestRefreshedAtMs = mBacktestRefreshedAtMs
+            , tcPortfolioEvidence = mPortfolioEvidence
             }
 
 readTopComboByUuidFromDb :: OpsStore -> UUID.UUID -> IO (Maybe TopCombo)
@@ -6221,6 +6241,7 @@ data TopCombo = TopCombo
     , tcMetrics :: !(Maybe Aeson.Object)
     , tcCreatedAtMs :: !(Maybe Int64)
     , tcBacktestRefreshedAtMs :: !(Maybe Int64)
+    , tcPortfolioEvidence :: !(Maybe PortfolioEvidence)
     }
 
 instance FromJSON TopCombosExport where
@@ -6230,6 +6251,10 @@ instance FromJSON TopCombo where
     parseJSON = AT.withObject "TopCombo" $ \o -> do
         params <- o Aeson..: "params"
         metrics <- o Aeson..:? "metrics"
+        portfolioEvidenceTop <- o Aeson..:? "portfolioEvidence"
+        let portfolioEvidence =
+                portfolioEvidenceTop
+                    <|> (metrics >>= KM.lookup "portfolioEvidence" >>= AT.parseMaybe parseJSON)
         TopCombo
             <$> o Aeson..:? "rank"
             <*> o Aeson..:? "finalEquity"
@@ -6243,6 +6268,7 @@ instance FromJSON TopCombo where
             <*> pure metrics
             <*> o Aeson..:? "createdAtMs"
             <*> o Aeson..:? "backtestRefreshedAtMs"
+            <*> pure portfolioEvidence
 
 formatUuidFromHex :: String -> Text
 formatUuidFromHex hex =
@@ -8963,7 +8989,7 @@ defaultTopComboBotCount :: Int
 defaultTopComboBotCount = 3
 
 defaultTopComboStartupBotCount :: Int
-defaultTopComboStartupBotCount = 0
+defaultTopComboStartupBotCount = 3
 
 defaultBotAutoStartMaxBots :: Int
 defaultBotAutoStartMaxBots = 3
@@ -9024,6 +9050,62 @@ botStartTopComboAdoptionEnabledFromEnv :: IO Bool
 botStartTopComboAdoptionEnabledFromEnv = do
     raw <- lookupEnv "TRADER_BOT_START_TOP_COMBO_ADOPTION"
     pure (readEnvBool raw True)
+
+portfolioSelectorRolloutModeFromEnv :: IO PortfolioRolloutMode
+portfolioSelectorRolloutModeFromEnv = do
+    raw <- lookupEnv "TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE"
+    pure $ fromMaybe PortfolioShadow (raw >>= parsePortfolioRolloutMode)
+
+portfolioSelectorConfigFromEnv :: IO PortfolioSelectorConfig
+portfolioSelectorConfigFromEnv = do
+    maxMembers <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOTS" 1 3 (pscMaxMembers defaults)
+    maxWeight <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT" 0.01 0.25 (pscMaxMemberWeight defaults)
+    maxGross <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT" 0.05 0.75 (pscMaxGrossWeight defaults)
+    maxDrawdown <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_DRAWDOWN" 0.01 0.10 (pscMaxDrawdown defaults)
+    minObservations <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MIN_DAYS" 30 365 (pscMinimumObservations defaults)
+    bootstrapSamples <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_BOOTSTRAP_SAMPLES" 100 5000 (pscBootstrapSamples defaults)
+    blockDays <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_BLOCK_DAYS" 1 30 (pscBootstrapBlockDays defaults)
+    improvement <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_ROTATION_IMPROVEMENT" 0 1 (pscRotationImprovementFloor defaults)
+    probability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_ROTATION_PROBABILITY" 0.5 1 (pscRotationProbabilityFloor defaults)
+    pure
+        defaults
+            { pscMaxMembers = maxMembers
+            , pscMaxMemberWeight = maxWeight
+            , pscMaxGrossWeight = maxGross
+            , pscMaxDrawdown = maxDrawdown
+            , pscMinimumObservations = minObservations
+            , pscBootstrapSamples = bootstrapSamples
+            , pscBootstrapBlockDays = blockDays
+            , pscSwitchingCostRate = venueRoundTripCostFloor
+            , pscRotationImprovementFloor = improvement
+            , pscRotationProbabilityFloor = probability
+            }
+  where
+    defaults = defaultPortfolioSelectorConfig
+
+portfolioSelectionPath :: TopCombosStore -> FilePath
+portfolioSelectionPath store = takeDirectory (tcsPath store) </> "portfolio-selection.json"
+
+readPortfolioSelectionMaybe :: FilePath -> IO (Maybe PortfolioSelection)
+readPortfolioSelectionMaybe path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure Nothing
+        else do
+            decoded <- try (eitherDecode <$> BL.readFile path) :: IO (Either SomeException (Either String PortfolioSelection))
+            pure $ case decoded of
+                Right (Right selection) -> Just selection
+                _ -> Nothing
+
+writePortfolioSelection :: FilePath -> PortfolioSelection -> IO ()
+writePortfolioSelection path selection = do
+    let dir = takeDirectory path
+    createDirectoryIfMissing True dir
+    (tmpPath, handle) <- openTempFile dir "portfolio-selection.tmp"
+    BL.hPutStr handle (encode selection <> "\n")
+    hFlush handle
+    hClose handle
+    renameFile tmpPath path
 
 {- | Environment-tunable auto-start backoff policy. The defaults come from
 'defaultBackoffPolicy' but can be overridden so operators can shrink the
@@ -9182,6 +9264,67 @@ applyLatestTopCombo mOps topCombosStore limits sym args req = do
                     case selectCompatibleTopComboArgs now limits sym baseArgs req export of
                         Nothing -> pure (baseArgs, Nothing)
                         Just (args', mUuid) -> pure (args', mUuid)
+
+applyPortfolioComboForStart ::
+    Maybe OpsStore ->
+    TopCombosStore ->
+    ApiComputeLimits ->
+    PortfolioSelectorConfig ->
+    PortfolioRolloutMode ->
+    String ->
+    Args ->
+    AdoptRequirement ->
+    IO (Either String (Args, Maybe Text))
+applyPortfolioComboForStart mOps topCombosStore limits selectorConfig mode sym args req = do
+    now <- getTimestampMs
+    selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
+    combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+    pure $ do
+        selected <- maybe (Left "Portfolio selection is unavailable; refusing a new live entry.") Right selection
+        if now > psValidUntilMs selected
+            then Left "Portfolio selection is expired; refusing a new live entry."
+            else Right ()
+        if psMode selected /= mode
+            then Left "Portfolio selection rollout mode does not match the active server mode."
+            else Right ()
+        export <- combosOrErr
+        if portfolioSelectionMembersValid now args selectorConfig [] export selected
+            then Right ()
+            else Left "Portfolio selection no longer clears strict evidence, weight, or drawdown validation."
+        current <-
+            refreshPortfolioSelection
+                selectorConfig
+                now
+                mode
+                (psMembers selected)
+                (strictPortfolioCandidates now args selectorConfig [] export)
+        member <-
+            maybe
+                (Left ("Symbol " ++ normalizeSymbol sym ++ " is not a member of the selected live portfolio."))
+                Right
+                (find (\candidate -> T.toUpper (pmSymbol candidate) == T.pack (normalizeSymbol sym)) (psMembers current))
+        combo <-
+            maybe
+                (Left "Selected portfolio combo is missing from the current top-combo store.")
+                Right
+                (find (\candidate -> topComboUuid candidate == pmUuid member) (tceCombos export))
+        if topComboLiveAdoptionEligible now (adoptionEvidenceConfigFromArgs args) combo
+            then Right ()
+            else Left "Selected portfolio combo no longer clears strict live-adoption evidence gates."
+        (applied, uuid) <- applyTopComboForStartWithUuid args combo
+        let gross = sum (map pmWeight (psMembers current))
+            modeScale =
+                case mode of
+                    PortfolioCanary -> if gross <= 0 then 0 else min 1 (0.25 / gross)
+                    _ -> 1
+            weightCap = min (pscMaxMemberWeight selectorConfig) (max 0 (pmWeight member * modeScale))
+            weighted =
+                applied
+                    { argMaxPositionSize = min (argMaxPositionSize applied) weightCap
+                    }
+        if argBinanceMarket weighted /= argBinanceMarket args || not (argsCompatibleWithAdoption weighted req)
+            then Left "Selected portfolio combo is incompatible with the requested market or adopted position."
+            else (,uuid) <$> validateApiComputeLimits limits weighted
 
 topComboValueByUuid :: Text -> Aeson.Value -> Maybe Aeson.Value
 topComboValueByUuid uuid val =
@@ -10192,6 +10335,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         disabledSymbols <- botDisabledSymbolsFromEnv
                         maxBots <- botAutoStartMaxBotsFromEnv
                         maxStartsPerCycle <- botAutoStartMaxStartsPerCycleFromEnv
+                        portfolioSelectorConfig <- portfolioSelectorConfigFromEnv
+                        portfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
                         topComboAdoptionEnabled <- botStartTopComboAdoptionEnabledFromEnv
                         topComboBotCountRaw <- topComboBotCountFromEnv
                         let topComboBotCount =
@@ -10208,11 +10353,13 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         errRef <- newIORef HM.empty
                         topErrRef <- newIORef Nothing
                         topTargetsRef <- newIORef []
+                        portfolioSelectionFailureRef <- newIORef Nothing
                         topTargetsWarnRef <- newIORef Nothing
                         targetCapWarnRef <- newIORef Nothing
                         startThrottleWarnRef <- newIORef Nothing
                         disabledTargetsWarnRef <- newIORef Nothing
                         targetsRef <- newIORef []
+                        retiringTargetsRef <- newIORef []
                         startupPhaseRef <- newIORef (topComboStartupBotCount /= topComboBotCount)
                         -- Per-symbol backoff control plane (engineering review 2026-06-08):
                         -- Before this change the loop hammered Binance every poll cycle even
@@ -10242,6 +10389,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 ++ show maxStartsPerCycle
                                 ++ ". Top combos path: "
                                 ++ topJsonPath
+                                ++ ". Portfolio selector mode="
+                                ++ T.unpack (portfolioRolloutModeCode portfolioRolloutMode)
                             )
                         unless topComboAdoptionEnabled $
                             putStrLn "Live bot auto-start top-combo adoption disabled (TRADER_BOT_START_TOP_COMBO_ADOPTION=false)."
@@ -10288,23 +10437,60 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     Left err -> do
                                         prev <- readIORef topErrRef
                                         if prev == Just err
-                                            then readIORef topTargetsRef
+                                            then fallbackTargetsForUnavailableStore
                                             else do
                                                 writeIORef topErrRef (Just err)
                                                 putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
-                                                readIORef topTargetsRef
+                                                fallbackTargetsForUnavailableStore
                                     Right export -> do
                                         now <- getTimestampMs
-                                        let targets =
-                                                topCombosTopTargetsWithArgs
-                                                    now
-                                                    argsBase
-                                                    disabledSymbols
-                                                    topComboTargetCount
-                                                    export
+                                        recentFailure <- readIORef portfolioSelectionFailureRef
+                                        selectionOrErr <-
+                                            case recentFailure of
+                                                Just (failedAtMs, err)
+                                                    | now - failedAtMs < 3600000 -> pure (Left err)
+                                                _ -> do
+                                                    result <-
+                                                        resolvePortfolioSelection
+                                                            topCombosStore
+                                                            now
+                                                            argsBase
+                                                            portfolioSelectorConfig
+                                                            portfolioRolloutMode
+                                                            disabledSymbols
+                                                            export
+                                                    case result of
+                                                        Left err -> writeIORef portfolioSelectionFailureRef (Just (now, err))
+                                                        Right _ -> writeIORef portfolioSelectionFailureRef Nothing
+                                                    pure result
+                                        let independentTargets =
+                                                [ (symbol, combo, Nothing)
+                                                | (symbol, combo) <-
+                                                    topCombosTopTargetsWithArgs
+                                                        now
+                                                        argsBase
+                                                        disabledSymbols
+                                                        topComboTargetCount
+                                                        export
+                                                ]
+                                            targets =
+                                                case (portfolioRolloutMode, selectionOrErr) of
+                                                    (PortfolioShadow, _) -> independentTargets
+                                                    (_, Right selection) -> portfolioSelectionTargets portfolioRolloutMode topComboTargetCount export selection
+                                                    (_, Left _) -> []
                                             targetCount = length targets
+                                        case selectionOrErr of
+                                            Left err -> do
+                                                prev <- readIORef topErrRef
+                                                let message = "Portfolio selection unavailable: " ++ err
+                                                when (prev /= Just message) $ do
+                                                    writeIORef topErrRef (Just message)
+                                                    putStrLn message
+                                            Right _ -> pure ()
                                         writeIORef topTargetsRef targets
-                                        writeIORef topErrRef Nothing
+                                        case selectionOrErr of
+                                            Right _ -> writeIORef topErrRef Nothing
+                                            Left _ -> pure ()
                                         if targetCount < topComboTargetCount
                                             then do
                                                 prev <- readIORef topTargetsWarnRef
@@ -10319,12 +10505,28 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         )
                                             else writeIORef topTargetsWarnRef Nothing
                                         pure targets
+                              where
+                                fallbackTargetsForUnavailableStore =
+                                    case portfolioRolloutMode of
+                                        PortfolioShadow -> readIORef topTargetsRef
+                                        _ -> do
+                                            now <- getTimestampMs
+                                            selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
+                                            if maybe False (\value -> now <= psValidUntilMs value && psMode value == portfolioRolloutMode) selection
+                                                then readIORef topTargetsRef
+                                                else do
+                                                    writeIORef topTargetsRef []
+                                                    pure []
                             logChanged ref key msg = do
                                 prev <- readIORef ref
                                 when (prev /= Just key) $ do
                                     writeIORef ref (Just key)
                                     putStrLn msg
-                            startSymbol argsStart sym mCombo preferFutures = do
+                            startSymbol argsStart sym mComboTarget preferFutures = do
+                                let (mCombo, mPortfolioWeight) =
+                                        case mComboTarget of
+                                            Nothing -> (Nothing, Nothing)
+                                            Just (combo, weight) -> (Just combo, weight)
                                 let argsSym0 = argsStart{argBinanceSymbol = Just sym}
                                     argsSym =
                                         if preferFutures
@@ -10396,7 +10598,14 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                             else do
                                                                                 recordError sym "Top combo market mismatch; falling back to latest compatible combo."
                                                                                 applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                        let argsComboSized = applyBackendAutostartSizingDefault argsCombo
+                                        let argsComboSized0 = applyBackendAutostartSizingDefault argsCombo
+                                            argsComboSized =
+                                                case mPortfolioWeight of
+                                                    Nothing -> argsComboSized0
+                                                    Just weight ->
+                                                        argsComboSized0
+                                                            { argMaxPositionSize = min (argMaxPositionSize argsComboSized0) (max 0 weight)
+                                                            }
                                         case validateApiComputeLimits limits argsComboSized of
                                             Left err -> recordError sym err
                                             Right argsOk -> do
@@ -10431,12 +10640,16 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 topTargets <- loadTopTargets topComboTargetCount
                                 let topTargetMap =
                                         foldl'
-                                            (\acc (sym, combo) -> HM.insertWith (\_ old -> old) sym combo acc)
+                                            (\acc (sym, combo, weight) -> HM.insertWith (\_ old -> old) sym (combo, weight) acc)
                                             HM.empty
                                             topTargets
-                                    topSymbols = map fst topTargets
+                                    topSymbols = map (\(symbol, _, _) -> symbol) topTargets
                                     disabledBaseSymbols = filter (botStartSymbolDisabled disabledSymbols) baseSymbols
-                                    targetSymbolsBase = dedupeStable (filterBotDisabledSymbols disabledSymbols baseSymbols ++ topSymbols)
+                                    liveBaseSymbols =
+                                        case portfolioRolloutMode of
+                                            PortfolioShadow -> filterBotDisabledSymbols disabledSymbols baseSymbols
+                                            _ -> []
+                                    targetSymbolsBase = dedupeStable (liveBaseSymbols ++ topSymbols)
                                 unless (null disabledBaseSymbols) $
                                     logChanged
                                         disabledTargetsWarnRef
@@ -10467,9 +10680,53 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 when (prevTargets /= targetSymbols) $ do
                                     writeIORef targetsRef targetSymbols
                                     putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
-                                let restartSymbols = dedupeStable (filter (`HM.member` tenantMap0) orphanRestartSymbols)
+                                pendingRetirements <- readIORef retiringTargetsRef
+                                let pendingRetirements' =
+                                        [ symbol
+                                        | symbol <- dedupeStable (pendingRetirements ++ prevTargets)
+                                        , symbol `notElem` targetSymbols
+                                        ]
+                                writeIORef retiringTargetsRef pendingRetirements'
+                                locallyOpenSymbols <- fmap catMaybes $
+                                    forM (HM.toList tenantMap0) $ \(symbol, runtimeState) ->
+                                        case runtimeState of
+                                            BotRunning runtime -> do
+                                                state <- readMVar (brStateVar runtime)
+                                                pure $
+                                                    if vectorLastOr 0 (botPositions state) /= 0
+                                                        then Just symbol
+                                                        else Nothing
+                                            BotStarting _ -> pure Nothing
+                                let managedSymbols = dedupeStable (targetSymbols ++ orphanSymbols ++ locallyOpenSymbols)
+                                    retireSymbols =
+                                        [ symbol
+                                        | symbol <- pendingRetirements'
+                                        , HM.member symbol tenantMap0
+                                        , symbol `notElem` managedSymbols
+                                        ]
+                                unless (null retireSymbols) $ do
+                                    putStrLn ("Live bot auto-start retiring flat symbols outside the selected portfolio: " ++ formatList retireSymbols)
+                                    mapM_ (botStop botCtrl tenantKey . Just) retireSymbols
+                                    modifyIORef' retiringTargetsRef (filter (`notElem` retireSymbols))
+                                switchSymbols <- fmap catMaybes $
+                                    forM (HM.toList tenantMap0) $ \(symbol, runtimeState) ->
+                                        case (HM.lookup symbol topTargetMap, runtimeState) of
+                                            (Just (targetCombo, _), BotRunning runtime) -> do
+                                                state <- readMVar (brStateVar runtime)
+                                                let flat = vectorLastOr 0 (botPositions state) == 0
+                                                    targetUuid = Just (topComboUuid targetCombo)
+                                                pure $
+                                                    if flat && botComboUuid state /= targetUuid
+                                                        then Just symbol
+                                                        else Nothing
+                                            _ -> pure Nothing
+                                let restartSymbols =
+                                        dedupeStable
+                                            ( filter (`HM.member` tenantMap0) orphanRestartSymbols
+                                                ++ switchSymbols
+                                            )
                                 unless (null restartSymbols) $ do
-                                    putStrLn ("Live bot auto-start restarting orphaned symbols: " ++ formatList restartSymbols)
+                                    putStrLn ("Live bot auto-start restarting symbols for position adoption or portfolio rotation: " ++ formatList restartSymbols)
                                     mapM_ (botStop botCtrl tenantKey . Just) restartSymbols
                                 mrtAfterRestart <- readMVar (bcRuntime botCtrl)
                                 let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
@@ -17800,7 +18057,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["bot", "status"] ->
                                         case Wai.requestMethod req of
-                                            "GET" -> handleBotStatus reqLimits botCtrl mBotStateDir req respondCors
+                                            "GET" -> handleBotStatus reqLimits mOps baseArgs botCtrl mBotStateDir topCombosStore req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "run"] ->
                                         case Wai.requestMethod req of
@@ -20117,6 +20374,170 @@ topComboLiveAdoptionEligible now adoptionEvidenceConfig combo =
         && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeStdAboveCeilingWithConfig adoptionEvidenceConfig combo)
+
+topComboPortfolioCandidate :: PortfolioSelectorConfig -> TopCombo -> Maybe PortfolioCandidate
+topComboPortfolioCandidate selectorConfig combo = do
+    symbol <- T.pack <$> topComboSymbol combo
+    evidence <- tcPortfolioEvidence combo
+    let storedCap = fromMaybe (pscMaxMemberWeight selectorConfig) (topComboParamDouble "maxPositionSize" combo)
+        weightCap = min (pscMaxMemberWeight selectorConfig) (max 0 storedCap)
+    if weightCap <= 0
+        then Nothing
+        else
+            Just
+                PortfolioCandidate
+                    { pcUuid = topComboUuid combo
+                    , pcSymbol = T.toUpper (T.strip symbol)
+                    , pcMaxWeight = weightCap
+                    , pcEvidence = evidence
+                    }
+
+strictPortfolioCandidates :: Int64 -> Args -> PortfolioSelectorConfig -> [String] -> TopCombosExport -> [PortfolioCandidate]
+strictPortfolioCandidates now args selectorConfig disabledSymbols export =
+    mapMaybe (topComboPortfolioCandidate selectorConfig) eligible
+  where
+    adoptionConfig = adoptionEvidenceConfigFromArgs args
+    eligible =
+        [ combo
+        | combo <- tceCombos export
+        , topComboLiveAdoptionEligible now adoptionConfig combo
+        , topComboCompatibleWithPortfolio args combo
+        , maybe False (not . botStartSymbolDisabled disabledSymbols) (topComboSymbol combo)
+        ]
+
+topComboCompatibleWithPortfolio :: Args -> TopCombo -> Bool
+topComboCompatibleWithPortfolio args combo =
+    case applyTopComboForStartWithUuid args combo of
+        Left _ -> False
+        Right (applied, _) ->
+            argPlatform applied == argPlatform args
+                && argBinanceMarket applied == argBinanceMarket args
+
+portfolioSelectionMembersValid :: Int64 -> Args -> PortfolioSelectorConfig -> [String] -> TopCombosExport -> PortfolioSelection -> Bool
+portfolioSelectionMembersValid now args selectorConfig disabledSymbols export =
+    portfolioSelectionMembersValidForCandidates selectorConfig candidates
+  where
+    candidates = strictPortfolioCandidates now args selectorConfig disabledSymbols export
+
+portfolioSelectionMembersValidForCandidates :: PortfolioSelectorConfig -> [PortfolioCandidate] -> PortfolioSelection -> Bool
+portfolioSelectionMembersValidForCandidates selectorConfig candidates selection =
+    not (null (psMembers selection))
+        && length members <= pscMaxMembers selectorConfig
+        && length memberUuids == Set.size (Set.fromList memberUuids)
+        && length memberSymbols == Set.size (Set.fromList memberSymbols)
+        && all memberValid members
+        && sum (map pmWeight members) <= pscMaxGrossWeight selectorConfig + 1.0e-12
+        && isFiniteDouble (pmAnnualizedReturnP10 metrics)
+        && pmAnnualizedReturnP10 metrics > 0
+        && isFiniteDouble (pmMaxDrawdownP95 metrics)
+        && pmMaxDrawdownP95 metrics <= pscMaxDrawdown selectorConfig
+        && psConfigVersion selection == portfolioSelectorConfigVersion selectorConfig
+  where
+    members = psMembers selection
+    metrics = psMetrics selection
+    memberUuids = map pmUuid members
+    memberSymbols = map (T.toUpper . T.strip . pmSymbol) members
+    candidatesByUuid = M.fromList [(pcUuid candidate, candidate) | candidate <- candidates]
+    memberValid member =
+        case M.lookup (pmUuid member) candidatesByUuid of
+            Nothing -> False
+            Just candidate ->
+                T.toUpper (T.strip (pmSymbol member)) == pcSymbol candidate
+                    && isFiniteDouble (pmWeight member)
+                    && pmWeight member > 0
+                    && pmWeight member <= min (pscMaxMemberWeight selectorConfig) (pcMaxWeight candidate) + 1.0e-12
+
+portfolioSelectionEvidenceEnd :: PortfolioSelection -> [PortfolioCandidate] -> Maybe Int64
+portfolioSelectionEvidenceEnd selection candidates = do
+    selected <- traverse ((`M.lookup` candidatesByUuid) . pmUuid) (psMembers selection)
+    case map candidateDays selected of
+        [] -> Nothing
+        firstDays : remainingDays -> Set.lookupMax (foldl' Set.intersection firstDays remainingDays)
+  where
+    candidatesByUuid = M.fromList [(pcUuid candidate, candidate) | candidate <- candidates]
+    candidateDays candidate = Set.fromList (map pdrDayMs (peDailyReturns (pcEvidence candidate)))
+
+resolvePortfolioSelection ::
+    TopCombosStore ->
+    Int64 ->
+    Args ->
+    PortfolioSelectorConfig ->
+    PortfolioRolloutMode ->
+    [String] ->
+    TopCombosExport ->
+    IO (Either String PortfolioSelection)
+resolvePortfolioSelection store now args selectorConfig mode disabledSymbols export = do
+    let path = portfolioSelectionPath store
+        weeklyRefreshMs = 7 * 86400000
+        candidates = strictPortfolioCandidates now args selectorConfig disabledSymbols export
+    existing <- readPortfolioSelectionMaybe path
+    let existingValid selection =
+            now <= psValidUntilMs selection
+                && psMode selection == mode
+                && portfolioSelectionMembersValidForCandidates selectorConfig candidates selection
+        evidenceAdvanced selection =
+            maybe False (> psEvidenceEndMs selection) (portfolioSelectionEvidenceEnd selection candidates)
+        refreshedIncumbent selection =
+            refreshPortfolioSelection selectorConfig now mode (psMembers selection) candidates
+        incumbentAdmitted selection =
+            not (evidenceAdvanced selection)
+                || case refreshedIncumbent selection of
+                    Left _ -> False
+                    Right _ -> True
+        existingUsable selection = existingValid selection && incumbentAdmitted selection
+        refreshDue selection = now - psGeneratedAtMs selection >= weeklyRefreshMs
+        persist selection = do
+            writeResult <- try (writePortfolioSelection path selection) :: IO (Either SomeException ())
+            pure $
+                case writeResult of
+                    Left ex -> Left ("Failed to persist portfolio selection: " ++ displayException ex)
+                    Right () -> Right selection
+        choosePortfolio =
+            let incumbentMembers = maybe [] psMembers existing
+             in case selectPortfolio selectorConfig now mode incumbentMembers candidates of
+                    Left err ->
+                        case existing of
+                            Just selection
+                                | existingUsable selection ->
+                                    case refreshedIncumbent selection of
+                                        Right refreshed -> persist refreshed
+                                        Left _ -> pure (Left err)
+                            _ -> pure (Left err)
+                    Right challenger ->
+                        case existing of
+                            Just selection
+                                | existingUsable selection ->
+                                    case refreshedIncumbent selection of
+                                        Right refreshed
+                                            | not (portfolioSelectionShouldRotate selectorConfig refreshed challenger) -> persist refreshed
+                                        _ -> persist challenger
+                            _ -> persist challenger
+    case existing of
+        Just selection
+            | existingUsable selection && not (refreshDue selection) ->
+                if evidenceAdvanced selection
+                    then case refreshedIncumbent selection of
+                        Right refreshed -> persist refreshed
+                        Left _ -> choosePortfolio
+                    else pure (Right selection)
+        _ -> choosePortfolio
+
+portfolioSelectionTargets :: PortfolioRolloutMode -> Int -> TopCombosExport -> PortfolioSelection -> [(String, TopCombo, Maybe Double)]
+portfolioSelectionTargets mode topN export selection =
+    take topN $
+        mapMaybe resolveMember $
+            sortOn (Data.Ord.Down . pmWeight) (psMembers selection)
+  where
+    combosByUuid = M.fromList [(topComboUuid combo, combo) | combo <- tceCombos export]
+    gross = sum (map pmWeight (psMembers selection))
+    modeScale =
+        case mode of
+            PortfolioCanary -> if gross <= 0 then 0 else min 1 (0.25 / gross)
+            _ -> 1
+    resolveMember member = do
+        combo <- M.lookup (pmUuid member) combosByUuid
+        symbol <- topComboSymbol combo
+        pure (normalizeSymbol symbol, combo, Just (pmWeight member * modeScale))
 
 topComboStaleForLiveMessage :: String -> Text -> String
 topComboStaleForLiveMessage sym comboUuid =
@@ -22880,6 +23301,8 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                     Left e -> respond (jsonError status400 e)
                                     Right tenantKey -> do
                                         tradeEnabledRaw <- lookupEnv "TRADER_BOT_TRADE"
+                                        portfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
+                                        portfolioSelectorConfig <- portfolioSelectorConfigFromEnv
                                         let argsBase =
                                                 applyBackendAutostartSizingDefault $
                                                     normalizeBarsForLookback argsRequested{argTradeOnly = True}
@@ -22928,26 +23351,40 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                         case adoptReqOrErr of
                                                             Left err -> pure (sym, Left err)
                                                             Right adoptReq -> do
-                                                                (argsCombo, mComboUuid) <-
+                                                                comboOrErr <-
                                                                     if arActive adoptReq
                                                                         then do
                                                                             origin@(argsOrigin, mOriginUuid) <- applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
                                                                             case mOriginUuid of
-                                                                                Just _ -> pure origin
-                                                                                Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsOrigin adoptReq
+                                                                                Just _ -> pure (Right origin)
+                                                                                Nothing -> Right <$> applyLatestTopCombo mOps topCombosStore limits sym argsOrigin adoptReq
                                                                         else do
                                                                             when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
                                                                                 clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
-                                                                            applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                case validateApiComputeLimits limits argsCombo of
+                                                                            case portfolioRolloutMode of
+                                                                                PortfolioShadow -> Right <$> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                                _ ->
+                                                                                    applyPortfolioComboForStart
+                                                                                        mOps
+                                                                                        topCombosStore
+                                                                                        limits
+                                                                                        portfolioSelectorConfig
+                                                                                        portfolioRolloutMode
+                                                                                        sym
+                                                                                        argsSym
+                                                                                        adoptReq
+                                                                case comboOrErr of
                                                                     Left err -> pure (sym, Left err)
-                                                                    Right argsOk -> do
-                                                                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp paramsEffective sym
-                                                                        case r of
+                                                                    Right (argsCombo, mComboUuid) ->
+                                                                        case validateApiComputeLimits limits argsCombo of
                                                                             Left err -> pure (sym, Left err)
-                                                                            Right outcome -> do
-                                                                                logBotStartRequestOutcome mOps mJournal tenantKey params outcome
-                                                                                pure (sym, Right outcome)
+                                                                            Right argsOk -> do
+                                                                                r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp paramsEffective sym
+                                                                                case r of
+                                                                                    Left err -> pure (sym, Left err)
+                                                                                    Right outcome -> do
+                                                                                        logBotStartRequestOutcome mOps mJournal tenantKey params outcome
+                                                                                        pure (sym, Right outcome)
                                                 results <- forM symbols startOne
 
                                                 let queuedStarts =
@@ -23064,8 +23501,61 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
                 [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
                 _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
 
-handleBotStatus :: ApiRequestLimits -> BotController -> Maybe FilePath -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
+portfolioSelectorStatusJson :: Maybe OpsStore -> Args -> TopCombosStore -> IO Aeson.Value
+portfolioSelectorStatusJson mOps args topCombosStore = do
+    mode <- portfolioSelectorRolloutModeFromEnv
+    config <- portfolioSelectorConfigFromEnv
+    disabledSymbols <- botDisabledSymbolsFromEnv
+    selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
+    exportOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+    now <- getTimestampMs
+    let selectionValid =
+            case (selection, exportOrErr) of
+                (Just selected, Right export) ->
+                    let candidates = strictPortfolioCandidates now args config disabledSymbols export
+                        evidenceAdvanced =
+                            maybe False (> psEvidenceEndMs selected) (portfolioSelectionEvidenceEnd selected candidates)
+                        currentEvidenceAdmitted =
+                            not evidenceAdvanced
+                                || case refreshPortfolioSelection config now mode (psMembers selected) candidates of
+                                    Left _ -> False
+                                    Right _ -> True
+                     in now <= psValidUntilMs selected
+                            && psMode selected == mode
+                            && portfolioSelectionMembersValidForCandidates config candidates selected
+                            && currentEvidenceAdmitted
+                _ -> False
+    pure $
+        object
+            [ "mode" .= mode
+            , "selection" .= selection
+            , "selectionValid" .= selectionValid
+            , "evidenceAgeDays"
+                .= fmap
+                    (\value -> fromIntegral (max 0 (now - psEvidenceEndMs value)) / (86400000 :: Double))
+                    selection
+            , "configuration"
+                .= object
+                    [ "maxBots" .= pscMaxMembers config
+                    , "maxBotWeight" .= pscMaxMemberWeight config
+                    , "maxGrossWeight" .= pscMaxGrossWeight config
+                    , "maxDrawdown" .= pscMaxDrawdown config
+                    , "minimumEvidenceDays" .= pscMinimumObservations config
+                    , "bootstrapSamples" .= pscBootstrapSamples config
+                    , "bootstrapBlockDays" .= pscBootstrapBlockDays config
+                    , "rotationImprovementFloor" .= pscRotationImprovementFloor config
+                    , "rotationProbabilityFloor" .= pscRotationProbabilityFloor config
+                    ]
+            ]
+
+attachPortfolioSelectorStatus :: Aeson.Value -> Aeson.Value -> Aeson.Value
+attachPortfolioSelectorStatus selectorStatus value =
+    case value of
+        Aeson.Object obj -> Aeson.Object (KM.insert "portfolioSelector" selectorStatus obj)
+        _ -> object ["status" .= value, "portfolioSelector" .= selectorStatus]
+
+handleBotStatus :: ApiRequestLimits -> Maybe OpsStore -> Args -> BotController -> Maybe FilePath -> TopCombosStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStatus reqLimits mOps baseArgs botCtrl mBotStateDir topCombosStore req respond = do
     let q = Wai.queryString req
         maxTail = arlMaxBotStatusTail reqLimits
         tailN =
@@ -23076,6 +23566,8 @@ handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
             case lookup (BS.pack "symbol") q of
                 Just (Just raw) -> Just (BS.unpack raw)
                 _ -> Nothing
+    portfolioStatus <- portfolioSelectorStatusJson mOps baseArgs topCombosStore
+    let respondStatus value = respond (jsonValue status200 (attachPortfolioSelectorStatus portfolioStatus value))
 
     case requireTenantKey "bot/status" (tenantKeyFromRequest req) of
         Left e -> respond (jsonError status400 e)
@@ -23086,12 +23578,12 @@ handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
                     case mSt of
                         Just st -> do
                             let st' = maybe st (`botStateTail` st) tailN
-                            respond (jsonValue status200 (botStatusJson st'))
+                            respondStatus (botStatusJson st')
                         Nothing -> do
                             mSnap <- readBotStatusSnapshotMaybe mBotStateDir tenantKey sym
                             case mSnap of
-                                Nothing -> respond (jsonValue status200 botStoppedJson)
-                                Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+                                Nothing -> respondStatus botStoppedJson
+                                Just snap -> respondStatus (botStoppedSnapshotJson snap)
                 Nothing -> do
                     mrt <- readMVar (bcRuntime botCtrl)
                     let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
@@ -23099,19 +23591,19 @@ handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
                         then do
                             snaps <- readBotStatusSnapshotsMaybe mBotStateDir tenantKey
                             case snaps of
-                                [] -> respond (jsonValue status200 botStoppedJson)
-                                [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
-                                _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
+                                [] -> respondStatus botStoppedJson
+                                [snap] -> respondStatus (botStoppedSnapshotJson snap)
+                                _ -> respondStatus (botStoppedMultiJson snaps)
                         else do
                             let entries = sortOn fst (HM.toList tenantMap)
                             case entries of
                                 [(_sym, state)] ->
                                     case state of
-                                        BotStarting rt -> respond (jsonValue status200 (botStartingJson rt))
+                                        BotStarting rt -> respondStatus (botStartingJson rt)
                                         BotRunning rt -> do
                                             st <- readMVar (brStateVar rt)
                                             let st' = maybe st (`botStateTail` st) tailN
-                                            respond (jsonValue status200 (botStatusJson st'))
+                                            respondStatus (botStatusJson st')
                                 _ -> do
                                     statuses <-
                                         forM entries $ \(_sym, state) ->
@@ -23121,7 +23613,7 @@ handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
                                                     st <- readMVar (brStateVar rt)
                                                     let st' = maybe st (`botStateTail` st) tailN
                                                     pure (botStatusJson st')
-                                    respond (jsonValue status200 (botStatusJsonMulti statuses))
+                                    respondStatus (botStatusJsonMulti statuses)
 
 argsFromApi :: Args -> ApiParams -> Either String Args
 argsFromApi baseArgs p = do

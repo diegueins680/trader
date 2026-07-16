@@ -180,6 +180,7 @@ import Trader.Optimizer.Optimize (
     defaultPriorMissingAgeMultiplier,
     emptyOptimizerRecordsSummary,
     emptyTechniqueSummary,
+    extractPortfolioEvidence,
     kellyLiteExposureContractReason,
     normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
@@ -202,6 +203,24 @@ import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Platform (Platform (..))
 import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
+import Trader.PortfolioSelection (
+    PortfolioCandidate (..),
+    PortfolioDailyReturn (..),
+    PortfolioEvidence (..),
+    PortfolioMember (..),
+    PortfolioMetrics (..),
+    PortfolioRolloutMode (..),
+    PortfolioSelection (..),
+    PortfolioSelectorConfig (..),
+    defaultPortfolioSelectorConfig,
+    portfolioAnnualizedReturn,
+    portfolioMaxDrawdown,
+    portfolioMembersRemainAdmitted,
+    portfolioSelectionShouldRotate,
+    portfolioSelectorConfigVersion,
+    refreshPortfolioSelection,
+    selectPortfolio,
+ )
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
     PredictionMarketFetchConfig (..),
@@ -553,6 +572,14 @@ main = do
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
     testTopComboFreshnessMultiplierDefaultsDisabled
+    testPortfolioAnnualizationAndDrawdown
+    testOptimizerExtractsTimestampedPortfolioEvidence
+    testPortfolioSelectionIsDeterministicAndBounded
+    testPortfolioSelectionFailsClosedOnInvalidNumbers
+    testPortfolioSelectionRejectsSparseWinner
+    testPortfolioCurrentEvidenceRiskGate
+    testPortfolioSelectionRotationHysteresis
+    testPortfolioSelectionJsonRoundTrip
     testMergeFreshnessScoringPromotesFreshCandidate
     testMergeExecutableAnnotatesProcessingAndDedupe
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
@@ -5367,6 +5394,175 @@ testTopComboFreshnessMultiplierDefaultsDisabled =
     assert
         "default top-combo freshness scoring is disabled"
         (topComboFreshnessMultiplier defaultTopComboScoringConfig (Just 365) == 1)
+
+portfolioTestConfig :: PortfolioSelectorConfig
+portfolioTestConfig =
+    defaultPortfolioSelectorConfig
+        { pscMinimumObservations = 40
+        , pscMaximumObservations = 60
+        , pscCandidateLimit = 10
+        , pscBootstrapSamples = 100
+        , pscBootstrapBlockDays = 3
+        , pscBootstrapPortfolioLimit = 64
+        , pscMaxDrawdown = 0.50
+        , pscSwitchingCostRate = 0
+        }
+
+portfolioCandidateForTest :: T.Text -> T.Text -> [Double] -> PortfolioCandidate
+portfolioCandidateForTest uuid symbol returns =
+    let daily =
+            [ PortfolioDailyReturn (fromIntegral day * 86400000) value
+            | (day, value) <- zip ([1 ..] :: [Int]) returns
+            ]
+        evidence =
+            PortfolioEvidence
+                { peKind = "backtest_oos"
+                , peWindowStartMs = maybe 0 pdrDayMs (listToMaybe daily)
+                , peWindowEndMs = maybe 0 pdrDayMs (listToMaybe (reverse daily))
+                , peObservationCount = length daily
+                , peCostModel = "backtest_net_equity"
+                , peDailyReturns = daily
+                }
+     in PortfolioCandidate uuid symbol 0.25 evidence
+
+testPortfolioAnnualizationAndDrawdown :: IO ()
+testPortfolioAnnualizationAndDrawdown = do
+    let flatGrowth = replicate 365 0.001
+        drawdownPath = [0.10, -0.20, 0.05]
+    assert
+        "portfolio annualization compounds daily net returns"
+        (abs (portfolioAnnualizedReturn flatGrowth - ((1.001 :: Double) ** 365 - 1)) < 1.0e-9)
+    assert
+        "portfolio drawdown is measured from the running equity peak"
+        (abs (portfolioMaxDrawdown drawdownPath - 0.20) < 1.0e-12)
+
+testOptimizerExtractsTimestampedPortfolioEvidence :: IO ()
+testOptimizerExtractsTimestampedPortfolioEvidence = do
+    let raw =
+            Aeson.object
+                [ "backtest"
+                    .= Aeson.object
+                        [ "openTimes" .= ([0, 43200000, 86400000, 172800000] :: [Int])
+                        , "equityCurve" .= ([1.0, 1.01, 1.02, 1.04] :: [Double])
+                        ]
+                ]
+        parsed = extractPortfolioEvidence (Just raw) >>= AT.parseMaybe Aeson.parseJSON
+    case parsed of
+        Nothing -> ioError (userError "optimizer failed to extract portfolio evidence from a timestamped net equity curve")
+        Just evidence -> do
+            assert "optimizer portfolio evidence groups intraday equity at UTC day closes" (peObservationCount evidence == 2)
+            assert "optimizer portfolio evidence preserves normalized day timestamps" (map pdrDayMs (peDailyReturns evidence) == [86400000, 172800000])
+            assert
+                "optimizer portfolio evidence derives consecutive net daily returns"
+                (and (zipWith (\actual expected -> abs (actual - expected) < 1.0e-12) (map pdrReturn (peDailyReturns evidence)) [1.02 / 1.01 - 1, 1.04 / 1.02 - 1]))
+
+testPortfolioSelectionIsDeterministicAndBounded :: IO ()
+testPortfolioSelectionIsDeterministicAndBounded = do
+    let candidates =
+            [ portfolioCandidateForTest "combo-a" "AAAUSDT" (replicate 60 0.0010)
+            , portfolioCandidateForTest "combo-a-variant" "AAAUSDT" (replicate 60 0.0011)
+            , portfolioCandidateForTest "combo-b" "BBBUSDT" (replicate 60 0.0008)
+            , portfolioCandidateForTest "combo-c" "CCCUSDT" (replicate 60 0.0006)
+            ]
+        first = selectPortfolio portfolioTestConfig 1000 PortfolioShadow [] candidates
+        second = selectPortfolio portfolioTestConfig 1000 PortfolioShadow [] candidates
+    assert "portfolio selection is deterministic for identical evidence" (first == second)
+    case first of
+        Left err -> ioError (userError ("portfolio selection unexpectedly failed: " ++ err))
+        Right selection -> do
+            let weights = map pmWeight (psMembers selection)
+            assert "portfolio selection admits at most three unique symbols" (length weights <= 3 && length (nub (map pmSymbol (psMembers selection))) == length weights)
+            assert "portfolio member weights respect the 25% hard cap" (all (<= 0.25 + 1.0e-12) weights)
+            assert "portfolio gross weight respects the 75% hard cap" (sum weights <= 0.75 + 1.0e-12)
+            assert "portfolio bootstrap drawdown respects the configured hard cap" (pmMaxDrawdownP95 (psMetrics selection) <= pscMaxDrawdown portfolioTestConfig)
+            assert "portfolio snapshots fingerprint the complete selector configuration" (psConfigVersion selection == portfolioSelectorConfigVersion portfolioTestConfig)
+
+testPortfolioSelectionFailsClosedOnInvalidNumbers :: IO ()
+testPortfolioSelectionFailsClosedOnInvalidNumbers = do
+    let candidate = portfolioCandidateForTest "valid" "BTCUSDT" (replicate 60 0.001)
+        malformedCandidate = portfolioCandidateForTest "nan" "ETHUSDT" (replicate 60 (0 / 0))
+        malformedConfig = portfolioTestConfig{pscMaxMemberWeight = 0 / 0}
+    assert
+        "portfolio selection rejects non-finite selector configuration"
+        (case selectPortfolio malformedConfig 1 PortfolioShadow [] [candidate] of Left _ -> True; Right _ -> False)
+    assert
+        "portfolio selection rejects non-finite return evidence"
+        (case selectPortfolio portfolioTestConfig 1 PortfolioShadow [] [malformedCandidate] of Left _ -> True; Right _ -> False)
+
+testPortfolioSelectionRejectsSparseWinner :: IO ()
+testPortfolioSelectionRejectsSparseWinner = do
+    let stable = portfolioCandidateForTest "stable" "STABLEUSDT" (replicate 60 0.001)
+        sparseWinner = portfolioCandidateForTest "sparse" "SPARSEUSDT" (replicate 10 0.10)
+        config = portfolioTestConfig{pscMaxMembers = 1}
+    case selectPortfolio config 2000 PortfolioShadow [] [sparseWinner, stable] of
+        Left err -> ioError (userError ("stable portfolio candidate should remain selectable: " ++ err))
+        Right selection ->
+            assert
+                "a high-return combo without the minimum evidence window cannot enter the portfolio"
+                (map pmUuid (psMembers selection) == ["stable"])
+
+testPortfolioCurrentEvidenceRiskGate :: IO ()
+testPortfolioCurrentEvidenceRiskGate = do
+    let member = PortfolioMember "current" "CURRENTUSDT" 0.25
+        healthy = portfolioCandidateForTest "current" "CURRENTUSDT" (replicate 60 0.001)
+        refreshedHealthy = portfolioCandidateForTest "current" "CURRENTUSDT" (replicate 61 0.001)
+        degraded = portfolioCandidateForTest "current" "CURRENTUSDT" (replicate 60 (-0.01))
+    assert
+        "current portfolio members remain admitted while refreshed evidence clears the bootstrap gates"
+        (portfolioMembersRemainAdmitted portfolioTestConfig [member] [healthy])
+    assert
+        "current portfolio members fail closed when refreshed evidence loses its conservative return edge"
+        (not (portfolioMembersRemainAdmitted portfolioTestConfig [member] [degraded]))
+    assert
+        "current portfolio members fail closed when a stored weight exceeds the configured hard cap"
+        (not (portfolioMembersRemainAdmitted portfolioTestConfig [member{pmWeight = 0.30}] [healthy]))
+    case refreshPortfolioSelection portfolioTestConfig 2000 PortfolioShadow [member] [refreshedHealthy] of
+        Left err -> ioError (userError ("healthy incumbent refresh unexpectedly failed: " ++ err))
+        Right refreshed -> do
+            assert "an admitted incumbent refresh advances its aligned evidence timestamp" (psEvidenceEndMs refreshed == 61 * 86400000)
+            assert "an admitted incumbent refresh replaces stored conservative metrics" (pmAnnualizedReturnP10 (psMetrics refreshed) > 0)
+
+portfolioSelectionForRotationTest :: Double -> Double -> PortfolioSelection
+portfolioSelectionForRotationTest returnP10 probability =
+    PortfolioSelection
+        { psGeneratedAtMs = 1
+        , psValidUntilMs = 2
+        , psEvidenceStartMs = 1
+        , psEvidenceEndMs = 2
+        , psMode = PortfolioShadow
+        , psMembers = [PortfolioMember "combo" "BTCUSDT" 0.25]
+        , psMetrics =
+            PortfolioMetrics
+                { pmHistoricalAnnualizedReturn = returnP10
+                , pmHistoricalMaxDrawdown = 0.02
+                , pmAnnualizedReturnP10 = returnP10
+                , pmAnnualizedReturnP50 = returnP10
+                , pmAnnualizedReturnP90 = returnP10
+                , pmMaxDrawdownP95 = 0.05
+                , pmAverageCorrelation = 0
+                , pmSwitchingCost = 0
+                , pmPairedOutperformanceProbability = probability
+                }
+        , psCandidateCount = 1
+        , psBootstrapSeed = 1
+        , psConfigVersion = "portfolio-v1"
+        }
+
+testPortfolioSelectionRotationHysteresis :: IO ()
+testPortfolioSelectionRotationHysteresis = do
+    let incumbent = portfolioSelectionForRotationTest 0.10 1
+        weakImprovement = portfolioSelectionForRotationTest 0.119 1
+        uncertainImprovement = portfolioSelectionForRotationTest 0.13 0.89
+        promoted = portfolioSelectionForRotationTest 0.13 0.90
+    assert "portfolio rotation rejects improvements below two annualized percentage points" (not (portfolioSelectionShouldRotate portfolioTestConfig incumbent weakImprovement))
+    assert "portfolio rotation rejects statistically uncertain improvements" (not (portfolioSelectionShouldRotate portfolioTestConfig incumbent uncertainImprovement))
+    assert "portfolio rotation accepts an improvement that clears both hysteresis gates" (portfolioSelectionShouldRotate portfolioTestConfig incumbent promoted)
+
+testPortfolioSelectionJsonRoundTrip :: IO ()
+testPortfolioSelectionJsonRoundTrip = do
+    let selection = portfolioSelectionForRotationTest 0.15 0.95
+        decoded = Aeson.eitherDecode (Aeson.encode selection) :: Either String PortfolioSelection
+    assert "portfolio selection snapshots round-trip through JSON" (decoded == Right selection)
 
 testMergeFreshnessScoringPromotesFreshCandidate :: IO ()
 testMergeFreshnessScoringPromotesFreshCandidate = do

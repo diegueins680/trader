@@ -336,17 +336,20 @@
     },
     {
       "id": "H-COMBOS",
-      "title": "Top-combo scoring, merge, freshness, quarantine, tombstones, and bot adoption",
-      "features": ["combo identity", "ranking", "merge", "freshness", "backtest refresh", "live blend", "quarantine", "tombstone", "adoption evidence", "bot start ordering"],
+      "title": "Top-combo scoring, portfolio selection, freshness, quarantine, tombstones, and bot adoption",
+      "features": ["combo identity", "ranking", "merge", "freshness", "backtest refresh", "live blend", "quarantine", "tombstone", "adoption evidence", "portfolio bootstrap selection", "bot start ordering"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/TopComboScoring.hs", "haskell/app/Trader/TopCombosStore.hs", "haskell/app/Trader/BotStartSemantics.hs"],
+      "implementation": ["haskell/app/Trader/TopComboScoring.hs", "haskell/app/Trader/TopCombosStore.hs", "haskell/app/Trader/BotStartSemantics.hs", "haskell/app/Trader/PortfolioSelection.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-IDEMPOTENT", "G-DETERMINISTIC"],
       "dependsOn": ["H-OPTIMIZER", "H-RISK"],
-      "requires": [{ "id": "H-COMBOS-R1", "statement": "A deployable combo has canonical identity, finite score/risk fields, sufficient trades, fresh timestamp, walk-forward evidence, and no active tombstone/quarantine." }],
-      "ensures": [{ "id": "H-COMBOS-E1", "statement": "Merge deduplicates identity and preserves the newest admissible evidence; ranking is total; adoption caps exposure and preserves explicit disabled behavior." }],
-      "invariants": [{ "id": "H-COMBOS-I1", "statement": "merge(x,x)=x after normalization; stale replicas cannot resurrect a tombstoned row; stricter evidence floors cannot add deployable combos." }],
-      "failures": [{ "id": "H-COMBOS-F1", "statement": "Malformed, stale, low-evidence, losing, or quarantined combos remain visible only in their documented non-deployable tier and cannot auto-start trading." }],
-      "evidence": [{ "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPrunedBacktestTombstonePreventsStaleResurrection" }]
+      "requires": [{ "id": "H-COMBOS-R1", "statement": "A deployable combo has canonical identity, finite score/risk fields, sufficient trades, fresh timestamp, walk-forward and timestamped net-return evidence, and no active tombstone/quarantine; a portfolio snapshot matches the active selector configuration." }],
+      "ensures": [{ "id": "H-COMBOS-E1", "statement": "Merge deduplicates identity and preserves the newest admissible evidence; ranking is total; deterministic portfolio selection caps member and gross exposure, admits only conservative return/drawdown distributions, and preserves explicit disabled behavior." }],
+      "invariants": [{ "id": "H-COMBOS-I1", "statement": "merge(x,x)=x after normalization; stale replicas cannot resurrect a tombstoned row; stricter evidence floors cannot add deployable combos; selected portfolios contain unique symbols and never exceed configured member, gross, or drawdown caps." }],
+      "failures": [{ "id": "H-COMBOS-F1", "statement": "Malformed, stale, low-evidence, losing, quarantined, platform-incompatible, or config-mismatched combos and portfolios remain visible only in their documented non-deployable state and cannot auto-start trading." }],
+      "evidence": [
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPrunedBacktestTombstonePreventsStaleResurrection" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPortfolioSelectionIsDeterministicAndBounded" }
+      ]
     },
     {
       "id": "H-PERSISTENCE",

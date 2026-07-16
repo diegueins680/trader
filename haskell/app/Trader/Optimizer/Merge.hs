@@ -91,6 +91,7 @@ data Combo = Combo
     , comboSource :: !(Maybe String)
     , comboMetrics :: !(Maybe (KM.KeyMap Value))
     , comboOperations :: !(Maybe [Value])
+    , comboPortfolioEvidence :: !(Maybe Value)
     , comboParams :: !(KM.KeyMap Value)
     }
     deriving (Eq, Show)
@@ -221,6 +222,7 @@ loadCombosFromJsonl path = do
                                         openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceFloatValue
                                         closeThr = KM.lookup (Key.fromString "closeThreshold") rec >>= coerceFloatValue
                                         operations = KM.lookup (Key.fromString "operations") rec >>= coerceOperations
+                                        portfolioEvidence = KM.lookup (Key.fromString "portfolioEvidence") rec
                                         createdAtMs = KM.lookup (Key.fromString "createdAtMs") rec >>= coerceIntValue
                                         combo =
                                             object
@@ -233,6 +235,7 @@ loadCombosFromJsonl path = do
                                                 , "source" .= source
                                                 , "metrics" .= metrics
                                                 , "operations" .= operations
+                                                , "portfolioEvidence" .= portfolioEvidence
                                                 , "params" .= Object params
                                                 ]
                                      in Just combo
@@ -732,9 +735,13 @@ comboToValue scoringConfig nowMs rank combo =
                 , "processing" .= comboProcessingValue scoringConfig nowMs combo
                 , "params" .= Object (comboParams combo)
                 ]
-     in case comboOperations combo of
-            Just ops -> addField "operations" (Array (V.fromList ops)) base
-            Nothing -> base
+        withOperations =
+            case comboOperations combo of
+                Just ops -> addField "operations" (Array (V.fromList ops)) base
+                Nothing -> base
+     in case comboPortfolioEvidence combo of
+            Just evidence -> addField "portfolioEvidence" evidence withOperations
+            Nothing -> withOperations
 
 comboIdentityValue :: Combo -> Value
 comboIdentityValue = comboProcessingIdentityValue
@@ -801,6 +808,7 @@ normalizeCombo value =
                         objective = KM.lookup (Key.fromString "objective") obj >>= normalizeObjectiveValue
                         score = comboFloatField "score" obj metricsRaw
                         operations = KM.lookup (Key.fromString "operations") obj >>= coerceOperations
+                        portfolioEvidence = KM.lookup (Key.fromString "portfolioEvidence") obj
                         createdAtMs = KM.lookup (Key.fromString "createdAtMs") obj >>= coerceIntValue
                         interval = valueToStringMaybe (KM.lookup (Key.fromString "interval") paramsRaw)
                         bars = fromMaybe 0 (KM.lookup (Key.fromString "bars") paramsRaw >>= coerceIntValue)
@@ -949,6 +957,7 @@ normalizeCombo value =
                             , comboSource = source
                             , comboMetrics = metrics
                             , comboOperations = operations
+                            , comboPortfolioEvidence = portfolioEvidence
                             , comboParams = normalizedParams
                             }
         _ -> Nothing

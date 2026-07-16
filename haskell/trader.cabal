@@ -88,6 +88,7 @@ executable trader-hs
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.TopComboScoring
+                     , Trader.PortfolioSelection
                      , Trader.TopCombosStore
                      , Trader.S3
                      , Trader.TechnicalAnalysis.Indicators
@@ -348,6 +349,7 @@ test-suite trader-tests
                      , Trader.Test.OnlineNeural
                      , Trader.ThresholdCalibration
                      , Trader.TopComboScoring
+                     , Trader.PortfolioSelection
                      , Trader.TopCombosStore
                      , Trader.Test.ApiRoutes
                      , Trader.TechnicalAnalysis.Indicators

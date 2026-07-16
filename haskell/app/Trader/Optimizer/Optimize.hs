@@ -18,6 +18,7 @@ module Trader.Optimizer.Optimize (
     dedupeFirstByKey,
     emptyOptimizerRecordsSummary,
     emptyTechniqueSummary,
+    extractPortfolioEvidence,
     kellyLiteExposureContractReason,
     normalizeObjectiveCode,
     normalizeOptimizerRiskPerTrade,
@@ -2605,6 +2606,58 @@ extractOperations raw = do
                     )
             _ -> Nothing
 
+{- | Build the common, timestamped return surface consumed by live portfolio
+selection. The backtest equity curve is already net of the configured fee,
+spread, slippage, funding, and rebalance costs, so deriving close-to-close
+daily returns here keeps selection evidence consistent with deployability.
+-}
+extractPortfolioEvidence :: Maybe Value -> Maybe Value
+extractPortfolioEvidence raw = do
+    root <- raw
+    bt <- valueObjectAt root "backtest"
+    openTimesValue <- KM.lookup (Key.fromString "openTimes") bt
+    equityCurveValue <- KM.lookup (Key.fromString "equityCurve") bt
+    openTimes <- coerceIntArray openTimesValue
+    equityCurve <- coerceFloatArray equityCurveValue
+    let dailyCloses =
+            M.toAscList $
+                M.fromList
+                    [ (dayStartMs timestamp, equity)
+                    | (timestamp, equity) <- zip openTimes equityCurve
+                    , timestamp >= 0
+                    , not (isNaN equity || isInfinite equity)
+                    , equity > 0
+                    ]
+        dailyReturns =
+            [ object ["dayMs" .= day, "return" .= (equity / priorEquity - 1)]
+            | ((_, priorEquity), (day, equity)) <- zip dailyCloses (drop 1 dailyCloses)
+            , priorEquity > 0
+            , let dailyReturn = equity / priorEquity - 1
+            , not (isNaN dailyReturn || isInfinite dailyReturn)
+            , dailyReturn > -1
+            ]
+    case dailyCloses of
+        [] -> Nothing
+        [_] -> Nothing
+        _ ->
+            Just $
+                object
+                    [ "kind" .= ("backtest_oos" :: String)
+                    , "windowStartMs" .= fst (head dailyCloses)
+                    , "windowEndMs" .= fst (last dailyCloses)
+                    , "observationCount" .= length dailyReturns
+                    , "costModel" .= ("backtest_net_equity" :: String)
+                    , "dailyReturns" .= dailyReturns
+                    ]
+  where
+    dayStartMs timestamp = (timestamp `div` 86400000) * 86400000
+
+coerceIntArray :: Value -> Maybe [Int]
+coerceIntArray value =
+    case value of
+        Array xs -> traverse coerceIntValue (V.toList xs)
+        _ -> Nothing
+
 coerceFloatArray :: Value -> Maybe [Double]
 coerceFloatArray value =
     case value of
@@ -4770,7 +4823,11 @@ trialToRecord tr symbolLabel =
             case extractOperations (trStdoutJson tr) of
                 Just ops -> ["operations" .= ops]
                 Nothing -> []
-     in object (baseFields ++ metricsField ++ kellyLiteField ++ opsField)
+        portfolioEvidenceField =
+            case extractPortfolioEvidence (trStdoutJson tr) of
+                Just evidence -> ["portfolioEvidence" .= evidence]
+                Nothing -> []
+     in object (baseFields ++ metricsField ++ kellyLiteField ++ opsField ++ portfolioEvidenceField)
 
 overfitTrialFromResult :: TrialResult -> OverfitTrial
 overfitTrialFromResult tr =
@@ -9692,12 +9749,16 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel overfitStats ra
         metricsWithWalkForward = applyWalkForwardSummaryMetrics metrics0 (trStdoutJson tr)
         appliedMaxHoldBars = appliedCloseTimingMaxHoldBars currentMaxHoldBars closeTimingReport
         metricsWithCloseTiming = applyCloseTimingMetrics metricsWithWalkForward currentMaxHoldBars appliedMaxHoldBars closeTimingReport
+        metricsBase =
+            KM.insert
+                (Key.fromString "overfit")
+                (trialOverfitEvidenceValue overfitStats tr)
+                (fromMaybe KM.empty metricsWithCloseTiming)
         metrics =
             Just $
-                KM.insert
-                    (Key.fromString "overfit")
-                    (trialOverfitEvidenceValue overfitStats tr)
-                    (fromMaybe KM.empty metricsWithCloseTiming)
+                case extractPortfolioEvidence (trStdoutJson tr) of
+                    Just evidence -> KM.insert (Key.fromString "portfolioEvidence") evidence metricsBase
+                    Nothing -> metricsBase
         metricsVal = maybe Null Object metrics
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
         mapEliteBucket = trialMapEliteBucket symbolLabel tr
@@ -9914,9 +9975,13 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel overfitStats ra
             case extractKellyLiteSummary (trStdoutJson tr) of
                 Just report -> addField "kellyLite" (Object report) combo
                 Nothing -> combo
-     in case extractOperations (trStdoutJson tr) of
-            Just ops -> addField "operations" (Array (V.fromList ops)) comboWithKelly
-            Nothing -> comboWithKelly
+        comboWithOperations =
+            case extractOperations (trStdoutJson tr) of
+                Just ops -> addField "operations" (Array (V.fromList ops)) comboWithKelly
+                Nothing -> comboWithKelly
+     in case extractPortfolioEvidence (trStdoutJson tr) of
+            Just evidence -> addField "portfolioEvidence" evidence comboWithOperations
+            Nothing -> comboWithOperations
 
 addField :: String -> Value -> Value -> Value
 addField key value val =

@@ -9555,6 +9555,26 @@ export function App() {
                       <div className="v">{Math.max(0, Math.trunc(botDisplay.cooldownLeft))} bar(s) remaining</div>
                     </div>
                   ) : null}
+                  {bot.status?.portfolioSelector ? (
+                    <div className="kv">
+                      <div className="k">Portfolio selector</div>
+                      <div className="v">
+                        {(() => {
+                          const selector = bot.status?.portfolioSelector;
+                          if (!selector) return "—";
+                          const selection = selector.selection;
+                          const members =
+                            selection?.members
+                              .map((member) => `${member.symbol} ${fmtPct(member.weight, 0)}`)
+                              .join(", ") || "cash";
+                          const pnl = selection ? fmtPct(selection.metrics.annualizedReturnP10, 1) : "—";
+                          const drawdown = selection ? fmtPct(selection.metrics.maxDrawdownP95, 1) : "—";
+                          const state = selector.selectionValid ? "valid" : "waiting for evidence";
+                          return `${selector.mode} • ${state} • P10 ${pnl} • DD95 ${drawdown} • ${members}`;
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
                   {botDisplay.marketGovernor ? (
                     <div className="kv">
                       <div className="k">Market governor</div>

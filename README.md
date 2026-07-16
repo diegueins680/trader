@@ -85,6 +85,7 @@ cabal run optimize-equity -- --help
 ```
 
 Serve mode requires `TRADER_DB_URL` or `DATABASE_URL`. The local wrapper supplies the conventional local PostgreSQL URL when possible.
+Database-backed endpoints serialize access to their shared PostgreSQL connection and automatically replace it after libpq connection failures, including a connection left busy by an interrupted command.
 
 Important operational endpoints:
 
@@ -220,6 +221,29 @@ Applying an optimizer combo changes parameters only. Starting a live bot is a se
 Credentials must remain in environment variables or ignored `.env` files. Never put credentials in committed files or logs.
 
 Tenant identity is derived consistently by the backend, browser, and AWS deployment helper. Credential boundaries trim only ASCII whitespace so all three runtimes agree; separator-free tuples, including Unicode credentials, retain their existing `platform:<hash>` key. Tuples containing `:` use collision-resistant `platform:v2:<hash>` framing. This intentionally changes the key for those exceptional existing tenants: migrate tenant-scoped database rows, bot snapshots/object keys, and any explicit `TRADER_STATE_SYNC_TENANT_KEY` together. When updating an existing App Runner service to a v2 target, set `TRADER_STATE_SYNC_SOURCE_TENANT_KEY` to the tenant key used by the deployed service; the deploy exports from that source and imports into the v2 target, and refuses the update when the source is omitted. An old ambiguous alias cannot be accepted safely.
+
+## Top-combo portfolio selection
+
+Optimizer exports include timestamped daily returns derived from the net out-of-sample equity curve. Live portfolio selection requires at least 180 aligned days plus the existing freshness, venue-cost, 20-trade, walk-forward Sharpe, stability, position-size, and quarantine gates; legacy combos without the new evidence remain visible but cannot receive portfolio capital.
+
+Once per week, the server evaluates up to three unique-symbol bots jointly. It searches 5% weight increments, caps each bot at 25% and total deployed capital at 75%, and leaves unused capital in cash. A deterministic seven-day moving-block bootstrap maximizes the 10th-percentile annualized net return while requiring the 95th-percentile maximum drawdown to remain at or below 10%. Rotation additionally requires two percentage points of conservative annualized improvement and at least 90% paired-bootstrap outperformance probability.
+
+The decision is atomically persisted beside `top-combos.json` as `portfolio-selection.json` and expires after eight days. Open/orphaned positions are always restored first for safe management. In `canary` or `enforce`, an absent, expired, or invalid decision blocks new portfolio entries instead of falling back to independent combo ranking. Canary scales aggregate portfolio capital to 25%; enforce uses the selected weights up to the normal 75% ceiling. The default `shadow` mode reports the challenger through `/bot/status` and the Live Bot UI without changing the existing fleet.
+
+The checked-in Fly and Hetzner trading production profiles use `enforce`, three sequentially started bots, and the caps above. Research profiles include 200/365-day windows so candidates can actually satisfy the 180-day evidence floor. Deployments therefore fail closed on legacy leaderboards until the research/refresh workers publish qualifying net daily-return evidence.
+
+```dotenv
+TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow
+TRADER_PORTFOLIO_SELECTOR_MAX_BOTS=3
+TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0.25
+TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0.75
+TRADER_PORTFOLIO_SELECTOR_MAX_DRAWDOWN=0.10
+TRADER_PORTFOLIO_SELECTOR_MIN_DAYS=180
+TRADER_PORTFOLIO_SELECTOR_BOOTSTRAP_SAMPLES=1000
+TRADER_PORTFOLIO_SELECTOR_BLOCK_DAYS=7
+TRADER_PORTFOLIO_SELECTOR_ROTATION_IMPROVEMENT=0.02
+TRADER_PORTFOLIO_SELECTOR_ROTATION_PROBABILITY=0.90
+```
 
 ## Neural-governor rollout
 

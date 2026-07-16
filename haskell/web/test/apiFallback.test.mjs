@@ -202,13 +202,41 @@ test("bot status decoder accepts a valid running safety envelope and is shared b
     },
     async () => {
       calls += 1;
-      return calls === 1 ? jsonResponse(200, validRunningBotStatus()) : jsonResponse(200, { running: 0 });
+      return calls === 1
+        ? jsonResponse(
+            200,
+            validRunningBotStatus({
+              portfolioSelector: {
+                mode: "shadow",
+                selectionValid: true,
+                selection: {
+                  generatedAtMs: 1,
+                  validUntilMs: 2,
+                  evidenceStartMs: 1,
+                  evidenceEndMs: 2,
+                  members: [{ uuid: "combo", symbol: "BTCUSDT", weight: 0.25 }],
+                  metrics: {
+                    annualizedReturnP10: 0.12,
+                    annualizedReturnP50: 0.2,
+                    annualizedReturnP90: 0.3,
+                    maxDrawdownP95: 0.08,
+                    averageCorrelation: 0,
+                    switchingCost: 0,
+                    pairedOutperformanceProbability: 0.95,
+                  },
+                },
+              },
+            }),
+          )
+        : jsonResponse(200, { running: 0 });
     },
     async (api) => {
       const status = await api.botStatus("/api", { timeoutMs: 5_000 });
       assert.equal(status.running, true);
       assert.equal(status.live, false);
       assert.deepEqual(status.positions, [0]);
+      assert.equal(status.portfolioSelector.mode, "shadow");
+      assert.equal(status.portfolioSelector.selection.members[0].weight, 0.25);
       await assert.rejects(
         () => api.botStop("/api", { timeoutMs: 5_000 }),
         (error) => error instanceof api.InvalidApiResponseError && error.endpoint === "/bot/stop",
