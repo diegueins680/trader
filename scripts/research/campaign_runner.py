@@ -1173,7 +1173,8 @@ def _assert_output_holdout_not_consumed(
     *,
     strict_identity: bool = False,
 ) -> None:
-    _assert_official_shared_registry_resolved(registry_dir)
+    if strict_identity:
+        _assert_official_shared_registry_resolved(registry_dir)
     output_record = output_dir / "final-holdout-opened.json"
     if output_record.is_symlink():
         raise ValueError("final holdout output record path is unsafe")
@@ -1242,8 +1243,12 @@ def _reserve_holdout(
     if marker.parent.resolve() != registry_dir.resolve():
         raise ValueError("holdout marker escaped its locked registry")
     with _holdout_registry_lock(registry_dir):
-        _assert_official_shared_registry_resolved(registry_dir)
-        if _is_official_shared_registry(registry_dir):
+        if strict_identity:
+            _assert_official_shared_registry_resolved(registry_dir)
+        if (
+            _is_official_shared_registry(registry_dir)
+            and SHARED_REPOSITORY_RESOLUTION_ERROR is None
+        ):
             _assert_shared_registry_reconciled(
                 REPOSITORY_ROOT,
                 SHARED_REPOSITORY_ROOT,

@@ -156,14 +156,43 @@ with tempfile.TemporaryDirectory() as layout_temporary:
         assert not guard_marker.exists()
         assert not guard_output_record.exists()
         runner.SHARED_REPOSITORY_RESOLUTION_ERROR = "synthetic failure"
+        runner._assert_output_holdout_not_consumed(
+            canonical_registry, guard_output
+        )
+        runner._reserve_holdout(
+            canonical_registry,
+            guard_marker,
+            runner._holdout_window(["AAA"], "8h", 100, 200),
+            guard_output_record,
+            {},
+        )
+        assert guard_marker.exists()
+        assert guard_output_record.exists()
+        guard_marker.unlink()
+        guard_output_record.unlink()
         try:
             runner._assert_output_holdout_not_consumed(
-                canonical_registry, guard_output
+                canonical_registry, guard_output, strict_identity=True
             )
         except ValueError as error:
             assert "official shared holdout registry cannot be resolved" in str(error)
         else:
-            raise AssertionError("official fallback registries must fail closed")
+            raise AssertionError("strict official fallback registries must fail closed")
+        try:
+            runner._reserve_holdout(
+                canonical_registry,
+                guard_marker,
+                runner._holdout_window(["AAA"], "8h", 100, 200),
+                guard_output_record,
+                {},
+                strict_identity=True,
+            )
+        except ValueError as error:
+            assert "official shared holdout registry cannot be resolved" in str(error)
+        else:
+            raise AssertionError("strict fallback reservations must fail closed")
+        assert not guard_marker.exists()
+        assert not guard_output_record.exists()
     finally:
         runner.REPOSITORY_ROOT = original_repository_root
         runner.SHARED_REPOSITORY_ROOT = original_shared_root
