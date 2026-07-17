@@ -545,6 +545,7 @@ import Trader.TopCombosStore (
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
+    batchCombosForBacktestRefresh,
     blendedAnnualizedReturn,
     comboBacktestFreshEnoughForMaxAge,
     comboIdentityKey,
@@ -13763,12 +13764,13 @@ backtestTopCombosOnce topNRaw ctx = do
                             let combosList = V.toList combos
                                 selected = selectCombosForBacktestRefreshWithPolicy (tcbcRefreshPolicy ctx) topN selectionNow combosList
                                 selectedCount = length selected
-                            updates <- fmap catMaybes (forM selected backtestCombo)
-                            if null updates
-                                then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
-                                else do
-                                    dbPersistNeeded <-
-                                        withTopCombosLock store $ do
+                                refreshBatches = batchCombosForBacktestRefresh topN 100 selected
+                                applyUpdateBatch batchSelected updates =
+                                    if null updates
+                                        then do
+                                            recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String), "batchSelected" .= batchSelected]
+                                            pure False
+                                        else withTopCombosLock store $ do
                                             latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
                                             case latestValOrErr of
                                                 Left err -> do
@@ -13794,7 +13796,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                 prunedCount = cbasPrunedCount stats
                                                             if updatedCount <= 0
                                                                 then do
-                                                                    recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                                                                    recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String), "batchSelected" .= batchSelected]
                                                                     pure False
                                                                 else do
                                                                     -- Embed this instance's live records before writing, so the
@@ -13814,9 +13816,18 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                                 , "pruned" .= prunedCount
                                                                                 , "topN" .= topN
                                                                                 , "selected" .= selectedCount
+                                                                                , "batchSelected" .= batchSelected
                                                                                 , "path" .= topJsonPath
                                                                                 ]
                                                                             pure True
+                            if null refreshBatches
+                                then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
+                                else do
+                                    dbPersistFlags <-
+                                        forM refreshBatches $ \batch -> do
+                                            updates <- fmap catMaybes (forM batch backtestCombo)
+                                            applyUpdateBatch (length batch) updates
+                                    let dbPersistNeeded = or dbPersistFlags
                                     when dbPersistNeeded (persistTopCombosDbMaybe mOps store)
                         _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
                 _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing

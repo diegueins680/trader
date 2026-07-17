@@ -11,6 +11,7 @@ module Trader.TopCombosStore (
     applyComboUpdatesWithStatsWithPolicy,
     applyComboUpdatesWithStats,
     applyComboUpdatesKeepAllWithStats,
+    batchCombosForBacktestRefresh,
     blendedAnnualizedReturn,
     comboBacktestDueForRefresh,
     comboBacktestDueForRefreshWithPolicy,
@@ -750,6 +751,24 @@ selectCombosForBacktestRefreshWithPolicy policy topNRaw now combos =
                 | key `Set.member` seen -> (acc, seen)
                 | otherwise -> (item : acc, Set.insert key seen)
             Nothing -> (item : acc, seen)
+
+{- | Publish the highest-ranked refreshes first, then bound the stale
+remainder so a long sweep cannot withhold every completed update until its
+final backtest. The function preserves input order and never drops values.
+-}
+batchCombosForBacktestRefresh :: Int -> Int -> [a] -> [[a]]
+batchCombosForBacktestRefresh prioritySizeRaw staleBatchSizeRaw values =
+    case splitAt prioritySize values of
+        ([], _) -> []
+        (priority, remaining) -> priority : chunksOf staleBatchSize remaining
+  where
+    prioritySize = max 1 prioritySizeRaw
+    staleBatchSize = max 1 staleBatchSizeRaw
+
+    chunksOf _ [] = []
+    chunksOf size remaining =
+        let (chunk, rest) = splitAt size remaining
+         in chunk : chunksOf size rest
 
 recalculateComboPerformanceFromOperation ::
     Int64 ->

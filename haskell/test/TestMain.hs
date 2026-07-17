@@ -323,6 +323,7 @@ import Trader.TopCombosStore (
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
+    batchCombosForBacktestRefresh,
     blendedAnnualizedReturn,
     comboBacktestDueForRefresh,
     comboBacktestDueForRefreshWithPolicy,
@@ -583,6 +584,7 @@ main = do
     testMergeFreshnessScoringPromotesFreshCandidate
     testMergeExecutableAnnotatesProcessingAndDedupe
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
+    testBacktestRefreshBatchesPrioritizeRankedCombos
     testLiveComboFreshnessRequiresRecentBacktestEvidence
     testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
@@ -5786,6 +5788,14 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
             && hasShortPolicy shortStale
             && not (hasShortPolicy freshLowRank)
         )
+
+testBacktestRefreshBatchesPrioritizeRankedCombos :: IO ()
+testBacktestRefreshBatchesPrioritizeRankedCombos = do
+    let values = [1 .. 11 :: Int]
+        batches = batchCombosForBacktestRefresh 3 4 values
+    assert "backtest refresh publishes the ranked priority batch first" (take 1 batches == [[1, 2, 3]])
+    assert "backtest refresh bounds stale batches without dropping or reordering combos" (batches == [[1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]] && concat batches == values)
+    assert "backtest refresh batching is total for empty input" (null (batchCombosForBacktestRefresh 0 0 ([] :: [Int])))
 
 testLiveComboFreshnessRequiresRecentBacktestEvidence :: IO ()
 testLiveComboFreshnessRequiresRecentBacktestEvidence = do
