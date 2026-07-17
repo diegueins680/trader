@@ -422,6 +422,7 @@ import Trader.Optimizer.Common (
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Optimize (
     defaultPriorMissingAgeMultiplier,
+    extractPortfolioEvidence,
     optimizerRecordsShouldRetryDiscovery,
     optimizerRecordsSummaryJson,
     readOptimizerRecordsSummary,
@@ -9587,6 +9588,7 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                                                             , cbuFinalEquity = mFinalEq
                                                                             , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
                                                                             , cbuOperations = extractBacktestOperations out
+                                                                            , cbuPortfolioEvidence = extractPortfolioEvidence (Just out)
                                                                             }
                                                                 -- Use the keep-all path: the bot-start guard should
                                                                 -- /block/ a start, not delete a combo. Scheduled stale
@@ -13722,6 +13724,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                                     , cbuFinalEquity = Nothing
                                                                                     , cbuScore = Nothing
                                                                                     , cbuOperations = Nothing
+                                                                                    , cbuPortfolioEvidence = Nothing
                                                                                     }
                                                                         pure (Just (key, stampOnlyUpdate))
                                                                 Just metricsVal -> do
@@ -13735,6 +13738,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                                 , cbuFinalEquity = mFinalEq
                                                                                 , cbuScore = mScore
                                                                                 , cbuOperations = mOps
+                                                                                , cbuPortfolioEvidence = extractPortfolioEvidence (Just out)
                                                                                 }
                                                                     recordEvent
                                                                         "optimizer.combos.backtest"

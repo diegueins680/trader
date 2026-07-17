@@ -1291,6 +1291,7 @@ testTopComboBacktestPrunesRoiLosers = do
                 , cbuFinalEquity = Just 1.005
                 , cbuScore = Just 0.005
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
                 }
         boundaryUpdate =
             ComboBacktestUpdate
@@ -1302,6 +1303,7 @@ testTopComboBacktestPrunesRoiLosers = do
                 , cbuFinalEquity = Just topComboMinimumFinalEquity
                 , cbuScore = Just 0.01
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
                 }
     case comboIdentityKey combo of
         Nothing -> assert "top-combo fixture has a stable identity key" False
@@ -4681,6 +4683,7 @@ testApplyComboUpdatesZeroTradeDoesNotPrune = do
                 , cbuFinalEquity = Just 1.0
                 , cbuScore = Just 0.0
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
                 }
         result = applyComboUpdatesWithStats 0 (HM.singleton key zeroTradeUpdate) combosJson
     case result of
@@ -4741,6 +4744,7 @@ testApplyComboUpdatesGenuineLossStillPrunes = do
                 , cbuFinalEquity = Just 0.85
                 , cbuScore = Just (-0.15)
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
                 }
         result = applyComboUpdatesWithStats 0 (HM.singleton key lossUpdate) combosJson
     case result of
@@ -4987,6 +4991,17 @@ testBacktestUpdatePreservesLiveStats = do
                 , cbuFinalEquity = Just 1.3
                 , cbuScore = Just 0.3
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence =
+                    Just
+                        ( Aeson.object
+                            [ "kind" .= ("backtest_oos" :: String)
+                            , "observationCount" .= (2 :: Int)
+                            , "dailyReturns"
+                                .= [ Aeson.object ["dayMs" .= (0 :: Int64), "return" .= (0.01 :: Double)]
+                                   , Aeson.object ["dayMs" .= (86400000 :: Int64), "return" .= (0.02 :: Double)]
+                                   ]
+                            ]
+                        )
                 }
     case applyComboUpdatesWithStats 0 (HM.singleton key update) combosJson of
         Left err -> ioError (userError ("applyComboUpdatesWithStats failed unexpectedly: " ++ err))
@@ -5000,6 +5015,12 @@ testBacktestUpdatePreservesLiveStats = do
                 Nothing -> ioError (userError "backtest refresh erased the live record")
                 Just s -> pure s
             assert "live record survives a backtest metrics refresh" (clsOperationCount stats == 12)
+            let evidenceCount = do
+                    Aeson.Object comboObj <- mUpdatedCombo
+                    evidence <- KM.lookup "portfolioEvidence" comboObj
+                    Aeson.Object evidenceObj <- Just evidence
+                    KM.lookup "observationCount" evidenceObj >>= AT.parseMaybe Aeson.parseJSON
+            assert "backtest refresh persists portfolio evidence" (evidenceCount == Just (2 :: Int))
 
 {- | The S3 combo bus merges payloads from multiple instances; whichever
 duplicate wins the merge must carry the richest live record seen across all
@@ -5806,6 +5827,7 @@ testPrunedBacktestTombstonePreventsStaleResurrection = do
                 , cbuFinalEquity = Just 0.85
                 , cbuScore = Just (-0.15)
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
                 }
     case applyComboUpdatesWithStats 5000 (HM.singleton key lossUpdate) payload of
         Left err -> ioError (userError ("applyComboUpdatesWithStats failed unexpectedly: " ++ err))
@@ -5867,6 +5889,7 @@ testKeepAllUpdateKeepsUnprofitableComboStamped = do
                 , cbuFinalEquity = Just 0.85
                 , cbuScore = Just (-0.15)
                 , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
                 }
     case applyComboUpdatesKeepAllWithStats 7777 (HM.singleton key lossUpdate) combosJson of
         Left err -> ioError (userError ("applyComboUpdatesKeepAllWithStats failed unexpectedly: " ++ err))

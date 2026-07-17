@@ -1604,6 +1604,7 @@ data ComboBacktestUpdate = ComboBacktestUpdate
     , cbuFinalEquity :: !(Maybe Double)
     , cbuScore :: !(Maybe Double)
     , cbuOperations :: !(Maybe Aeson.Value)
+    , cbuPortfolioEvidence :: !(Maybe Aeson.Value)
     }
 
 comboDropTombstonesKey :: AK.Key
@@ -1720,12 +1721,16 @@ updateComboWithBacktest now update comboVal =
                     case cbuOperations update of
                         Nothing -> o3
                         Just ops -> KM.insert (AK.fromString "operations") ops o3
+                o5 =
+                    case cbuPortfolioEvidence update of
+                        Nothing -> o4
+                        Just evidence -> KM.insert (AK.fromString "portfolioEvidence") evidence o4
                 -- Stamp the refresh time so identity merges can prefer the most
                 -- recent backtest reading (see 'pickBestCombo'); without the
                 -- stamp a deflating refresh would lose every union merge to a
                 -- stale replica still carrying the old, higher score.
-                o5 = KM.insert (AK.fromString "backtestRefreshedAtMs") (toJSON now) o4
-             in Aeson.Object o5
+                o6 = KM.insert (AK.fromString "backtestRefreshedAtMs") (toJSON now) o5
+             in Aeson.Object o6
         _ -> comboVal
 
 applyComboUpdates :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, Int)

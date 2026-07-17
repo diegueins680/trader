@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Portfolio Selection: backfill timestamped net out-of-sample portfolio evidence during scheduled and startup top-combo re-backtests, so refreshed legacy winners can be assessed by the enforced portfolio selector without weakening any live-adoption or drawdown gate.
 - Deploy/Research: balance Method 01 and TA regime-switch optimizer weights at `3` each and raise TA-best to `2` after the first long-horizon production batch sampled four inactive regime-switch trials while Method 01 generated 195 trades; strict promotion and portfolio gates remain unchanged.
 - Trading/Optimizer: expose auto-discovery entry-edge bounds as `TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN/MAX`, clamp the lower bound to the modeled venue-cost floor, and narrow production research from the zero-trade-prone `0.0018..0.006` band to `0.0018..0.0024` without relaxing promotion, walk-forward, or portfolio risk gates.
 - Deploy/Hetzner: detach the in-container `/health` probe from the SSH heredoc's stdin so checking the prior API commit cannot consume the remaining remote build, recreation, health wait, and commit-attestation steps.
