@@ -1549,6 +1549,7 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(main, /defaultTopCombosSyncMaxCombos\s*::\s*Int\s+defaultTopCombosSyncMaxCombos\s*=\s*5000/);
   assert.match(main, /lookupEnv "TRADER_TOP_COMBOS_SYNC_MAX_COMBOS"/);
   assert.match(main, /max defaultTopCombosSyncMaxCombos optimizerMaxCombos/);
+  assert.match(main, /lookupEnv "TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC"/);
 
   const syncLoop = sourceSection("topCombosSyncLoop ::", 4500);
   assert.match(syncLoop, /syncMaxCombos <- topCombosSyncMaxCombosFromEnv/);
@@ -1581,7 +1582,25 @@ test("top-combo sync retention is independent from optimizer retention", async (
     );
   }
 
+  const productionConfigPaths = [
+    "../fly.toml",
+    "../fly.research.toml",
+    "../deploy/hetzner/trader.research.env.example",
+    "../deploy/hetzner/trader.research.env.managed",
+    "../deploy/hetzner/trader.trading.env.example",
+    "../deploy/hetzner/trader.trading.env.managed",
+  ];
+  for (const relativePath of productionConfigPaths) {
+    const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
+    assert.match(
+      config,
+      /TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC\s*(?:=|:)\s*"?30"?/,
+      `${relativePath} initial sync delay`,
+    );
+  }
+
   const hetznerCompose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
+  assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC: \$\{TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC:-0\}/);
   assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
 });
 

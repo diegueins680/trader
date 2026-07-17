@@ -2202,6 +2202,9 @@ data TopCombosSyncPlan = TopCombosSyncPlan
 defaultTopCombosSyncEverySec :: Int
 defaultTopCombosSyncEverySec = 15
 
+defaultTopCombosSyncInitialDelaySec :: Int
+defaultTopCombosSyncInitialDelaySec = 0
+
 topCombosSyncEverySecFromEnv :: IO Int
 topCombosSyncEverySecFromEnv = do
     syncEnv <- lookupEnv "TRADER_TOP_COMBOS_SYNC_EVERY_SEC"
@@ -2209,6 +2212,14 @@ topCombosSyncEverySecFromEnv = do
         case syncEnv >>= readMaybe of
             Just n | n >= 5 -> n
             _ -> defaultTopCombosSyncEverySec
+
+topCombosSyncInitialDelaySecFromEnv :: IO Int
+topCombosSyncInitialDelaySecFromEnv = do
+    delayEnv <- lookupEnv "TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC"
+    pure $
+        case delayEnv >>= readMaybe of
+            Just n | n >= 0 -> min 3600 n
+            _ -> defaultTopCombosSyncInitialDelaySec
 
 topCombosSyncEnabledFromEnv :: IO Bool
 topCombosSyncEnabledFromEnv = do
@@ -2332,12 +2343,14 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
         then putStrLn "Top combos sync worker disabled (TRADER_TOP_COMBOS_SYNC_ENABLED=false)."
         else do
             everySec <- topCombosSyncEverySecFromEnv
+            initialDelaySec <- topCombosSyncInitialDelaySecFromEnv
             syncMaxCombos <- topCombosSyncMaxCombosFromEnv
             let topJsonPath = tcsPath topCombosStore
             errRef <- newIORef HM.empty
-            putStrLn (printf "Top combos sync enabled: everySec=%d maxCombos=%d path=%s" everySec syncMaxCombos topJsonPath)
+            putStrLn (printf "Top combos sync enabled: everySec=%d initialDelaySec=%d maxCombos=%d path=%s" everySec initialDelaySec syncMaxCombos topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
-                loop = do
+            when (initialDelaySec > 0) (sleepSec initialDelaySec)
+            let loop = do
                     dbFetch <- traverse fetchTopCombosReplicaDb mOps
                     s3Fetch <- fetchTopCombosReplicaS3
                     stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget

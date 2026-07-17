@@ -73,6 +73,7 @@ primary_region = "fra"
   TRADER_STATE_S3_PREFIX = "trader-prod"
   TRADER_TOP_COMBOS_SYNC_ENABLED = "true"
   TRADER_TOP_COMBOS_SYNC_EVERY_SEC = "60"
+  TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC = "30"
   TRADER_TOP_COMBOS_SYNC_MAX_COMBOS = "5000"
   # Distinct tenant so this node's paper-bot snapshots don't collide with the
   # live trading node's (combos themselves are not tenant-scoped, so they're shared).

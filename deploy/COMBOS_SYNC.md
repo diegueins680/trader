@@ -10,7 +10,8 @@ Plain AWS S3 also works — leave `TRADER_STATE_S3_ENDPOINT` empty and set a rea
 ## How it works (no new algorithm — this already ships)
 
 Each instance runs a background **anti-entropy reconcile loop** (`topCombosSyncLoop` in
-`haskell/app/Main.hs`, enabled by default via `TRADER_TOP_COMBOS_SYNC_ENABLED`). Every
+`haskell/app/Main.hs`, enabled by default via `TRADER_TOP_COMBOS_SYNC_ENABLED`). After
+an optional `TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC` startup grace period, every
 `TRADER_TOP_COMBOS_SYNC_EVERY_SEC` seconds it:
 
 1. **Pulls** the shared leaderboard from S3 (`<prefix>/optimizer/top-combos.json`), plus
@@ -109,6 +110,7 @@ AWS_ACCESS_KEY_ID=<tigris-access-key-from-step-1>
 AWS_SECRET_ACCESS_KEY=<tigris-secret-from-step-1>
 TRADER_TOP_COMBOS_SYNC_ENABLED=true
 TRADER_TOP_COMBOS_SYNC_EVERY_SEC=60
+TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC=30
 TRADER_TOP_COMBOS_SYNC_MAX_COMBOS=5000
 ```
 
@@ -144,7 +146,7 @@ creds. Keep `TRADER_STATE_S3_PREFIX=trader-prod`.
 After all instances restart, on each you should see in the logs:
 
 ```
-Top combos sync enabled: everySec=60 maxCombos=5000 path=...
+Top combos sync enabled: everySec=60 initialDelaySec=30 maxCombos=5000 path=...
 Top combos sync reconciled s3 (<N> combos).
 ```
 
