@@ -53,6 +53,17 @@ primary_region = "fra"
   TRADER_OPTIMIZER_PRIOR_MISSING_AGE_MULTIPLIER = "0.10"
   TRADER_OPTIMIZER_P_LONG_SHORT = "0.2"
   TRADER_OPTIMIZER_P_COST_AWARE_EDGE = "1.0"
+  # Small batches need method diversity: balance the only active long-horizon
+  # family observed in production with regime-switch instead of letting the
+  # latter dominate every primary draw.
+  TRADER_OPTIMIZER_METHOD_WEIGHT_01 = "3"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_10 = "1"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_CROSS_SECTIONAL_MOMENTUM = "1"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_TA_TREND = "0.5"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REVERSION = "0.5"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_TA_BREAKOUT = "0.5"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_TA_BEST = "2"
+  TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH = "3"
 
   # Cross-instance combo sync — SAME bucket + prefix as trader-hs / Hetzner / local.
   # Credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) are set via `fly secrets`.

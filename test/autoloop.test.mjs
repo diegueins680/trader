@@ -1604,12 +1604,16 @@ test("production research scopes can satisfy the portfolio evidence floor", asyn
   assert.match(flyResearch, /TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS = "6"/);
   assert.match(flyResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN = "0\.0018"/);
   assert.match(flyResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX = "0\.0024"/);
+  assert.match(flyResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_01 = "3"/);
+  assert.match(flyResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH = "3"/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_LOOKBACK_WINDOWS=1100d/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_INTERVALS=6h/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_TRIALS=4/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS=6/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN=0\.0018/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX=0\.0024/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_01=3/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH=3/);
   assert.match(hetznerCompose, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN: \$\{TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN:-\}/);
   assert.match(hetznerCompose, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX: \$\{TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX:-\}/);
   assert.match(backend, /lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN"/);
