@@ -17,6 +17,7 @@ module Trader.PortfolioSelection (
     portfolioRolloutModeCode,
     portfolioAnnualizedReturn,
     portfolioMaxDrawdown,
+    portfolioFailureCacheLookup,
     selectPortfolio,
     portfolioMembersRemainAdmitted,
     refreshPortfolioSelection,
@@ -35,6 +36,20 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
+
+{- | Reuse an expensive selector failure only while both its TTL and the
+leaderboard snapshot that produced it remain unchanged. Fresh evidence must
+be reconsidered on the next poll instead of inheriting an hour-old failure.
+-}
+portfolioFailureCacheLookup :: (Eq snapshot) => Int64 -> Int64 -> snapshot -> Maybe (Int64, snapshot, String) -> Maybe String
+portfolioFailureCacheLookup ttlMs now snapshot cached =
+    case cached of
+        Just (failedAtMs, failedSnapshot, err)
+            | failedSnapshot == snapshot
+                && now >= failedAtMs
+                && now - failedAtMs < max 0 ttlMs ->
+                Just err
+        _ -> Nothing
 
 data PortfolioDailyReturn = PortfolioDailyReturn
     { pdrDayMs :: !Int64

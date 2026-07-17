@@ -214,6 +214,7 @@ import Trader.PortfolioSelection (
     PortfolioSelectorConfig (..),
     defaultPortfolioSelectorConfig,
     portfolioAnnualizedReturn,
+    portfolioFailureCacheLookup,
     portfolioMaxDrawdown,
     portfolioMembersRemainAdmitted,
     portfolioSelectionShouldRotate,
@@ -579,6 +580,7 @@ main = do
     testPortfolioSelectionFailsClosedOnInvalidNumbers
     testPortfolioSelectionRejectsSparseWinner
     testPortfolioCurrentEvidenceRiskGate
+    testPortfolioFailureCacheInvalidatesOnSnapshotChange
     testPortfolioSelectionRotationHysteresis
     testPortfolioSelectionJsonRoundTrip
     testMergeFreshnessScoringPromotesFreshCandidate
@@ -5511,6 +5513,13 @@ testPortfolioSelectionFailsClosedOnInvalidNumbers = do
     assert
         "portfolio selection rejects non-finite return evidence"
         (case selectPortfolio portfolioTestConfig 1 PortfolioShadow [] [malformedCandidate] of Left _ -> True; Right _ -> False)
+
+testPortfolioFailureCacheInvalidatesOnSnapshotChange :: IO ()
+testPortfolioFailureCacheInvalidatesOnSnapshotChange = do
+    let cached = Just (1000, (4 :: Int, 1 :: Int), "no admissible portfolio")
+    assert "portfolio selector failure cache reuses an unchanged fresh snapshot" (portfolioFailureCacheLookup 10000 1500 (4, 1) cached == Just "no admissible portfolio")
+    assert "portfolio selector failure cache invalidates when evidence changes" (isNothing (portfolioFailureCacheLookup 10000 1500 (4, 2) cached))
+    assert "portfolio selector failure cache expires at its TTL" (isNothing (portfolioFailureCacheLookup 10000 11000 (4, 1) cached))
 
 testPortfolioSelectionRejectsSparseWinner :: IO ()
 testPortfolioSelectionRejectsSparseWinner = do

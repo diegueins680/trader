@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Bot Startup: disable redundant scheduled top-combo backtests on the Hetzner trading consumer and invalidate cached portfolio-selection failures whenever the synced leaderboard evidence snapshot advances, so new candidates are considered on the next poll without retry storms.
 - Trading/Portfolio Selection: publish the five highest-ranked combo refreshes immediately, then persist the leaderboard remainder in bounded 100-combo batches, so long refresh sweeps cannot withhold or lose hours of newly backfilled portfolio evidence before their final combo.
 - Trading/Portfolio Selection: backfill timestamped net out-of-sample portfolio evidence during scheduled and startup top-combo re-backtests, so refreshed legacy winners can be assessed by the enforced portfolio selector without weakening any live-adoption or drawdown gate.
 - Deploy/Research: balance Method 01 and TA regime-switch optimizer weights at `3` each and raise TA-best to `2` after the first long-horizon production batch sampled four inactive regime-switch trials while Method 01 generated 195 trades; strict promotion and portfolio gates remain unchanged.

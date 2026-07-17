@@ -454,6 +454,7 @@ import Trader.PortfolioSelection (
     PortfolioSelectorConfig (..),
     defaultPortfolioSelectorConfig,
     parsePortfolioRolloutMode,
+    portfolioFailureCacheLookup,
     portfolioRolloutModeCode,
     portfolioSelectionShouldRotate,
     portfolioSelectorConfigVersion,
@@ -10447,12 +10448,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                 fallbackTargetsForUnavailableStore
                                     Right export -> do
                                         now <- getTimestampMs
+                                        let selectionSnapshot = portfolioSelectionSnapshotKey export
                                         recentFailure <- readIORef portfolioSelectionFailureRef
                                         selectionOrErr <-
-                                            case recentFailure of
-                                                Just (failedAtMs, err)
-                                                    | now - failedAtMs < 3600000 -> pure (Left err)
-                                                _ -> do
+                                            case portfolioFailureCacheLookup 3600000 now selectionSnapshot recentFailure of
+                                                Just err -> pure (Left err)
+                                                Nothing -> do
                                                     result <-
                                                         resolvePortfolioSelection
                                                             topCombosStore
@@ -10463,7 +10464,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                             disabledSymbols
                                                             export
                                                     case result of
-                                                        Left err -> writeIORef portfolioSelectionFailureRef (Just (now, err))
+                                                        Left err -> writeIORef portfolioSelectionFailureRef (Just (now, selectionSnapshot, err))
                                                         Right _ -> writeIORef portfolioSelectionFailureRef Nothing
                                                     pure result
                                         let independentTargets =
@@ -20480,6 +20481,19 @@ portfolioSelectionEvidenceEnd selection candidates = do
   where
     candidatesByUuid = M.fromList [(pcUuid candidate, candidate) | candidate <- candidates]
     candidateDays candidate = Set.fromList (map pdrDayMs (peDailyReturns (pcEvidence candidate)))
+
+portfolioSelectionSnapshotKey :: TopCombosExport -> (Int, Int, Maybe Int64, Maybe Int64)
+portfolioSelectionSnapshotKey export =
+    ( length combos
+    , length evidence
+    , maximumMaybe (mapMaybe topComboBacktestFreshnessMs combos)
+    , maximumMaybe (map peWindowEndMs evidence)
+    )
+  where
+    combos = tceCombos export
+    evidence = mapMaybe tcPortfolioEvidence combos
+    maximumMaybe [] = Nothing
+    maximumMaybe values = Just (maximum values)
 
 resolvePortfolioSelection ::
     TopCombosStore ->
