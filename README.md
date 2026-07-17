@@ -228,7 +228,7 @@ Optimizer exports include timestamped daily returns derived from the net out-of-
 
 Scheduled and startup re-backtests backfill the same timestamped net daily-return evidence onto legacy combos. A refresh therefore makes an older combo assessable by the portfolio selector, but never bypasses the existing activity, walk-forward, cost, freshness, position-size, or drawdown gates.
 
-Scheduled refreshes publish the highest-ranked batch first and then persist the stale remainder in bounded 100-combo batches. This makes newly completed evidence durable during long leaderboard sweeps instead of waiting for every stale combo to finish.
+Scheduled refreshes publish the five highest-ranked combos first and then persist the remainder in bounded 100-combo batches. This makes newly completed evidence durable during long leaderboard sweeps instead of waiting for every stale combo to finish.
 
 Once per week, the server evaluates up to three unique-symbol bots jointly. It searches 5% weight increments, caps each bot at 25% and total deployed capital at 75%, and leaves unused capital in cash. A deterministic seven-day moving-block bootstrap maximizes the 10th-percentile annualized net return while requiring the 95th-percentile maximum drawdown to remain at or below 10%. Rotation additionally requires two percentage points of conservative annualized improvement and at least 90% paired-bootstrap outperformance probability.
 

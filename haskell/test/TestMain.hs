@@ -5793,7 +5793,9 @@ testBacktestRefreshBatchesPrioritizeRankedCombos :: IO ()
 testBacktestRefreshBatchesPrioritizeRankedCombos = do
     let values = [1 .. 11 :: Int]
         batches = batchCombosForBacktestRefresh 3 4 values
+        cappedPriorityBatches = batchCombosForBacktestRefresh 120 100 values
     assert "backtest refresh publishes the ranked priority batch first" (take 1 batches == [[1, 2, 3]])
+    assert "backtest refresh caps the ranked priority checkpoint at five combos" (take 1 cappedPriorityBatches == [[1, 2, 3, 4, 5]])
     assert "backtest refresh bounds stale batches without dropping or reordering combos" (batches == [[1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]] && concat batches == values)
     assert "backtest refresh batching is total for empty input" (null (batchCombosForBacktestRefresh 0 0 ([] :: [Int])))
 

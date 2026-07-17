@@ -752,7 +752,7 @@ selectCombosForBacktestRefreshWithPolicy policy topNRaw now combos =
                 | otherwise -> (item : acc, Set.insert key seen)
             Nothing -> (item : acc, seen)
 
-{- | Publish the highest-ranked refreshes first, then bound the stale
+{- | Publish at most the five highest-ranked refreshes first, then bound the
 remainder so a long sweep cannot withhold every completed update until its
 final backtest. The function preserves input order and never drops values.
 -}
@@ -762,7 +762,7 @@ batchCombosForBacktestRefresh prioritySizeRaw staleBatchSizeRaw values =
         ([], _) -> []
         (priority, remaining) -> priority : chunksOf staleBatchSize remaining
   where
-    prioritySize = max 1 prioritySizeRaw
+    prioritySize = min 5 (max 1 prioritySizeRaw)
     staleBatchSize = max 1 staleBatchSizeRaw
 
     chunksOf _ [] = []
