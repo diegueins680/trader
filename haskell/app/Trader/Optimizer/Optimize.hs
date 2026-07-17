@@ -2614,7 +2614,7 @@ daily returns here keeps selection evidence consistent with deployability.
 extractPortfolioEvidence :: Maybe Value -> Maybe Value
 extractPortfolioEvidence raw = do
     root <- raw
-    bt <- valueObjectAt root "backtest"
+    bt <- valueObjectAt root "backtest" <|> valueObject root
     openTimesValue <- KM.lookup (Key.fromString "openTimes") bt
     equityCurveValue <- KM.lookup (Key.fromString "equityCurve") bt
     openTimes <- coerceIntArray openTimesValue
@@ -2650,6 +2650,11 @@ extractPortfolioEvidence raw = do
                     , "dailyReturns" .= dailyReturns
                     ]
   where
+    valueObject value =
+        case value of
+            Object obj -> Just obj
+            _ -> Nothing
+
     dayStartMs timestamp = (timestamp `div` 86400000) * 86400000
 
 coerceIntArray :: Value -> Maybe [Int]

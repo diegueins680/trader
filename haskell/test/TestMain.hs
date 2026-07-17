@@ -5459,15 +5459,14 @@ testPortfolioAnnualizationAndDrawdown = do
 
 testOptimizerExtractsTimestampedPortfolioEvidence :: IO ()
 testOptimizerExtractsTimestampedPortfolioEvidence = do
-    let raw =
+    let backtest =
             Aeson.object
-                [ "backtest"
-                    .= Aeson.object
-                        [ "openTimes" .= ([0, 43200000, 86400000, 172800000] :: [Int])
-                        , "equityCurve" .= ([1.0, 1.01, 1.02, 1.04] :: [Double])
-                        ]
+                [ "openTimes" .= ([0, 43200000, 86400000, 172800000] :: [Int])
+                , "equityCurve" .= ([1.0, 1.01, 1.02, 1.04] :: [Double])
                 ]
-        parsed = extractPortfolioEvidence (Just raw) >>= AT.parseMaybe Aeson.parseJSON
+        wrapped = Aeson.object ["backtest" .= backtest]
+        parsed = extractPortfolioEvidence (Just wrapped) >>= AT.parseMaybe Aeson.parseJSON
+        parsedServer = extractPortfolioEvidence (Just backtest) >>= AT.parseMaybe Aeson.parseJSON
     case parsed of
         Nothing -> ioError (userError "optimizer failed to extract portfolio evidence from a timestamped net equity curve")
         Just evidence -> do
@@ -5476,6 +5475,7 @@ testOptimizerExtractsTimestampedPortfolioEvidence = do
             assert
                 "optimizer portfolio evidence derives consecutive net daily returns"
                 (and (zipWith (\actual expected -> abs (actual - expected) < 1.0e-12) (map pdrReturn (peDailyReturns evidence)) [1.02 / 1.01 - 1, 1.04 / 1.02 - 1]))
+            assert "server backtests expose the same portfolio evidence at the root" (parsedServer == Just evidence)
 
 testPortfolioSelectionIsDeterministicAndBounded :: IO ()
 testPortfolioSelectionIsDeterministicAndBounded = do
