@@ -1585,6 +1585,29 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
 });
 
+test("production research scopes can satisfy the portfolio evidence floor", async () => {
+  const flyResearch = await fs.readFile(new URL("../fly.research.toml", import.meta.url), "utf8");
+  const hetznerResearch = await fs.readFile(
+    new URL("../deploy/hetzner/trader.research.env.managed", import.meta.url),
+    "utf8",
+  );
+  const flyTrading = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
+
+  assert.match(flyResearch, /TRADER_OPTIMIZER_LOOKBACK_WINDOWS = "1100d"/);
+  assert.match(flyResearch, /TRADER_OPTIMIZER_INTERVALS = "6h,12h,1d"/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_LOOKBACK_WINDOWS=1100d/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_INTERVALS=6h/);
+  assert.match(flyTrading, /TRADER_PORTFOLIO_SELECTOR_MIN_DAYS = "180"/);
+
+  const lookbackDays = 1100;
+  const backtestRatio = 0.2;
+  const selectorFloorDays = 180;
+  const sixHourBarsPerDay = 4;
+  const maxPoints = 5000;
+  assert.ok(lookbackDays * backtestRatio >= selectorFloorDays);
+  assert.ok(lookbackDays * sixHourBarsPerDay <= maxPoints);
+});
+
 test("repo root package exposes all root automation and formal verifier tests", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);

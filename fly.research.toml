@@ -28,10 +28,13 @@ primary_region = "fra"
   TRADER_OPTIMIZER_TIMEOUT_SEC = "480"
   TRADER_OPTIMIZER_EPOCHS_MAX = "12"
   TRADER_OPTIMIZER_HIDDEN_SIZE_MAX = "48"
-  TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
-  TRADER_OPTIMIZER_LOOKBACK_WINDOWS = "30d,60d,200d,365d"
+  # A 20% OOS split over 1,100 days yields about 220 daily observations,
+  # clearing the production selector's 180-day evidence floor. Restricting
+  # intervals to 6h+ keeps every scope within the 5,000-point process cap.
+  TRADER_OPTIMIZER_LOOKBACK_WINDOW = "1100d"
+  TRADER_OPTIMIZER_LOOKBACK_WINDOWS = "1100d"
   TRADER_OPTIMIZER_AUTO_CAPPED_LOOKBACKS = "true"
-  TRADER_OPTIMIZER_INTERVALS = "5m,15m,1h,2h,4h,6h,12h,1d"
+  TRADER_OPTIMIZER_INTERVALS = "6h,12h,1d"
   TRADER_OPTIMIZER_MAX_POINTS = "5000"
   TRADER_OPTIMIZER_MAX_COMBOS = "5000"
   # Enrich discovery trials with same-asset Coinbase data (basis/lead-lag) for
