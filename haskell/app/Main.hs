@@ -16189,7 +16189,6 @@ runRestApi cliArgs mWebhook = do
         putStrLn ("Ops persistence: " ++ opsPersistenceConfigSummary (osPersistenceConfig store))
     mStateSyncTarget <- newStateSyncTargetFromEnv
     workers <- newWorkerRegistry
-    _ <- forkSupervisedWorker workers "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir
     backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
@@ -16266,6 +16265,7 @@ runRestApi cliArgs mWebhook = do
         Just tenantKey -> do
             _ <- forkSupervisedWorker workers "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
+    _ <- forkSupervisedWorker workers "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
     autoOptimizerEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
     let autoOptimizerEnabled = readEnvBool autoOptimizerEnabledEnv True
     if autoOptimizerEnabled

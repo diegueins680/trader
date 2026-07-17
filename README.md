@@ -232,7 +232,7 @@ Scheduled refreshes publish the five highest-ranked combos first and then persis
 
 Production research nodes own scheduled evidence backfills; trading nodes consume the synced leaderboard without duplicating that CPU-heavy work. A cached selector failure remains reusable for up to one hour only while the leaderboard evidence snapshot is unchanged, so newly synced evidence is evaluated on the next bot poll.
 
-Production roles give the combo replica worker a 30-second startup grace period. Bot auto-start can therefore assess the atomically persisted local leaderboard before the CPU-heavy 5,000-combo replica merge begins; recurring synchronization still runs every 60 seconds afterward.
+Production roles launch bot auto-start before the combo replica worker, then give replica synchronization a 30-second startup grace period. Bot auto-start can therefore assess the atomically persisted local leaderboard before the CPU-heavy 5,000-combo replica merge begins; recurring synchronization still runs every 60 seconds afterward.
 
 Once per week, the server evaluates up to three unique-symbol bots jointly. It searches 5% weight increments, caps each bot at 25% and total deployed capital at 75%, and leaves unused capital in cash. A deterministic seven-day moving-block bootstrap maximizes the 10th-percentile annualized net return while requiring the 95th-percentile maximum drawdown to remain at or below 10%. Rotation additionally requires two percentage points of conservative annualized improvement and at least 90% paired-bootstrap outperformance probability.
 

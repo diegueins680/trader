@@ -1556,6 +1556,13 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(syncLoop, /mergeTopCombosPayloads syncMaxCombos now candidates/);
   assert.doesNotMatch(syncLoop, /optimizerMaxCombosFromEnv/);
 
+  const serverStartup = sourceSection("runRestApi ::", 50000);
+  const botWorkerStart = serverStartup.indexOf('forkSupervisedWorker workers "bot-auto-start"');
+  const syncWorkerStart = serverStartup.indexOf('forkSupervisedWorker workers "top-combos-sync"');
+  assert.notEqual(botWorkerStart, -1, "expected server startup to launch the bot auto-start worker");
+  assert.notEqual(syncWorkerStart, -1, "expected server startup to launch the top-combo sync worker");
+  assert.ok(botWorkerStart < syncWorkerStart, "bot auto-start must launch before the delayed replica sync worker");
+
   const importHandlerStart = main.indexOf("handleStateSyncImport ::");
   assert.notEqual(importHandlerStart, -1, "expected Main.hs to contain handleStateSyncImport");
   const topCombosImport = sourceSection("case sspTopCombos payload of", 4500, importHandlerStart);
