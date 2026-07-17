@@ -1591,16 +1591,30 @@ test("production research scopes can satisfy the portfolio evidence floor", asyn
     new URL("../deploy/hetzner/trader.research.env.managed", import.meta.url),
     "utf8",
   );
+  const hetznerCompose = await fs.readFile(
+    new URL("../deploy/hetzner/docker-compose.yml", import.meta.url),
+    "utf8",
+  );
   const flyTrading = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
+  const backend = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
 
   assert.match(flyResearch, /TRADER_OPTIMIZER_LOOKBACK_WINDOWS = "1100d"/);
   assert.match(flyResearch, /TRADER_OPTIMIZER_INTERVALS = "6h,12h,1d"/);
   assert.match(flyResearch, /TRADER_OPTIMIZER_TRIALS = "4"/);
   assert.match(flyResearch, /TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS = "6"/);
+  assert.match(flyResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN = "0\.0018"/);
+  assert.match(flyResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX = "0\.0024"/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_LOOKBACK_WINDOWS=1100d/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_INTERVALS=6h/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_TRIALS=4/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS=6/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN=0\.0018/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX=0\.0024/);
+  assert.match(hetznerCompose, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN: \$\{TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN:-\}/);
+  assert.match(hetznerCompose, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX: \$\{TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX:-\}/);
+  assert.match(backend, /lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN"/);
+  assert.match(backend, /lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX"/);
+  assert.match(backend, /max venueMinEdgeFloor \(readNonNegativeDouble discoveryRecoveryMinEdgeMinEnv venueMinEdgeFloor\)/);
   assert.match(flyTrading, /TRADER_PORTFOLIO_SELECTOR_MIN_DAYS = "180"/);
 
   const lookbackDays = 1100;

@@ -29,6 +29,10 @@ primary_region = "fra"
   TRADER_OPTIMIZER_TRIALS = "4"
   TRADER_OPTIMIZER_TIMEOUT_SEC = "480"
   TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS = "6"
+  # Keep sampled entry-edge floors above modeled venue costs while avoiding
+  # the zero-trade region observed in the broader default search band.
+  TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN = "0.0018"
+  TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX = "0.0024"
   TRADER_OPTIMIZER_EPOCHS_MAX = "12"
   TRADER_OPTIMIZER_HIDDEN_SIZE_MAX = "48"
   # A 20% OOS split over 1,100 days yields about 220 daily observations,

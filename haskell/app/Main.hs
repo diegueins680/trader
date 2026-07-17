@@ -12952,6 +12952,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     discoveryRecoveryOpenThresholdMaxEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_OPEN_THRESHOLD_MAX"
                                     discoveryRecoveryCloseThresholdMinEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_CLOSE_THRESHOLD_MIN"
                                     discoveryRecoveryCloseThresholdMaxEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_CLOSE_THRESHOLD_MAX"
+                                    discoveryRecoveryMinEdgeMinEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN"
+                                    discoveryRecoveryMinEdgeMaxEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX"
                                     discoveryRecoveryMinRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_ROUND_TRIPS"
                                     discoveryRecoveryMinExposureEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EXPOSURE"
                                     discoveryRecoveryMinSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_SHARPE"
@@ -13117,6 +13119,13 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         discoveryRecoveryCloseThresholdMin = readNonNegativeDouble discoveryRecoveryCloseThresholdMinEnv 0.000001
                                         discoveryRecoveryCloseThresholdMax :: Double
                                         discoveryRecoveryCloseThresholdMax = max discoveryRecoveryCloseThresholdMin (readNonNegativeDouble discoveryRecoveryCloseThresholdMaxEnv 0.005)
+                                        discoveryRecoveryMinEdgeMin :: Double
+                                        discoveryRecoveryMinEdgeMin = max venueMinEdgeFloor (readNonNegativeDouble discoveryRecoveryMinEdgeMinEnv venueMinEdgeFloor)
+                                        discoveryRecoveryMinEdgeMax :: Double
+                                        discoveryRecoveryMinEdgeMax =
+                                            max
+                                                discoveryRecoveryMinEdgeMin
+                                                (readNonNegativeDouble discoveryRecoveryMinEdgeMaxEnv (max (venueMinEdgeFloor * 3) 6.0e-3))
                                         discoveryRecoveryMinRoundTrips :: Int
                                         discoveryRecoveryMinRoundTrips = readNonNegativeInt discoveryRecoveryMinRoundTripsEnv (min minRoundTrips 1)
                                         discoveryRecoveryMinExposure :: Double
@@ -13403,9 +13412,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                       -- where all 500 top combos sat below 12 bp round-trip cost).
                                                                                       -- venueMinEdgeFloor = 1.8e-3.
                                                                                       "--min-edge-min"
-                                                                                    , show venueMinEdgeFloor
+                                                                                    , show discoveryRecoveryMinEdgeMin
                                                                                     , "--min-edge-max"
-                                                                                    , show (max (venueMinEdgeFloor * 3) 6.0e-3)
+                                                                                    , show discoveryRecoveryMinEdgeMax
                                                                                     , "--min-signal-to-noise-min"
                                                                                     , "0"
                                                                                     , "--min-signal-to-noise-max"
