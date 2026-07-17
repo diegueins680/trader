@@ -24,8 +24,11 @@ primary_region = "fra"
   TRADER_OPTIMIZER_EVERY_SEC = "900"
   # Fewer, heavier trials: the incumbent leaderboard lives at epochs ~8 /
   # hidden ~29, unreachable under the old epochs<=2 / hidden<=16 sampling.
-  TRADER_OPTIMIZER_TRIALS = "18"
+  # Long-horizon all-predictor trials are expensive. Small recurring batches
+  # publish completed evidence promptly; eligibility gates remain unchanged.
+  TRADER_OPTIMIZER_TRIALS = "4"
   TRADER_OPTIMIZER_TIMEOUT_SEC = "480"
+  TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS = "6"
   TRADER_OPTIMIZER_EPOCHS_MAX = "12"
   TRADER_OPTIMIZER_HIDDEN_SIZE_MAX = "48"
   # A 20% OOS split over 1,100 days yields about 220 daily observations,
