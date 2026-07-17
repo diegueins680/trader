@@ -1509,6 +1509,10 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(deployScript, /rsync -az --delete --human-readable/);
   assert.match(deployScript, /haskell\/web\/dist\//);
   assert.match(deployScript, /docker image tag "\$previous_image_id" "\$ROLLBACK_IMAGE"/);
+  assert.match(
+    deployScript,
+    /exec -T api curl -fsS --max-time 5 http:\/\/127\.0\.0\.1:8080\/health <\/dev\/null/,
+  );
   assert.match(deployScript, /wait_for_api_health/);
   assert.match(deployScript, /\/health reported commit/);
   assert.match(deployScript, /Remote deployment started for \$\{TRADER_GIT_COMMIT\}/);

@@ -240,7 +240,10 @@ export TRADER_GIT_COMMIT
 compose=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
 
 api_health_json() {
-  "${compose[@]}" exec -T api curl -fsS --max-time 5 http://127.0.0.1:8080/health
+  # This remote program is itself streamed to `bash -s` over SSH. Compose exec
+  # must not inherit that stream or it consumes the remaining deployment steps
+  # after the first health probe and exits without rebuilding or attesting.
+  "${compose[@]}" exec -T api curl -fsS --max-time 5 http://127.0.0.1:8080/health </dev/null
 }
 
 health_commit() {

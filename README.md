@@ -272,7 +272,7 @@ TRADER_BOT_NEURAL_GOVERNOR_ROLLBACK_ADVANTAGE_FLOOR=-0.02
 - Render: [deploy/render/README.md](deploy/render/README.md)
 - Fly: `fly.toml`, `fly.research.toml`, and `haskell/web/fly.frontend.toml`
 
-For Hetzner CI, both trading and research boxes are mandatory. The workflow requires the SSH key, both role hosts, and pinned `known_hosts` entries, and deploys only the latest green commit. Each release explicitly builds and recreates the API, retains the previous image, waits for container health, and verifies the exact `/health` commit. CI rejects a deploy that exits without the remote attestation and rolls back on failed health or commit attestation.
+For Hetzner CI, both trading and research boxes are mandatory. The workflow requires the SSH key, both role hosts, and pinned `known_hosts` entries, and deploys only the latest green commit. Each release explicitly builds and recreates the API, retains the previous image, waits for container health, and verifies the exact `/health` commit. The SSH-streamed health probe detaches stdin so it cannot consume the remaining remote deployment program. CI rejects a deploy that exits without the remote attestation and rolls back on failed health or commit attestation.
 
 ## Automation and maintenance
 
