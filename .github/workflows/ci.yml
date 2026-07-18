@@ -207,7 +207,11 @@ jobs:
             fi
             pushd "$workdir" >/dev/null
 
-            local deploy_args=(deploy . --config "$config_basename" --remote-only)
+            # First-time live position adoption can spend more than Fly's
+            # five-minute default training models before /ready may turn
+            # healthy.  Keep one recovery attempt alive instead of timing out
+            # and repeatedly replacing the same machine mid-adoption.
+            local deploy_args=(deploy . --config "$config_basename" --remote-only --wait-timeout 30m)
             deploy_args+=(--build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
             if [[ -n "$app_name" ]]; then
               deploy_args+=(--app "$app_name")
