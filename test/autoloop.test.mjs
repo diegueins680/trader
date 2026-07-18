@@ -1458,7 +1458,7 @@ test("CI Fly deploy skips external billing blockers", async () => {
 
 test("CI Fly deploy gives live position recovery one uninterrupted window", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /--wait-timeout 30m/);
+  assert.match(workflow, /--wait-timeout 60m/);
 });
 
 test("CI pins the checked-in GHC and Cabal toolchain", async () => {
