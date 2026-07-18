@@ -1459,6 +1459,13 @@ test("CI Fly deploy skips external billing blockers", async () => {
 test("CI Fly deploy gives live position recovery one uninterrupted window", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /--wait-timeout 60m/);
+  assert.match(workflow, /timeout reached waiting for health checks to pass/);
+  assert.match(workflow, /leaving the recovering machine in place without retrying/);
+  assert.ok(
+    workflow.indexOf("timeout reached waiting for health checks to pass") <
+      workflow.indexOf("503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status"),
+    "application readiness timeouts must be handled before transient transport failures",
+  );
 });
 
 test("CI pins the checked-in GHC and Cabal toolchain", async () => {
@@ -1655,6 +1662,17 @@ test("read-only trading starts ranked paper challengers without adopting live po
     /case portfolioRolloutMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,
   );
   assert.match(autoStartLoop, /\(PortfolioShadow, _\) -> independentTargets/);
+
+  const startupGuardBegin = main.indexOf("runTopComboStartupBacktestGuard ::");
+  assert.notEqual(startupGuardBegin, -1, "expected Main.hs to contain the startup backtest guard");
+  const startupGuard = main.slice(startupGuardBegin, startupGuardBegin + 2500);
+  const disabledReturn = startupGuard.indexOf("not (tcbcEnabled ctx) = pure (Right ())");
+  const comboLookup = startupGuard.indexOf("lookupTopComboValueByUuid");
+  assert.ok(
+    disabledReturn >= 0 && comboLookup > disabledReturn,
+    "disabled startup guards must return before combo-store and database work",
+  );
+  assert.doesNotMatch(startupGuard, /bot\.start_combo_backtest_skipped/);
 
   for (const relativePath of [
     "../deploy/hetzner/trader.trading.env.example",

@@ -235,6 +235,16 @@ jobs:
                 return 0
               fi
 
+              # A readiness timeout means the new machine is alive but has
+              # deliberately not passed its application recovery gate.  A
+              # second deploy would replace it and discard that progress.
+              if grep -qiE "timeout reached waiting for health checks to pass" "$deploy_log"; then
+                echo "::error::${label} Fly deploy did not complete application recovery before the wait deadline; leaving the recovering machine in place without retrying."
+                cat "$deploy_log"
+                popd >/dev/null
+                return 1
+              fi
+
               if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status|temporary failure|temporarily unavailable|timeout" "$deploy_log"; then
                 if [[ "$attempt" -lt 3 ]]; then
                   echo "::warning::Transient ${label} Fly deploy failure on attempt ${attempt}; retrying."
