@@ -1637,6 +1637,11 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(autoStartLoop, /adoptionPrioritySymbols = dedupeStable \(orphanSymbols \+\+ adoptionStartingSymbols\)/);
   assert.match(autoStartLoop, /targetSymbols \+\+ orphanSymbols \+\+ adoptionStartingSymbols \+\+ locallyOpenSymbols/);
   assert.match(autoStartLoop, /startupPhase && orphanScanReady && not adoptionPriority/);
+  assert.match(
+    autoStartLoop,
+    /case portfolioRolloutMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,
+  );
+  assert.match(autoStartLoop, /\(PortfolioShadow, _\) -> independentTargets/);
 
   for (const relativePath of [
     "../deploy/hetzner/trader.trading.env.example",

@@ -10471,24 +10471,31 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     Right export -> do
                                         now <- getTimestampMs
                                         let selectionSnapshot = portfolioSelectionSnapshotKey export
-                                        recentFailure <- readIORef portfolioSelectionFailureRef
-                                        selectionOrErr <-
-                                            case portfolioFailureCacheLookup 3600000 now selectionSnapshot recentFailure of
-                                                Just err -> pure (Left err)
-                                                Nothing -> do
+                                        selectionOrErrMaybe <-
+                                            case portfolioRolloutMode of
+                                                PortfolioShadow -> do
+                                                    writeIORef portfolioSelectionFailureRef Nothing
+                                                    pure Nothing
+                                                _ -> do
+                                                    recentFailure <- readIORef portfolioSelectionFailureRef
                                                     result <-
-                                                        resolvePortfolioSelection
-                                                            topCombosStore
-                                                            now
-                                                            argsBase
-                                                            portfolioSelectorConfig
-                                                            portfolioRolloutMode
-                                                            disabledSymbols
-                                                            export
-                                                    case result of
-                                                        Left err -> writeIORef portfolioSelectionFailureRef (Just (now, selectionSnapshot, err))
-                                                        Right _ -> writeIORef portfolioSelectionFailureRef Nothing
-                                                    pure result
+                                                        case portfolioFailureCacheLookup 3600000 now selectionSnapshot recentFailure of
+                                                            Just err -> pure (Left err)
+                                                            Nothing -> do
+                                                                resolved <-
+                                                                    resolvePortfolioSelection
+                                                                        topCombosStore
+                                                                        now
+                                                                        argsBase
+                                                                        portfolioSelectorConfig
+                                                                        portfolioRolloutMode
+                                                                        disabledSymbols
+                                                                        export
+                                                                case resolved of
+                                                                    Left err -> writeIORef portfolioSelectionFailureRef (Just (now, selectionSnapshot, err))
+                                                                    Right _ -> writeIORef portfolioSelectionFailureRef Nothing
+                                                                pure resolved
+                                                    pure (Just result)
                                         let independentTargets =
                                                 [ (symbol, combo, Nothing)
                                                 | (symbol, combo) <-
@@ -10500,23 +10507,23 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         export
                                                 ]
                                             targets =
-                                                case (portfolioRolloutMode, selectionOrErr) of
+                                                case (portfolioRolloutMode, selectionOrErrMaybe) of
                                                     (PortfolioShadow, _) -> independentTargets
-                                                    (_, Right selection) -> portfolioSelectionTargets portfolioRolloutMode topComboTargetCount export selection
-                                                    (_, Left _) -> []
+                                                    (_, Just (Right selection)) -> portfolioSelectionTargets portfolioRolloutMode topComboTargetCount export selection
+                                                    _ -> []
                                             targetCount = length targets
-                                        case selectionOrErr of
-                                            Left err -> do
+                                        case selectionOrErrMaybe of
+                                            Just (Left err) -> do
                                                 prev <- readIORef topErrRef
                                                 let message = "Portfolio selection unavailable: " ++ err
                                                 when (prev /= Just message) $ do
                                                     writeIORef topErrRef (Just message)
                                                     putStrLn message
-                                            Right _ -> pure ()
+                                            _ -> pure ()
                                         writeIORef topTargetsRef targets
-                                        case selectionOrErr of
-                                            Right _ -> writeIORef topErrRef Nothing
-                                            Left _ -> pure ()
+                                        case selectionOrErrMaybe of
+                                            Just (Left _) -> pure ()
+                                            _ -> writeIORef topErrRef Nothing
                                         if targetCount < topComboTargetCount
                                             then do
                                                 prev <- readIORef topTargetsWarnRef
