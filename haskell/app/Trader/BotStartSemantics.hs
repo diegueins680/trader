@@ -9,7 +9,9 @@ module Trader.BotStartSemantics (
     backtestVerdictAborts,
     defaultBotStartupBacktestMinTrades,
     botStartupGuardShouldPrune,
+    capBotStartSymbolsPreservingOrphans,
     prioritizeBotStartSymbols,
+    throttleBotStartSymbolsPreservingOrphans,
     queuedStartOrderErrorIssue,
     shouldResolveOriginComboOnAutoStart,
     shouldClearPositionOriginOnStart,
@@ -375,6 +377,30 @@ prioritizeBotStartSymbols regularSymbols orphanSymbols =
     filter (not . null) $
         dedupeStable $
             map normalizeStartSymbol (orphanSymbols ++ regularSymbols)
+
+{- | Apply the configured portfolio cap without ever dropping a symbol that
+already has an exchange position. Orphan adoption is risk reduction and may
+temporarily overflow the cap; only flat/new targets are deferred.
+-}
+capBotStartSymbolsPreservingOrphans :: Int -> [String] -> [String] -> ([String], [String])
+capBotStartSymbolsPreservingOrphans maxSymbols regularSymbols orphanSymbols =
+    let orphans = prioritizeBotStartSymbols [] orphanSymbols
+        regular = filter (`notElem` orphans) (prioritizeBotStartSymbols regularSymbols [])
+        regularCapacity = max 0 (maxSymbols - length orphans)
+     in (orphans ++ take regularCapacity regular, drop regularCapacity regular)
+
+{- | Start every missing orphan immediately. New/flat exposure remains subject
+to the per-cycle throttle and waits for the next cycle whenever adoption work
+is pending.
+-}
+throttleBotStartSymbolsPreservingOrphans :: Int -> [String] -> [String] -> ([String], [String])
+throttleBotStartSymbolsPreservingOrphans maxRegularStarts orphanSymbols missingSymbols =
+    let missing = prioritizeBotStartSymbols missingSymbols []
+        orphanSet = prioritizeBotStartSymbols [] orphanSymbols
+        urgent = filter (`elem` orphanSet) missing
+        regular = filter (`notElem` orphanSet) missing
+        regularCapacity = if null urgent then max 0 maxRegularStarts else 0
+     in (urgent ++ take regularCapacity regular, drop regularCapacity regular)
 
 queuedStartOrderErrorIssue :: Maybe Int -> Int -> Maybe String
 queuedStartOrderErrorIssue mMaxOrderErrors orderErrors

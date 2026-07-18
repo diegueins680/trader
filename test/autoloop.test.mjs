@@ -1611,6 +1611,45 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
 });
 
+test("read-only trading starts ranked paper challengers without adopting live positions", async () => {
+  const main = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
+  const autoStartBegin = main.indexOf("botAutoStartLoop ::");
+  assert.notEqual(autoStartBegin, -1, "expected Main.hs to contain botAutoStartLoop");
+  const autoStartLoop = main.slice(autoStartBegin, autoStartBegin + 60000);
+
+  assert.match(main, /lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES"/);
+  assert.match(main, /lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"/);
+  assert.match(autoStartLoop, /targetSymbolsBase = dedupeStable \(topSymbols \+\+ liveBaseSymbols\)/);
+  assert.match(autoStartLoop, /capBotStartSymbolsPreservingOrphans maxBots targetSymbolsBase orphanSymbols/);
+  assert.match(autoStartLoop, /throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols missingAll/);
+  assert.match(
+    autoStartLoop,
+    /if bsTradeEnabled settings\s+then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0\s+else pure \(Right \(\[\], \[\]\)\)/,
+  );
+
+  for (const relativePath of [
+    "../deploy/hetzner/trader.trading.env.example",
+    "../deploy/hetzner/trader.trading.env.managed",
+  ]) {
+    const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
+    assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
+    assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
+    assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=3/);
+  }
+
+  const compose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
+  assert.match(compose, /TRADER_BOT_START_ADOPTION_RELAX_GATES: \$\{TRADER_BOT_START_ADOPTION_RELAX_GATES:-\}/);
+  assert.match(
+    compose,
+    /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT: \$\{TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT:-\}/,
+  );
+
+  const fly = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
+  assert.match(fly, /kill_signal = "SIGTERM"/);
+  assert.match(fly, /kill_timeout = 30/);
+  assert.match(fly, /path = "\/ready"/);
+});
+
 test("production research scopes can satisfy the portfolio evidence floor", async () => {
   const flyResearch = await fs.readFile(new URL("../fly.research.toml", import.meta.url), "utf8");
   const hetznerResearch = await fs.readFile(

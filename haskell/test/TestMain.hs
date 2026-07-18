@@ -28,7 +28,7 @@ import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouter
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -4541,6 +4541,22 @@ testPrioritizeOrphanBotStartSymbols = do
     assert
         "bot start priority de-duplicates using normalized symbols"
         (prioritizeBotStartSymbols ["ethusdt", " SOLUSDT "] ["btc usdt", "ethusdt"] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    assert
+        "portfolio caps never discard existing-position adoption targets"
+        ( capBotStartSymbolsPreservingOrphans
+            3
+            ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+            ["ARBUSDT", "DOTUSDT", "LINKUSDT", "ADAUSDT"]
+            == (["ARBUSDT", "DOTUSDT", "LINKUSDT", "ADAUSDT"], ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+        )
+    assert
+        "redeploy adoption bypasses the start throttle and defers new exposure"
+        ( throttleBotStartSymbolsPreservingOrphans
+            1
+            ["ARBUSDT", "DOTUSDT"]
+            ["ARBUSDT", "DOTUSDT", "BTCUSDT"]
+            == (["ARBUSDT", "DOTUSDT"], ["BTCUSDT"])
+        )
 
 testDisabledBotStartSymbols :: IO ()
 testDisabledBotStartSymbols =

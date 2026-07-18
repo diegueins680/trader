@@ -29,7 +29,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isSpace, toLower, toUpper)
-import Data.Either (fromRight, rights)
+import Data.Either (fromRight, isRight, rights)
 import Data.Foldable (for_, toList)
 import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
@@ -240,6 +240,7 @@ import Trader.BotStartSemantics (
     botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
     capAdoptedMaxPositionSizeWithCap,
+    capBotStartSymbolsPreservingOrphans,
     comboMinEdgeMeetsAdoptionFloorWithConfig,
     comboTradeCountMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
@@ -251,6 +252,7 @@ import Trader.BotStartSemantics (
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
+    throttleBotStartSymbolsPreservingOrphans,
  )
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
@@ -9860,10 +9862,10 @@ positionAdoptedByRuntime mInfo pos =
                             hasRunning = raiRunning info
                          in posSide `elem` activeSides || (null activeSides && (hasStarting || hasRunning))
 
-resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO ([String], [String])
+resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO (Either String ([String], [String]))
 resolveOrphanOpenPositionActions mOps args tenantMap =
     if not (platformSupportsLiveBot (argPlatform args))
-        then pure ([], [])
+        then pure (Right ([], []))
         else do
             let argsFutures =
                     args
@@ -9878,7 +9880,7 @@ resolveOrphanOpenPositionActions mOps args tenantMap =
                 ) ::
                     IO (Either SomeException [FuturesPositionRisk])
             case positionsOrErr of
-                Left _ -> pure ([], [])
+                Left ex -> pure (Left (snd (exceptionToHttp ex)))
                 Right positions -> do
                     let openPositions = filter (\p -> accountPosSign (fprPositionAmt p) /= 0) positions
                         openBySymbol =
@@ -9913,7 +9915,7 @@ resolveOrphanOpenPositionActions mOps args tenantMap =
                             | sym <- orphanSymbols
                             , HM.member sym tenantMapNorm
                             ]
-                    pure (dedupeStable orphanSymbols, dedupeStable orphanRestartSymbols)
+                    pure (Right (dedupeStable orphanSymbols, dedupeStable orphanRestartSymbols))
 
 resolveAdoptionRequirement :: Maybe OpsStore -> Args -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirement mOps args sym = do
@@ -10374,6 +10376,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         topTargetsWarnRef <- newIORef Nothing
                         targetCapWarnRef <- newIORef Nothing
                         startThrottleWarnRef <- newIORef Nothing
+                        orphanScanWarnRef <- newIORef Nothing
                         disabledTargetsWarnRef <- newIORef Nothing
                         targetsRef <- newIORef []
                         retiringTargetsRef <- newIORef []
@@ -10411,6 +10414,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                             )
                         unless topComboAdoptionEnabled $
                             putStrLn "Live bot auto-start top-combo adoption disabled (TRADER_BOT_START_TOP_COMBO_ADOPTION=false)."
+                        unless (bsTradeEnabled settings) $
+                            putStrLn "Live bot auto-start paper mode: external Binance positions will not be adopted by this node."
 
                         let sleepSec s = threadDelay (max 1 s * 1000000)
                             recordError sym msg = do
@@ -10666,7 +10671,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         case portfolioRolloutMode of
                                             PortfolioShadow -> filterBotDisabledSymbols disabledSymbols baseSymbols
                                             _ -> []
-                                    targetSymbolsBase = dedupeStable (liveBaseSymbols ++ topSymbols)
+                                    targetSymbolsBase = dedupeStable (topSymbols ++ liveBaseSymbols)
                                 unless (null disabledBaseSymbols) $
                                     logChanged
                                         disabledTargetsWarnRef
@@ -10678,11 +10683,24 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 mrt <- readMVar (bcRuntime botCtrl)
                                 let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
-                                (orphanSymbols, orphanRestartSymbols) <- resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0
-                                let targetSymbolsAll = prioritizeBotStartSymbols targetSymbolsBase orphanSymbols
-                                    targetSymbols = take maxBots targetSymbolsAll
-                                    cappedTargetSymbols = drop maxBots targetSymbolsAll
-                                unless (null cappedTargetSymbols) $
+                                orphanActionsOrErr <-
+                                    if bsTradeEnabled settings
+                                        then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0
+                                        else pure (Right ([], []))
+                                let orphanScanReady = isRight orphanActionsOrErr
+                                    (orphanSymbols, orphanRestartSymbols) = fromRight ([], []) orphanActionsOrErr
+                                case orphanActionsOrErr of
+                                    Left err ->
+                                        logChanged
+                                            orphanScanWarnRef
+                                            (normalizeAutoStartErrorMessage err)
+                                            ("Live bot auto-start blocked: unable to inspect existing Binance positions before starting or rotating bots: " ++ err)
+                                    Right _ -> writeIORef orphanScanWarnRef Nothing
+                                let (targetSymbolsReady, cappedTargetSymbols) =
+                                        capBotStartSymbolsPreservingOrphans maxBots targetSymbolsBase orphanSymbols
+                                prevTargets <- readIORef targetsRef
+                                let targetSymbols = if orphanScanReady then targetSymbolsReady else prevTargets
+                                when (orphanScanReady && not (null cappedTargetSymbols)) $
                                     logChanged
                                         targetCapWarnRef
                                         (intercalate "," cappedTargetSymbols)
@@ -10693,16 +10711,18 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             ++ ": "
                                             ++ formatList cappedTargetSymbols
                                         )
-                                prevTargets <- readIORef targetsRef
-                                when (prevTargets /= targetSymbols) $ do
+                                when (orphanScanReady && prevTargets /= targetSymbols) $ do
                                     writeIORef targetsRef targetSymbols
                                     putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
                                 pendingRetirements <- readIORef retiringTargetsRef
                                 let pendingRetirements' =
-                                        [ symbol
-                                        | symbol <- dedupeStable (pendingRetirements ++ prevTargets)
-                                        , symbol `notElem` targetSymbols
-                                        ]
+                                        if orphanScanReady
+                                            then
+                                                [ symbol
+                                                | symbol <- dedupeStable (pendingRetirements ++ prevTargets)
+                                                , symbol `notElem` targetSymbols
+                                                ]
+                                            else pendingRetirements
                                 writeIORef retiringTargetsRef pendingRetirements'
                                 locallyOpenSymbols <- fmap catMaybes $
                                     forM (HM.toList tenantMap0) $ \(symbol, runtimeState) ->
@@ -10717,7 +10737,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 let managedSymbols = dedupeStable (targetSymbols ++ orphanSymbols ++ locallyOpenSymbols)
                                     retireSymbols =
                                         [ symbol
-                                        | symbol <- pendingRetirements'
+                                        | orphanScanReady
+                                        , symbol <- pendingRetirements'
                                         , HM.member symbol tenantMap0
                                         , symbol `notElem` managedSymbols
                                         ]
@@ -10738,18 +10759,24 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         else Nothing
                                             _ -> pure Nothing
                                 let restartSymbols =
-                                        dedupeStable
-                                            ( filter (`HM.member` tenantMap0) orphanRestartSymbols
-                                                ++ switchSymbols
-                                            )
+                                        if orphanScanReady
+                                            then
+                                                dedupeStable
+                                                    ( filter (`HM.member` tenantMap0) orphanRestartSymbols
+                                                        ++ switchSymbols
+                                                    )
+                                            else []
                                 unless (null restartSymbols) $ do
                                     putStrLn ("Live bot auto-start restarting symbols for position adoption or portfolio rotation: " ++ formatList restartSymbols)
                                     mapM_ (botStop botCtrl tenantKey . Just) restartSymbols
                                 mrtAfterRestart <- readMVar (bcRuntime botCtrl)
                                 let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
-                                let missingAll = filter (not . (`HM.member` tenantMap)) targetSymbols
-                                    missing = take maxStartsPerCycle missingAll
-                                    delayedMissing = drop maxStartsPerCycle missingAll
+                                let missingAll =
+                                        if orphanScanReady
+                                            then filter (not . (`HM.member` tenantMap)) targetSymbols
+                                            else []
+                                    (missing, delayedMissing) =
+                                        throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols missingAll
                                 unless (null delayedMissing) $
                                     logChanged
                                         startThrottleWarnRef
@@ -10806,7 +10833,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         ++ show (sbConsecutiveFails sb)
                                                     )
                                 mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) allowedMissing
-                                when startupPhase $ do
+                                when (startupPhase && orphanScanReady) $ do
                                     writeIORef startupPhaseRef False
                                     putStrLn "Live bot auto-start startup phase complete; enabling steady-state top-combo targets."
                                 sleepSec pollSec
@@ -15804,6 +15831,15 @@ readBotStartupBoolEnv name mRaw =
         Just "off" -> pure (Just False)
         Just _ -> ioError (userError (name ++ " must be true/false/1/0"))
 
+readBotStartupPositiveIntEnv :: String -> Maybe String -> IO (Maybe Int)
+readBotStartupPositiveIntEnv name mRaw =
+    case mRaw of
+        Nothing -> pure Nothing
+        Just raw ->
+            case readMaybe raw of
+                Just n | n >= 1 -> pure (Just n)
+                _ -> ioError (userError (name ++ " must be an integer >= 1"))
+
 botStartForceEnvPresetFromEnv :: IO Bool
 botStartForceEnvPresetFromEnv = do
     raw <- lookupTrimmedEnv "TRADER_BOT_START_FORCE_ENV_PRESET"
@@ -15818,6 +15854,8 @@ applyBotStartupEnvPreset args = do
     minSignalToNoiseRaw <- lookupTrimmedEnv "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE"
     openThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_OPEN_THRESHOLD"
     closeThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_CLOSE_THRESHOLD"
+    adoptionRelaxGatesRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES"
+    adoptionRelaxTargetCountRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"
 
     method <-
         case methodRaw of
@@ -15838,6 +15876,8 @@ applyBotStartupEnvPreset args = do
     mMinSignalToNoise <- readBotStartupNonNegativeDoubleEnv "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE" minSignalToNoiseRaw
     mOpenThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_OPEN_THRESHOLD" openThresholdRaw
     mCloseThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_CLOSE_THRESHOLD" closeThresholdRaw
+    mAdoptionRelaxGates <- readBotStartupBoolEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES" adoptionRelaxGatesRaw
+    mAdoptionRelaxTargetCount <- readBotStartupPositiveIntEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT" adoptionRelaxTargetCountRaw
 
     let openThreshold = fromMaybe (argOpenThreshold args) mOpenThreshold
         closeThreshold =
@@ -15854,6 +15894,8 @@ applyBotStartupEnvPreset args = do
                 , minSignalToNoiseRaw
                 , openThresholdRaw
                 , closeThresholdRaw
+                , adoptionRelaxGatesRaw
+                , adoptionRelaxTargetCountRaw
                 ]
         args' =
             args
@@ -15864,6 +15906,8 @@ applyBotStartupEnvPreset args = do
                 , argMinSignalToNoise = fromMaybe (argMinSignalToNoise args) mMinSignalToNoise
                 , argOpenThreshold = openThreshold
                 , argCloseThreshold = closeThreshold
+                , argAdoptionRelaxGates = fromMaybe (argAdoptionRelaxGates args) mAdoptionRelaxGates
+                , argAdoptionRelaxTargetCount = fromMaybe (argAdoptionRelaxTargetCount args) mAdoptionRelaxTargetCount
                 }
     pure BotStartupEnvPreset{bsepArgs = args', bsepApplied = applied}
 
