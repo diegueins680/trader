@@ -10325,8 +10325,9 @@ botAutoStartLoop ::
     Args ->
     BotController ->
     TenantKey ->
+    IORef Bool ->
     IO ()
-botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs botCtrl tenantKey = do
+botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs botCtrl tenantKey recoveryReadyRef = do
     autostartEnv <- lookupEnv "TRADER_BOT_AUTOSTART"
     let autostartEnabled = readEnvBool autostartEnv True
     if not autostartEnabled
@@ -10692,6 +10693,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             (normalizeAutoStartErrorMessage err)
                                             ("Live bot auto-start blocked: unable to inspect existing Binance positions before starting or rotating bots: " ++ err)
                                     Right _ -> writeIORef orphanScanWarnRef Nothing
+                                when (bsTradeEnabled settings) $
+                                    writeIORef recoveryReadyRef (orphanScanReady && null orphanSymbols && null adoptionStartingSymbols)
                                 let adoptionPrioritySymbols = dedupeStable (orphanSymbols ++ adoptionStartingSymbols)
                                     adoptionPriority = not (null adoptionPrioritySymbols)
                                 if adoptionPriority
@@ -10865,6 +10868,17 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         ++ show (sbConsecutiveFails sb)
                                                     )
                                 mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) allowedMissing
+                                when (bsTradeEnabled settings) $ do
+                                    mrtAfterStarts <- readMVar (bcRuntime botCtrl)
+                                    let tenantMapAfterStarts = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterStarts)
+                                    registered <-
+                                        forM orphanSymbols $ \sym ->
+                                            case HM.lookup sym tenantMapAfterStarts of
+                                                Nothing -> pure False
+                                                Just runtimeState -> do
+                                                    info <- runtimeAdoptionInfo runtimeState
+                                                    pure (raiTradeEnabled info && raiRunning info)
+                                    writeIORef recoveryReadyRef (orphanScanReady && null adoptionStartingSymbols && and registered)
                                 when (startupPhase && orphanScanReady && not adoptionPriority) $ do
                                     writeIORef startupPhaseRef False
                                     putStrLn "Live bot auto-start startup phase complete; enabling steady-state top-combo targets."
@@ -16047,6 +16061,7 @@ runRestApi cliArgs mWebhook = do
     apiTokenRaw <- lookupEnv "TRADER_API_TOKEN"
     allowUnauthenticatedApiEnv <- lookupEnv "TRADER_ALLOW_UNAUTHENTICATED_API"
     multiUserEnv <- lookupEnv "TRADER_MULTI_USER"
+    botTradeEnabledEnv <- lookupEnv "TRADER_BOT_TRADE"
     let apiToken =
             case trim <$> apiTokenRaw of
                 Just tok | not (null tok) -> Just (BS.pack tok)
@@ -16078,6 +16093,8 @@ runRestApi cliArgs mWebhook = do
     maxBodyBytesEnv <- lookupEnv "TRADER_API_MAX_BODY_BYTES"
     maxOptimizerOutputBytesEnv <- lookupEnv "TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES"
     let multiUserEnabled = readEnvBool multiUserEnv False
+        botTradeEnabled = maybe True (\_ -> readEnvBool botTradeEnabledEnv False) botTradeEnabledEnv
+        botRecoveryRequired = argBinanceLive baseArgs && botTradeEnabled
         timeoutSec =
             case timeoutEnv >>= readMaybe of
                 Just n | n >= 0 -> n
@@ -16336,10 +16353,14 @@ runRestApi cliArgs mWebhook = do
     autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
     let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
     bot <- newBotController
+    botRecoveryReadyRef <- newIORef (not botRecoveryRequired)
     case mAutoBotTenant of
-        Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
+        Nothing -> do
+            putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
+            when botRecoveryRequired $
+                hPutStrLn stderr "Live readiness blocked: live trading is enabled but exchange inventory cannot be reconciled without Binance credentials."
         Just tenantKey -> do
-            _ <- forkSupervisedWorker workers "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
+            _ <- forkSupervisedWorker workers "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey botRecoveryReadyRef)
             pure ()
     _ <- forkSupervisedWorker workers "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
     autoOptimizerEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
@@ -16361,7 +16382,7 @@ runRestApi cliArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
             `finally` do
@@ -17866,6 +17887,7 @@ adminAsyncHealthJson stores = do
 apiHealthJson ::
     BuildInfo ->
     DrainController ->
+    IORef Bool ->
     Maybe BS.ByteString ->
     Wai.Request ->
     ApiComputeLimits ->
@@ -17875,15 +17897,18 @@ apiHealthJson ::
     AsyncStores ->
     Bool ->
     IO Aeson.Value
-apiHealthJson buildInfo drain apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
+apiHealthJson buildInfo drain botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
     draining <- isDraining drain
+    botRecoveryReady <- readIORef botRecoveryReadyRef
     let authRequired = isJust apiToken
         authOk = authorized apiToken req
         asyncCfg = asBacktest asyncStores
+        ready = not draining && botRecoveryReady
         basePairs =
             [ "status" .= ("ok" :: String)
-            , "ready" .= not draining
+            , "ready" .= ready
             , "draining" .= draining
+            , "botRecoveryReady" .= botRecoveryReady
             , "version" .= biVersion buildInfo
             , "authRequired" .= authRequired
             , "authOk" .= authOk
@@ -17930,6 +17955,7 @@ apiApp ::
     CorsConfig ->
     Bool ->
     BotController ->
+    IORef Bool ->
     Metrics ->
     Maybe Journal ->
     Maybe Webhook ->
@@ -17949,7 +17975,7 @@ apiApp ::
     TopCombosStore ->
     FilePath ->
     Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp req respond = do
     startMs <- getTimestampMs
     let rawPath = Wai.pathInfo req
         path =
@@ -18019,21 +18045,36 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     ["health"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> do
-                                                v <- apiHealthJson buildInfo drain apiToken req limits reqLimits apiCache mOps asyncStores False
+                                                v <- apiHealthJson buildInfo drain botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores False
                                                 respondCors (jsonValue status200 v)
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["ready"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> do
                                                 drainingNow <- isDraining drain
-                                                let readyStatus = if drainingNow then status503 else status200
-                                                    readyLabel = if drainingNow then "draining" else "ready" :: String
-                                                respondCors (jsonValue readyStatus (object ["status" .= readyLabel, "ready" .= not drainingNow, "draining" .= drainingNow]))
+                                                botRecoveryReady <- readIORef botRecoveryReadyRef
+                                                let readyNow = not drainingNow && botRecoveryReady
+                                                    readyStatus = if readyNow then status200 else status503
+                                                    readyLabel
+                                                        | drainingNow = "draining"
+                                                        | not botRecoveryReady = "recovering_positions"
+                                                        | otherwise = "ready" :: String
+                                                respondCors
+                                                    ( jsonValue
+                                                        readyStatus
+                                                        ( object
+                                                            [ "status" .= readyLabel
+                                                            , "ready" .= readyNow
+                                                            , "draining" .= drainingNow
+                                                            , "botRecoveryReady" .= botRecoveryReady
+                                                            ]
+                                                        )
+                                                    )
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["admin", "health"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> do
-                                                v <- apiHealthJson buildInfo drain apiToken req limits reqLimits apiCache mOps asyncStores True
+                                                v <- apiHealthJson buildInfo drain botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores True
                                                 respondCors (jsonValue status200 v)
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["metrics"] ->

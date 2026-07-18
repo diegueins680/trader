@@ -1639,6 +1639,14 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(autoStartLoop, /startupPhase && orphanScanReady && not adoptionPriority/);
   assert.match(
     autoStartLoop,
+    /writeIORef recoveryReadyRef \(orphanScanReady && null orphanSymbols && null adoptionStartingSymbols\)/,
+  );
+  assert.match(
+    autoStartLoop,
+    /writeIORef recoveryReadyRef \(orphanScanReady && null adoptionStartingSymbols && and registered\)/,
+  );
+  assert.match(
+    autoStartLoop,
     /case portfolioRolloutMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,
   );
   assert.match(autoStartLoop, /\(PortfolioShadow, _\) -> independentTargets/);
@@ -1664,6 +1672,9 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(fly, /kill_signal = "SIGTERM"/);
   assert.match(fly, /kill_timeout = 30/);
   assert.match(fly, /path = "\/ready"/);
+  assert.match(main, /botRecoveryRequired = argBinanceLive baseArgs && botTradeEnabled/);
+  assert.match(main, /readyLabel[\s\S]*?recovering_positions/);
+  assert.match(main, /"botRecoveryReady" \.= botRecoveryReady/);
 });
 
 test("production research scopes can satisfy the portfolio evidence floor", async () => {

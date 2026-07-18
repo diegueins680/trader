@@ -90,14 +90,14 @@ Database-backed endpoints serialize access to their shared PostgreSQL connection
 Important operational endpoints:
 
 - `GET /health` — process liveness and build commit
-- `GET /ready` — readiness; returns HTTP 503 while the server is draining
+- `GET /ready` — readiness; returns HTTP 503 while the server is draining or a live executor has not yet reconciled exchange inventory and registered an owner for every open-position symbol
 - `GET /admin/health` — authenticated job and queue detail
 - `GET /metrics` — runtime metrics
 - `POST /signal`, `/backtest`, `/trade` — synchronous work
 - `/signal/async`, `/backtest/async`, `/trade/async` — persisted asynchronous work
 - `/bot/start`, `/bot/status`, `/bot/stop` — live-bot lifecycle
 
-On SIGTERM or SIGINT, serve mode marks readiness as draining, rejects new compute/order/bot-start work, persists `server.stop` and bot snapshots, stops workers and jobs, closes PostgreSQL, and observes `TRADER_API_SHUTDOWN_TIMEOUT_SEC` (default `20`). The live Fly deployment explicitly allows 30 seconds for this drain. On replacement startup, exchange-position adoption fails closed when inventory cannot be inspected, bypasses portfolio and per-cycle start caps, and precedes any new flat-symbol exposure; a read-only mirror never claims those positions.
+On SIGTERM or SIGINT, serve mode marks readiness as draining, rejects new compute/order/bot-start work, persists `server.stop` and bot snapshots, stops workers and jobs, closes PostgreSQL, and observes `TRADER_API_SHUTDOWN_TIMEOUT_SEC` (default `20`). The live Fly deployment explicitly allows 30 seconds for this drain. On replacement startup, `/ready` stays at HTTP 503 with `status=recovering_positions` until exchange inventory has been inspected and every open-position symbol has a registered live owner. Inventory errors fail the rollout closed; adoption bypasses portfolio, per-cycle start, backoff, and new-entry circuit caps and precedes new flat-symbol exposure. A read-only mirror never claims those positions and is not held behind the live-recovery readiness gate.
 
 The web client runtime-validates the safety envelope returned by `/bot/start`, `/bot/status`, and `/bot/stop` before updating bot state. Malformed successful responses become explicit errors and are not retried as mutations.
 
