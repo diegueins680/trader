@@ -1622,10 +1622,21 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(autoStartLoop, /targetSymbolsBase = dedupeStable \(topSymbols \+\+ liveBaseSymbols\)/);
   assert.match(autoStartLoop, /capBotStartSymbolsPreservingOrphans maxBots targetSymbolsBase orphanSymbols/);
   assert.match(autoStartLoop, /throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols missingAll/);
+  assert.match(autoStartLoop, /filterBotStartAttemptsPreservingOrphans\s+circuitOpen[\s\S]*?orphanSymbols\s+missing/);
   assert.match(
     autoStartLoop,
     /if bsTradeEnabled settings\s+then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0\s+else pure \(Right \(\[\], \[\]\)\)/,
   );
+  const orphanScanIndex = autoStartLoop.indexOf("resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0");
+  const portfolioSelectionIndex = autoStartLoop.indexOf("topTargets <-\n                                    if adoptionPriority");
+  assert.ok(
+    orphanScanIndex >= 0 && portfolioSelectionIndex > orphanScanIndex,
+    "open positions must be inspected before portfolio selection",
+  );
+  assert.match(autoStartLoop, /if adoptionPriority\s+then pure \[\]\s+else loadTopTargets topComboTargetCount/);
+  assert.match(autoStartLoop, /adoptionPrioritySymbols = dedupeStable \(orphanSymbols \+\+ adoptionStartingSymbols\)/);
+  assert.match(autoStartLoop, /targetSymbols \+\+ orphanSymbols \+\+ adoptionStartingSymbols \+\+ locallyOpenSymbols/);
+  assert.match(autoStartLoop, /startupPhase && orphanScanReady && not adoptionPriority/);
 
   for (const relativePath of [
     "../deploy/hetzner/trader.trading.env.example",

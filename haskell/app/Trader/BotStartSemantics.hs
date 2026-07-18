@@ -10,6 +10,7 @@ module Trader.BotStartSemantics (
     defaultBotStartupBacktestMinTrades,
     botStartupGuardShouldPrune,
     capBotStartSymbolsPreservingOrphans,
+    filterBotStartAttemptsPreservingOrphans,
     prioritizeBotStartSymbols,
     throttleBotStartSymbolsPreservingOrphans,
     queuedStartOrderErrorIssue,
@@ -388,6 +389,24 @@ capBotStartSymbolsPreservingOrphans maxSymbols regularSymbols orphanSymbols =
         regular = filter (`notElem` orphans) (prioritizeBotStartSymbols regularSymbols [])
         regularCapacity = max 0 (maxSymbols - length orphans)
      in (orphans ++ take regularCapacity regular, drop regularCapacity regular)
+
+{- | Preserve existing-position adoption attempts even when the new-entry
+circuit breaker is open or a symbol has stale backoff state. A successful
+exchange inventory scan proves that the deployment can inspect current risk;
+that risk must receive an owning worker before optional starts resume.
+-}
+filterBotStartAttemptsPreservingOrphans :: Bool -> (String -> Bool) -> [String] -> [String] -> ([String], [String])
+filterBotStartAttemptsPreservingOrphans circuitOpen allowedByBackoff orphanSymbols missingSymbols =
+    let missing = prioritizeBotStartSymbols missingSymbols []
+        orphanSet = prioritizeBotStartSymbols [] orphanSymbols
+        urgent = filter (`elem` orphanSet) missing
+        regular = filter (`notElem` orphanSet) missing
+        allowedRegular =
+            if circuitOpen
+                then []
+                else filter allowedByBackoff regular
+        blockedRegular = filter (`notElem` allowedRegular) regular
+     in (urgent ++ allowedRegular, blockedRegular)
 
 {- | Start every missing orphan immediately. New/flat exposure remains subject
 to the per-cycle throttle and waits for the next cycle whenever adoption work
