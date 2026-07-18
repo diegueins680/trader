@@ -1695,6 +1695,11 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(fly, /kill_signal = "SIGTERM"/);
   assert.match(fly, /kill_timeout = 30/);
   assert.match(fly, /path = "\/ready"/);
+  assert.match(fly, /\[\[mounts\]\][\s\S]*?source = "trader_data"[\s\S]*?destination = "\/var\/lib\/trader"/);
+  assert.match(fly, /\[\[mounts\]\][\s\S]*?processes = \["app"\]/);
+  assert.match(fly, /TRADER_LSTM_REUSE_PERSISTED = "true"/);
+  assert.match(main, /lookupEnv "TRADER_LSTM_REUSE_PERSISTED"/);
+  assert.match(main, /Just seedModel \| reusePersisted -> \(seedModel, \[\]\)/);
   assert.match(main, /botRecoveryRequired = argBinanceLive baseArgs && botTradeEnabled/);
   assert.match(main, /readyLabel[\s\S]*?recovering_positions/);
   assert.match(main, /"botRecoveryReady" \.= botRecoveryReady/);

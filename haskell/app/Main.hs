@@ -29867,12 +29867,15 @@ trainLstmWithPersistence args lookback cfg series = do
                 )
             )
     mPath <- lstmWeightsPath args lookback
+    reusePersistedEnv <- lookupEnv "TRADER_LSTM_REUSE_PERSISTED"
+    let reusePersisted = readEnvBool reusePersistedEnv False
     mSeed <-
         case mPath of
             Nothing -> pure Nothing
             Just path -> loadPersistedLstmModel path (lcHiddenSize cfg) trainBars
     let (model, hist) =
             case mSeed of
+                Just seedModel | reusePersisted -> (seedModel, [])
                 Just seedModel -> fineTuneLSTM cfg seedModel series
                 Nothing -> trainLSTM cfg series
     savePersistedLstmModelMaybe mPath trainBars model

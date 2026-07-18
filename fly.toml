@@ -55,6 +55,9 @@ kill_timeout = 30
   TRADER_TOP_COMBOS_SYNC_EVERY_SEC = "60"
   TRADER_TOP_COMBOS_SYNC_INITIAL_DELAY_SEC = "30"
   TRADER_TOP_COMBOS_SYNC_MAX_COMBOS = "5000"
+  # Position recovery uses the latest compatible volume-backed model
+  # immediately; online closed-trade learning keeps saving newer weights.
+  TRADER_LSTM_REUSE_PERSISTED = "true"
   RADIO_STATIONS_FILE = "/var/lib/trader/state/radio-stations.json"
   RADIO_STATION_DISCOVERY_URLS = "https://all.api.radio-browser.info/json/stations/topclick/500?hidebroken=true"
   RADIO_STATION_INTERVAL_SECONDS = "900"
@@ -65,6 +68,11 @@ kill_timeout = 30
 [processes]
   app = "trader-hs --serve --port 8080 --platform binance --futures --binance-live --trade-log .tmp/trader/live_trades.ndjson"
   radio = "sh /usr/local/bin/fly-radio-stations-loop"
+
+[[mounts]]
+  source = "trader_data"
+  destination = "/var/lib/trader"
+  processes = ["app"]
 
 [http_service]
   internal_port = 8080
