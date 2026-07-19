@@ -363,7 +363,9 @@ test("Fly config installs the radio maintenance process group", async () => {
   const radioLoop = await fs.readFile(new URL("../scripts/fly-radio-stations-loop.sh", import.meta.url), "utf8");
 
   assert.equal(flyConfig.match(/^\[processes\]$/gm)?.length, 1, "Fly config must declare [processes] once");
-  assert.match(flyConfig, /\[processes\][\s\S]*app = "trader-hs --serve --port 8080 --platform binance --futures --binance-live --trade-log \.tmp\/trader\/live_trades\.ndjson"/);
+  assert.match(flyConfig, /\[processes\][\s\S]*app = "trader-hs --serve --port 8080 --platform binance --futures --trade-log \.tmp\/trader\/live_trades\.ndjson"/);
+  assert.match(flyConfig, /TRADER_BOT_TRADE = "false"/);
+  assert.doesNotMatch(flyConfig, /app = "[^"]*--binance-live/);
   assert.match(flyConfig, /\[processes\][\s\S]*radio = "sh \/usr\/local\/bin\/fly-radio-stations-loop"/);
   assert.match(flyConfig, /RADIO_STATIONS_FILE = "\/var\/lib\/trader\/state\/radio-stations\.json"/);
   assert.match(flyConfig, /RADIO_STATION_DISCOVERY_URLS = "https:\/\/all\.api\.radio-browser\.info\/json\/stations\/topclick\/500\?hidebroken=true"/);
@@ -1623,7 +1625,7 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
 });
 
-test("read-only trading starts ranked paper challengers without adopting live positions", async () => {
+test("trading auto-start prioritizes recoverable positions without pinning later targets", async () => {
   const main = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
   const autoStartBegin = main.indexOf("botAutoStartLoop ::");
   assert.notEqual(autoStartBegin, -1, "expected Main.hs to contain botAutoStartLoop");
@@ -1633,8 +1635,15 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(main, /lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"/);
   assert.match(autoStartLoop, /targetSymbolsBase = dedupeStable \(topSymbols \+\+ liveBaseSymbols\)/);
   assert.match(autoStartLoop, /capBotStartSymbolsPreservingOrphans maxBots targetSymbolsBase orphanSymbols/);
-  assert.match(autoStartLoop, /throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols missingAll/);
-  assert.match(autoStartLoop, /filterBotStartAttemptsPreservingOrphans\s+circuitOpen[\s\S]*?orphanSymbols\s+missing/);
+  assert.match(autoStartLoop, /filterBotStartAttemptsPreservingOrphans\s+circuitOpen[\s\S]*?orphanSymbols\s+missingAll/);
+  assert.match(autoStartLoop, /throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols eligibleMissing/);
+  assert.ok(
+    autoStartLoop.indexOf("filterBotStartAttemptsPreservingOrphans") <
+      autoStartLoop.indexOf("throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle"),
+    "backoff filtering must happen before the start throttle so one backed-off symbol cannot pin the queue",
+  );
+  assert.match(autoStartLoop, /if not topComboAdoptionEnabled\s+then pure \(argsSym, Nothing\)/);
+  assert.match(autoStartLoop, /forceEnvPreset <- botStartForceEnvPresetFromEnv[\s\S]*?applyBotStartupEnvPreset argsCombo/);
   assert.match(
     autoStartLoop,
     /if bsTradeEnabled settings\s+then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0\s+else pure \(Right \(\[\], \[\]\)\)/,
@@ -1663,6 +1672,8 @@ test("read-only trading starts ranked paper challengers without adopting live po
   );
   assert.match(autoStartLoop, /\(PortfolioShadow, _\) -> independentTargets/);
 
+  assert.match(main, /ON CONFLICT \(bot_id\) WHERE bot_id IS NOT NULL DO UPDATE/);
+
   const startupGuardBegin = main.indexOf("runTopComboStartupBacktestGuard ::");
   assert.notEqual(startupGuardBegin, -1, "expected Main.hs to contain the startup backtest guard");
   const startupGuard = main.slice(startupGuardBegin, startupGuardBegin + 2500);
@@ -1690,6 +1701,19 @@ test("read-only trading starts ranked paper challengers without adopting live po
     compose,
     /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT: \$\{TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT:-\}/,
   );
+  assert.match(compose, /TRADER_LSTM_REUSE_PERSISTED: \$\{TRADER_LSTM_REUSE_PERSISTED:-false\}/);
+
+  const hetznerTrading = await fs.readFile(
+    new URL("../deploy/hetzner/trader.trading.env.managed", import.meta.url),
+    "utf8",
+  );
+  assert.match(hetznerTrading, /TRADER_BINANCE_LIVE=true/);
+  assert.match(hetznerTrading, /TRADER_BOT_TRADE=true/);
+  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART=true/);
+  assert.match(hetznerTrading, /TRADER_BOT_SYMBOLS=ARBUSDT,DOTUSDT/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=false/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_FORCE_ENV_PRESET=true/);
 
   const fly = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
   assert.match(fly, /kill_signal = "SIGTERM"/);
@@ -1698,6 +1722,8 @@ test("read-only trading starts ranked paper challengers without adopting live po
   assert.match(fly, /\[\[mounts\]\][\s\S]*?source = "trader_data"[\s\S]*?destination = "\/var\/lib\/trader"/);
   assert.match(fly, /\[\[mounts\]\][\s\S]*?processes = \["app"\]/);
   assert.match(fly, /TRADER_LSTM_REUSE_PERSISTED = "true"/);
+  assert.match(fly, /TRADER_BOT_TRADE = "false"/);
+  assert.doesNotMatch(fly, /app = "[^"]*--binance-live/);
   assert.match(main, /lookupEnv "TRADER_LSTM_REUSE_PERSISTED"/);
   assert.match(main, /Just seedModel \| reusePersisted -> \(seedModel, \[\]\)/);
   assert.match(main, /botRecoveryRequired = argBinanceLive baseArgs && botTradeEnabled/);

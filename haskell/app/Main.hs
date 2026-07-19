@@ -5531,7 +5531,7 @@ persistBotPosition conn botId platformId mSymbolId symbolText marketText st = do
                     conn
                     ( "INSERT INTO positions (platform_id, symbol_id, bot_id, symbol, market, side, quantity, entry_price, mark_price, position_json, opened_at_ms, updated_at_ms) "
                         <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?) "
-                        <> "ON CONFLICT (bot_id) DO UPDATE "
+                        <> "ON CONFLICT (bot_id) WHERE bot_id IS NOT NULL DO UPDATE "
                         <> "SET symbol_id = EXCLUDED.symbol_id, "
                         <> "symbol = EXCLUDED.symbol, "
                         <> "market = EXCLUDED.market, "
@@ -10576,20 +10576,44 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     Left err -> recordError sym err
                                     Right adoptReq -> do
                                         (argsCombo, mComboUuid) <-
-                                            if shouldResolveOriginComboOnAutoStart (arActive adoptReq)
-                                                then do
-                                                    (argsOrigin, mOriginUuid) <-
-                                                        applyOriginComboForAdoptionMaybe
-                                                            mOps
-                                                            topCombosStore
-                                                            limits
-                                                            tenantKey
-                                                            argsSym
-                                                            adoptReq
-                                                            sym
-                                                    case mOriginUuid of
-                                                        Just _ -> pure (argsOrigin, mOriginUuid)
-                                                        Nothing ->
+                                            if not topComboAdoptionEnabled
+                                                then pure (argsSym, Nothing)
+                                                else
+                                                    if shouldResolveOriginComboOnAutoStart (arActive adoptReq)
+                                                        then do
+                                                            (argsOrigin, mOriginUuid) <-
+                                                                applyOriginComboForAdoptionMaybe
+                                                                    mOps
+                                                                    topCombosStore
+                                                                    limits
+                                                                    tenantKey
+                                                                    argsSym
+                                                                    adoptReq
+                                                                    sym
+                                                            case mOriginUuid of
+                                                                Just _ -> pure (argsOrigin, mOriginUuid)
+                                                                Nothing ->
+                                                                    case mCombo of
+                                                                        Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                        Just combo -> do
+                                                                            now <- getTimestampMs
+                                                                            if not (topComboFreshEnoughForLive now combo)
+                                                                                then do
+                                                                                    recordError sym "Top combo older than 14 days; falling back to latest compatible combo."
+                                                                                    applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                                else case applyTopComboForStartWithUuid argsSym combo of
+                                                                                    Left err -> do
+                                                                                        recordError sym ("Top combo parse failed: " ++ err)
+                                                                                        applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                                    Right (args', uuid) ->
+                                                                                        if argBinanceMarket args' == argBinanceMarket argsSym
+                                                                                            then pure (args', uuid)
+                                                                                            else do
+                                                                                                recordError sym "Top combo market mismatch; falling back to latest compatible combo."
+                                                                                                applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                        else do
+                                                            when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
+                                                                clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
                                                             case mCombo of
                                                                 Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                                 Just combo -> do
@@ -10608,28 +10632,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                                     else do
                                                                                         recordError sym "Top combo market mismatch; falling back to latest compatible combo."
                                                                                         applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                else do
-                                                    when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
-                                                        clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
-                                                    case mCombo of
-                                                        Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                        Just combo -> do
-                                                            now <- getTimestampMs
-                                                            if not (topComboFreshEnoughForLive now combo)
-                                                                then do
-                                                                    recordError sym "Top combo older than 14 days; falling back to latest compatible combo."
-                                                                    applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                else case applyTopComboForStartWithUuid argsSym combo of
-                                                                    Left err -> do
-                                                                        recordError sym ("Top combo parse failed: " ++ err)
-                                                                        applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                    Right (args', uuid) ->
-                                                                        if argBinanceMarket args' == argBinanceMarket argsSym
-                                                                            then pure (args', uuid)
-                                                                            else do
-                                                                                recordError sym "Top combo market mismatch; falling back to latest compatible combo."
-                                                                                applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                        let argsComboSized0 = applyBackendAutostartSizingDefault argsCombo
+                                        forceEnvPreset <- botStartForceEnvPresetFromEnv
+                                        startupPreset <-
+                                            if forceEnvPreset
+                                                then applyBotStartupEnvPreset argsCombo
+                                                else pure BotStartupEnvPreset{bsepArgs = argsCombo, bsepApplied = False}
+                                        let argsComboSized0 = applyBackendAutostartSizingDefault (bsepArgs startupPreset)
                                             argsComboSized =
                                                 case mPortfolioWeight of
                                                     Nothing -> argsComboSized0
@@ -10806,19 +10814,6 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         if orphanScanReady
                                             then filter (not . (`HM.member` tenantMap)) targetSymbols
                                             else []
-                                    (missing, delayedMissing) =
-                                        throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols missingAll
-                                unless (null delayedMissing) $
-                                    logChanged
-                                        startThrottleWarnRef
-                                        (intercalate "," delayedMissing)
-                                        ( "Live bot auto-start delaying "
-                                            ++ show (length delayedMissing)
-                                            ++ " start(s) until a later cycle (TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE="
-                                            ++ show maxStartsPerCycle
-                                            ++ "): "
-                                            ++ formatList delayedMissing
-                                        )
                                 -- Auto-start circuit breaker (engineering review 2026-06-08):
                                 -- 1) Skip symbols whose per-symbol backoff has not expired.
                                 -- 2) Open a global auth circuit when enough symbols report
@@ -10837,12 +10832,25 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             ++ formatList authSyms
                                             ++ "); pausing new live starts while existing-position adoption continues. Verify BINANCE_API_KEY/BINANCE_API_SECRET and IP allow-list."
                                         )
-                                let (allowedMissing, skippedMissing) =
+                                let (eligibleMissing, skippedMissing) =
                                         filterBotStartAttemptsPreservingOrphans
                                             circuitOpen
                                             (shouldAttempt nowMs . flip HM.lookup backoffMap)
                                             orphanSymbols
-                                            missing
+                                            missingAll
+                                    (allowedMissing, delayedMissing) =
+                                        throttleBotStartSymbolsPreservingOrphans maxStartsPerCycle orphanSymbols eligibleMissing
+                                unless (null delayedMissing) $
+                                    logChanged
+                                        startThrottleWarnRef
+                                        (intercalate "," delayedMissing)
+                                        ( "Live bot auto-start delaying "
+                                            ++ show (length delayedMissing)
+                                            ++ " start(s) until a later cycle (TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE="
+                                            ++ show maxStartsPerCycle
+                                            ++ "): "
+                                            ++ formatList delayedMissing
+                                        )
                                 -- Log at most once per (symbol, backoff-fingerprint) so the
                                 -- skipped entries do not flood logs each cycle.
                                 forM_ skippedMissing $ \sym -> do

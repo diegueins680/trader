@@ -48,6 +48,7 @@ services:
       TRADER_STATE_DIR: /var/lib/trader/state
       TRADER_API_ASYNC_DIR: /var/lib/trader/async
       TRADER_LSTM_WEIGHTS_DIR: /var/lib/trader/lstm
+      TRADER_LSTM_REUSE_PERSISTED: ${TRADER_LSTM_REUSE_PERSISTED:-false}
       TRADER_BOT_STATE_DIR: /var/lib/trader/state/bots
       TRADER_OPTIMIZER_COMBOS_DIR: /var/lib/trader/state/optimizer
       TRADER_JOURNAL_DIR: /var/lib/trader/state/journal
