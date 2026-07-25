@@ -387,7 +387,7 @@ capBotStartSymbolsPreservingOrphans :: Int -> [String] -> [String] -> ([String],
 capBotStartSymbolsPreservingOrphans maxSymbols regularSymbols orphanSymbols =
     let orphans = prioritizeBotStartSymbols [] orphanSymbols
         regular = filter (`notElem` orphans) (prioritizeBotStartSymbols regularSymbols [])
-        regularCapacity = max 0 (maxSymbols - length orphans)
+        regularCapacity = max 0 maxSymbols
      in (orphans ++ take regularCapacity regular, drop regularCapacity regular)
 
 {- | Preserve existing-position adoption attempts even when the new-entry

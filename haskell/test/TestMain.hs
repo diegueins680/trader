@@ -4547,7 +4547,15 @@ testPrioritizeOrphanBotStartSymbols = do
             3
             ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
             ["ARBUSDT", "DOTUSDT", "LINKUSDT", "ADAUSDT"]
-            == (["ARBUSDT", "DOTUSDT", "LINKUSDT", "ADAUSDT"], ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+            == (["ARBUSDT", "DOTUSDT", "LINKUSDT", "ADAUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT"], [])
+        )
+    assert
+        "existing-position adoption does not consume configured regular fleet capacity"
+        ( capBotStartSymbolsPreservingOrphans
+            3
+            ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+            ["ARBUSDT"]
+            == (["ARBUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT"], [])
         )
     assert
         "redeploy adoption bypasses the start throttle and defers new exposure"

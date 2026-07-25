@@ -218,6 +218,7 @@ import {
   buildEquityCurve,
   buildOptimizerRunRequest,
   buildPositionSeries,
+  botFleetDisplayState,
   clampComboForLimits,
   clampOptionalInt,
   clampOptionalRange,
@@ -8382,13 +8383,12 @@ export function App() {
     apiOk === "ok" ? "badge badgeOk" : apiOk === "auth" ? "badge badgeWarn" : apiOk === "down" ? "badge badgeBad" : "badge";
   const liveModeBadgeClass = form.binanceLive ? "badge badgeWarn" : "badge";
   const tradeArmBadgeClass = form.tradeArmed ? "badge badgeWarn" : "badge";
-  const botStatusBadge = bot.error
-    ? { label: "Bot error", className: "badge badgeBad" }
-    : botRunningEntries.length > 0
-      ? { label: "Bot running", className: "badge badgeOk" }
-      : botActiveSymbols.length > 0
-        ? { label: "Bot starting", className: "badge badgeWarn" }
-        : { label: "Bot stopped", className: "badge" };
+  const botStatusBadge = botFleetDisplayState(
+    botStatusFetchedRef.current,
+    bot.error,
+    botRunningEntries.length,
+    botActiveSymbols.length,
+  );
   const latestSignalSummary = state.latestSignal
     ? {
         action: state.latestSignal.action,
@@ -9055,7 +9055,7 @@ export function App() {
                     <span className={liveModeBadgeClass}>{form.binanceLive ? "Live orders" : "Test orders"}</span>
                     <span className={tradeArmBadgeClass}>{form.tradeArmed ? "Trading armed" : "Trading locked"}</span>
                     <span className={botStatusBadge.className}>{botStatusBadge.label}</span>
-                    <span className="badge">{botActiveSymbols.length} active</span>
+                    <span className="badge">{botStatusBadge.activeLabel}</span>
                     {botDisplay?.symbol ? <span className="badge">{botDisplay.symbol}</span> : null}
                     {botDisplay?.halted ? <span className="badge badgeWarn">Halted</span> : null}
                     {bot.error ? (
