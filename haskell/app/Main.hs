@@ -11,7 +11,7 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, catch, displayException, finally, fromException, throwIO, try)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, catch, displayException, finally, fromException, throwIO, try)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -2706,6 +2706,10 @@ withOpsConnection store action =
                     writeIORef (osConn store) conn'
                     action conn'
                 | otherwise -> throwIO e
+
+withIndependentOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
+withIndependentOpsConnection store =
+    bracket (connectPostgreSQL (osDbUrl store)) close
 
 newtype OpsPersistenceConfig = OpsPersistenceConfig
     { opcDisabledKinds :: Set.Set Text
@@ -5712,7 +5716,7 @@ persistBinancePositionsMaybe mOps market positions =
 
 persistBinancePositions :: OpsStore -> BinanceMarket -> [FuturesPositionRisk] -> IO ()
 persistBinancePositions store market positions =
-    withOpsConnection store $ \conn -> do
+    withIndependentOpsConnection store $ \conn -> withTransaction conn $ do
         let platformCodeText = "binance"
             marketText = normalizeMarketText (T.pack (marketCode market))
         now <- getTimestampMs
@@ -5796,7 +5800,7 @@ loadPersistedPositionOwnersMaybe mOps mTenantKey market =
     case mOps of
         Nothing -> pure M.empty
         Just store -> do
-            result <- try $ withOpsConnection store $ \conn -> do
+            result <- try $ withIndependentOpsConnection store $ \conn -> do
                 let marketText = normalizeMarketText (T.pack (marketCode market))
                 query
                     conn
@@ -5889,7 +5893,7 @@ cachedBinancePositionsResponse mOps mTenantKey market testnet interval limitSafe
     case mOps of
         Nothing -> pure Nothing
         Just store -> do
-            result <- try $ withOpsConnection store $ \conn -> do
+            result <- try $ withIndependentOpsConnection store $ \conn -> do
                 let marketText = normalizeMarketText (T.pack (marketCode market))
                 query
                     conn
@@ -6459,14 +6463,18 @@ data BotState = BotState
 botCurrentComboFreshForLive :: Maybe OpsStore -> TopCombosStore -> Int64 -> BotState -> IO Bool
 botCurrentComboFreshForLive _ _ _ st | isNothing (botComboUuid st) = pure True
 botCurrentComboFreshForLive mOps topCombosStore now st =
-    case botComboUuid st of
-        Nothing -> pure True
-        Just comboUuid -> do
-            comboValOrErr <- lookupTopComboValueByUuid mOps topCombosStore comboUuid
-            pure $
-                case comboValOrErr of
-                    Left _ -> False
-                    Right comboVal -> comboBacktestFreshEnoughForMaxAge liveTopComboMaxAgeMs now comboVal
+    do
+        allowStaleIncomplete <- botStartAllowStaleIncompleteCombosFromEnv
+        if allowStaleIncomplete
+            then pure True
+            else case botComboUuid st of
+                Nothing -> pure True
+                Just comboUuid -> do
+                    comboValOrErr <- lookupTopComboValueByUuid mOps topCombosStore comboUuid
+                    pure $
+                        case comboValOrErr of
+                            Left _ -> False
+                            Right comboVal -> comboBacktestFreshEnoughForMaxAge liveTopComboMaxAgeMs now comboVal
 
 data BotStartStability
     = BotStartStable
@@ -9071,6 +9079,11 @@ botStartTopComboAdoptionEnabledFromEnv = do
     raw <- lookupEnv "TRADER_BOT_START_TOP_COMBO_ADOPTION"
     pure (readEnvBool raw True)
 
+botStartAllowStaleIncompleteCombosFromEnv :: IO Bool
+botStartAllowStaleIncompleteCombosFromEnv = do
+    raw <- lookupEnv "TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS"
+    pure (readEnvBool raw False)
+
 portfolioSelectorRolloutModeFromEnv :: IO PortfolioRolloutMode
 portfolioSelectorRolloutModeFromEnv = do
     raw <- lookupEnv "TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE"
@@ -9269,10 +9282,34 @@ selectCompatibleTopComboArgs now limits sym args req export =
                             else pick rest
      in pick sortedCombos
 
+selectCompatibleExistingTopCombo :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (TopCombo, Args, Maybe Text)
+selectCompatibleExistingTopCombo limits sym args req export = pick matchingCombos
+  where
+    matchingCombos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+    pick candidates =
+        case bestTopComboFromList candidates of
+            Nothing -> Nothing
+            Just combo ->
+                let rest = filter ((/= topComboUuid combo) . topComboUuid) candidates
+                 in case applyTopComboForStartWithUuid args combo of
+                        Left _ -> pick rest
+                        Right (args', mUuid) ->
+                            let marketCompatible = argBinanceMarket args' == argBinanceMarket args
+                             in if marketCompatible && argsCompatibleWithAdoption args' req
+                                    then case validateApiComputeLimits limits args' of
+                                        Left _ -> pick rest
+                                        Right args'' -> Just (combo, args'', mUuid)
+                                    else pick rest
+
+selectCompatibleExistingTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (Args, Maybe Text)
+selectCompatibleExistingTopComboArgs limits sym args req export =
+    (\(_, args, mUuid) -> (args, mUuid)) <$> selectCompatibleExistingTopCombo limits sym args req export
+
 applyLatestTopCombo :: Maybe OpsStore -> TopCombosStore -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
 applyLatestTopCombo mOps topCombosStore limits sym args req = do
     let baseArgs = applyAdoptRequirementArgs args req
     topComboAdoptionEnabled <- botStartTopComboAdoptionEnabledFromEnv
+    allowStaleIncomplete <- botStartAllowStaleIncompleteCombosFromEnv
     if not topComboAdoptionEnabled
         then pure (baseArgs, Nothing)
         else do
@@ -9281,9 +9318,13 @@ applyLatestTopCombo mOps topCombosStore limits sym args req = do
             case combosOrErr of
                 Left _ -> pure (baseArgs, Nothing)
                 Right export ->
-                    case selectCompatibleTopComboArgs now limits sym baseArgs req export of
-                        Nothing -> pure (baseArgs, Nothing)
-                        Just (args', mUuid) -> pure (args', mUuid)
+                    let selected =
+                            if allowStaleIncomplete
+                                then selectCompatibleExistingTopComboArgs limits sym baseArgs req export
+                                else selectCompatibleTopComboArgs now limits sym baseArgs req export
+                     in case selected of
+                            Nothing -> pure (baseArgs, Nothing)
+                            Just (args', mUuid) -> pure (args', mUuid)
 
 applyPortfolioComboForStart ::
     Maybe OpsStore ->
@@ -9531,7 +9572,8 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
             pure (Right ())
         Right comboVal -> do
             now <- getTimestampMs
-            if not (comboBacktestFreshEnoughForMaxAge liveTopComboMaxAgeMs now comboVal)
+            allowStaleIncomplete <- botStartAllowStaleIncompleteCombosFromEnv
+            if not allowStaleIncomplete && not (comboBacktestFreshEnoughForMaxAge liveTopComboMaxAgeMs now comboVal)
                 then do
                     let msg = topComboStaleForLiveMessage sym comboUuid
                     recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_stale" sym comboUuid Nothing (Just msg)
@@ -9667,6 +9709,7 @@ applyOriginComboForAdoptionMaybe ::
     IO (Args, Maybe Text)
 applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req sym = do
     let baseArgs = applyAdoptRequirementArgs args req
+    allowStaleIncomplete <- botStartAllowStaleIncompleteCombosFromEnv
     case mOps of
         Nothing -> pure (baseArgs, Nothing)
         Just store -> do
@@ -9712,7 +9755,7 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                                 Nothing -> pure (baseArgs, Nothing)
                                                 Just combo -> do
                                                     now <- getTimestampMs
-                                                    if not (topComboFreshEnoughForLive now combo)
+                                                    if not allowStaleIncomplete && not (topComboFreshEnoughForLive now combo)
                                                         then do
                                                             deletePositionOrigin store tenantKey baseArgs sym
                                                             pure (baseArgs, Nothing)
@@ -9759,6 +9802,27 @@ topCombosTopTargetsWithArgs :: Int64 -> Args -> [String] -> Int -> TopCombosExpo
 topCombosTopTargetsWithArgs now args disabledSymbols topN export =
     let adoptionEvidenceConfig = effectiveAdoptionEvidenceConfigFromArgs now args (tceCombos export)
      in topCombosTopTargets now adoptionEvidenceConfig disabledSymbols topN export
+
+topCombosTopTargetsWithPolicy :: Bool -> Int64 -> ApiComputeLimits -> Args -> [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
+topCombosTopTargetsWithPolicy allowStaleIncomplete now limits args disabledSymbols topN export =
+    let freshTargets = topCombosTopTargetsWithArgs now args disabledSymbols topN export
+        symbols =
+            dedupeStable
+                [ normalizeSymbol sym
+                | combo <- tceCombos export
+                , Just sym <- [topComboSymbol combo]
+                , not (null sym)
+                , not (botStartSymbolDisabled disabledSymbols sym)
+                ]
+        existingTargets =
+            sortOn
+                (topComboTradePriorityKey . snd)
+                [ (sym, combo)
+                | sym <- symbols
+                , Just (combo, _, _) <- [selectCompatibleExistingTopCombo limits sym args (AdoptRequirement False False) export]
+                ]
+        candidates = if allowStaleIncomplete then existingTargets else freshTargets
+     in take topN (dedupeTopComboTargets candidates)
 
 resolveOrphanOpenPositionSymbols :: Maybe OpsStore -> ApiComputeLimits -> Args -> [String] -> IO [String]
 resolveOrphanOpenPositionSymbols mOps _limits args requested =
@@ -10358,6 +10422,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         portfolioSelectorConfig <- portfolioSelectorConfigFromEnv
                         portfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
                         topComboAdoptionEnabled <- botStartTopComboAdoptionEnabledFromEnv
+                        allowStaleIncompleteCombos <- botStartAllowStaleIncompleteCombosFromEnv
                         topComboBotCountRaw <- topComboBotCountFromEnv
                         let topComboBotCount =
                                 if topComboAdoptionEnabled
@@ -10416,6 +10481,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                             )
                         unless topComboAdoptionEnabled $
                             putStrLn "Live bot auto-start top-combo adoption disabled (TRADER_BOT_START_TOP_COMBO_ADOPTION=false)."
+                        when allowStaleIncompleteCombos $
+                            putStrLn "Live bot auto-start permits stale or incomplete existing combos (TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true)."
                         unless (bsTradeEnabled settings) $
                             putStrLn "Live bot auto-start paper mode: external Binance positions will not be adopted by this node."
 
@@ -10497,12 +10564,15 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         let independentTargets =
                                                 [ (symbol, combo, Nothing)
                                                 | (symbol, combo) <-
-                                                    topCombosTopTargetsWithArgs
+                                                    topCombosTopTargetsWithPolicy
+                                                        allowStaleIncompleteCombos
                                                         now
+                                                        limits
                                                         argsBase
                                                         disabledSymbols
                                                         topComboTargetCount
                                                         export
+                                                , symbol `elem` map normalizeSymbol baseSymbols
                                                 ]
                                             targets =
                                                 case (portfolioRolloutMode, selectionOrErrMaybe) of
@@ -10597,7 +10667,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                         Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                                         Just combo -> do
                                                                             now <- getTimestampMs
-                                                                            if not (topComboFreshEnoughForLive now combo)
+                                                                            if not allowStaleIncompleteCombos && not (topComboFreshEnoughForLive now combo)
                                                                                 then do
                                                                                     recordError sym "Top combo older than 14 days; falling back to latest compatible combo."
                                                                                     applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
@@ -10618,7 +10688,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                 Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                                 Just combo -> do
                                                                     now <- getTimestampMs
-                                                                    if not (topComboFreshEnoughForLive now combo)
+                                                                    if not allowStaleIncompleteCombos && not (topComboFreshEnoughForLive now combo)
                                                                         then do
                                                                             recordError sym "Top combo older than 14 days; falling back to latest compatible combo."
                                                                             applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
@@ -12741,6 +12811,7 @@ botOptimizerLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> TopCombosStore
 botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = do
     let topJsonPath = tcsPath topCombosStore
     pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
+    allowStaleIncomplete <- botStartAllowStaleIncompleteCombosFromEnv
     let pollSec =
             case pollEnv >>= readMaybe of
                 Just n | n >= 5 -> n
@@ -12797,7 +12868,11 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                             now <- getTimestampMs
                             let matchingCombos = filter (topComboMatchesSymbol sym (Just interval)) (tceCombos export)
                                 adoptionEvidenceConfig = effectiveAdoptionEvidenceConfigFromArgs now (botArgs st) matchingCombos
-                            case bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export of
+                                bestCombo =
+                                    if allowStaleIncomplete
+                                        then bestTopComboForSymbol sym (Just interval) export
+                                        else bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export
+                            case bestCombo of
                                 Nothing -> recordError "bot.combo.sync_failed" "No fresh deployable top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
                                 Just bestCombo -> do
                                     clearError
@@ -23675,12 +23750,15 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
                 _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
 
 portfolioSelectorStatusJson :: Maybe OpsStore -> Args -> TopCombosStore -> IO Aeson.Value
-portfolioSelectorStatusJson mOps args topCombosStore = do
+portfolioSelectorStatusJson _mOps args topCombosStore = do
     mode <- portfolioSelectorRolloutModeFromEnv
     config <- portfolioSelectorConfigFromEnv
     disabledSymbols <- botDisabledSymbolsFromEnv
     selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
-    exportOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+    -- Bot status is a latency-sensitive runtime endpoint. The selector summary is
+    -- supplemental, so read its local snapshot instead of queueing behind the
+    -- shared ops connection (which also handles bot event persistence).
+    exportOrErr <- readTopCombosExport topCombosStore
     now <- getTimestampMs
     let selectionValid =
             case (selection, exportOrErr) of

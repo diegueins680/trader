@@ -504,6 +504,37 @@ export function pnlBadgeClass(value: number | null | undefined): string {
   return "badge badgeHold";
 }
 
+export type BotFleetDisplayState = {
+  label: string;
+  className: string;
+  activeLabel: string;
+};
+
+export function botFleetDisplayState(
+  fetched: boolean,
+  error: string | null,
+  runningCount: number,
+  activeCount: number,
+): BotFleetDisplayState {
+  if (runningCount > 0) {
+    return { label: error ? "Bot running · status delayed" : "Bot running", className: "badge badgeOk", activeLabel: `${activeCount} active` };
+  }
+  if (activeCount > 0) {
+    return { label: error ? "Bot starting · status delayed" : "Bot starting", className: "badge badgeWarn", activeLabel: `${activeCount} active` };
+  }
+  if (!fetched) {
+    return {
+      label: error ? "Bot status delayed" : "Bot status pending",
+      className: "badge badgeWarn",
+      activeLabel: "active unknown",
+    };
+  }
+  if (error) {
+    return { label: "Bot status delayed", className: "badge badgeWarn", activeLabel: "active unknown" };
+  }
+  return { label: "Bot stopped", className: "badge", activeLabel: "0 active" };
+}
+
 export function binanceTradeSideLabel(trade: BinanceTrade): "BUY" | "SELL" | "—" {
   const raw = trade.side?.toUpperCase();
   if (raw === "BUY" || raw === "SELL") return raw;

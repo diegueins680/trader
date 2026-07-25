@@ -4,6 +4,7 @@ import {
   adjustBacktestParamsForSplit,
   autoFitLookbackToBars,
   buildBinanceTradePnlAnalysis,
+  botFleetDisplayState,
   buildOpenBinancePositionSymbolSet,
   buildDefaultOptimizerRunForm,
   buildOptimizerCorrelationGuess,
@@ -21,6 +22,29 @@ import {
   sortBinancePositions,
   splitStats,
 } from "../.tmp/web-tests/appHelpers.js";
+
+test("bot fleet display never reports a false stopped/zero state before status is known", () => {
+  assert.deepEqual(botFleetDisplayState(false, null, 0, 0), {
+    label: "Bot status pending",
+    className: "badge badgeWarn",
+    activeLabel: "active unknown",
+  });
+  assert.deepEqual(botFleetDisplayState(false, "Bot status timed out.", 0, 0), {
+    label: "Bot status delayed",
+    className: "badge badgeWarn",
+    activeLabel: "active unknown",
+  });
+  assert.deepEqual(botFleetDisplayState(true, "Bot status timed out.", 22, 22), {
+    label: "Bot running · status delayed",
+    className: "badge badgeOk",
+    activeLabel: "22 active",
+  });
+  assert.deepEqual(botFleetDisplayState(true, null, 0, 0), {
+    label: "Bot stopped",
+    className: "badge",
+    activeLabel: "0 active",
+  });
+});
 
 test("prepareTopComboRows rejects invented defaults and assigns stable unique identities", () => {
   const validParams = (symbol, method = "10") => ({

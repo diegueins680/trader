@@ -1671,6 +1671,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     /case portfolioRolloutMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,
   );
   assert.match(autoStartLoop, /\(PortfolioShadow, _\) -> independentTargets/);
+  assert.match(autoStartLoop, /symbol `elem` map normalizeSymbol baseSymbols/);
 
   assert.match(main, /ON CONFLICT \(bot_id\) WHERE bot_id IS NOT NULL DO UPDATE/);
 
@@ -1692,7 +1693,6 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
-    assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=3/);
   }
 
   const compose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
@@ -1710,10 +1710,22 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_BINANCE_LIVE=true/);
   assert.match(hetznerTrading, /TRADER_BOT_TRADE=true/);
   assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART=true/);
-  assert.match(hetznerTrading, /TRADER_BOT_SYMBOLS=ARBUSDT,DOTUSDT/);
+  assert.match(
+    hetznerTrading,
+    /TRADER_BOT_SYMBOLS=AAVEUSDT,ADAUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BCHUSDT,BNBUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETCUSDT,ETHUSDT,FILUSDT,LINKUSDT,LTCUSDT,NEARUSDT,OPUSDT,SOLUSDT,SUIUSDT,TRXUSDT,UNIUSDT,XRPUSDT/,
+  );
+  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=22/);
+  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=22/);
+  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=22/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=22/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=22/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=false/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_FORCE_ENV_PRESET=true/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=true/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_FORCE_ENV_PRESET=false/);
+  assert.match(compose, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS: \$\{TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS:-false\}/);
+  assert.match(main, /lookupEnv "TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS"/);
 
   const fly = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
   assert.match(fly, /kill_signal = "SIGTERM"/);
