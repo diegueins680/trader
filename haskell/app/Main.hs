@@ -20223,7 +20223,7 @@ fetchTopComboOperationCounts conn combos =
                 rows <-
                     query
                         conn
-                        "SELECT combo_uuid, COUNT(*) FROM ops WHERE combo_uuid = ANY(?) GROUP BY combo_uuid"
+                        "SELECT combo_uuid, COUNT(*) FROM ops WHERE combo_uuid = ANY(?::uuid[]) GROUP BY combo_uuid"
                         (Only (PGArray comboUuids)) ::
                         IO [(UUID.UUID, Int64)]
                 pure (M.fromList [(comboUuid, fromIntegral count) | (comboUuid, count) <- rows])
@@ -20237,7 +20237,7 @@ fetchComboLiveStatsMap conn comboUuidsRaw =
                 rows <-
                     query
                         conn
-                        "SELECT combo_uuid, metrics_json->>'live' FROM combos WHERE combo_uuid = ANY(?) AND metrics_json IS NOT NULL AND jsonb_exists(metrics_json, 'live')"
+                        "SELECT combo_uuid, metrics_json->>'live' FROM combos WHERE combo_uuid = ANY(?::uuid[]) AND metrics_json IS NOT NULL AND jsonb_exists(metrics_json, 'live')"
                         (Only (PGArray comboUuids)) ::
                         IO [(UUID.UUID, Maybe Text)]
                 pure $
@@ -20388,12 +20388,22 @@ persistTopCombosToDbBulk conn export =
                         mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
                         mAnnualized = topComboMetricDouble "annualizedReturn" combo
                         paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
-                        metricsObj =
+                        metricsWithFreshness =
                             maybe
                                 id
                                 (KM.insert (AK.fromString "backtestRefreshedAtMs") . toJSON)
                                 (tcBacktestRefreshedAtMs combo)
                                 (fromMaybe KM.empty (tcMetrics combo))
+                        -- PostgreSQL is a full top-combo replica, not merely a
+                        -- ranking cache. Keep the top-level portfolio evidence
+                        -- in metrics_json so a DB fallback/replica union cannot
+                        -- silently discard the OOS return series required by
+                        -- canary portfolio selection.
+                        metricsObj =
+                            maybe
+                                metricsWithFreshness
+                                (\evidence -> KM.insert (AK.fromString "portfolioEvidence") (toJSON evidence) metricsWithFreshness)
+                                (tcPortfolioEvidence combo)
                         metricsJson =
                             if KM.null metricsObj
                                 then Nothing

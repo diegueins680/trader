@@ -1639,6 +1639,27 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.match(hetznerCompose, /TRADER_TOP_COMBOS_SYNC_MAX_COMBOS: \$\{TRADER_TOP_COMBOS_SYNC_MAX_COMBOS:-\}/);
 });
 
+test("top-combo PostgreSQL replication preserves UUID typing and portfolio evidence", async () => {
+  const main = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
+
+  const uuidArrayPredicates = main.match(/combo_uuid = ANY\(\?::uuid\[\]\)/g) ?? [];
+  assert.equal(
+    uuidArrayPredicates.length,
+    2,
+    "both top-combo UUID array queries must bind uuid[] instead of driver-inferred text[]",
+  );
+
+  const persistBegin = main.indexOf("persistTopCombosToDbBulk ::");
+  assert.notEqual(persistBegin, -1, "expected Main.hs to contain top-combo DB persistence");
+  const persistSection = main.slice(persistBegin, persistBegin + 9000);
+  assert.match(persistSection, /tcPortfolioEvidence combo/);
+  assert.match(
+    persistSection,
+    /KM\.insert \(AK\.fromString "portfolioEvidence"\) \(toJSON evidence\) metricsWithFreshness/,
+    "DB persistence must retain the OOS portfolio evidence used by canary selection",
+  );
+});
+
 test("trading auto-start prioritizes recoverable positions without pinning later targets", async () => {
   const main = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
   const autoStartBegin = main.indexOf("botAutoStartLoop ::");
