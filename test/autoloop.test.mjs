@@ -1492,6 +1492,11 @@ test("CI Fly deploy reports app-scoped token fixes for unauthorized apps", async
 test("Hetzner deploy retries SSH failures and deploys only green commits", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/deploy-hetzner.yml", import.meta.url), "utf8");
   const deployScript = await fs.readFile(new URL("../deploy/hetzner/deploy-remote.sh", import.meta.url), "utf8");
+  const dockerfile = await fs.readFile(new URL("../Dockerfile", import.meta.url), "utf8");
+  const rollupScript = await fs.readFile(
+    new URL("../haskell/scripts/rollup_performance.sh", import.meta.url),
+    "utf8",
+  );
 
   assert.match(workflow, /is_transient_ssh_failure\(\)/);
   assert.match(workflow, /workflow_dispatch:/);
@@ -1517,6 +1522,8 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(deployScript, /-o "ConnectTimeout=\$\{ssh_connect_timeout\}"/);
   assert.match(deployScript, /-o "ConnectionAttempts=\$\{ssh_connection_attempts\}"/);
   assert.match(deployScript, /--exclude '\.cabal\/'/);
+  assert.match(deployScript, /--exclude '\.git'/);
+  assert.match(deployScript, /if \[\[ -f \.git \]\]; then[\s\S]*?rm -f \.git/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-root\/'/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-work\/'/);
   assert.match(deployScript, /--exclude '\.venv\/'/);
@@ -1534,6 +1541,13 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(deployScript, /--force-recreate api/);
   assert.match(deployScript, /Rolling API back to/);
   assert.match(deployScript, /TRADER_API_IMAGE="\$ROLLBACK_IMAGE"/);
+  assert.match(dockerfile, /postgresql-client/);
+  assert.match(dockerfile, /COPY haskell\/scripts\/rollup_performance\.sh \/usr\/local\/bin\/rollup-performance/);
+  assert.match(deployScript, /exec rollup-performance/);
+  assert.match(deployScript, /TRADER_OPS_ROLLUP_ON_DEPLOY/);
+  assert.match(rollupScript, /BEGIN;/);
+  assert.match(rollupScript, /pg_advisory_xact_lock/);
+  assert.match(rollupScript, /COMMIT;/);
 });
 
 test("docs pin the mandatory Hetzner deploy contract for both roles", async () => {
@@ -1691,7 +1705,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     "../deploy/hetzner/trader.trading.env.managed",
   ]) {
     const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
-    assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
+    assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=canary/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
   }
 
@@ -1702,6 +1716,10 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT: \$\{TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT:-\}/,
   );
   assert.match(compose, /TRADER_LSTM_REUSE_PERSISTED: \$\{TRADER_LSTM_REUSE_PERSISTED:-false\}/);
+  assert.match(compose, /TRADER_EXECUTION_MAKER_FIRST: \$\{TRADER_EXECUTION_MAKER_FIRST:-true\}/);
+  assert.match(compose, /TRADER_EXECUTION_MAKER_TIMEOUT_SEC: \$\{TRADER_EXECUTION_MAKER_TIMEOUT_SEC:-3\}/);
+  assert.match(main, /lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FIRST"/);
+  assert.match(main, /"executionPath"/);
 
   const hetznerTrading = await fs.readFile(
     new URL("../deploy/hetzner/trader.trading.env.managed", import.meta.url),
@@ -1714,16 +1732,18 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     hetznerTrading,
     /TRADER_BOT_SYMBOLS=AAVEUSDT,ADAUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BCHUSDT,BNBUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETCUSDT,ETHUSDT,FILUSDT,LINKUSDT,LTCUSDT,NEARUSDT,OPUSDT,SOLUSDT,SUIUSDT,TRXUSDT,UNIUSDT,XRPUSDT/,
   );
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=22/);
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=22/);
-  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=22/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=22/);
-  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=22/);
+  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=3/);
+  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=3/);
+  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=3/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=3/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=canary/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=3/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
   assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_FORCE_ENV_PRESET=false/);
+  assert.match(hetznerTrading, /TRADER_EXECUTION_MAKER_FIRST=true/);
+  assert.match(hetznerTrading, /TRADER_EXECUTION_MAKER_FALLBACK_MARKET=true/);
   assert.match(compose, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS: \$\{TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS:-false\}/);
   assert.match(main, /lookupEnv "TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS"/);
 
@@ -1765,17 +1785,27 @@ test("production research scopes can satisfy the portfolio evidence floor", asyn
   assert.match(flyResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_01 = "3"/);
   assert.match(flyResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH = "3"/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_LOOKBACK_WINDOWS=1100d/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_LOOKBACK_HEADROOM_POINTS=64/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_INTERVALS=6h/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_TRIALS=4/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_MIN_ROUND_TRIPS=20/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_P_COST_AWARE_EDGE=1\.0/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS=6/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN=0\.0018/);
   assert.match(hetznerResearch, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX=0\.0024/);
-  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_01=3/);
-  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH=3/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_01=1/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_TA_BEST=4/);
+  assert.match(hetznerResearch, /TRADER_OPTIMIZER_METHOD_WEIGHT_TA_REGIME_SWITCH=5/);
+  assert.match(hetznerResearch, /TRADER_TOP_COMBOS_BACKTEST_TOP_N=20/);
+  assert.match(hetznerResearch, /TRADER_TOP_COMBOS_BACKTEST_EVERY_SEC=86400/);
+  assert.match(hetznerResearch, /TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS=7/);
   assert.match(hetznerCompose, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN: \$\{TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN:-\}/);
   assert.match(hetznerCompose, /TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX: \$\{TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX:-\}/);
+  assert.match(hetznerCompose, /TRADER_OPTIMIZER_LOOKBACK_HEADROOM_POINTS: \$\{TRADER_OPTIMIZER_LOOKBACK_HEADROOM_POINTS:-64\}/);
   assert.match(backend, /lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MIN"/);
   assert.match(backend, /lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EDGE_MAX"/);
+  assert.match(backend, /lookupEnv "TRADER_OPTIMIZER_LOOKBACK_HEADROOM_POINTS"/);
+  assert.match(backend, /optimizer\.auto\.no_admission/);
   assert.match(backend, /max venueMinEdgeFloor \(readNonNegativeDouble discoveryRecoveryMinEdgeMinEnv venueMinEdgeFloor\)/);
   assert.match(flyTrading, /TRADER_PORTFOLIO_SELECTOR_MIN_DAYS = "180"/);
 

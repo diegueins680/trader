@@ -89,7 +89,13 @@ import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
 import Text.Read (readMaybe)
 
-import Trader.BotStartSemantics (adoptionMinTradeCount, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor)
+import Trader.BotStartSemantics (
+    adoptionMinTradeCount,
+    comboMinEdgeMeetsAdoptionFloor,
+    comboTradeCountMeetsAdoptionFloor,
+    comboWalkForwardSharpeMeetsAdoptionFloor,
+    comboWalkForwardSharpeStdMeetsAdoptionCeiling,
+ )
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Formal.CloseTiming (minimumCloseTimingSamples, minimumPositiveLiftSupportSamples)
 import Trader.Optimizer.Json (encodePretty)
@@ -1312,6 +1318,11 @@ comboParamString key val = do
              in if null raw then Nothing else Just raw
         _ -> Nothing
 
+comboParamDouble :: String -> Aeson.Value -> Maybe Double
+comboParamDouble key val = do
+    params <- comboMetricObject "params" val
+    KM.lookup (AK.fromString key) params >>= coerceDoubleValue
+
 comboRegimeBucket :: Aeson.Value -> String
 comboRegimeBucket val =
     let method = T.unpack (T.toLower (T.pack (fromMaybe "" (comboParamString "method" val))))
@@ -1360,7 +1371,10 @@ comboProcessingTier val
     | comboLiveQuarantined val = "quarantined"
     | not tradeCountMeetsFloor = "raw"
     | isNothingFinite (comboAnnualizedReturnValue val) = "raw"
-    | comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMeanValue val) = "deployable"
+    | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" val)
+        && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMeanValue val)
+        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStdValue val) =
+        "deployable"
     | otherwise = "candidate"
   where
     tradeCountMeetsFloor =
@@ -1391,10 +1405,20 @@ comboProcessingReasons val =
             Just ann
                 | isNaN ann || isInfinite ann -> ["annualized-return-invalid"]
                 | otherwise -> []
+        , case comboParamDouble "minEdge" val of
+            Nothing -> ["min-edge-missing"]
+            Just edge
+                | not (comboMinEdgeMeetsAdoptionFloor (Just edge)) -> ["min-edge-below-floor"]
+                | otherwise -> []
         , case comboWalkForwardSharpeMeanValue val of
             Nothing -> ["walk-forward-missing"]
             Just sharpe
                 | not (comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe)) -> ["walk-forward-below-floor"]
+                | otherwise -> []
+        , case comboWalkForwardSharpeStdValue val of
+            Nothing -> ["walk-forward-std-missing"]
+            Just sharpeStd
+                | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
         ]
 

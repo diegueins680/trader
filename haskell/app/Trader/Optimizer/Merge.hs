@@ -43,7 +43,13 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStrLn, openBinaryTempFile, stderr)
 import Text.Read (readMaybe)
 
-import Trader.BotStartSemantics (adoptionMinTradeCount, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor)
+import Trader.BotStartSemantics (
+    adoptionMinTradeCount,
+    comboMinEdgeMeetsAdoptionFloor,
+    comboTradeCountMeetsAdoptionFloor,
+    comboWalkForwardSharpeMeetsAdoptionFloor,
+    comboWalkForwardSharpeStdMeetsAdoptionCeiling,
+ )
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
@@ -427,6 +433,14 @@ comboWalkForwardSharpeMean combo = do
         Object obj -> KM.lookup (Key.fromString "sharpeMean") obj >>= AT.parseMaybe Aeson.parseJSON
         _ -> Nothing
 
+comboWalkForwardSharpeStd :: Combo -> Maybe Double
+comboWalkForwardSharpeStd combo = do
+    metrics <- comboMetrics combo
+    wf <- KM.lookup (Key.fromString "walkForwardSummary") metrics
+    case wf of
+        Object obj -> KM.lookup (Key.fromString "sharpeStd") obj >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
 comboOverfitMetricDouble :: String -> Combo -> Maybe Double
 comboOverfitMetricDouble key combo = do
     metrics <- comboMetrics combo
@@ -474,6 +488,10 @@ comboParamString key combo =
             let raw = trim (T.unpack s)
              in if null raw then Nothing else Just raw
         _ -> Nothing
+
+comboParamDouble :: String -> Combo -> Maybe Double
+comboParamDouble key combo =
+    KM.lookup (Key.fromString key) (comboParams combo) >>= coerceFloatValue
 
 comboRegimeBucket :: Combo -> String
 comboRegimeBucket combo =
@@ -523,7 +541,10 @@ comboProcessingTier config combo
     | comboLiveQuarantined config combo = "quarantined"
     | not (comboTradeCountMeetsAdoptionFloor (comboMetricInt "tradeCount" combo)) = "raw"
     | isNothing (comboAnnualizedReturnMaybe combo) = "raw"
-    | comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMean combo) = "deployable"
+    | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" combo)
+        && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMean combo)
+        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStd combo) =
+        "deployable"
     | otherwise = "candidate"
 
 comboProcessingTierRank :: TopComboScoringConfig -> Combo -> Int
@@ -547,10 +568,20 @@ comboProcessingReasons config combo =
                 | not (comboTradeCountMeetsAdoptionFloor (Just trades)) -> ["trade-count-below-floor"]
                 | otherwise -> []
         , ["annualized-return-missing" | isNothing (comboAnnualizedReturnMaybe combo)]
+        , case comboParamDouble "minEdge" combo of
+            Nothing -> ["min-edge-missing"]
+            Just edge
+                | not (comboMinEdgeMeetsAdoptionFloor (Just edge)) -> ["min-edge-below-floor"]
+                | otherwise -> []
         , case comboWalkForwardSharpeMean combo of
             Nothing -> ["walk-forward-missing"]
             Just sharpe
                 | not (comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe)) -> ["walk-forward-below-floor"]
+                | otherwise -> []
+        , case comboWalkForwardSharpeStd combo of
+            Nothing -> ["walk-forward-std-missing"]
+            Just sharpeStd
+                | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
         ]
 

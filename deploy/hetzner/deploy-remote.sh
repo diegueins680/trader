@@ -136,6 +136,7 @@ echo "==> Syncing ${commit} to ${ssh_user}@${host}:${repo_dir}"
 # the box's secrets (trader.env), Caddyfile, or runtime data. Excluded paths are
 # protected from deletion regardless.
 rsync -az --human-readable \
+  --exclude '.git' \
   --exclude '.git/' \
   --exclude 'node_modules/' \
   --exclude '**/node_modules/' \
@@ -198,6 +199,14 @@ ssh "${ssh_opts[@]}" "${ssh_user}@${host}" "$remote_command" <<'REMOTE'
 set -Eeuo pipefail
 echo "==> Remote deployment started for ${TRADER_GIT_COMMIT}"
 cd "$REPO_DIR"
+
+# Hetzner runs from a plain rsync copy. Older worktree-based deploys could copy
+# a `.git` pointer file even though `.git/` directories were excluded, leaving
+# the server pointed at a developer-machine path. Remove only that pointer;
+# runtime code and deployment attestation use TRADER_GIT_COMMIT instead.
+if [[ -f .git ]]; then
+  rm -f .git
+fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: env file not found at ${REPO_DIR}/${ENV_FILE}" >&2
@@ -329,6 +338,16 @@ if [[ "$reported_commit" != "$TRADER_GIT_COMMIT" ]]; then
   echo "ERROR: /health reported commit '${reported_commit:-missing}', expected '${TRADER_GIT_COMMIT}'." >&2
   false
 fi
+
+# Populate /ops/performance after the API and schema are healthy. The rollup
+# script runs transactionally, so a failed rebuild preserves the prior views.
+"${compose[@]}" exec -T api /bin/sh -ec '
+  case "${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}" in
+    true|TRUE|1) exec rollup-performance ;;
+    false|FALSE|0|"") echo "==> Performance rollup disabled" ;;
+    *) echo "TRADER_OPS_ROLLUP_ON_DEPLOY must be true/false/1/0" >&2; exit 64 ;;
+  esac
+' </dev/null
 
 trap - ERR
 docker image prune -f >/dev/null 2>&1 || true

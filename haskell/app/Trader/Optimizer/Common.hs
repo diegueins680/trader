@@ -2,6 +2,7 @@
 
 module Trader.Optimizer.Common (
     AutoOptimizerScopeSelection (..),
+    OptimizerAdmissionStats (..),
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     autoOptimizerRequiredBarsForSweep,
@@ -9,7 +10,9 @@ module Trader.Optimizer.Common (
     normalizeObjectiveCode,
     objectiveScore,
     objectiveScoreWithConfig,
+    optimizerAdmissionStats,
     selectAutoOptimizerScopes,
+    selectAutoOptimizerScopesWithHeadroom,
 ) where
 
 import Control.Applicative ((<|>))
@@ -17,9 +20,11 @@ import Data.Aeson (Value (..), object, (.=))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Char (isSpace, toLower)
+import Data.Int (Int64)
 import Data.List (dropWhileEnd)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Scientific (Scientific, toBoundedInteger, toRealFloat)
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Text.Read (readMaybe)
@@ -51,6 +56,49 @@ data AutoOptimizerScopeSelection = AutoOptimizerScopeSelection
     , aosCappedScopes :: ![(String, String)]
     }
     deriving (Eq, Show)
+
+data OptimizerAdmissionStats = OptimizerAdmissionStats
+    { oasBeforeCount :: !Int
+    , oasAfterCount :: !Int
+    , oasAdmittedCount :: !Int
+    , oasRemovedCount :: !Int
+    , oasNewestBeforeMs :: !(Maybe Int64)
+    , oasNewestAfterMs :: !(Maybe Int64)
+    }
+    deriving (Eq, Show)
+
+optimizerAdmissionStats :: Value -> Value -> OptimizerAdmissionStats
+optimizerAdmissionStats before after =
+    let beforeCombos = comboObjects before
+        afterCombos = comboObjects after
+        beforeIds = Set.fromList (mapMaybe comboUuid beforeCombos)
+        afterIds = Set.fromList (mapMaybe comboUuid afterCombos)
+     in OptimizerAdmissionStats
+            { oasBeforeCount = length beforeCombos
+            , oasAfterCount = length afterCombos
+            , oasAdmittedCount = Set.size (afterIds `Set.difference` beforeIds)
+            , oasRemovedCount = Set.size (beforeIds `Set.difference` afterIds)
+            , oasNewestBeforeMs = maximumMaybe (mapMaybe comboCreatedAtMs beforeCombos)
+            , oasNewestAfterMs = maximumMaybe (mapMaybe comboCreatedAtMs afterCombos)
+            }
+  where
+    comboObjects value =
+        case value of
+            Object root ->
+                case KM.lookup (Key.fromString "combos") root of
+                    Just (Array combos) -> [combo | Object combo <- V.toList combos]
+                    _ -> []
+            _ -> []
+    comboUuid combo =
+        case KM.lookup (Key.fromString "uuid") combo of
+            Just (String uuid) | not (T.null (T.strip uuid)) -> Just uuid
+            _ -> Nothing
+    comboCreatedAtMs combo =
+        case KM.lookup (Key.fromString "createdAtMs") combo of
+            Just (Number n) -> toBoundedInteger n
+            _ -> Nothing
+    maximumMaybe [] = Nothing
+    maximumMaybe xs = Just (maximum xs)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
@@ -205,7 +253,24 @@ selectAutoOptimizerScopes ::
     [String] ->
     [String] ->
     AutoOptimizerScopeSelection
-selectAutoOptimizerScopes autoCappedLookbacksEnabled maxPoints backtestRatio tuneRatio intervals lookbackWindows =
+selectAutoOptimizerScopes autoCappedLookbacksEnabled maxPoints =
+    selectAutoOptimizerScopesWithHeadroom autoCappedLookbacksEnabled maxPoints 0
+
+{- | Select feasible optimizer scopes while reserving fetched bars that the
+exchange may omit at page/history boundaries. The headroom is subtracted from
+the actual point budget before deriving a capped lookback, so split sizing does
+not sit exactly on a brittle API limit.
+-}
+selectAutoOptimizerScopesWithHeadroom ::
+    Bool ->
+    Int ->
+    Int ->
+    Double ->
+    Double ->
+    [String] ->
+    [String] ->
+    AutoOptimizerScopeSelection
+selectAutoOptimizerScopesWithHeadroom autoCappedLookbacksEnabled maxPoints headroomPoints backtestRatio tuneRatio intervals lookbackWindows =
     AutoOptimizerScopeSelection
         { aosScopes = optimizerScopes
         , aosCappedScopes =
@@ -215,22 +280,24 @@ selectAutoOptimizerScopes autoCappedLookbacksEnabled maxPoints backtestRatio tun
             ]
         }
   where
+    usablePoints = max 0 (maxPoints - max 0 headroomPoints)
+
     scopeFeasible interval lookbackWindow =
         case lookbackBarsFrom interval lookbackWindow of
             Left _ -> False
             Right lookbackBars ->
                 lookbackBars >= 2
-                    && maybe False (<= maxPoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio lookbackBars)
+                    && maybe False (<= usablePoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio lookbackBars)
 
     maxFeasibleLookbackBars =
         let go lo hi best
                 | lo > hi = best
                 | otherwise =
                     let mid = (lo + hi) `div` 2
-                     in if maybe False (<= maxPoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio mid)
+                     in if maybe False (<= usablePoints) (autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio mid)
                             then go (mid + 1) hi (Just mid)
                             else go lo (mid - 1) best
-         in go 2 maxPoints Nothing
+         in go 2 usablePoints Nothing
 
     renderLookbackSeconds totalSeconds
         | totalSeconds `mod` 86400 == 0 = show (max 1 (totalSeconds `div` 86400)) ++ "d"

@@ -161,7 +161,7 @@ import Trader.NeuralGovernor (
  )
 import Trader.OnlineStats (Welford (..), emptyWelford, updateWelford, varianceWelford)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
-import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), autoOptimizerRequiredBarsForSweep, selectAutoOptimizerScopes)
+import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), OptimizerAdmissionStats (..), autoOptimizerRequiredBarsForSweep, optimizerAdmissionStats, selectAutoOptimizerScopes, selectAutoOptimizerScopesWithHeadroom)
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
@@ -573,6 +573,7 @@ main = do
     testTopComboProcessingCarriesOverfitAndMapEliteMetadata
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
+    testDeployableTierRequiresCompleteAdoptionEvidence
     testTopComboFreshnessMultiplierDefaultsDisabled
     testPortfolioAnnualizationAndDrawdown
     testOptimizerExtractsTimestampedPortfolioEvidence
@@ -617,6 +618,7 @@ main = do
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
     testAutoOptimizerCappedLookbackScopes
+    testOptimizerAdmissionStats
     testSweepThresholdMinRoundTripsFallback
     testSweepThresholdZeroCandidatesKeepsBasePair
     testOptimizerPublicSurfaceRegression
@@ -5275,13 +5277,14 @@ processingComboForTest label source includeNullParam mWalkForwardSharpe annualiz
                   , "lookback" .= (48 :: Int)
                   , "interval" .= ("15m" :: T.Text)
                   , "binanceSymbol" .= ("BTCUSDT" :: T.Text)
+                  , "minEdge" .= adoptionMinEdgeFloor
                   ]
                     ++ ["protectionMinConfidence" .= Aeson.Null | includeNullParam]
                 )
         walkForward =
             maybe
                 []
-                (\sharpe -> ["walkForwardSummary" .= Aeson.object ["sharpeMean" .= sharpe]])
+                (\sharpe -> ["walkForwardSummary" .= Aeson.object ["sharpeMean" .= sharpe, "sharpeStd" .= adoptionMaxWalkForwardSharpeStd]])
                 mWalkForwardSharpe
      in Aeson.object
             [ "uuid" .= label
@@ -5446,6 +5449,72 @@ testDeployableTierRanksAheadOfUnvalidatedCandidate = do
     assert
         "walk-forward deployable tier ranks ahead of a higher-return unvalidated candidate"
         (listToMaybe (mapMaybe comboProcessingTierForTest combos) == Just "deployable")
+
+testDeployableTierRequiresCompleteAdoptionEvidence :: IO ()
+testDeployableTierRequiresCompleteAdoptionEvidence = do
+    let valid =
+            processingComboForTest
+                "valid-evidence"
+                "db"
+                False
+                (Just adoptionMinWalkForwardSharpeMean)
+                1.0
+                adoptionMinTradeCount
+        withParam key value combo =
+            case combo of
+                Aeson.Object o ->
+                    case KM.lookup "params" o of
+                        Just (Aeson.Object params) -> Aeson.Object (KM.insert "params" (Aeson.Object (KM.insert key value params)) o)
+                        _ -> combo
+                _ -> combo
+        withoutParam key combo =
+            case combo of
+                Aeson.Object o ->
+                    case KM.lookup "params" o of
+                        Just (Aeson.Object params) -> Aeson.Object (KM.insert "params" (Aeson.Object (KM.delete key params)) o)
+                        _ -> combo
+                _ -> combo
+        withWalkForwardStd sharpeStd combo =
+            case combo of
+                Aeson.Object o ->
+                    case KM.lookup "metrics" o of
+                        Just (Aeson.Object metrics) ->
+                            case KM.lookup "walkForwardSummary" metrics of
+                                Just (Aeson.Object wf) ->
+                                    Aeson.Object
+                                        ( KM.insert
+                                            "metrics"
+                                            (Aeson.Object (KM.insert "walkForwardSummary" (Aeson.Object (KM.insert "sharpeStd" (Aeson.toJSON sharpeStd) wf)) metrics))
+                                            o
+                                        )
+                                _ -> combo
+                        _ -> combo
+                _ -> combo
+        missingEdge = withoutParam "minEdge" valid
+        lowEdge = withParam "minEdge" (Aeson.toJSON (adoptionMinEdgeFloor / 2)) valid
+        unstable = withWalkForwardStd (adoptionMaxWalkForwardSharpeStd + 0.01) valid
+        validMerged = listToMaybe (mergedCombosForTest [valid])
+        missingEdgeMerged = listToMaybe (mergedCombosForTest [missingEdge])
+        lowEdgeMerged = listToMaybe (mergedCombosForTest [lowEdge])
+        unstableMerged = listToMaybe (mergedCombosForTest [unstable])
+    assert
+        "complete adoption evidence is deployable"
+        ((validMerged >>= comboProcessingTierForTest) == Just "deployable")
+    assert
+        "missing minimum edge remains a candidate with a reason"
+        ( (missingEdgeMerged >>= comboProcessingTierForTest) == Just "candidate"
+            && maybe False ("min-edge-missing" `elem`) (missingEdgeMerged >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "sub-floor minimum edge remains a candidate with a reason"
+        ( (lowEdgeMerged >>= comboProcessingTierForTest) == Just "candidate"
+            && maybe False ("min-edge-below-floor" `elem`) (lowEdgeMerged >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "unstable walk-forward evidence remains a candidate with a reason"
+        ( (unstableMerged >>= comboProcessingTierForTest) == Just "candidate"
+            && maybe False ("walk-forward-std-above-ceiling" `elem`) (unstableMerged >>= comboProcessingReasonsForTest)
+        )
 
 testTopComboFreshnessMultiplierDefaultsDisabled :: IO ()
 testTopComboFreshnessMultiplierDefaultsDisabled =
@@ -7179,6 +7248,15 @@ testAutoOptimizerCappedLookbackScopes = do
                 tuneRatio
                 ["5m"]
                 lookbackWindows
+        headroomSelection =
+            selectAutoOptimizerScopesWithHeadroom
+                True
+                maxPoints
+                20
+                backtestRatio
+                tuneRatio
+                ["5m"]
+                lookbackWindows
         maxFeasibleBars = 597
     assert
         "auto optimizer split sizing admits 597 bars under the 1000-point cap"
@@ -7203,6 +7281,29 @@ testAutoOptimizerCappedLookbackScopes = do
     assert
         "disabling auto-capped lookbacks leaves the infeasible 5m scope excluded"
         (null (aosScopes disabledSelection) && null (aosCappedScopes disabledSelection))
+    assert
+        "auto optimizer reserves point headroom before deriving a capped scope"
+        (aosScopes headroomSelection == [("5m", "2925m")] && aosCappedScopes headroomSelection == [("5m", "2925m")])
+
+testOptimizerAdmissionStats :: IO ()
+testOptimizerAdmissionStats = do
+    let combo uuid createdAt =
+            Aeson.object
+                [ "uuid" .= (uuid :: T.Text)
+                , "createdAtMs" .= (createdAt :: Int64)
+                ]
+        before = Aeson.object ["combos" .= [combo "existing" 1000, combo "removed" 900]]
+        after = Aeson.object ["combos" .= [combo "existing" 1000, combo "new" 2000]]
+        stats = optimizerAdmissionStats before after
+    assert
+        "optimizer admission telemetry counts board identities rather than successful merge processes"
+        ( oasBeforeCount stats == 2
+            && oasAfterCount stats == 2
+            && oasAdmittedCount stats == 1
+            && oasRemovedCount stats == 1
+            && oasNewestBeforeMs stats == Just 1000
+            && oasNewestAfterMs stats == Just 2000
+        )
 
 -- Bounded executable obligations for the restored signal-gate facade now cover:
 -- the direct boundary witness, zero-fee specialization, negative-threshold and

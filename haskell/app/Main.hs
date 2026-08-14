@@ -413,6 +413,7 @@ import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, i
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
+    OptimizerAdmissionStats (..),
     aosCappedScopes,
     aosScopes,
     appliedCloseTimingMaxHoldBars,
@@ -420,7 +421,9 @@ import Trader.Optimizer.Common (
     closeTimingReportFromBacktest,
     normalizeObjectiveCode,
     objectiveScoreWithConfig,
+    optimizerAdmissionStats,
     selectAutoOptimizerScopes,
+    selectAutoOptimizerScopesWithHeadroom,
  )
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Optimize (
@@ -1744,8 +1747,22 @@ data ApiOrderResult = ApiOrderResult
     }
     deriving (Eq, Show, Generic)
 
+apiOrderExecutionPath :: ApiOrderResult -> Maybe String
+apiOrderExecutionPath order
+    | "(maker " `isInfixOf` msg && "; market fallback)" `isInfixOf` msg = Just "market-fallback"
+    | "Maker order filled." `isPrefixOf` msg = Just "maker-filled"
+    | "Maker order partially filled" `isPrefixOf` msg = Just "maker-partial"
+    | "No order: maker entry " `isPrefixOf` msg = Just "maker-skipped"
+    | "No order: maker-first timeout" `isPrefixOf` msg = Just "maker-skipped"
+    | otherwise = Nothing
+  where
+    msg = aorMessage order
+
 instance ToJSON ApiOrderResult where
-    toJSON = Aeson.genericToJSON (jsonOptions 3)
+    toJSON order =
+        case Aeson.genericToJSON (jsonOptions 3) order of
+            Aeson.Object obj -> Aeson.Object (KM.insert "executionPath" (toJSON (apiOrderExecutionPath order)) obj)
+            value -> value
 
 data ApiTradeResponse = ApiTradeResponse
     { atrSignal :: LatestSignal
@@ -13129,6 +13146,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     discoveryRecoveryMinSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_SHARPE"
                                     discoveryRecoveryMinCalmarEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_CALMAR"
                                     maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
+                                    lookbackHeadroomPointsEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_HEADROOM_POINTS"
                                     symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
                                     intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
                                     epochsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_EPOCHS_MAX"
@@ -13164,6 +13182,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             case maxPointsEnv >>= readMaybe of
                                                 Just n | n >= 2 -> clampInt 2 maxPointsCap n
                                                 _ -> 1000
+                                        lookbackHeadroomPoints :: Int
+                                        lookbackHeadroomPoints =
+                                            clampInt 0 (max 0 (maxPoints - 2)) (readNonNegativeInt lookbackHeadroomPointsEnv 64)
                                         lookbackWindow = pickDefaultString "7d" lookbackEnv
                                         backtestRatio =
                                             case backtestEnv >>= readMaybe of
@@ -13339,9 +13360,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 Just raw -> filter (isPlatformInterval PlatformBinance) (splitEnvList raw)
                                                 Nothing -> ["1h", "2h", "4h", "6h", "12h", "1d"]
                                         scopeSelection =
-                                            selectAutoOptimizerScopes
+                                            selectAutoOptimizerScopesWithHeadroom
                                                 autoCappedLookbacksEnabled
                                                 maxPoints
+                                                lookbackHeadroomPoints
                                                 backtestRatio
                                                 tuneRatio
                                                 intervalsRaw
@@ -13367,12 +13389,13 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         else do
                                             putStrLn
                                                 ( printf
-                                                    "Auto optimizer enabled: symbols=%d scopes=%d intervals=%d lookbackWindows=%d cappedScopes=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
+                                                    "Auto optimizer enabled: symbols=%d scopes=%d intervals=%d lookbackWindows=%d cappedScopes=%d lookbackHeadroomPoints=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
                                                     (length symbols)
                                                     (length optimizerScopes)
                                                     (length intervalsRaw)
                                                     (length lookbackWindows)
                                                     (length cappedLookbackScopes)
+                                                    lookbackHeadroomPoints
                                                     everySec
                                                     trials
                                                     minRoundTrips
@@ -13461,6 +13484,32 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                             sleepSec everySec
                                                                             loop
                                                                         else do
+                                                                            let fetchedScopeSelection =
+                                                                                    selectAutoOptimizerScopesWithHeadroom
+                                                                                        autoCappedLookbacksEnabled
+                                                                                        (length ks)
+                                                                                        lookbackHeadroomPoints
+                                                                                        backtestRatio
+                                                                                        tuneRatio
+                                                                                        [interval]
+                                                                                        [selectedLookbackWindow]
+                                                                                effectiveLookbackWindow =
+                                                                                    maybe selectedLookbackWindow snd (listToMaybe (aosScopes fetchedScopeSelection))
+                                                                            when (effectiveLookbackWindow /= selectedLookbackWindow) $ do
+                                                                                now <- getTimestampMs
+                                                                                journalWriteMaybe
+                                                                                    mJournal
+                                                                                    ( object
+                                                                                        [ "type" .= ("optimizer.auto.lookback_capped" :: String)
+                                                                                        , "atMs" .= now
+                                                                                        , "symbol" .= sym
+                                                                                        , "interval" .= interval
+                                                                                        , "configuredLookbackWindow" .= selectedLookbackWindow
+                                                                                        , "effectiveLookbackWindow" .= effectiveLookbackWindow
+                                                                                        , "fetchedPoints" .= length ks
+                                                                                        , "headroomPoints" .= lookbackHeadroomPoints
+                                                                                        ]
+                                                                                    )
                                                                             writeKlinesCsv csvPath ks
                                                                             ts <- fmap (floor . (* 1000)) getPOSIXTime
                                                                             randId <- randomIO :: IO Word64
@@ -13492,7 +13541,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , "--interval"
                                                                                         , interval
                                                                                         , "--lookback-window"
-                                                                                        , selectedLookbackWindow
+                                                                                        , effectiveLookbackWindow
                                                                                         , "--backtest-ratio"
                                                                                         , show backtestRatio
                                                                                         , "--tune-ratio"
@@ -13612,7 +13661,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "--hidden-size-max"
                                                                                     , show hiddenSizeMax
                                                                                     ]
-                                                                                        ++ activitySearchArgs
+                                                                                        -- Keep the primary pass on optimize-equity's broader,
+                                                                                        -- cost-safe search ranges. The low-threshold/activity
+                                                                                        -- band belongs only to recovery; applying it here too
+                                                                                        -- made both passes repeat the same zero-trade search.
                                                                                         ++ liveGapWeightArgs
                                                                                 cliArgs = mkCliArgs recordsPath seed trials timeoutSec minRoundTrips minExposure minSharpe minCalmar primaryMethodArgs
                                                                                 recoveryCliArgs =
@@ -13638,6 +13690,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                     [ "type" .= ("optimizer.auto.run_failed" :: String)
                                                                                                     , "atMs" .= now
                                                                                                     , "attempt" .= (attempt :: String)
+                                                                                                    , "symbol" .= sym
+                                                                                                    , "interval" .= interval
+                                                                                                    , "lookbackWindow" .= effectiveLookbackWindow
                                                                                                     , "error" .= msg
                                                                                                     , "stdout" .= out
                                                                                                     , "stderr" .= err
@@ -13646,7 +13701,18 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                 )
                                                                                             pure (False, summary)
                                                                                         Right _ -> do
-                                                                                            mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsOut maxCombos)
+                                                                                            (mergeResult, mAdmissionStats) <-
+                                                                                                withTopCombosLock topCombosStore $ do
+                                                                                                    beforeOrErr <- readTopCombosValue topJsonPath
+                                                                                                    result <- runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsOut maxCombos
+                                                                                                    afterOrErr <- readTopCombosValue topJsonPath
+                                                                                                    let emptyBoard = object ["combos" .= ([] :: [Aeson.Value])]
+                                                                                                        admissionStats =
+                                                                                                            case (result, afterOrErr) of
+                                                                                                                (Right _, Right after) ->
+                                                                                                                    Just (optimizerAdmissionStats (fromRight emptyBoard beforeOrErr) after)
+                                                                                                                _ -> Nothing
+                                                                                                    pure (result, admissionStats)
                                                                                             case mergeResult of
                                                                                                 Left (msg, out, err) -> do
                                                                                                     now <- getTimestampMs
@@ -13656,6 +13722,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                             [ "type" .= ("optimizer.auto.merge_failed" :: String)
                                                                                                             , "atMs" .= now
                                                                                                             , "attempt" .= (attempt :: String)
+                                                                                                            , "symbol" .= sym
+                                                                                                            , "interval" .= interval
+                                                                                                            , "lookbackWindow" .= effectiveLookbackWindow
                                                                                                             , "error" .= msg
                                                                                                             , "stdout" .= out
                                                                                                             , "stderr" .= err
@@ -13665,13 +13734,48 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                     pure (False, summary)
                                                                                                 Right _ -> do
                                                                                                     persistTopCombosDbMaybe mOps topCombosStore
+                                                                                                    now <- getTimestampMs
+                                                                                                    let admissionValue =
+                                                                                                            case mAdmissionStats of
+                                                                                                                Nothing -> Aeson.Null
+                                                                                                                Just stats ->
+                                                                                                                    object
+                                                                                                                        [ "beforeCount" .= oasBeforeCount stats
+                                                                                                                        , "afterCount" .= oasAfterCount stats
+                                                                                                                        , "admittedCount" .= oasAdmittedCount stats
+                                                                                                                        , "removedCount" .= oasRemovedCount stats
+                                                                                                                        , "newestBeforeMs" .= oasNewestBeforeMs stats
+                                                                                                                        , "newestAfterMs" .= oasNewestAfterMs stats
+                                                                                                                        ]
+                                                                                                        eventKind :: String
+                                                                                                        eventKind =
+                                                                                                            case mAdmissionStats of
+                                                                                                                Just stats | oasAdmittedCount stats > 0 -> "optimizer.auto.admitted"
+                                                                                                                _ -> "optimizer.auto.no_admission"
+                                                                                                        eventDetails =
+                                                                                                            object
+                                                                                                                [ "symbol" .= sym
+                                                                                                                , "interval" .= interval
+                                                                                                                , "lookbackWindow" .= effectiveLookbackWindow
+                                                                                                                , "attempt" .= (attempt :: String)
+                                                                                                                , "admission" .= admissionValue
+                                                                                                                , "recordsSummary" .= optimizerRecordsSummaryJson summary
+                                                                                                                ]
+                                                                                                    journalWriteMaybe
+                                                                                                        mJournal
+                                                                                                        ( object
+                                                                                                            [ "type" .= eventKind
+                                                                                                            , "atMs" .= now
+                                                                                                            , "details" .= eventDetails
+                                                                                                            ]
+                                                                                                        )
                                                                                                     opsAppendMaybe
                                                                                                         mOps
                                                                                                         Nothing
-                                                                                                        "optimizer.auto.updated"
+                                                                                                        (T.pack eventKind)
                                                                                                         Nothing
-                                                                                                        (Just (object ["symbol" .= sym, "interval" .= interval, "lookbackWindow" .= selectedLookbackWindow, "attempt" .= (attempt :: String)]))
-                                                                                                        Nothing
+                                                                                                        (Just eventDetails)
+                                                                                                        (Just admissionValue)
                                                                                                         Nothing
                                                                                                         Nothing
                                                                                                         (Just (T.pack sym))
@@ -13698,7 +13802,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                 , "atMs" .= now
                                                                                                 , "symbol" .= sym
                                                                                                 , "interval" .= interval
-                                                                                                , "lookbackWindow" .= selectedLookbackWindow
+                                                                                                , "lookbackWindow" .= effectiveLookbackWindow
                                                                                                 , "reason" .= recoveryReason
                                                                                                 , "freshDeployableExists" .= freshDeployableExists
                                                                                                 , "recordsSummary" .= optimizerRecordsSummaryJson primarySummary
@@ -15982,6 +16086,11 @@ applyBotStartupEnvPreset args = do
     closeThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_CLOSE_THRESHOLD"
     adoptionRelaxGatesRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES"
     adoptionRelaxTargetCountRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"
+    executionMakerFirstRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FIRST"
+    executionMakerOffsetBpsRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_OFFSET_BPS"
+    executionMakerTimeoutSecRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_TIMEOUT_SEC"
+    executionMakerPollMsRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_POLL_MS"
+    executionMakerFallbackMarketRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FALLBACK_MARKET"
 
     method <-
         case methodRaw of
@@ -16004,6 +16113,11 @@ applyBotStartupEnvPreset args = do
     mCloseThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_CLOSE_THRESHOLD" closeThresholdRaw
     mAdoptionRelaxGates <- readBotStartupBoolEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES" adoptionRelaxGatesRaw
     mAdoptionRelaxTargetCount <- readBotStartupPositiveIntEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT" adoptionRelaxTargetCountRaw
+    mExecutionMakerFirst <- readBotStartupBoolEnv "TRADER_EXECUTION_MAKER_FIRST" executionMakerFirstRaw
+    mExecutionMakerOffsetBps <- readBotStartupNonNegativeDoubleEnv "TRADER_EXECUTION_MAKER_OFFSET_BPS" executionMakerOffsetBpsRaw
+    mExecutionMakerTimeoutSec <- readBotStartupNonNegativeDoubleEnv "TRADER_EXECUTION_MAKER_TIMEOUT_SEC" executionMakerTimeoutSecRaw
+    mExecutionMakerPollMs <- readBotStartupPositiveIntEnv "TRADER_EXECUTION_MAKER_POLL_MS" executionMakerPollMsRaw
+    mExecutionMakerFallbackMarket <- readBotStartupBoolEnv "TRADER_EXECUTION_MAKER_FALLBACK_MARKET" executionMakerFallbackMarketRaw
 
     let openThreshold = fromMaybe (argOpenThreshold args) mOpenThreshold
         closeThreshold =
@@ -16022,6 +16136,11 @@ applyBotStartupEnvPreset args = do
                 , closeThresholdRaw
                 , adoptionRelaxGatesRaw
                 , adoptionRelaxTargetCountRaw
+                , executionMakerFirstRaw
+                , executionMakerOffsetBpsRaw
+                , executionMakerTimeoutSecRaw
+                , executionMakerPollMsRaw
+                , executionMakerFallbackMarketRaw
                 ]
         args' =
             args
@@ -16034,6 +16153,11 @@ applyBotStartupEnvPreset args = do
                 , argCloseThreshold = closeThreshold
                 , argAdoptionRelaxGates = fromMaybe (argAdoptionRelaxGates args) mAdoptionRelaxGates
                 , argAdoptionRelaxTargetCount = fromMaybe (argAdoptionRelaxTargetCount args) mAdoptionRelaxTargetCount
+                , argExecutionMakerFirst = fromMaybe (argExecutionMakerFirst args) mExecutionMakerFirst
+                , argExecutionMakerOffsetBps = fromMaybe (argExecutionMakerOffsetBps args) mExecutionMakerOffsetBps
+                , argExecutionMakerTimeoutSec = fromMaybe (argExecutionMakerTimeoutSec args) mExecutionMakerTimeoutSec
+                , argExecutionMakerPollMs = fromMaybe (argExecutionMakerPollMs args) mExecutionMakerPollMs
+                , argExecutionMakerFallbackMarket = fromMaybe (argExecutionMakerFallbackMarket args) mExecutionMakerFallbackMarket
                 }
     pure BotStartupEnvPreset{bsepArgs = args', bsepApplied = applied}
 
@@ -20067,8 +20191,23 @@ persistTopCombosExportMaybe mOps exportOrErr =
             case exportOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
-                    _ <- try (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
-                    pure ()
+                    result <- try (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
+                    case result of
+                        Right _ -> pure ()
+                        Left err -> do
+                            let message = displayException err
+                            hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ message ++ ")")
+                            opsAppendMaybe
+                                mOps
+                                Nothing
+                                "optimizer.combos.db_persist_failed"
+                                Nothing
+                                Nothing
+                                (Just (object ["error" .= message, "comboCount" .= length (tceCombos export)]))
+                                Nothing
+                                Nothing
+                                Nothing
+                                Nothing
 
 fetchTopComboOperationCounts :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID Int)
 fetchTopComboOperationCounts conn combos =
@@ -20192,6 +20331,47 @@ annotateTopCombosValueWithLiveStats mOps val =
 
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
 persistTopCombosToDb conn export =
+    do
+        bulkResult <- try (persistTopCombosToDbBulk conn export) :: IO (Either SomeException ())
+        case bulkResult of
+            Right _ -> pure ()
+            Left bulkError -> do
+                -- One malformed legacy row must not roll back the entire board.
+                -- Retry bounded chunks first; if at least one chunk succeeds,
+                -- isolate only the failed chunks row-by-row. If every chunk
+                -- fails, preserve the original systemic error without issuing
+                -- hundreds of doomed transactions.
+                let chunks = chunkTopCombos 100 (tceCombos export)
+                chunkResults <-
+                    forM chunks $ \chunk -> do
+                        result <- try (persistTopCombosToDbBulk conn (TopCombosExport chunk)) :: IO (Either SomeException ())
+                        pure (chunk, result)
+                let successfulChunks = [() | (_, Right _) <- chunkResults]
+                    failedChunks = [(chunk, err) | (chunk, Left err) <- chunkResults]
+                if null successfulChunks
+                    then throwIO bulkError
+                    else do
+                        rowResults <-
+                            forM (concatMap fst failedChunks) $ \combo ->
+                                try (persistTopCombosToDbBulk conn (TopCombosExport [combo])) :: IO (Either SomeException ())
+                        let failedRows = [displayException err | Left err <- rowResults]
+                        unless (null failedRows) $
+                            throwIO
+                                ( userError
+                                    ( "Top-combo DB persistence isolated "
+                                        ++ show (length failedRows)
+                                        ++ " invalid row(s); first error: "
+                                        ++ head failedRows
+                                    )
+                                )
+  where
+    chunkTopCombos _ [] = []
+    chunkTopCombos n combos =
+        let (chunk, rest) = splitAt (max 1 n) combos
+         in chunk : chunkTopCombos n rest
+
+persistTopCombosToDbBulk :: Connection -> TopCombosExport -> IO ()
+persistTopCombosToDbBulk conn export =
     withTransaction conn $ do
         strategyRows <- query_ conn "SELECT id, code FROM strategies" :: IO [(Int, Text)]
         let strategyMap = HM.fromList [(code, sid) | (sid, code) <- strategyRows]

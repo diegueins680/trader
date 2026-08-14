@@ -35,6 +35,8 @@ SQL
 fi
 
 psql "${DB_URL}" -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext('trader.performance_rollups'));
 SELECT CAST(EXTRACT(EPOCH FROM NOW())*1000 AS BIGINT) AS now_ms \gset
 
 DROP VIEW IF EXISTS performance_combo_deltas;
@@ -461,6 +463,7 @@ SELECT
     ORDER BY pr.committed_at_ms NULLS LAST, pr.git_commit_id
   )) AS delta_drawdown
 FROM performance_rollups pr;
+COMMIT;
 SQL
 
 echo "performance_rollups updated."
