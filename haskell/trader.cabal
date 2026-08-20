@@ -84,6 +84,7 @@ executable trader-hs
                      , Trader.PredictionMarkets
                      , Trader.SensorVariance
                      , Trader.RoiScore
+                     , Trader.Revenue
                      , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
@@ -336,6 +337,7 @@ test-suite trader-tests
                      , Trader.PredictionMarkets
                      , Trader.SensorVariance
                      , Trader.RoiScore
+                     , Trader.Revenue
                      , Trader.SensitivityAnalysis
                      , Trader.SignalGates
                      , Trader.Split
@@ -347,6 +349,7 @@ test-suite trader-tests
                      , Trader.Test.GracefulShutdown
                      , Trader.Test.NeuralGovernorRollout
                      , Trader.Test.OnlineNeural
+                     , Trader.Test.Revenue
                      , Trader.ThresholdCalibration
                      , Trader.TopComboScoring
                      , Trader.PortfolioSelection

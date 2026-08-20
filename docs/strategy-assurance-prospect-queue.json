@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "researchedAt": "2026-08-17",
+  "purpose": "Organization-level acquisition routes for the Strategy Assurance offer",
+  "externalActionsPerformed": false,
+  "scoreFormula": "audienceFit + organizationAccess + commercialAlignment + currentActivity - conflictPenalty",
+  "scoreBounds": {
+    "audienceFit": [0, 3],
+    "organizationAccess": [0, 2],
+    "commercialAlignment": [0, 3],
+    "currentActivity": [0, 2],
+    "conflictPenalty": [0, 3]
+  },
+  "prospects": [
+    {
+      "rank": 1,
+      "organization": "OctoBot",
+      "kind": "commercial-platform-channel",
+      "priority": "tier-1",
+      "status": "research-ready",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 2,
+        "commercialAlignment": 3,
+        "currentActivity": 2,
+        "conflictPenalty": 0,
+        "total": 10
+      },
+      "officialRoute": {
+        "label": "Product page, community, and sponsored-development contact",
+        "url": "https://www.octobot.cloud/trading-bot/",
+        "rule": "Use the official contact route; do not approach community members individually."
+      },
+      "evidence": [
+        {
+          "claim": "OctoBot publicly offers strategy creation, backtesting, optimization, automated deployment across more than 12 exchanges, community access, and sponsored development.",
+          "url": "https://www.octobot.cloud/trading-bot/",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "Independent readiness review could complement built-in testing for advanced users or sponsored strategies.",
+      "likelyObjection": "The platform already provides backtesting, paper trading, and strategy tooling.",
+      "firstAsk": "Would the team evaluate one co-branded readiness-review pilot or refer one suitable advanced operator?",
+      "manualNextAction": "Revalidate the contact route, then prepare one organization-level pilot note."
+    },
+    {
+      "rank": 2,
+      "organization": "Hummingbot Botcamp",
+      "kind": "education-referral-channel",
+      "priority": "tier-1",
+      "status": "research-ready-activity-check-required",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 2,
+        "commercialAlignment": 3,
+        "currentActivity": 1,
+        "conflictPenalty": 0,
+        "total": 9
+      },
+      "officialRoute": {
+        "label": "Official course portal",
+        "url": "https://courses.botcamp.xyz/",
+        "rule": "Confirm that a current cohort or alumni program is active before contact."
+      },
+      "evidence": [
+        {
+          "claim": "Botcamp describes professional training and certification for market makers and algorithmic traders using Hummingbot.",
+          "url": "https://courses.botcamp.xyz/",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "A capstone or alumni pre-live clinic could convert trained strategy builders into qualified reviews.",
+      "likelyObjection": "The curriculum and certification may already cover strategy validation.",
+      "firstAsk": "Is the current program open to an independent operate/restrict/stop clinic for one cohort or alumni group?",
+      "manualNextAction": "Verify current program activity before preparing an organization-level note."
+    },
+    {
+      "rank": 3,
+      "organization": "QuantConnect Integration Partners",
+      "kind": "formal-partner-channel",
+      "priority": "tier-1",
+      "status": "research-ready",
+      "score": {
+        "audienceFit": 2,
+        "organizationAccess": 2,
+        "commercialAlignment": 3,
+        "currentActivity": 2,
+        "conflictPenalty": 0,
+        "total": 9
+      },
+      "officialRoute": {
+        "label": "Integration Partners directory and application",
+        "url": "https://www.quantconnect.com/integration-partners",
+        "rule": "Use the formal application; do not claim partner status before acceptance."
+      },
+      "evidence": [
+        {
+          "claim": "QuantConnect maintains a directory of independent consultants and firms and publicly invites partner applications.",
+          "url": "https://www.quantconnect.com/integration-partners",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "A formal listing could make independent deployment assurance discoverable to algorithmic-trading organizations.",
+      "likelyObjection": "Existing partners already provide strategy design and support.",
+      "firstAsk": "Would an independent deployment-evidence and exchange-reconciliation service qualify for the directory?",
+      "manualNextAction": "Prepare, but do not submit, a concise partner application with a redacted sample deliverable."
+    },
+    {
+      "rank": 4,
+      "organization": "Hummingbot Foundation",
+      "kind": "open-source-community-channel",
+      "priority": "tier-1",
+      "status": "permission-required",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 1,
+        "commercialAlignment": 2,
+        "currentActivity": 2,
+        "conflictPenalty": 0,
+        "total": 8
+      },
+      "officialRoute": {
+        "label": "Official community page and public Discord",
+        "url": "https://hummingbot.org/community/",
+        "rule": "Ask a moderator in an appropriate public channel; never direct-message members."
+      },
+      "evidence": [
+        {
+          "claim": "Hummingbot describes a global community of algorithmic-trading developers and traders, names Discord as its primary hub, and explicitly warns against direct messages.",
+          "url": "https://hummingbot.org/community/",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "A moderator-approved educational clinic could surface operators with a real pre-live decision.",
+      "likelyObjection": "Commercial promotion may not be welcome in a free open-source support community.",
+      "firstAsk": "May an educational pre-live evidence checklist be shared in an approved public channel with no member solicitation?",
+      "manualNextAction": "Read current community rules and prepare one moderator-permission request."
+    },
+    {
+      "rank": 5,
+      "organization": "Jesse",
+      "kind": "open-source-community-channel",
+      "priority": "tier-2",
+      "status": "permission-required",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 1,
+        "commercialAlignment": 2,
+        "currentActivity": 2,
+        "conflictPenalty": 0,
+        "total": 8
+      },
+      "officialRoute": {
+        "label": "Official documentation and community entry",
+        "url": "https://docs.jesse.trade/",
+        "rule": "Ask maintainers for permission before any promotional content."
+      },
+      "evidence": [
+        {
+          "claim": "Jesse documents self-hosted backtesting, live trading, exchange connectivity, risk management helpers, and an official community route.",
+          "url": "https://docs.jesse.trade/",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "Exchange-reconciled economics and operating-control review could complement native strategy metrics.",
+      "likelyObjection": "Jesse already provides backtesting, metrics, and risk-management helpers.",
+      "firstAsk": "Would maintainers permit one educational deployment-readiness session for operators considering live trading?",
+      "manualNextAction": "Review current community rules and prepare a no-pitch session outline."
+    },
+    {
+      "rank": 6,
+      "organization": "HaasOnline",
+      "kind": "enterprise-platform-channel",
+      "priority": "tier-2",
+      "status": "research-ready",
+      "score": {
+        "audienceFit": 2,
+        "organizationAccess": 2,
+        "commercialAlignment": 2,
+        "currentActivity": 2,
+        "conflictPenalty": 1,
+        "total": 7
+      },
+      "officialRoute": {
+        "label": "White-label partner page",
+        "url": "https://haasonline.com/partners/white-label",
+        "rule": "Use the enterprise partnership route and position the review as independent customer acceptance."
+      },
+      "evidence": [
+        {
+          "claim": "HaasOnline markets white-label automated trading to exchanges, platforms, wealth managers, and crypto projects through a formal partner route.",
+          "url": "https://haasonline.com/partners/white-label",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "Independent acceptance review may help enterprise customers validate their own strategy and operating configuration.",
+      "likelyObjection": "The platform already positions itself as enterprise-grade and compliance-ready.",
+      "firstAsk": "Would the partner team evaluate independent customer-deployment assurance as an optional implementation add-on?",
+      "manualNextAction": "Prepare a narrow complement-versus-overlap comparison before any contact."
+    },
+    {
+      "rank": 7,
+      "organization": "Freqtrade",
+      "kind": "open-source-community-channel",
+      "priority": "tier-2",
+      "status": "permission-required",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 1,
+        "commercialAlignment": 1,
+        "currentActivity": 2,
+        "conflictPenalty": 0,
+        "total": 7
+      },
+      "officialRoute": {
+        "label": "Official documentation and Discord support route",
+        "url": "https://docs.freqtrade.io/en/latest/",
+        "rule": "Ask maintainers first; never solicit members or request exchange keys."
+      },
+      "evidence": [
+        {
+          "claim": "Freqtrade documents dry-run and live trading, backtesting, optimization, exchange support, and its official Discord community.",
+          "url": "https://docs.freqtrade.io/en/latest/",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "A neutral evidence checklist could identify operators moving from dry-run to capital at risk.",
+      "likelyObjection": "Paid promotion is unlikely to belong in a volunteer support channel.",
+      "firstAsk": "May a neutral pre-live evidence checklist be shared once in an approved channel with no direct solicitation?",
+      "manualNextAction": "Read current rules and prepare one moderator-permission request."
+    },
+    {
+      "rank": 8,
+      "organization": "Superalgos",
+      "kind": "decentralized-community-channel",
+      "priority": "tier-2",
+      "status": "permission-required",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 1,
+        "commercialAlignment": 1,
+        "currentActivity": 1,
+        "conflictPenalty": 0,
+        "total": 6
+      },
+      "officialRoute": {
+        "label": "Official community resources",
+        "url": "https://superalgos.org/community-resources.shtml",
+        "rule": "Treat as a community channel; contract only with an identifiable operator."
+      },
+      "evidence": [
+        {
+          "claim": "Superalgos exposes official community routes for users of its open-source strategy design, testing, and deployment platform.",
+          "url": "https://superalgos.org/community-resources.shtml",
+          "checkedAt": "2026-08-17"
+        },
+        {
+          "claim": "Superalgos documentation says the project is governed by a decentralized contributor community rather than a legal entity.",
+          "url": "https://superalgos.org/Docs/Foundations/Concept/user-workspace.shtml",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "A moderator-approved clinic may reach decentralized trading teams that can contract individually.",
+      "likelyObjection": "There may be no central buyer or organization able to approve a commercial partnership.",
+      "firstAsk": "Would moderators welcome a no-pitch operational-readiness clinic for community operators?",
+      "manualNextAction": "Verify current community governance and rules before preparing a permission request."
+    },
+    {
+      "rank": 9,
+      "organization": "Enflux",
+      "kind": "adjacent-market-maker",
+      "priority": "watchlist",
+      "status": "overlap-review-required",
+      "score": {
+        "audienceFit": 3,
+        "organizationAccess": 2,
+        "commercialAlignment": 1,
+        "currentActivity": 2,
+        "conflictPenalty": 3,
+        "total": 5
+      },
+      "officialRoute": {
+        "label": "Market-making product and organization contact",
+        "url": "https://www.enflux.io/market-making",
+        "rule": "Approach only for a clearly independent, non-competing second-line review."
+      },
+      "evidence": [
+        {
+          "claim": "Enflux publicly describes 24/7 algorithmic market making, risk controls, execution telemetry, and audit-grade traceability.",
+          "url": "https://www.enflux.io/market-making",
+          "checkedAt": "2026-08-17"
+        }
+      ],
+      "hypothesis": "A narrow external second-line review could help only when independence is explicitly required.",
+      "likelyObjection": "Its in-house transparency, audit, and analytics positioning overlaps materially with Strategy Assurance.",
+      "firstAsk": "Is there a defined need for independent second-line validation that does not duplicate the firm's own analytics?",
+      "manualNextAction": "Keep on the watchlist unless an explicit independence trigger appears."
+    }
+  ]
+}

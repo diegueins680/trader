@@ -404,6 +404,66 @@ export type ApiBinanceTradesResponse = {
   fetchedAtMs: number;
 };
 
+export type RevenueBreakdown = {
+  realizedPnl: number;
+  funding: number;
+  commission: number;
+  rebates: number;
+  otherOperating: number;
+  exchangeNet: number;
+  excludedNonOperating: number;
+  unclassified: number;
+};
+
+export type RevenueExecution = {
+  trades: number;
+  makerTrades: number;
+  takerTrades: number;
+  unknownLiquidityTrades: number;
+  makerRate: number | null;
+  quoteNotional: number;
+};
+
+export type RevenueLedger = {
+  asset: string;
+  startAtMs: number;
+  endAtMs: number;
+  incomeRecords: number;
+  tradeRecords: number;
+  incomeMayBeTruncated: boolean;
+  tradesMayBeTruncated: boolean;
+  breakdown: RevenueBreakdown;
+  unrealizedPnl: number;
+  infrastructureCost: number;
+  netRevenue: number;
+  execution: RevenueExecution;
+  daily: Array<{ startAtMs: number; breakdown: RevenueBreakdown }>;
+  symbols: Array<{ symbol: string; breakdown: RevenueBreakdown; execution: RevenueExecution }>;
+  unclassifiedIncomeTypes: string[];
+};
+
+export type ApiBinanceRevenueRequest = {
+  market?: Market;
+  binanceTestnet?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  tenantKey?: string;
+  asset?: string;
+  startTimeMs?: number;
+  endTimeMs?: number;
+  incomeLimit?: number;
+  tradeLimit?: number;
+  infrastructureCost?: number;
+  includeUnrealized?: boolean;
+};
+
+export type ApiBinanceRevenueResponse = {
+  market: Market;
+  testnet: boolean;
+  fetchedAtMs: number;
+  ledger: RevenueLedger;
+};
+
 export type BacktestMetrics = {
   finalEquity: number;
   totalReturn: number;

@@ -7,6 +7,7 @@ module Trader.Binance (
     BinanceOrderMode (..),
     OrderSide (..),
     BinanceTrade (..),
+    FuturesIncome (..),
     Kline (..),
     Step (..),
     SymbolFilters (..),
@@ -49,6 +50,7 @@ module Trader.Binance (
     fetchFuturesAccountUid,
     fetchOrderByClientId,
     fetchAccountTrades,
+    fetchFuturesIncome,
     fetchFreeBalance,
     fetchFuturesAvailableBalance,
     fetchFuturesPositionAmt,
@@ -213,6 +215,15 @@ data BinanceTrade = BinanceTrade
     }
     deriving (Eq, Show)
 
+data FuturesIncome = FuturesIncome
+    { fiSymbol :: !String
+    , fiIncomeType :: !String
+    , fiIncome :: !Double
+    , fiAsset :: !String
+    , fiTime :: !Int64
+    }
+    deriving (Eq, Show)
+
 newtype BinanceServerTime = BinanceServerTime
     { bstServerTime :: Int64
     }
@@ -300,6 +311,22 @@ instance FromJSON BinanceTrade where
                 , btStrategy = strategy
                 , btDecisionSummary = decisionSummary
                 , btDecisionReason = decisionReason
+                }
+
+instance FromJSON FuturesIncome where
+    parseJSON = withObject "FuturesIncome" $ \o -> do
+        symbol <- fromMaybe "" <$> o AT..:? "symbol"
+        incomeType <- o .: "incomeType"
+        income <- parseDoubleField o "income"
+        asset <- o .: "asset"
+        incomeTime <- o .: "time"
+        pure
+            FuturesIncome
+                { fiSymbol = map toUpperAscii symbol
+                , fiIncomeType = map toUpperAscii incomeType
+                , fiIncome = income
+                , fiAsset = map toUpperAscii asset
+                , fiTime = incomeTime
                 }
 
 instance FromJSON BinanceServerTime where
@@ -1805,6 +1832,50 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
     case eitherDecode (responseBody resp) of
         Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
         Right trades -> pure trades
+
+fetchFuturesIncome :: BinanceEnv -> Maybe String -> Maybe String -> Maybe Int64 -> Maybe Int64 -> Maybe Int -> Maybe Int -> IO [FuturesIncome]
+fetchFuturesIncome env mSymbol mIncomeType mStartTime mEndTime mPage mLimit = do
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesIncome requires MarketFutures")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let optionalTextParam name normalizeValue raw =
+            case fmap (trim . normalizeValue) raw of
+                Just value | not (null value) -> [(name, BS.pack value)]
+                _ -> []
+        optionalTimeParam name raw =
+            case raw of
+                Nothing -> []
+                Just value -> [(name, BS.pack (show (max 0 value)))]
+        pageParam = maybe [] (\value -> [("page", BS.pack (show (max 1 value)))]) mPage
+        limitParam = maybe [] (\value -> [("limit", BS.pack (show (max 1 (min 1000 value))))]) mLimit
+        send ts = do
+            let params =
+                    optionalTextParam "symbol" (map toUpperAscii) mSymbol
+                        ++ optionalTextParam "incomeType" (map toUpperAscii) mIncomeType
+                        ++ optionalTimeParam "startTime" mStartTime
+                        ++ optionalTimeParam "endTime" mEndTime
+                        ++ pageParam
+                        ++ limitParam
+                        ++ [ ("timestamp", BS.pack (show ts))
+                           , ("recvWindow", binanceRecvWindowMs)
+                           ]
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/income")
+            let req =
+                    req0
+                        { method = "GET"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env "futures/income" req
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx "futures/income" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode futures/income: " ++ e))
+        Right rows -> pure rows
 
 newtype FuturesOpenOrder = FuturesOpenOrder
     { fooClientOrderId :: String

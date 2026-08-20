@@ -2933,16 +2933,16 @@ def _validate_runtime_paths(args: argparse.Namespace) -> Path:
         "supplied source campaign": Path(args.source_campaign_dir).resolve(),
         "supplied snapshot": Path(args.snapshot_dir).resolve(),
         "holdout registry": HOLDOUT_REGISTRY_DIR.resolve(),
-        "checkout registration directory": REGISTRATION_PATH.parent.resolve(),
         "shared registration directory": (
             C.SHARED_REPOSITORY_ROOT / "research-notes/registrations"
         ).resolve(),
-        "checkout research implementation": Path(__file__).resolve().parent,
+        "checkout registration directory": REGISTRATION_PATH.parent.resolve(),
         "shared research implementation": (
             C.SHARED_REPOSITORY_ROOT / "scripts/research"
         ).resolve(),
-        "checkout Git metadata": (C.REPOSITORY_ROOT / ".git").resolve(),
+        "checkout research implementation": Path(__file__).resolve().parent,
         "common Git metadata": C.GIT_COMMON_DIR.resolve(),
+        "checkout Git metadata": (C.REPOSITORY_ROOT / ".git").resolve(),
     }
     for label, path in protected.items():
         if _paths_overlap(output_dir, path):

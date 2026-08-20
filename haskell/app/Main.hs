@@ -201,6 +201,7 @@ import Trader.Binance (
     fetchCloses,
     fetchFreeBalance,
     fetchFuturesAvailableBalance,
+    fetchFuturesIncome,
     fetchFuturesMarkPrice,
     fetchFuturesOpenAlgoOrders,
     fetchFuturesPositionAmt,
@@ -503,6 +504,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToList,
  )
+import Trader.Revenue (RevenueLedger, buildRevenueLedger)
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig, sanitizeRoiScoreConfig)
 import Trader.S3 (
     S3State (..),
@@ -1883,6 +1885,36 @@ data ApiBinanceTradesResponse = ApiBinanceTradesResponse
     deriving (Eq, Show, Generic)
 
 instance ToJSON ApiBinanceTradesResponse where
+    toJSON = Aeson.genericToJSON (jsonOptions 4)
+
+data ApiBinanceRevenueRequest = ApiBinanceRevenueRequest
+    { abrrMarket :: !(Maybe String)
+    , abrrBinanceTestnet :: !(Maybe Bool)
+    , abrrBinanceApiKey :: !(Maybe String)
+    , abrrBinanceApiSecret :: !(Maybe String)
+    , abrrTenantKey :: !(Maybe String)
+    , abrrAsset :: !(Maybe String)
+    , abrrStartTimeMs :: !(Maybe Int64)
+    , abrrEndTimeMs :: !(Maybe Int64)
+    , abrrIncomeLimit :: !(Maybe Int)
+    , abrrTradeLimit :: !(Maybe Int)
+    , abrrInfrastructureCost :: !(Maybe Double)
+    , abrrIncludeUnrealized :: !(Maybe Bool)
+    }
+    deriving (Eq, Show, Generic)
+
+instance FromJSON ApiBinanceRevenueRequest where
+    parseJSON = Aeson.genericParseJSON (jsonOptions 4)
+
+data ApiBinanceRevenueResponse = ApiBinanceRevenueResponse
+    { abreMarket :: !String
+    , abreTestnet :: !Bool
+    , abreFetchedAtMs :: !Int64
+    , abreLedger :: !RevenueLedger
+    }
+    deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinanceRevenueResponse where
     toJSON = Aeson.genericToJSON (jsonOptions 4)
 
 data ApiBinancePositionsRequest = ApiBinancePositionsRequest
@@ -8711,6 +8743,10 @@ resolveTenantKeyFromListenKeyAction p =
 resolveTenantKeyFromBinanceTradesRequest :: ApiBinanceTradesRequest -> Either String (Maybe TenantKey)
 resolveTenantKeyFromBinanceTradesRequest p =
     resolveTenantKeyFromParams (abrTenantKey p) (abrBinanceApiKey p) (abrBinanceApiSecret p) Nothing Nothing Nothing
+
+resolveTenantKeyFromBinanceRevenueRequest :: ApiBinanceRevenueRequest -> Either String (Maybe TenantKey)
+resolveTenantKeyFromBinanceRevenueRequest p =
+    resolveTenantKeyFromParams (abrrTenantKey p) (abrrBinanceApiKey p) (abrrBinanceApiSecret p) Nothing Nothing Nothing
 
 resolveTenantKeyFromBinancePositionsRequest :: ApiBinancePositionsRequest -> Either String (Maybe TenantKey)
 resolveTenantKeyFromBinancePositionsRequest p =
@@ -18382,6 +18418,10 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                         case Wai.requestMethod req of
                                             "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
+                                    ["binance", "revenue"] ->
+                                        case Wai.requestMethod req of
+                                            "POST" -> handleBinanceRevenue reqLimits mOps baseArgs req respondCors
+                                            _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["binance", "proxy", "health"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> handleBinanceProxyHealth respondCors
@@ -23337,6 +23377,111 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                             respond (jsonError status504 (binanceTradesTimeoutMessage tradesTimeoutSec))
                                                         Right (Just payload) ->
                                                             respond (jsonValue status200 payload)
+
+handleBinanceRevenue :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceRevenue reqLimits mOps baseArgs req respond = do
+    if argPlatform baseArgs /= PlatformBinance
+        then respond (jsonError status400 ("Binance revenue requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+        else do
+            payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+            case payloadOrErr of
+                Left response -> respond response
+                Right params ->
+                    case resolveTenantKeyFromBinanceRevenueRequest params of
+                        Left err -> respond (jsonError status400 err)
+                        Right _ ->
+                            case parseMarketForListenKey baseArgs (abrrMarket params) of
+                                Left err -> respond (jsonError status400 err)
+                                Right market
+                                    | market /= MarketFutures ->
+                                        respond (jsonError status400 "Binance revenue currently supports the futures market only.")
+                                    | otherwise -> do
+                                        now <- getTimestampMs
+                                        let dayMs = 86400000
+                                            maxWindowMs = 90 * dayMs
+                                            endAtMs = fromMaybe now (abrrEndTimeMs params)
+                                            startAtMs = fromMaybe (max 0 (endAtMs - 7 * dayMs + 1)) (abrrStartTimeMs params)
+                                            asset = map toUpper (trim (fromMaybe "USDT" (abrrAsset params)))
+                                            incomeLimit = fromMaybe 1000 (abrrIncomeLimit params)
+                                            tradeLimit = fromMaybe 1000 (abrrTradeLimit params)
+                                            infrastructureCost = fromMaybe 0 (abrrInfrastructureCost params)
+                                            includeUnrealized = fromMaybe False (abrrIncludeUnrealized params)
+                                            tradeWindows =
+                                                let go cursor
+                                                        | cursor > endAtMs = []
+                                                        | otherwise =
+                                                            let windowEnd = cursor + min (endAtMs - cursor) (7 * dayMs - 1)
+                                                             in (cursor, windowEnd)
+                                                                    : if windowEnd >= endAtMs
+                                                                        then []
+                                                                        else go (windowEnd + 1)
+                                                 in go startAtMs
+                                            validationError
+                                                | null asset || not (all isAlphaNum asset) = Just "asset must contain only letters and digits"
+                                                | startAtMs < 0 || endAtMs < 0 = Just "startTimeMs and endTimeMs must be non-negative"
+                                                | endAtMs < startAtMs = Just "endTimeMs must be greater than or equal to startTimeMs"
+                                                | endAtMs - startAtMs > maxWindowMs = Just "revenue range cannot exceed 90 days"
+                                                | incomeLimit < 1 || incomeLimit > 1000 = Just "incomeLimit must be between 1 and 1000"
+                                                | tradeLimit < 1 || tradeLimit > 1000 = Just "tradeLimit must be between 1 and 1000"
+                                                | infrastructureCost < 0 || isNaN infrastructureCost || isInfinite infrastructureCost = Just "infrastructureCost must be a finite non-negative number"
+                                                | otherwise = Nothing
+                                        case validationError of
+                                            Just err -> respond (jsonError status400 err)
+                                            Nothing -> do
+                                                let testnet = resolveTestnetForListenKey baseArgs (abrrBinanceTestnet params)
+                                                apiKey <- resolveEnv "BINANCE_API_KEY" (abrrBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                                                apiSecret <- resolveEnv "BINANCE_API_SECRET" (abrrBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                                                urls <- resolveBinanceBaseUrls
+                                                let baseUrl = selectBinanceBaseUrl urls testnet market
+                                                env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                                                let revenueTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
+                                                result <-
+                                                    try
+                                                        ( timeout
+                                                            (revenueTimeoutSec * 1000000)
+                                                            ( do
+                                                                incomes <- fetchFuturesIncome env Nothing Nothing (Just startAtMs) (Just endAtMs) (Just 1) (Just incomeLimit)
+                                                                tradePages <-
+                                                                    forM
+                                                                        tradeWindows
+                                                                        ( \(windowStart, windowEnd) ->
+                                                                            fetchAccountTrades env Nothing (Just tradeLimit) (Just windowStart) (Just windowEnd) Nothing
+                                                                        )
+                                                                let trades = concat tradePages
+                                                                    incomeMayBeTruncated = length incomes >= incomeLimit
+                                                                    tradesMayBeTruncated = any ((>= tradeLimit) . length) tradePages
+                                                                positions <-
+                                                                    if includeUnrealized
+                                                                        then fetchFuturesPositionRisks env
+                                                                        else pure []
+                                                                fetchedAtMs <- getTimestampMs
+                                                                pure
+                                                                    ApiBinanceRevenueResponse
+                                                                        { abreMarket = marketCode market
+                                                                        , abreTestnet = testnet
+                                                                        , abreFetchedAtMs = fetchedAtMs
+                                                                        , abreLedger =
+                                                                            buildRevenueLedger
+                                                                                asset
+                                                                                startAtMs
+                                                                                endAtMs
+                                                                                incomeMayBeTruncated
+                                                                                tradesMayBeTruncated
+                                                                                infrastructureCost
+                                                                                incomes
+                                                                                positions
+                                                                                trades
+                                                                        }
+                                                            )
+                                                        )
+                                                case result of
+                                                    Left ex ->
+                                                        let (status, message) = exceptionToHttp ex
+                                                         in respond (jsonError status message)
+                                                    Right Nothing ->
+                                                        respond (jsonError status504 ("Binance revenue request timed out after " ++ show revenueTimeoutSec ++ "s."))
+                                                    Right (Just response) ->
+                                                        respond (jsonValue status200 response)
 
 computeBinancePositionsResponse :: Maybe (RequestProgressStore, String) -> Maybe OpsStore -> Args -> BinanceMarket -> Bool -> ApiBinancePositionsRequest -> Int -> IO ApiBinancePositionsResponse
 computeBinancePositionsResponse mTracker mOps baseArgs market testnet params positionsTimeoutSec = do

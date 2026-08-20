@@ -3,6 +3,7 @@ import type {
   ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
+  ApiBinanceRevenueRequest,
   ApiRequestProgressStatus,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
@@ -42,6 +43,7 @@ import {
   backtest,
   binanceClosePosition,
   binancePositions,
+  binanceRevenue,
   binanceTrades,
   binanceKeysStatus,
   binanceListenKey,
@@ -70,6 +72,7 @@ import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BinanceTradesPanel } from "./components/BinanceTradesPanel";
+import { BinanceRevenuePanel } from "./components/BinanceRevenuePanel";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { ConfigDock, type ConfigDockProps } from "./components/ConfigDock";
 import { DataLogPanel } from "./components/DataLogPanel";
@@ -293,6 +296,7 @@ import {
   type BinancePnlAnalysis,
   type BinancePnlRow,
   type BinancePositionsUiState,
+  type BinanceRevenueUiState,
   type BinanceTradesUiState,
   type BotOrderOp,
   type BotRtEvent,
@@ -380,7 +384,7 @@ const OUTPUT_PAGE_LABELS: Record<OutputPageId, string> = {
   "page-error": "Error",
   "page-overview": "Overview",
   "page-live-bot": "Live bot",
-  "page-binance-trades": "Binance trades",
+  "page-binance-trades": "Revenue & trades",
   "page-latest-signal": "Latest signal",
   "page-positions": "Positions",
   "page-orphaned-operations": "Orphaned ops",
@@ -1719,6 +1723,16 @@ export function App() {
     error: null,
     response: null,
   });
+  const [binanceRevenueUi, setBinanceRevenueUi] = useState<BinanceRevenueUiState>({
+    loading: false,
+    error: null,
+    response: null,
+  });
+  const [binanceRevenueAsset, setBinanceRevenueAsset] = useState("USDT");
+  const [binanceRevenueStartInput, setBinanceRevenueStartInput] = useState("");
+  const [binanceRevenueEndInput, setBinanceRevenueEndInput] = useState("");
+  const [binanceRevenueInfrastructureCost, setBinanceRevenueInfrastructureCost] = useState(0);
+  const [binanceRevenueIncludeUnrealized, setBinanceRevenueIncludeUnrealized] = useState(false);
   const [binanceTradesSymbolsInput, setBinanceTradesSymbolsInput] = useState(() => form.binanceSymbol.trim());
   const [binanceTradesLimit, setBinanceTradesLimit] = useState(200);
   const [binanceTradesStartInput, setBinanceTradesStartInput] = useState("");
@@ -2155,6 +2169,7 @@ export function App() {
   const botOrderOpsAbortRef = useRef<AbortController | null>(null);
   const topCombosAbortRef = useRef<AbortController | null>(null);
   const binanceTradesAbortRef = useRef<AbortController | null>(null);
+  const binanceRevenueAbortRef = useRef<AbortController | null>(null);
   const binancePositionsAbortRef = useRef<AbortController | null>(null);
   const binancePositionTradesAbortRef = useRef<AbortController | null>(null);
   const botStatusOpsInFlightRef = useRef(false);
@@ -3618,6 +3633,7 @@ export function App() {
       abortRef.current?.abort();
       botAbortRef.current?.abort();
       keysAbortRef.current?.abort();
+      binanceRevenueAbortRef.current?.abort();
       listenKeyStreamAbortRef.current?.abort();
       listenKeyStreamAbortRef.current = null;
     };
@@ -6369,6 +6385,48 @@ export function App() {
     ],
   );
 
+  const binanceRevenueStartMs = useMemo(
+    () => parseTimeInputMs(binanceRevenueStartInput),
+    [binanceRevenueStartInput],
+  );
+  const binanceRevenueEndMs = useMemo(
+    () => parseDateRangeEndMs(binanceRevenueEndInput),
+    [binanceRevenueEndInput],
+  );
+  const binanceRevenueInputError = useMemo(
+    () =>
+      firstReason(
+        !isBinancePlatform ? "Binance revenue requires platform=binance." : null,
+        form.market !== "futures" ? "Exchange-reconciled revenue is supported for futures only." : null,
+        binancePrivateKeysIssue,
+        !/^[A-Za-z0-9]+$/.test(binanceRevenueAsset.trim()) ? "Settlement asset must contain only letters and digits." : null,
+        binanceRevenueStartInput.trim() && binanceRevenueStartMs === null ? "Start date must be valid." : null,
+        binanceRevenueEndInput.trim() && binanceRevenueEndMs === null ? "End date must be valid." : null,
+        binanceRevenueStartMs !== null && binanceRevenueEndMs !== null && binanceRevenueEndMs < binanceRevenueStartMs
+          ? "End date must be after start date."
+          : null,
+        binanceRevenueStartMs !== null &&
+          binanceRevenueEndMs !== null &&
+          binanceRevenueEndMs - binanceRevenueStartMs > 90 * 24 * 60 * 60 * 1000
+          ? "Revenue range cannot exceed 90 days."
+          : null,
+        !Number.isFinite(binanceRevenueInfrastructureCost) || binanceRevenueInfrastructureCost < 0
+          ? "Infrastructure cost must be a non-negative number."
+          : null,
+      ),
+    [
+      binancePrivateKeysIssue,
+      binanceRevenueAsset,
+      binanceRevenueEndInput,
+      binanceRevenueEndMs,
+      binanceRevenueInfrastructureCost,
+      binanceRevenueStartInput,
+      binanceRevenueStartMs,
+      form.market,
+      isBinancePlatform,
+    ],
+  );
+
   const binancePositionsBarsError = useMemo(() => {
     if (!Number.isFinite(binancePositionsBars)) return "Chart bars must be a number.";
     if (binancePositionsBars <= 0) return "Chart bars must be greater than zero.";
@@ -6438,6 +6496,58 @@ export function App() {
     form.binanceTestnet,
     form.interval,
     form.market,
+    withBinanceKeys,
+  ]);
+
+  const fetchBinanceRevenue = useCallback(async () => {
+    binanceRevenueAbortRef.current?.abort();
+    const controller = new AbortController();
+    binanceRevenueAbortRef.current = controller;
+    setBinanceRevenueUi((current) => ({ ...current, loading: true, error: null }));
+    if (binanceRevenueInputError) {
+      setBinanceRevenueUi((current) => ({ ...current, loading: false, error: binanceRevenueInputError }));
+      binanceRevenueAbortRef.current = null;
+      return;
+    }
+    try {
+      const params: ApiBinanceRevenueRequest = {
+        market: form.market,
+        binanceTestnet: form.binanceTestnet,
+        asset: binanceRevenueAsset.trim().toUpperCase(),
+        incomeLimit: 1000,
+        tradeLimit: 1000,
+        infrastructureCost: binanceRevenueInfrastructureCost,
+        includeUnrealized: binanceRevenueIncludeUnrealized,
+        ...(binanceRevenueStartMs !== null ? { startTimeMs: binanceRevenueStartMs } : {}),
+        ...(binanceRevenueEndMs !== null ? { endTimeMs: binanceRevenueEndMs } : {}),
+      };
+      const out = await binanceRevenue(apiBase, withBinanceKeys(params), {
+        headers: authHeaders,
+        timeoutMs: BINANCE_TRADES_TIMEOUT_MS,
+        signal: controller.signal,
+      });
+      setBinanceRevenueUi({ loading: false, error: null, response: out });
+      appendDataLog("Binance Revenue Response", out);
+      showToast("Revenue reconciled");
+    } catch (error) {
+      if (isAbortError(error)) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setBinanceRevenueUi((current) => ({ ...current, loading: false, error: message }));
+    } finally {
+      if (binanceRevenueAbortRef.current === controller) binanceRevenueAbortRef.current = null;
+    }
+  }, [
+    apiBase,
+    authHeaders,
+    binanceRevenueAsset,
+    binanceRevenueEndMs,
+    binanceRevenueIncludeUnrealized,
+    binanceRevenueInfrastructureCost,
+    binanceRevenueInputError,
+    binanceRevenueStartMs,
+    form.binanceTestnet,
+    form.market,
+    showToast,
     withBinanceKeys,
   ]);
 
@@ -10230,9 +10340,26 @@ export function App() {
             onToggle={handlePanelToggle("panel-binance-trades")}
             maximized={isPanelMaximized("panel-binance-trades")}
             onToggleMaximize={() => togglePanelMaximize("panel-binance-trades")}
-            title="Binance account trades"
-            subtitle="Full exchange history from your Binance account (API keys required)."
+            title="Binance revenue & account trades"
+            subtitle="Exchange-reconciled revenue and execution history from your Binance account (API keys required)."
           >
+            <BinanceRevenuePanel
+              asset={binanceRevenueAsset}
+              setAsset={setBinanceRevenueAsset}
+              startInput={binanceRevenueStartInput}
+              setStartInput={setBinanceRevenueStartInput}
+              endInput={binanceRevenueEndInput}
+              setEndInput={setBinanceRevenueEndInput}
+              infrastructureCost={binanceRevenueInfrastructureCost}
+              setInfrastructureCost={setBinanceRevenueInfrastructureCost}
+              includeUnrealized={binanceRevenueIncludeUnrealized}
+              setIncludeUnrealized={setBinanceRevenueIncludeUnrealized}
+              state={binanceRevenueUi}
+              inputError={binanceRevenueInputError}
+              fetchRevenue={fetchBinanceRevenue}
+              showToast={showToast}
+            />
+            <div style={{ borderTop: "1px solid var(--stroke)", margin: "18px 0" }} />
             <BinanceTradesPanel
               binanceTradesSymbolsInput={binanceTradesSymbolsInput}
               setBinanceTradesSymbolsInput={setBinanceTradesSymbolsInput}

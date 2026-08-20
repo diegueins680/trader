@@ -88,6 +88,7 @@ expectedEndpointPairs =
     , ("POST", "/backtest/async/:jobId/cancel")
     , ("GET", "/request-progress/:requestId")
     , ("POST", "/binance/keys")
+    , ("POST", "/binance/revenue")
     , ("POST", "/binance/trades")
     , ("GET", "/binance/positions")
     , ("POST", "/binance/positions")

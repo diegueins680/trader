@@ -264,6 +264,7 @@ test(
       const environment = {
         ...process.env,
         HOME: home,
+        TRADER_RESEARCH_LAUNCHD_LABEL: `test.trader.research-datafeed.${process.pid}`,
         TRADER_RESEARCH_CACHE: cache,
         TRADER_RESEARCH_SYMBOLS: "BTCUSDT ETHUSDT",
         TRADER_RESEARCH_COLLECT_MINUTE: "10",

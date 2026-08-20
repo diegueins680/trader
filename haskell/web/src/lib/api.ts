@@ -3,6 +3,8 @@ import type {
   ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
+  ApiBinanceRevenueRequest,
+  ApiBinanceRevenueResponse,
   ApiRequestProgressStatus,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
@@ -1532,6 +1534,23 @@ export async function binanceTrades(
   return fetchJson<ApiBinanceTradesResponse>(
     baseUrl,
     "/binance/trades",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function binanceRevenue(
+  baseUrl: string,
+  params: ApiBinanceRevenueRequest,
+  opts?: FetchJsonOptions,
+): Promise<ApiBinanceRevenueResponse> {
+  return fetchJson<ApiBinanceRevenueResponse>(
+    baseUrl,
+    "/binance/revenue",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "reportType": "strategy-assurance-findings",
+  "reportId": "SA-[CLIENT]-[YYYYMMDD]",
+  "review": {
+    "client": "[CLIENT]",
+    "strategy": "[STRATEGY]",
+    "deployment": "[DEPLOYMENT]",
+    "reviewedCommit": "[COMMIT]",
+    "exchangeAccountLabel": "[NON-SECRET LABEL]",
+    "periodStart": "[ISO-8601]",
+    "periodEnd": "[ISO-8601]",
+    "conclusion": "operate-with-restrictions"
+  },
+  "evidence": [
+    {
+      "path": "[RELATIVE ARTIFACT PATH]",
+      "sha256": "[LOWERCASE SHA-256]",
+      "purpose": "[PURPOSE]",
+      "limitations": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "SA-001",
+      "severity": "RED",
+      "area": "revenue",
+      "title": "[SHORT TITLE]",
+      "condition": "[OBSERVED CONDITION]",
+      "impact": "[PLAUSIBLE CONSEQUENCE]",
+      "recommendation": "[CONCRETE ACTION]",
+      "evidenceRefs": ["[RELATIVE ARTIFACT PATH]"],
+      "owner": "[OWNER]",
+      "targetDate": "[YYYY-MM-DD]",
+      "disposition": "open",
+      "verification": "[CLOSURE EVIDENCE]"
+    }
+  ],
+  "limitations": ["[LIMITATION]"],
+  "generatedAt": "[ISO-8601]"
+}

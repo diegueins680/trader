@@ -102,19 +102,20 @@
     },
     {
       "id": "H-VENUES",
-      "title": "Exchange adapters, candles, signing, pagination, positions, and fills",
-      "features": ["Binance market data", "Binance order execution", "Coinbase data and orders", "Kraken data", "Poloniex data", "DEX quoting", "trade maximum-PNL analysis"],
+      "title": "Exchange adapters, candles, signing, pagination, positions, fills, and revenue",
+      "features": ["Binance market data", "Binance order execution", "Binance revenue accounting", "Coinbase data and orders", "Kraken data", "Poloniex data", "DEX quoting", "trade maximum-PNL analysis"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/Binance.hs", "haskell/app/Trader/BinanceTradeAnalysis.hs", "haskell/app/Trader/Coinbase.hs", "haskell/app/Trader/Kraken.hs", "haskell/app/Trader/Poloniex.hs", "haskell/app/Trader/Dex.hs"],
+      "implementation": ["haskell/app/Trader/Binance.hs", "haskell/app/Trader/BinanceTradeAnalysis.hs", "haskell/app/Trader/Revenue.hs", "haskell/app/Trader/Coinbase.hs", "haskell/app/Trader/Kraken.hs", "haskell/app/Trader/Poloniex.hs", "haskell/app/Trader/Dex.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-SECRET", "G-ACCOUNT", "G-CAUSAL"],
       "dependsOn": ["H-MARKET-DATA", "H-EXECUTION"],
       "requires": [{ "id": "H-VENUES-R1", "statement": "Signed private requests require explicit credentials, canonical parameters, bounded clock skew, venue-valid symbol/filter/quantity, and a live-trading authorization witness." }],
-      "ensures": [{ "id": "H-VENUES-E1", "statement": "Decoded candles satisfy H-MARKET-DATA; order responses preserve sent/status/requested/executed evidence without promoting acceptance to a fill." }],
-      "invariants": [{ "id": "H-VENUES-I1", "statement": "Pagination ranges are ordered and non-overflowing; secrets are redacted; every fill applied to state is denominated and bounded by the requested intent." }],
-      "failures": [{ "id": "H-VENUES-F1", "statement": "Transport, decode, rate-limit, filter, signing, or ambiguous-fill failure cannot create a fill or fresh position." }],
+      "ensures": [{ "id": "H-VENUES-E1", "statement": "Decoded candles satisfy H-MARKET-DATA; order responses preserve sent/status/requested/executed evidence without promoting acceptance to a fill; futures revenue preserves separate realized, funding, signed commission, rebate, operating, non-operating, unrealized, and infrastructure-cost evidence." }],
+      "invariants": [{ "id": "H-VENUES-I1", "statement": "Pagination ranges are ordered and non-overflowing; secrets are redacted; every fill applied to state is denominated and bounded by the requested intent; exchange income is the revenue authority, fill-level realized P&L is not counted again, non-operating and unknown income cannot increase net revenue, and non-finite inputs cannot enter totals." }],
+      "failures": [{ "id": "H-VENUES-F1", "statement": "Transport, decode, rate-limit, filter, signing, ambiguous-fill, truncated-accounting, or unclassified-income evidence cannot create a fill, fresh position, or silently complete revenue claim." }],
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testCoinbaseBuildRangesOverflowRegression" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testBinanceExceptionSummaryRedactsSecrets" }
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testBinanceExceptionSummaryRedactsSecrets" },
+        { "level": "regression", "path": "haskell/test/Trader/Test/Revenue.hs", "contains": "exchange income is authoritative" }
       ]
     },
     {
@@ -463,16 +464,19 @@
     {
       "id": "W-PRESENTATION",
       "title": "Web optimizer, combos, charts, telemetry, performance, and navigation presentation",
-      "features": ["optimizer panel", "top combos", "backtest chart", "bot state chart", "line chart", "prediction diff", "telemetry chart", "performance panel", "data log panel", "configuration dock", "pagination"],
+      "features": ["optimizer panel", "top combos", "backtest chart", "bot state chart", "line chart", "prediction diff", "telemetry chart", "performance panel", "revenue assurance reports", "data log panel", "configuration dock", "pagination"],
       "criticality": "presentation",
-      "implementation": ["haskell/web/src/components/**"],
+      "implementation": ["haskell/web/src/components/**", "haskell/web/src/app/revenueReport.ts"],
       "uses": ["G-FINITE", "G-DETERMINISTIC"],
       "dependsOn": ["W-ORCHESTRATION"],
       "requires": [{ "id": "W-PRESENTATION-R1", "statement": "Displayed series have finite values or explicit gaps, declared units, stable identity, and aligned indices/timestamps." }],
       "ensures": [{ "id": "W-PRESENTATION-E1", "statement": "Downsampling preserves endpoints/order, ranking reflects backend tier/score, and UI labels distinguish gross/net/estimated/actual evidence." }],
-      "invariants": [{ "id": "W-PRESENTATION-I1", "statement": "Rendering, sorting, filtering, or pagination cannot mutate trading state or misrepresent missing evidence as zero." }],
+      "invariants": [{ "id": "W-PRESENTATION-I1", "statement": "Rendering, sorting, filtering, pagination, or report export cannot mutate trading state or misrepresent missing evidence as zero; revenue exports preserve exchange-accounting fields and explicitly mark truncation or unclassified income as review-required evidence." }],
       "failures": [{ "id": "W-PRESENTATION-F1", "statement": "Malformed/non-finite rows are rejected or rendered as unavailable and never converted into a default deployable combo." }],
-      "evidence": [{ "level": "static", "path": "scripts/verify.sh", "contains": "npm --workspaces=false run build" }]
+      "evidence": [
+        { "level": "static", "path": "scripts/verify.sh", "contains": "npm --workspaces=false run build" },
+        { "level": "regression", "path": "haskell/web/test/revenueReport.test.mjs", "contains": "preserves accounting authority" }
+      ]
     },
     {
       "id": "W-BOOTSTRAP",
@@ -487,6 +491,43 @@
       "invariants": [{ "id": "W-BOOTSTRAP-I1", "statement": "Changing TRADER_API_ORIGIN changes URL, Host, and TLS SNI coherently; production build is reproducible from the lockfile." }],
       "failures": [{ "id": "W-BOOTSTRAP-F1", "statement": "Invalid runtime origin/config fails container startup or disables fallback rather than proxying to a hidden hardcoded host." }],
       "evidence": [{ "level": "integration", "path": "scripts/verify.sh", "contains": "verify_web" }]
+    },
+    {
+      "id": "A-COMMERCIAL",
+      "title": "Strategy Assurance commercial package generation",
+      "features": ["validated prospect scope", "bounded organization outreach preparation", "proposal generation", "evidence request", "outreach copy", "pro-forma payment request", "versioned engagement record", "commercial lifecycle registry", "funnel and recurring-revenue summary", "monitoring renewal offer"],
+      "criticality": "operational",
+      "implementation": ["scripts/generate-strategy-assurance-kit.mjs", "scripts/generate-strategy-assurance-outreach.mjs", "scripts/strategy-assurance-pipeline.mjs", "scripts/generate-strategy-assurance-renewal.mjs"],
+      "uses": ["G-SECRET", "G-DETERMINISTIC", "G-BOUNDED", "G-IDEMPOTENT"],
+      "dependsOn": ["W-PRESENTATION"],
+      "requires": [
+        { "id": "A-COMMERCIAL-R1", "statement": "Client, provider, decision owner, strategy, and deployment are explicit single-line values; dates are real ISO calendar dates; price, validity, and turnaround values are finite positive bounded numbers." },
+        { "id": "A-COMMERCIAL-R2", "statement": "A pipeline import carries the generated stable engagement identity and schema; a lifecycle mutation names an existing engagement, an allowed immediate successor status, and a date not earlier than that engagement's latest event; paid/refunded events carry finite positive USD cash amounts and delivered events carry finite positive delivery hours." },
+        { "id": "A-COMMERCIAL-R3", "statement": "A monitoring renewal offer names an existing delivered engagement, a proposed start not earlier than the offer date, and bounded positive initial monthly cycles; its source pipeline and output location are explicit local paths." },
+        { "id": "A-COMMERCIAL-R4", "statement": "Outreach preparation names a provider, human sender, real campaign date, and one through three unique organizations from a validated dated queue; watchlist inclusion requires an explicit opt-in and the queue and checklist are explicit local paths." }
+      ],
+      "ensures": [
+        { "id": "A-COMMERCIAL-E1", "statement": "Fixed validated input produces one tailored proposal, evidence request, outreach document, and schema-versioned engagement record with coherent scope, dates, pricing, and access restrictions." },
+        { "id": "A-COMMERCIAL-E2", "statement": "The local pipeline preserves dated lifecycle and event evidence and emits a versioned summary with exact funnel, expiry, next-action, contract-value, gross/refunded/net-cash, delivered-cash, delivery-hour, realized hourly-rate, and contracted recurring-revenue aggregates as of an explicit date." },
+        { "id": "A-COMMERCIAL-E3", "statement": "A delivered engagement produces one Markdown and one schema-versioned monitoring offer whose parent identity, scope, dates, monthly price, initial cycles, and total contract value reconcile exactly." },
+        { "id": "A-COMMERCIAL-E4", "statement": "Each selected queue organization produces a human-review-required initial draft, a single follow-up dated no earlier than five business days later, a source-and-route snapshot, exact content hashes, null manual outcomes, and a campaign copy of the pre-live checklist." }
+      ],
+      "invariants": [
+        { "id": "A-COMMERCIAL-I1", "statement": "Commercial generation and tracking perform no network request, accept no credential value, never claim investment performance, cannot replace an existing package unless force is explicit, and never send a message, submit a form, join a community, collect member data, claim an affiliation, or perform an external sales, signature, invoice, charge, or billing action; pro-forma payment artifacts remain explicitly distinct from tax invoices and receipts." },
+        { "id": "A-COMMERCIAL-I2", "statement": "Identical imports are idempotent; pipeline events move only through declared forward transitions; status alone cannot synthesize collected cash or delivery hours; total refunds cannot exceed recorded paid cash; cancelled and refunded engagements cannot remain counted as current booked review revenue." }
+      ],
+      "failures": [
+        { "id": "A-COMMERCIAL-F1", "statement": "Invalid input or a pre-existing output directory without force fails before writing; a file-system failure returns non-success and never performs an external sales or billing action." },
+        { "id": "A-COMMERCIAL-F2", "statement": "Malformed, colliding, unknown, backward, skipped, backdated, missing cash/hour evidence, or over-refund pipeline input fails explicitly and does not replace the prior registry." },
+        { "id": "A-COMMERCIAL-F3", "statement": "Unknown or non-delivered renewal scope, invalid dates/cycles, or an existing renewal directory without force fails explicitly and cannot mutate the pipeline or perform an external action." },
+        { "id": "A-COMMERCIAL-F4", "statement": "Malformed queue evidence, duplicate or unknown outreach organizations, excessive campaign size, an unacknowledged watchlist entry, or force against a different campaign identity fails explicitly before replacing generated content and cannot perform an external action." }
+      ],
+      "evidence": [
+        { "level": "regression", "path": "test/strategy-assurance-kit.test.mjs", "contains": "preserves the credential boundary" },
+        { "level": "regression", "path": "test/strategy-assurance-pipeline.test.mjs", "contains": "exact funnel, revenue, expirations, and next actions" },
+        { "level": "regression", "path": "test/strategy-assurance-renewal.test.mjs", "contains": "without mutating lifecycle state" },
+        { "level": "regression", "path": "test/strategy-assurance-outreach.test.mjs", "contains": "produces review-only drafts" }
+      ]
     },
     {
       "id": "A-AUTOLOOP",

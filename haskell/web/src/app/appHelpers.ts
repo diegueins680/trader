@@ -1,6 +1,7 @@
 import type {
   ApiParams,
   ApiBinancePositionsResponse,
+  ApiBinanceRevenueResponse,
   ApiBinanceTradesResponse,
   ApiTradeResponse,
   BacktestResponse,
@@ -1918,6 +1919,12 @@ export type BinanceTradesUiState = {
   loading: boolean;
   error: string | null;
   response: ApiBinanceTradesResponse | null;
+};
+
+export type BinanceRevenueUiState = {
+  loading: boolean;
+  error: string | null;
+  response: ApiBinanceRevenueResponse | null;
 };
 
 export type BinancePositionsUiState = {

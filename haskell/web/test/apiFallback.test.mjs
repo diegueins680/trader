@@ -699,6 +699,80 @@ test("api client sends Binance trades includeMaxPnl flag in JSON body with tenan
   ]);
 });
 
+test("api client sends Binance revenue accounting inputs in JSON body with tenant header", async () => {
+  const calls = [];
+  const bodies = [];
+  const tenantHeaders = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      calls.push(String(url));
+      bodies.push(JSON.parse(String(init.body)));
+      tenantHeaders.push(new Headers(init.headers).get("X-Tenant-Key"));
+      return jsonResponse(200, {
+        market: "futures",
+        testnet: false,
+        fetchedAtMs: 2,
+        ledger: {
+          asset: "USDT",
+          startAtMs: 1,
+          endAtMs: 2,
+          incomeRecords: 0,
+          tradeRecords: 0,
+          incomeMayBeTruncated: false,
+          tradesMayBeTruncated: false,
+          breakdown: {},
+          unrealizedPnl: 0,
+          infrastructureCost: 25,
+          netRevenue: -25,
+          execution: {},
+          daily: [],
+          symbols: [],
+          unclassifiedIncomeTypes: [],
+        },
+      });
+    },
+    async (api) => {
+      const out = await api.binanceRevenue(
+        "/api",
+        {
+          market: "futures",
+          tenantKey: "tenant-revenue",
+          asset: "USDT",
+          startTimeMs: 1,
+          endTimeMs: 2,
+          incomeLimit: 1000,
+          tradeLimit: 1000,
+          infrastructureCost: 25,
+          includeUnrealized: false,
+        },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(out.ledger.netRevenue, -25);
+    },
+  );
+  assert.deepEqual(calls, ["/api/binance/revenue"]);
+  assert.deepEqual(tenantHeaders, ["tenant-revenue"]);
+  assert.deepEqual(bodies, [
+    {
+      market: "futures",
+      tenantKey: "tenant-revenue",
+      asset: "USDT",
+      startTimeMs: 1,
+      endTimeMs: 2,
+      incomeLimit: 1000,
+      tradeLimit: 1000,
+      infrastructureCost: 25,
+      includeUnrealized: false,
+    },
+  ]);
+});
+
 test("api client omits fractional and unsafe integer query params instead of truncating them", async () => {
   const calls = [];
   const tenantHeaders = [];

@@ -40,6 +40,7 @@ apiEndpointDocs =
     , endpoint "POST" "/backtest/async/:jobId/cancel"
     , endpoint "GET" "/request-progress/:requestId"
     , endpoint "POST" "/binance/keys"
+    , endpoint "POST" "/binance/revenue"
     , endpoint "POST" "/binance/trades"
     , endpoint "GET" "/binance/positions"
     , endpoint "POST" "/binance/positions"

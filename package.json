@@ -5,6 +5,10 @@
     "haskell/web"
   ],
   "scripts": {
+    "assurance:kit": "node scripts/generate-strategy-assurance-kit.mjs",
+    "assurance:outreach": "node scripts/generate-strategy-assurance-outreach.mjs",
+    "assurance:pipeline": "node scripts/strategy-assurance-pipeline.mjs",
+    "assurance:renewal": "node scripts/generate-strategy-assurance-renewal.mjs",
     "autoloop": "node scripts/autoloop.mjs",
     "build": "npm run build:haskell && npm run build:web",
     "build:haskell": "cd haskell && CABAL_DIR=$(cd .. && pwd)/.cabal cabal build",

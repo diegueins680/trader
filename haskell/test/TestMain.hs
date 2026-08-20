@@ -298,6 +298,7 @@ import Trader.Test.FormalVerification (formalVerificationSuite)
 import Trader.Test.GracefulShutdown (gracefulShutdownSuite)
 import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
+import Trader.Test.Revenue (revenueSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.ThresholdCalibration (
     CalibrationMethod (..),
@@ -691,6 +692,7 @@ main = do
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
+    runSuite "revenue" revenueSuite
 
 runSuite :: String -> [(String, IO ())] -> IO ()
 runSuite label cases =
