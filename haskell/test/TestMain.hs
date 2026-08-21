@@ -296,6 +296,7 @@ import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
 import Trader.Test.FormalVerification (formalVerificationSuite)
 import Trader.Test.GracefulShutdown (gracefulShutdownSuite)
+import Trader.Test.MarketRisk (marketRiskSuite)
 import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
 import Trader.Test.Revenue (revenueSuite)
@@ -689,6 +690,7 @@ main = do
     runSuite "cors" corsSuite
     runSuite "formalVerification" formalVerificationSuite
     runSuite "gracefulShutdown" gracefulShutdownSuite
+    runSuite "marketRisk" marketRiskSuite
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
@@ -1683,6 +1685,10 @@ mkKline openTime open high low close =
         , kLow = low
         , kClose = close
         , kVolume = 1
+        , kQuoteVolume = Nothing
+        , kTradeCount = Nothing
+        , kTakerBuyBaseVolume = Nothing
+        , kTakerBuyQuoteVolume = Nothing
         }
 
 testBinanceTradeMaxPnlLongUsesHigh :: IO ()

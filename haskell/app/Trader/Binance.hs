@@ -21,6 +21,17 @@ module Trader.Binance (
     fetchOpenInterestHist,
     fetchTakerLongShortRatio,
     fetchBasisHistory,
+    DepthLevel (..),
+    OrderBookSnapshot (..),
+    FuturesPremiumSnapshot (..),
+    FuturesOpenInterestSnapshot (..),
+    FuturesAdlRiskSnapshot (..),
+    FuturesMarketSnapshot (..),
+    fetchOrderBookSnapshot,
+    fetchFuturesPremiumSnapshot,
+    fetchFuturesOpenInterestSnapshot,
+    fetchFuturesAdlRiskSnapshot,
+    fetchFuturesMarketSnapshot,
     fetchTickers24h,
     fetchTopSymbolsByQuoteVolume,
     binanceBaseUrl,
@@ -179,6 +190,62 @@ data Kline = Kline
     , kLow :: !Double
     , kClose :: !Double
     , kVolume :: !Double
+    , kQuoteVolume :: !(Maybe Double)
+    , kTradeCount :: !(Maybe Int)
+    , kTakerBuyBaseVolume :: !(Maybe Double)
+    , kTakerBuyQuoteVolume :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
+
+data DepthLevel = DepthLevel
+    { dlPrice :: !Double
+    , dlQuantity :: !Double
+    }
+    deriving (Eq, Show)
+
+data OrderBookSnapshot = OrderBookSnapshot
+    { obsLastUpdateId :: !Int64
+    , obsEventTime :: !(Maybe Int64)
+    , obsTransactionTime :: !(Maybe Int64)
+    , obsBids :: ![DepthLevel]
+    , obsAsks :: ![DepthLevel]
+    }
+    deriving (Eq, Show)
+
+data FuturesPremiumSnapshot = FuturesPremiumSnapshot
+    { fpsMarkPrice :: !Double
+    , fpsIndexPrice :: !Double
+    , fpsLastFundingRate :: !Double
+    , fpsNextFundingTime :: !Int64
+    , fpsTime :: !Int64
+    }
+    deriving (Eq, Show)
+
+data FuturesOpenInterestSnapshot = FuturesOpenInterestSnapshot
+    { foisOpenInterest :: !Double
+    , foisTime :: !Int64
+    }
+    deriving (Eq, Show)
+
+data FuturesAdlRiskSnapshot = FuturesAdlRiskSnapshot
+    { farsRisk :: !String
+    , farsUpdateTime :: !Int64
+    }
+    deriving (Eq, Show)
+
+{- | One best-effort, point-in-time bundle used by the final entry-risk gate.
+Depth, premium/funding, and ADL are critical inputs; open interest, taker flow,
+and basis are retained as shadow evidence until they have passed out-of-sample
+validation as decision features.
+-}
+data FuturesMarketSnapshot = FuturesMarketSnapshot
+    { fmsObservedAt :: !Int64
+    , fmsOrderBook :: !(Maybe OrderBookSnapshot)
+    , fmsPremium :: !(Maybe FuturesPremiumSnapshot)
+    , fmsOpenInterest :: !(Maybe FuturesOpenInterestSnapshot)
+    , fmsAdlRisk :: !(Maybe FuturesAdlRiskSnapshot)
+    , fmsTakerBuySellRatio :: !(Maybe (Int64, Double))
+    , fmsBasisRate :: !(Maybe (Int64, Double))
     }
     deriving (Eq, Show)
 
@@ -666,6 +733,10 @@ instance FromJSON Kline where
                     if V.length arr > 6
                         then Just <$> parseIndexInt64 6 arr
                         else pure Nothing
+                quoteVolume <- parseOptionalDoubleIndex 7 arr
+                tradeCount <- parseOptionalIndex 8 arr
+                takerBuyBaseVolume <- parseOptionalDoubleIndex 9 arr
+                takerBuyQuoteVolume <- parseOptionalDoubleIndex 10 arr
                 pure
                     Kline
                         { kOpenTime = openTime
@@ -675,6 +746,10 @@ instance FromJSON Kline where
                         , kLow = low
                         , kClose = close
                         , kVolume = volume
+                        , kQuoteVolume = quoteVolume
+                        , kTradeCount = tradeCount
+                        , kTakerBuyBaseVolume = takerBuyBaseVolume
+                        , kTakerBuyQuoteVolume = takerBuyQuoteVolume
                         }
       where
         parseIndexInt64 i a =
@@ -685,6 +760,16 @@ instance FromJSON Kline where
             case a V.!? i of
                 Nothing -> fail "Missing index"
                 Just v -> parseJSON v
+        parseOptionalIndex i a =
+            case a V.!? i of
+                Nothing -> pure Nothing
+                Just Aeson.Null -> pure Nothing
+                Just v -> Just <$> parseJSON v
+        parseOptionalDoubleIndex i a =
+            case a V.!? i of
+                Nothing -> pure Nothing
+                Just Aeson.Null -> pure Nothing
+                Just v -> Just <$> parseDoubleValue v
 
 parseDoubleText :: Text -> AT.Parser Double
 parseDoubleText t =
@@ -1035,8 +1120,13 @@ validateKlineShapes =
     validate k
         | not (all finite [kOpen k, kHigh k, kLow k, kClose k, kVolume k]) =
             Left ("Invalid kline numeric payload at openTime=" ++ show (kOpenTime k))
+        | any (maybe False (not . finite)) [kQuoteVolume k, kTakerBuyBaseVolume k, kTakerBuyQuoteVolume k] =
+            Left ("Invalid optional kline numeric payload at openTime=" ++ show (kOpenTime k))
         | kVolume k < 0 =
             Left ("Invalid kline negative volume at openTime=" ++ show (kOpenTime k))
+        | any (maybe False (< 0)) [kQuoteVolume k, kTakerBuyBaseVolume k, kTakerBuyQuoteVolume k]
+            || maybe False (< 0) (kTradeCount k) =
+            Left ("Invalid kline negative flow payload at openTime=" ++ show (kOpenTime k))
         | kHigh k < max (kOpen k) (kClose k) || kHigh k < kLow k || kLow k > min (kOpen k) (kClose k) =
             Left ("Invalid kline OHLC relationship at openTime=" ++ show (kOpenTime k))
         | otherwise = Right ()
@@ -1329,6 +1419,129 @@ fetchBasisHistory env pair period limit = do
         ]
         "timestamp"
         "basisRate"
+
+instance FromJSON DepthLevel where
+    parseJSON = withArray "DepthLevel" $ \arr ->
+        if V.length arr < 2
+            then fail "Depth level array too short"
+            else do
+                price <- maybe (fail "Missing depth price") parseDoubleValue (arr V.!? 0)
+                quantity <- maybe (fail "Missing depth quantity") parseDoubleValue (arr V.!? 1)
+                if price <= 0 || quantity < 0
+                    then fail "Invalid depth level"
+                    else pure DepthLevel{dlPrice = price, dlQuantity = quantity}
+
+instance FromJSON OrderBookSnapshot where
+    parseJSON = withObject "OrderBookSnapshot" $ \o ->
+        OrderBookSnapshot
+            <$> o .: "lastUpdateId"
+            <*> o AT..:? "E"
+            <*> o AT..:? "T"
+            <*> o .: "bids"
+            <*> o .: "asks"
+
+instance FromJSON FuturesPremiumSnapshot where
+    parseJSON = withObject "FuturesPremiumSnapshot" $ \o ->
+        FuturesPremiumSnapshot
+            <$> parseDoubleField o "markPrice"
+            <*> parseDoubleField o "indexPrice"
+            <*> parseDoubleField o "lastFundingRate"
+            <*> o .: "nextFundingTime"
+            <*> o .: "time"
+
+instance FromJSON FuturesOpenInterestSnapshot where
+    parseJSON = withObject "FuturesOpenInterestSnapshot" $ \o ->
+        FuturesOpenInterestSnapshot
+            <$> parseDoubleField o "openInterest"
+            <*> o .: "time"
+
+instance FromJSON FuturesAdlRiskSnapshot where
+    parseJSON = withObject "FuturesAdlRiskSnapshot" $ \o -> do
+        risk <- o .: "adlRisk"
+        updateTime <- o .: "updateTime"
+        pure FuturesAdlRiskSnapshot{farsRisk = map toLower risk, farsUpdateTime = updateTime}
+
+fetchOrderBookSnapshot :: BinanceEnv -> String -> Int -> IO OrderBookSnapshot
+fetchOrderBookSnapshot env symbol limit = do
+    let path =
+            case beMarket env of
+                MarketSpot -> "/api/v3/depth"
+                MarketMargin -> "/api/v3/depth"
+                MarketFutures -> "/fapi/v1/depth"
+        limit' = max 5 (min 1000 limit)
+    req0 <- parseRequest (beBaseUrl env ++ path)
+    let params = [("symbol", symBytes symbol), ("limit", BS.pack (show limit'))]
+        req = req0{method = "GET", queryString = renderSimpleQuery True params}
+    resp <- binanceHttp env "depth" req
+    ensure2xx "depth" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode order book: " ++ e))
+        Right snapshot -> pure snapshot
+
+fetchFuturesPremiumSnapshot :: BinanceEnv -> String -> IO FuturesPremiumSnapshot
+fetchFuturesPremiumSnapshot env symbol = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchFuturesPremiumSnapshot requires MarketFutures")
+    req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/premiumIndex")
+    let req = req0{method = "GET", queryString = renderSimpleQuery True [("symbol", symBytes symbol)]}
+    resp <- binanceHttp env "premiumIndex/risk" req
+    ensure2xx "premiumIndex/risk" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode premiumIndex risk snapshot: " ++ e))
+        Right snapshot -> pure snapshot
+
+fetchFuturesOpenInterestSnapshot :: BinanceEnv -> String -> IO FuturesOpenInterestSnapshot
+fetchFuturesOpenInterestSnapshot env symbol = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchFuturesOpenInterestSnapshot requires MarketFutures")
+    req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/openInterest")
+    let req = req0{method = "GET", queryString = renderSimpleQuery True [("symbol", symBytes symbol)]}
+    resp <- binanceHttp env "openInterest/current" req
+    ensure2xx "openInterest/current" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode current open interest: " ++ e))
+        Right snapshot -> pure snapshot
+
+fetchFuturesAdlRiskSnapshot :: BinanceEnv -> String -> IO FuturesAdlRiskSnapshot
+fetchFuturesAdlRiskSnapshot env symbol = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchFuturesAdlRiskSnapshot requires MarketFutures")
+    req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/symbolAdlRisk")
+    let req = req0{method = "GET", queryString = renderSimpleQuery True [("symbol", symBytes symbol)]}
+    resp <- binanceHttp env "symbolAdlRisk" req
+    ensure2xx "symbolAdlRisk" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode ADL risk: " ++ e))
+        Right snapshot -> pure snapshot
+
+{- | Fetch the live inputs used by the futures entry-risk boundary. Each feed
+is captured independently so missing evidence is explicit and the caller can
+apply its configured fail-open/fail-closed policy. The derivatives-history
+endpoints are deliberately shadow-only here.
+-}
+fetchFuturesMarketSnapshot :: BinanceEnv -> String -> String -> IO FuturesMarketSnapshot
+fetchFuturesMarketSnapshot env symbol period = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchFuturesMarketSnapshot requires MarketFutures")
+    observedAt <- getTimestampMs
+    depthE <- try (fetchOrderBookSnapshot env symbol 100) :: IO (Either SomeException OrderBookSnapshot)
+    premiumE <- try (fetchFuturesPremiumSnapshot env symbol) :: IO (Either SomeException FuturesPremiumSnapshot)
+    oiE <- try (fetchFuturesOpenInterestSnapshot env symbol) :: IO (Either SomeException FuturesOpenInterestSnapshot)
+    adlE <- try (fetchFuturesAdlRiskSnapshot env symbol) :: IO (Either SomeException FuturesAdlRiskSnapshot)
+    takerE <- try (fetchTakerLongShortRatio env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
+    basisE <- try (fetchBasisHistory env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
+    let eitherMaybe = either (const Nothing) Just
+        latest = listToMaybe . reverse
+    pure
+        FuturesMarketSnapshot
+            { fmsObservedAt = observedAt
+            , fmsOrderBook = eitherMaybe depthE
+            , fmsPremium = eitherMaybe premiumE
+            , fmsOpenInterest = eitherMaybe oiE
+            , fmsAdlRisk = eitherMaybe adlE
+            , fmsTakerBuySellRatio = either (const Nothing) latest takerE
+            , fmsBasisRate = either (const Nothing) latest basisE
+            }
 
 data Ticker24h = Ticker24h
     { t24Symbol :: !String

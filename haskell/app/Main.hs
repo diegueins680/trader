@@ -203,6 +203,7 @@ import Trader.Binance (
     fetchFuturesAvailableBalance,
     fetchFuturesIncome,
     fetchFuturesMarkPrice,
+    fetchFuturesMarketSnapshot,
     fetchFuturesOpenAlgoOrders,
     fetchFuturesPositionAmt,
     fetchFuturesPositionRisks,
@@ -388,6 +389,14 @@ import Trader.MarketGovernor (
     marketGovernorFreshEntryBlockReason,
     marketGovernorIsEntryOnlyReason,
     marketGovernorProfileCode,
+ )
+import Trader.MarketRisk (
+    MarketRiskConfig (..),
+    MarketRiskDecision (..),
+    MarketRiskInput (..),
+    loadMarketRiskConfig,
+    marketRiskDecision,
+    marketRiskSummary,
  )
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
@@ -28581,6 +28590,46 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
                                 pure ()
 
+                    sendFuturesEntryRiskChecked :: Int -> String -> OrderSide -> Double -> IO ApiOrderResult
+                    sendFuturesEntryRiskChecked entryDir sideLabel side qty
+                        | mode /= OrderLive = do
+                            cancelProtectionOrders
+                            sendMarketOrderWithMaker mSf True sideLabel side (Just qty) Nothing Nothing
+                        | otherwise = do
+                            riskConfig <- loadMarketRiskConfig
+                            if not (mrcEnabled riskConfig)
+                                then do
+                                    cancelProtectionOrders
+                                    sendMarketOrderWithMaker mSf True sideLabel side (Just qty) Nothing Nothing
+                                else do
+                                    snapshot <- fetchFuturesMarketSnapshot env sym "5m"
+                                    nowMs <- getTimestampMs
+                                    let decision =
+                                            marketRiskDecision
+                                                riskConfig
+                                                MarketRiskInput
+                                                    { mriNowMs = nowMs
+                                                    , mriDirection = entryDir
+                                                    , mriQuantity = qty
+                                                    , mriSignalPrice = currentPrice
+                                                    , mriPredictedPrice = lsSizingNext sig
+                                                    , mriMinimumEdge = lsOpenThreshold sig
+                                                    }
+                                                snapshot
+                                        evidence = marketRiskSummary decision
+                                        baseOut =
+                                            baseResult
+                                                { aorSide = Just sideLabel
+                                                , aorQuantity = Just qty
+                                                }
+                                    if not (mrdAllowed decision)
+                                        then pure baseOut{aorMessage = "No order: " ++ evidence ++ "."}
+                                        else do
+                                            cancelProtectionOrders
+                                            out <- sendMarketOrderWithMaker mSf True sideLabel side (Just qty) Nothing Nothing
+                                            let separator = if null (aorMessage out) then "" else " "
+                                            pure out{aorMessage = aorMessage out ++ separator ++ "[" ++ evidence ++ "]"}
+
                     placeProtectionOrders :: Int -> Double -> IO (Either String ())
                     placeProtectionOrders protectDir entryPrice
                         | not protectionEnabled = pure (Right ())
@@ -28797,7 +28846,6 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     case fundsCheck of
                                                         Left msg -> pure baseResult{aorMessage = msg}
                                                         Right () -> do
-                                                            cancelProtectionOrders
                                                             let qtyToBuyRaw = if posAmt < 0 then abs posAmt + qDesired else qDesired
                                                             case normalizeFuturesQty qtyToBuyRaw of
                                                                 Left e -> pure baseResult{aorMessage = "No order: " ++ e}
@@ -28805,7 +28853,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                     if q <= 0
                                                                         then pure baseResult{aorMessage = "No order: quantity is 0."}
                                                                         else do
-                                                                            out0 <- sendMarketOrderWithMaker mSf True "BUY" Buy (Just q) Nothing Nothing
+                                                                            out0 <- sendFuturesEntryRiskChecked 1 "BUY" Buy q
                                                                             let out =
                                                                                     if bumped && aorSent out0
                                                                                         then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
@@ -28858,7 +28906,6 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                             case fundsCheck of
                                                                 Left msg -> pure baseResult{aorMessage = msg}
                                                                 Right () -> do
-                                                                    cancelProtectionOrders
                                                                     let qtyToSellRaw = if posAmt > 0 then posAmt + qDesired else qDesired
                                                                     case normalizeFuturesQty qtyToSellRaw of
                                                                         Left e -> pure baseResult{aorMessage = "No order: " ++ e}
@@ -28866,7 +28913,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                             if q <= 0
                                                                                 then pure baseResult{aorMessage = "No order: quantity is 0."}
                                                                                 else do
-                                                                                    out0 <- sendMarketOrderWithMaker mSf True "SELL" Sell (Just q) Nothing Nothing
+                                                                                    out0 <- sendFuturesEntryRiskChecked (-1) "SELL" Sell q
                                                                                     let out =
                                                                                             if bumped && aorSent out0
                                                                                                 then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
