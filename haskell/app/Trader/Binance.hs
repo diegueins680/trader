@@ -243,6 +243,7 @@ data FuturesMarketSnapshot = FuturesMarketSnapshot
     , fmsOrderBook :: !(Maybe OrderBookSnapshot)
     , fmsPremium :: !(Maybe FuturesPremiumSnapshot)
     , fmsOpenInterest :: !(Maybe FuturesOpenInterestSnapshot)
+    , fmsOpenInterestChangePct :: !(Maybe (Int64, Double))
     , fmsAdlRisk :: !(Maybe FuturesAdlRiskSnapshot)
     , fmsTakerBuySellRatio :: !(Maybe (Int64, Double))
     , fmsBasisRate :: !(Maybe (Int64, Double))
@@ -1527,17 +1528,29 @@ fetchFuturesMarketSnapshot env symbol period = do
     depthE <- try (fetchOrderBookSnapshot env symbol 100) :: IO (Either SomeException OrderBookSnapshot)
     premiumE <- try (fetchFuturesPremiumSnapshot env symbol) :: IO (Either SomeException FuturesPremiumSnapshot)
     oiE <- try (fetchFuturesOpenInterestSnapshot env symbol) :: IO (Either SomeException FuturesOpenInterestSnapshot)
+    oiHistoryE <- try (fetchOpenInterestHist env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
     adlE <- try (fetchFuturesAdlRiskSnapshot env symbol) :: IO (Either SomeException FuturesAdlRiskSnapshot)
     takerE <- try (fetchTakerLongShortRatio env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
     basisE <- try (fetchBasisHistory env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
     let eitherMaybe = either (const Nothing) Just
         latest = listToMaybe . reverse
+        latestOpenInterestChange rows =
+            case reverse rows of
+                (timestamp, current) : (_, previous) : _
+                    | previous > 0
+                    , all (\value -> not (isNaN value || isInfinite value)) [current, previous] ->
+                        let changePct = (current / previous - 1) * 100
+                         in if isNaN changePct || isInfinite changePct
+                                then Nothing
+                                else Just (timestamp, changePct)
+                _ -> Nothing
     pure
         FuturesMarketSnapshot
             { fmsObservedAt = observedAt
             , fmsOrderBook = eitherMaybe depthE
             , fmsPremium = eitherMaybe premiumE
             , fmsOpenInterest = eitherMaybe oiE
+            , fmsOpenInterestChangePct = either (const Nothing) latestOpenInterestChange oiHistoryE
             , fmsAdlRisk = eitherMaybe adlE
             , fmsTakerBuySellRatio = either (const Nothing) latest takerE
             , fmsBasisRate = either (const Nothing) latest basisE

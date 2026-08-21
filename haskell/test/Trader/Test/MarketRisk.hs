@@ -4,6 +4,8 @@ module Trader.Test.MarketRisk (marketRiskSuite) where
 
 import Control.Monad (unless)
 import Data.Aeson (eitherDecode)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Int (Int64)
 import Data.List (isInfixOf)
@@ -35,6 +37,8 @@ marketRiskSuite =
     , ("blocks high ADL risk", testBlocksHighAdl)
     , ("blocks stale critical feeds", testBlocksStaleFeeds)
     , ("fails closed when critical feeds are missing", testFailsClosedOnMissingFeeds)
+    , ("keeps missing shadow feeds non-blocking and visible", testShadowFeedWarnings)
+    , ("emits structured market-risk evidence", testStructuredEvidence)
     , ("decodes full Binance kline flow fields", testDecodesFullKline)
     ]
 
@@ -113,6 +117,33 @@ testFailsClosedOnMissingFeeds = do
     assertReason "premium/funding unavailable" decision
     assertReason "ADL risk unavailable" decision
 
+testShadowFeedWarnings :: IO ()
+testShadowFeedWarnings = do
+    let snapshot =
+            baseSnapshot
+                { fmsOpenInterest = Nothing
+                , fmsOpenInterestChangePct = Nothing
+                , fmsTakerBuySellRatio = Nothing
+                , fmsBasisRate = Nothing
+                }
+        decision = marketRiskDecision defaultMarketRiskConfig baseInput snapshot
+    assert "expected shadow-only gaps not to block a liquid entry" (mrdAllowed decision)
+    assertShadowWarning "open interest unavailable" decision
+    assertShadowWarning "open interest change unavailable" decision
+    assertShadowWarning "taker ratio unavailable" decision
+    assertShadowWarning "historical basis unavailable" decision
+
+testStructuredEvidence :: IO ()
+testStructuredEvidence = do
+    let decision = marketRiskDecision defaultMarketRiskConfig baseInput baseSnapshot
+    case Aeson.toJSON decision of
+        Aeson.Object evidence -> do
+            assert "structured evidence includes the admission outcome" (KM.lookup "allowed" evidence == Just (Aeson.Bool True))
+            assert "structured evidence includes order-book imbalance" (KM.member "bookImbalance" evidence)
+            assert "structured evidence includes open-interest change" (KM.member "openInterestChangePct" evidence)
+            assert "structured evidence includes shadow data-health warnings" (KM.member "shadowWarnings" evidence)
+        _ -> fail "expected structured market-risk JSON object"
+
 testDecodesFullKline :: IO ()
 testDecodesFullKline = do
     let payload = "[1700000000000,\"100\",\"102\",\"99\",\"101\",\"12.5\",1700000059999,\"1260.5\",42,\"7.5\",\"756.2\",\"0\"]"
@@ -158,6 +189,7 @@ baseSnapshot =
                     , fpsTime = nowMs
                     }
         , fmsOpenInterest = Just (FuturesOpenInterestSnapshot 12345 nowMs)
+        , fmsOpenInterestChangePct = Just (nowMs, 2.5)
         , fmsAdlRisk = Just (FuturesAdlRiskSnapshot "low" nowMs)
         , fmsTakerBuySellRatio = Just (nowMs, 1.1)
         , fmsBasisRate = Just (nowMs, 0.0002)
@@ -183,6 +215,12 @@ assertReason expected decision =
     assert
         ("expected reason containing " ++ show expected ++ ", got " ++ show (mrdReasons decision))
         (any (isInfixOf expected) (mrdReasons decision))
+
+assertShadowWarning :: String -> MarketRiskDecision -> IO ()
+assertShadowWarning expected decision =
+    assert
+        ("expected shadow warning containing " ++ show expected ++ ", got " ++ show (mrdShadowWarnings decision))
+        (any (isInfixOf expected) (mrdShadowWarnings decision))
 
 assert :: String -> Bool -> IO ()
 assert message condition = unless condition (fail message)

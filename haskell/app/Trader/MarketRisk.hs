@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Trader.MarketRisk (
     MarketRiskConfig (..),
     MarketRiskInput (..),
@@ -8,6 +10,7 @@ module Trader.MarketRisk (
     marketRiskSummary,
 ) where
 
+import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -29,6 +32,7 @@ data MarketRiskConfig = MarketRiskConfig
     , mrcFailClosed :: !Bool
     , mrcMaxSnapshotAgeMs :: !Int64
     , mrcMaxAdlAgeMs :: !Int64
+    , mrcMaxShadowAgeMs :: !Int64
     , mrcMaxSpreadBps :: !Double
     , mrcMaxImpactBps :: !Double
     , mrcMaxAbsMarkBasisBps :: !Double
@@ -55,11 +59,32 @@ data MarketRiskDecision = MarketRiskDecision
     , mrdMarkBasisBps :: !(Maybe Double)
     , mrdBookImbalance :: !(Maybe Double)
     , mrdOpenInterest :: !(Maybe Double)
+    , mrdOpenInterestChangePct :: !(Maybe Double)
     , mrdTakerBuySellRatio :: !(Maybe Double)
     , mrdHistoricalBasisRate :: !(Maybe Double)
     , mrdAdlRisk :: !(Maybe String)
+    , mrdShadowWarnings :: ![String]
     }
     deriving (Eq, Show)
+
+instance ToJSON MarketRiskDecision where
+    toJSON decision =
+        object
+            [ "allowed" .= mrdAllowed decision
+            , "reasons" .= mrdReasons decision
+            , "edgeBps" .= mrdEdgeBps decision
+            , "spreadBps" .= mrdSpreadBps decision
+            , "impactBps" .= mrdImpactBps decision
+            , "adverseFundingBps" .= mrdAdverseFundingBps decision
+            , "markBasisBps" .= mrdMarkBasisBps decision
+            , "bookImbalance" .= mrdBookImbalance decision
+            , "openInterest" .= mrdOpenInterest decision
+            , "openInterestChangePct" .= mrdOpenInterestChangePct decision
+            , "takerBuySellRatio" .= mrdTakerBuySellRatio decision
+            , "historicalBasisRate" .= mrdHistoricalBasisRate decision
+            , "adlRisk" .= mrdAdlRisk decision
+            , "shadowWarnings" .= mrdShadowWarnings decision
+            ]
 
 defaultMarketRiskConfig :: MarketRiskConfig
 defaultMarketRiskConfig =
@@ -68,6 +93,7 @@ defaultMarketRiskConfig =
         , mrcFailClosed = True
         , mrcMaxSnapshotAgeMs = 30000
         , mrcMaxAdlAgeMs = 60 * 60 * 1000
+        , mrcMaxShadowAgeMs = 15 * 60 * 1000
         , mrcMaxSpreadBps = 20
         , mrcMaxImpactBps = 35
         , mrcMaxAbsMarkBasisBps = 100
@@ -79,6 +105,7 @@ loadMarketRiskConfig = do
     failClosed <- envBool "TRADER_MARKET_RISK_FAIL_CLOSED" (mrcFailClosed defaultMarketRiskConfig)
     snapshotAgeSec <- envDouble "TRADER_MARKET_RISK_MAX_AGE_SEC" 30
     adlAgeSec <- envDouble "TRADER_MARKET_RISK_MAX_ADL_AGE_SEC" 3600
+    shadowAgeSec <- envDouble "TRADER_MARKET_RISK_MAX_SHADOW_AGE_SEC" 900
     maxSpread <- envDouble "TRADER_MARKET_RISK_MAX_SPREAD_BPS" (mrcMaxSpreadBps defaultMarketRiskConfig)
     maxImpact <- envDouble "TRADER_MARKET_RISK_MAX_IMPACT_BPS" (mrcMaxImpactBps defaultMarketRiskConfig)
     maxBasis <- envDouble "TRADER_MARKET_RISK_MAX_MARK_BASIS_BPS" (mrcMaxAbsMarkBasisBps defaultMarketRiskConfig)
@@ -88,6 +115,7 @@ loadMarketRiskConfig = do
             , mrcFailClosed = failClosed
             , mrcMaxSnapshotAgeMs = secondsToMs snapshotAgeSec
             , mrcMaxAdlAgeMs = secondsToMs adlAgeSec
+            , mrcMaxShadowAgeMs = secondsToMs shadowAgeSec
             , mrcMaxSpreadBps = nonNegative maxSpread (mrcMaxSpreadBps defaultMarketRiskConfig)
             , mrcMaxImpactBps = nonNegative maxImpact (mrcMaxImpactBps defaultMarketRiskConfig)
             , mrcMaxAbsMarkBasisBps = nonNegative maxBasis (mrcMaxAbsMarkBasisBps defaultMarketRiskConfig)
@@ -169,6 +197,11 @@ marketRiskDecision cfg input snapshot
                                     ++ ["ADL risk is high" | risk == "high"]
                                     ++ ["invalid ADL risk rating" | risk `notElem` ["low", "medium", "high"] && mrcFailClosed cfg]
                          in (Just risk, reasons)
+            shadowWarnings =
+                openInterestWarnings cfg input (fmsOpenInterest snapshot)
+                    ++ shadowSeriesWarnings cfg input "open interest change" finite (fmsOpenInterestChangePct snapshot)
+                    ++ shadowSeriesWarnings cfg input "taker ratio" finitePositive (fmsTakerBuySellRatio snapshot)
+                    ++ shadowSeriesWarnings cfg input "historical basis" finite (fmsBasisRate snapshot)
             reasons = invalidInputReasons ++ criticalReasons ++ bookReasons ++ premiumReasons ++ adlReasons
          in MarketRiskDecision
                 { mrdAllowed = null reasons
@@ -180,9 +213,11 @@ marketRiskDecision cfg input snapshot
                 , mrdMarkBasisBps = markBasisBps
                 , mrdBookImbalance = imbalance
                 , mrdOpenInterest = foisOpenInterest <$> fmsOpenInterest snapshot
+                , mrdOpenInterestChangePct = snd <$> fmsOpenInterestChangePct snapshot
                 , mrdTakerBuySellRatio = snd <$> fmsTakerBuySellRatio snapshot
                 , mrdHistoricalBasisRate = snd <$> fmsBasisRate snapshot
                 , mrdAdlRisk = adlRisk
+                , mrdShadowWarnings = shadowWarnings
                 }
   where
     emptyDecision =
@@ -196,9 +231,11 @@ marketRiskDecision cfg input snapshot
             , mrdMarkBasisBps = Nothing
             , mrdBookImbalance = Nothing
             , mrdOpenInterest = Nothing
+            , mrdOpenInterestChangePct = Nothing
             , mrdTakerBuySellRatio = Nothing
             , mrdHistoricalBasisRate = Nothing
             , mrdAdlRisk = Nothing
+            , mrdShadowWarnings = []
             }
 
 marketRiskSummary :: MarketRiskDecision -> String
@@ -214,6 +251,7 @@ marketRiskSummary decision =
                 , metric "mark_basis_bps" (mrdMarkBasisBps decision)
                 , metric "book_imbalance" (mrdBookImbalance decision)
                 , metric "open_interest" (mrdOpenInterest decision)
+                , metric "open_interest_change_pct" (mrdOpenInterestChangePct decision)
                 , metric "taker_ratio" (mrdTakerBuySellRatio decision)
                 , metric "basis_bps" ((* 10000) <$> mrdHistoricalBasisRate decision)
                 , fmap ("adl=" ++) (mrdAdlRisk decision)
@@ -222,7 +260,29 @@ marketRiskSummary decision =
             case mrdReasons decision of
                 [] -> []
                 xs -> ["reasons=" ++ intercalate "; " xs]
-     in intercalate ", " (("market-risk " ++ outcome) : metrics ++ reasons)
+        shadowWarnings =
+            case mrdShadowWarnings decision of
+                [] -> []
+                xs -> ["shadow_warnings=" ++ intercalate "; " xs]
+     in intercalate ", " (("market-risk " ++ outcome) : metrics ++ reasons ++ shadowWarnings)
+
+openInterestWarnings :: MarketRiskConfig -> MarketRiskInput -> Maybe FuturesOpenInterestSnapshot -> [String]
+openInterestWarnings cfg input snapshot =
+    case snapshot of
+        Nothing -> ["open interest unavailable"]
+        Just openInterest ->
+            ["open interest invalid" | not (finitePositive (foisOpenInterest openInterest))]
+                ++ [ "open interest stale"
+                   | timestampStale (mrcMaxShadowAgeMs cfg) (mriNowMs input) (foisTime openInterest)
+                   ]
+
+shadowSeriesWarnings :: MarketRiskConfig -> MarketRiskInput -> String -> (Double -> Bool) -> Maybe (Int64, Double) -> [String]
+shadowSeriesWarnings cfg input label validValue point =
+    case point of
+        Nothing -> [label ++ " unavailable"]
+        Just (observedAt, value) ->
+            [label ++ " invalid" | not (validValue value)]
+                ++ [label ++ " stale" | timestampStale (mrcMaxShadowAgeMs cfg) (mriNowMs input) observedAt]
 
 data OrderBookMetrics = OrderBookMetrics
     { obmSpreadBps :: !Double

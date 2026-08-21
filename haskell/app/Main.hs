@@ -1754,6 +1754,7 @@ data ApiOrderResult = ApiOrderResult
     , aorCummulativeQuoteQty :: Maybe Double
     , aorTxHash :: Maybe String
     , aorResponse :: Maybe String
+    , aorMarketRisk :: Maybe MarketRiskDecision
     , aorMessage :: String
     }
     deriving (Eq, Show, Generic)
@@ -16031,13 +16032,13 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
 placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
-        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
         else placeOrderForSignalBot args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeBotCloseIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
-        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
         else placeBotCloseOrder args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> Bool -> IO ApiOrderResult
@@ -23772,6 +23773,7 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                                                                 , aorCummulativeQuoteQty = Nothing
                                                                                 , aorTxHash = Nothing
                                                                                 , aorResponse = Nothing
+                                                                                , aorMarketRisk = Nothing
                                                                                 , aorMessage = ""
                                                                                 }
 
@@ -24700,6 +24702,7 @@ noOrderResult msg =
         , aorCummulativeQuoteQty = Nothing
         , aorTxHash = Nothing
         , aorResponse = Nothing
+        , aorMarketRisk = Nothing
         , aorMessage = msg
         }
 
@@ -24760,6 +24763,7 @@ dryRunOrderResult args sig =
             , aorCummulativeQuoteQty = Nothing
             , aorTxHash = Nothing
             , aorResponse = Nothing
+            , aorMarketRisk = Nothing
             , aorMessage = message
             }
 
@@ -24846,6 +24850,7 @@ placeDexOrderForSignal args sig = do
                 , aorCummulativeQuoteQty = Nothing
                 , aorTxHash = Nothing
                 , aorResponse = Nothing
+                , aorMarketRisk = Nothing
                 , aorMessage = ""
                 }
         noOrder msg = pure baseResult{aorMessage = msg}
@@ -27993,6 +27998,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             , aorCummulativeQuoteQty = Nothing
             , aorTxHash = Nothing
             , aorResponse = Nothing
+            , aorMarketRisk = Nothing
             , aorMessage = ""
             }
 
@@ -28621,6 +28627,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                             baseResult
                                                 { aorSide = Just sideLabel
                                                 , aorQuantity = Just qty
+                                                , aorMarketRisk = Just decision
                                                 }
                                     if not (mrdAllowed decision)
                                         then pure baseOut{aorMessage = "No order: " ++ evidence ++ "."}
@@ -28628,7 +28635,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                             cancelProtectionOrders
                                             out <- sendMarketOrderWithMaker mSf True sideLabel side (Just qty) Nothing Nothing
                                             let separator = if null (aorMessage out) then "" else " "
-                                            pure out{aorMessage = aorMessage out ++ separator ++ "[" ++ evidence ++ "]"}
+                                            pure
+                                                out
+                                                    { aorMarketRisk = Just decision
+                                                    , aorMessage = aorMessage out ++ separator ++ "[" ++ evidence ++ "]"
+                                                    }
 
                     placeProtectionOrders :: Int -> Double -> IO (Either String ())
                     placeProtectionOrders protectDir entryPrice
@@ -29012,6 +29023,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             , aorCummulativeQuoteQty = Nothing
             , aorTxHash = Nothing
             , aorResponse = Nothing
+            , aorMarketRisk = Nothing
             , aorMessage = ""
             }
 
