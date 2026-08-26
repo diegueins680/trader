@@ -480,6 +480,7 @@ import Trader.PortfolioSelection (
     parsePortfolioRolloutMode,
     portfolioFailureCacheLookup,
     portfolioGraduationConfigVersion,
+    portfolioGraduationFleetEquities,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
@@ -21212,6 +21213,20 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
             | reviewEndMs <= firstFullDayMs -> pure (Right emptyPortfolioGraduationEvidence)
             | otherwise ->
                 withOpsConnection store $ \conn -> do
+                    baselineRows <-
+                        query
+                            conn
+                            ( "SELECT combo_uuid, equity FROM ("
+                                <> "SELECT combo_uuid, equity, "
+                                <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid ORDER BY at_ms DESC, id DESC) AS rn "
+                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                <> "AND kind = 'bot.status' AND at_ms <= ? AND equity IS NOT NULL "
+                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                <> ") baseline WHERE rn = 1 ORDER BY combo_uuid"
+                            )
+                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs) ::
+                            IO [(UUID.UUID, Double)]
                     dailyRows <-
                         query
                             conn
@@ -21222,13 +21237,11 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                                 <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? AND equity IS NOT NULL "
                                 <> "AND COALESCE((result_json->>'live')::boolean, false) "
                                 <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
-                                <> "), daily AS ("
-                                <> "SELECT combo_uuid, day_ms, equity FROM ranked WHERE rn = 1"
-                                <> ") SELECT day_ms, 1.0 + SUM(equity - 1.0) AS fleet_equity "
-                                <> "FROM daily GROUP BY day_ms HAVING COUNT(DISTINCT combo_uuid) = ? ORDER BY day_ms"
+                                <> ") SELECT day_ms, combo_uuid, equity FROM ranked WHERE rn = 1 "
+                                <> "ORDER BY day_ms, combo_uuid"
                             )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs, length reviewedUuidValues) ::
-                            IO [(Int64, Double)]
+                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                            IO [(Int64, UUID.UUID, Double)]
                     orderRows <-
                         query
                             conn
@@ -21267,7 +21280,12 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                             (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, now) ::
                             IO [(UUID.UUID, Bool)]
                     pure $ do
-                        (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance (map snd dailyRows)
+                        fleetEquities <-
+                            portfolioGraduationFleetEquities
+                                reviewedUuids
+                                [(UUID.toText uuid, equity) | (uuid, equity) <- baselineRows]
+                                [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
+                        (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance fleetEquities
                         let (executionAttempts, executionSuccesses) = intPair orderRows
                             (statusSamples, healthyStatusSamples) = intPair statusRows
                             latestStatusesHealthy =

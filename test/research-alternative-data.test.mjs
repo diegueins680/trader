@@ -125,6 +125,81 @@ with tempfile.TemporaryDirectory() as directory:
     replaced = {row.key(): row for row in alt.read_cache(cache_path)}[replacement.key()]
     assert replaced.value == replacement.value
 
+    # A provider without release/vintage timestamps becomes available only
+    # when first observed. Later revisions cannot inherit the historical event
+    # time, while unchanged re-fetches preserve the original first-seen row.
+    revision_feed = root / "revision.csv"
+    revision_epoch = 1700000000000
+    def write_revision(value):
+        with revision_feed.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["eventTime", "value"])
+            writer.writeheader()
+            writer.writerow({"eventTime": revision_epoch, "value": value})
+    revision_config_path = root / "revision-config.json"
+    revision_cache_path = root / "revision-observations.csv"
+    revision_config_path.write_text(json.dumps({
+        "schemaVersion": 1,
+        "cache": str(revision_cache_path),
+        "sources": [{
+            "id": "revision-provider",
+            "family": "macro",
+            "adapter": "csv",
+            "location": str(revision_feed),
+            "eventTimeField": "eventTime",
+            "valueField": "value",
+            "metric": "revised_history",
+            "aggregation": "last",
+            "transform": "raw",
+            "minHistory": 1,
+        }],
+    }), encoding="utf-8")
+    revision_config = alt.load_config(revision_config_path)
+    revision_source = revision_config.sources[0]
+    write_revision(1)
+    first_seen = alt.fetch_source(revision_config, revision_source, now_ms=revision_epoch + 60000)
+    assert first_seen[0].timestamp == revision_epoch + 60000
+    assert first_seen[0].availabilityMode == "first_seen"
+    assert alt.merge_cache(revision_cache_path, first_seen) == 1
+    write_revision(2)
+    revised = alt.fetch_source(revision_config, revision_source, now_ms=revision_epoch + 180000)
+    assert revised[0].timestamp == revision_epoch + 180000
+    assert alt.merge_cache(revision_cache_path, revised) == 2
+    unchanged = alt.fetch_source(revision_config, revision_source, now_ms=revision_epoch + 240000)
+    assert alt.merge_cache(revision_cache_path, unchanged) == 2
+    write_revision(1)
+    reverted = alt.fetch_source(revision_config, revision_source, now_ms=revision_epoch + 300000)
+    assert alt.merge_cache(revision_cache_path, reverted) == 3
+    revision_rows = alt.read_cache(revision_cache_path)
+    assert [(row.timestamp, row.value) for row in revision_rows] == [
+        (revision_epoch + 60000, 1),
+        (revision_epoch + 180000, 2),
+        (revision_epoch + 300000, 1),
+    ]
+    direct_values, direct_present = alt._metric_values_for_bars(
+        revision_rows,
+        [revision_epoch + offset for offset in [59999, 119999, 179999, 239999, 299999, 359999]],
+    )
+    assert direct_values == [None, 1, 1, 2, 2, 1], direct_values
+    assert direct_present == [False, True, True, True, True, True]
+    revision_bars_path = root / "revision-bars.csv"
+    with revision_bars_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["openTime", "close"])
+        writer.writeheader()
+        for open_time in [revision_epoch + offset for offset in [0, 60000, 120000, 180000, 240000, 300000]]:
+            writer.writerow({"openTime": open_time, "close": 100})
+    revision_panel_path = root / "revision-panel.csv"
+    alt.build_panel(
+        revision_cache_path,
+        revision_bars_path,
+        revision_panel_path,
+        interval_ms=60000,
+        symbol="BTCUSDT",
+    )
+    with revision_panel_path.open(newline="", encoding="utf-8") as handle:
+        revision_panel = list(csv.DictReader(handle))
+    revision_values = [float(row["macro"]) for row in revision_panel]
+    assert revision_values == [0, 1, 1, 2, 2, 1], revision_values
+
     secret_error = urllib.error.HTTPError(
         "https://provider.invalid/data?api_key=do-not-log",
         401,

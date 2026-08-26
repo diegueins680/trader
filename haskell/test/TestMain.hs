@@ -220,6 +220,7 @@ import Trader.PortfolioSelection (
     defaultPortfolioSelectorConfig,
     portfolioAnnualizedReturn,
     portfolioFailureCacheLookup,
+    portfolioGraduationFleetEquities,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
@@ -5787,6 +5788,19 @@ testPortfolioGraduationRequiresEveryReviewGate = do
 
 testPortfolioGraduationPerformanceAndPersistence :: IO ()
 testPortfolioGraduationPerformanceAndPersistence = do
+    let baselines = [("uuid-a", 1.20), ("uuid-b", 0.80)]
+        daily =
+            [ (1, "uuid-a", 1.20)
+            , (1, "uuid-b", 0.80)
+            , (2, "uuid-a", 1.08)
+            , (2, "uuid-b", 0.88)
+            ]
+    assert
+        "portfolio graduation rebases each worker at the review-window boundary"
+        (portfolioGraduationFleetEquities ["uuid-a", "uuid-b"] baselines daily == Right [1.0, 1.0])
+    assert
+        "portfolio graduation fails closed when any reviewed worker lacks a window baseline"
+        (case portfolioGraduationFleetEquities ["uuid-a", "uuid-b"] [("uuid-a", 1)] daily of Left _ -> True; Right _ -> False)
     case portfolioGraduationPerformance [1.01, 1.02, 0.99, 1.03] of
         Left err -> ioError (userError ("valid portfolio graduation performance failed: " ++ err))
         Right (observations, netReturn, drawdown) -> do

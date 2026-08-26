@@ -20,6 +20,7 @@ module Trader.PortfolioSelection (
     portfolioGraduationConfigVersion,
     portfolioGraduationDecisionCode,
     portfolioGraduationExecutionReliability,
+    portfolioGraduationFleetEquities,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
@@ -36,7 +37,7 @@ module Trader.PortfolioSelection (
     portfolioSelectionShouldRotate,
 ) where
 
-import Control.Monad (replicateM, unless)
+import Control.Monad (foldM, replicateM, unless, when)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Char (ord, toLower)
@@ -406,6 +407,62 @@ ratio :: Int -> Int -> Double
 ratio numerator denominator
     | denominator <= 0 = 0
     | otherwise = fromIntegral numerator / fromIntegral denominator
+
+{- | Rebase each reviewed worker at the graduation-window boundary, then
+construct complete daily fleet observations from those relative equity paths.
+Pre-window gains and losses must not contribute to the graduation review.
+-}
+portfolioGraduationFleetEquities :: [Text] -> [(Text, Double)] -> [(Int64, Text, Double)] -> Either String [Double]
+portfolioGraduationFleetEquities reviewedUuidsRaw baselineRows dailyRows = do
+    when (null reviewedUuids) (Left "graduation reviewed UUID set is empty")
+    baselines <- foldM insertBaseline M.empty baselineRows
+    unless (M.keys baselines == reviewedUuids) (Left "graduation baseline is missing for a reviewed UUID")
+    dailyByDay <- foldM insertDaily M.empty dailyRows
+    traverse (fleetEquity baselines) (completeDays dailyByDay)
+  where
+    normalizeUuid = T.toLower . T.strip
+    reviewedUuids = nub (sort (map normalizeUuid reviewedUuidsRaw))
+    isReviewed uuid = uuid `elem` reviewedUuids
+    insertBaseline acc (rawUuid, equity) =
+        let uuid = normalizeUuid rawUuid
+         in if not (isReviewed uuid)
+                then Left "graduation baseline contains an unknown UUID"
+                else
+                    if not (isFinite equity) || equity <= 0
+                        then Left "graduation baseline equity must be finite and positive"
+                        else
+                            if M.member uuid acc
+                                then Left "graduation baseline contains a duplicate UUID"
+                                else Right (M.insert uuid equity acc)
+    insertDaily acc (dayMs, rawUuid, equity) =
+        let uuid = normalizeUuid rawUuid
+            dayRows = M.findWithDefault M.empty dayMs acc
+         in if not (isReviewed uuid)
+                then Left "graduation daily equity contains an unknown UUID"
+                else
+                    if not (isFinite equity) || equity <= 0
+                        then Left "graduation daily equity must be finite and positive"
+                        else
+                            if M.member uuid dayRows
+                                then Left "graduation daily equity contains a duplicate UUID"
+                                else Right (M.insert dayMs (M.insert uuid equity dayRows) acc)
+    completeDays dailyByDay =
+        [ rows
+        | (_, rows) <- M.toAscList dailyByDay
+        , M.keys rows == reviewedUuids
+        ]
+    fleetEquity baselines rows =
+        let equity =
+                1
+                    + sum
+                        [ current / baseline - 1
+                        | uuid <- reviewedUuids
+                        , let current = rows M.! uuid
+                        , let baseline = baselines M.! uuid
+                        ]
+         in if isFinite equity && equity > 0
+                then Right equity
+                else Left "graduation relative fleet equity must be finite and positive"
 
 portfolioGraduationPerformance :: [Double] -> Either String (Int, Double, Double)
 portfolioGraduationPerformance equities

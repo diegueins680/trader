@@ -103,6 +103,7 @@ CANONICAL_FIELDS = (
     "polarity",
     "maxAgeMs",
     "minHistory",
+    "availabilityMode",
 )
 TIME_FIELD_CANDIDATES = (
     "availableTime",
@@ -207,6 +208,7 @@ class Observation:
     polarity: float
     maxAgeMs: int | None
     minHistory: int
+    availabilityMode: str = "explicit"
 
     def key(self) -> tuple[Any, ...]:
         return (
@@ -217,6 +219,29 @@ class Observation:
             self.eventTime,
             self.timestamp,
             self.revision,
+            self.availabilityMode,
+        )
+
+    def release_key(self) -> tuple[Any, ...]:
+        return (
+            self.source,
+            self.family,
+            self.metric,
+            self.entity,
+            self.eventTime,
+            self.revision,
+            self.availabilityMode,
+        )
+
+    def payload_key(self) -> tuple[Any, ...]:
+        return (
+            self.value,
+            self.unit,
+            self.aggregation,
+            self.transform,
+            self.polarity,
+            self.maxAgeMs,
+            self.minHistory,
         )
 
 
@@ -559,16 +584,18 @@ def _row_observation(source: SourceSpec, row: Mapping[str, Any], ingested_at: in
     if event_raw is None:
         raise ValueError("event timestamp is missing")
     event_time = _timestamp_ms(event_raw)
-    available_raw = (
-        _lookup(row, source.available_time_field)
-        if source.available_time_field
-        else _first_present(row, TIME_FIELD_CANDIDATES)
-    )
-    available_time = (
-        _timestamp_ms(available_raw) if available_raw is not None else event_time + source.lag_ms
-    )
     if source.available_time_field is None:
-        available_time = max(available_time, event_time + source.lag_ms)
+        # Without provider release/vintage evidence, the first safe time is
+        # when this collector actually saw the row.  A fixed event-time lag
+        # cannot make revised history point-in-time safe.
+        available_time = max(ingested_at, event_time + source.lag_ms)
+        availability_mode = "first_seen"
+    else:
+        available_raw = _lookup(row, source.available_time_field)
+        if available_raw is None or str(available_raw).strip() == "":
+            raise ValueError("configured available timestamp is missing")
+        available_time = _timestamp_ms(available_raw)
+        availability_mode = "explicit"
     if available_time < event_time:
         raise ValueError("available timestamp precedes event timestamp")
     if source.value_mode == "count":
@@ -596,6 +623,7 @@ def _row_observation(source: SourceSpec, row: Mapping[str, Any], ingested_at: in
         polarity=source.polarity,
         maxAgeMs=source.max_age_ms,
         minHistory=source.min_history,
+        availabilityMode=availability_mode,
     )
 
 
@@ -622,8 +650,18 @@ def fetch_source(config: PipelineConfig, source: SourceSpec, *, now_ms: int | No
 
 def _observation_from_row(row: Mapping[str, str]) -> Observation:
     max_age_raw = (row.get("maxAgeMs") or "").strip()
+    ingested_at = int(row["ingestedAt"])
+    timestamp = int(row["timestamp"])
+    availability_mode = (row.get("availabilityMode") or "").strip()
+    if not availability_mode:
+        # Old cache rows did not record whether availability was provider
+        # supplied.  Conservatively delay them to first ingestion.
+        availability_mode = "first_seen"
+        timestamp = max(timestamp, ingested_at)
+    if availability_mode not in {"explicit", "first_seen"}:
+        raise ValueError("unknown alternative-data availability mode")
     return Observation(
-        timestamp=int(row["timestamp"]),
+        timestamp=timestamp,
         eventTime=int(row["eventTime"]),
         source=row["source"],
         family=normalize_family(row["family"]),
@@ -632,12 +670,13 @@ def _observation_from_row(row: Mapping[str, str]) -> Observation:
         value=_number(row["value"]),
         unit=row.get("unit", ""),
         revision=row.get("revision", ""),
-        ingestedAt=int(row["ingestedAt"]),
+        ingestedAt=ingested_at,
         aggregation=row.get("aggregation", "last"),
         transform=row.get("transform", "zscore"),
         polarity=float(row.get("polarity", "1")),
         maxAgeMs=int(max_age_raw) if max_age_raw else None,
         minHistory=int(row.get("minHistory", "20")),
+        availabilityMode=availability_mode,
     )
 
 
@@ -684,10 +723,33 @@ def merge_cache(path: str | os.PathLike[str], incoming: Iterable[Observation]) -
     cache_path = Path(path)
     with _cache_lock(cache_path):
         merged = {observation.key(): observation for observation in read_cache(cache_path)}
+        latest_first_seen: dict[tuple[Any, ...], Observation] = {}
+        for observation in merged.values():
+            if observation.availabilityMode != "first_seen":
+                continue
+            previous = latest_first_seen.get(observation.release_key())
+            if previous is None or (observation.timestamp, observation.ingestedAt) > (
+                previous.timestamp,
+                previous.ingestedAt,
+            ):
+                latest_first_seen[observation.release_key()] = observation
         for observation in incoming:
+            release_key = observation.release_key()
+            latest_release = latest_first_seen.get(release_key)
+            if (
+                observation.availabilityMode == "first_seen"
+                and latest_release is not None
+                and latest_release.payload_key() == observation.payload_key()
+            ):
+                # Re-fetching an unchanged historical row must preserve its
+                # original first-seen availability rather than manufacture a
+                # new release on every collection.
+                continue
             previous = merged.get(observation.key())
             if previous is None or observation.ingestedAt >= previous.ingestedAt:
                 merged[observation.key()] = observation
+                if observation.availabilityMode == "first_seen":
+                    latest_first_seen[release_key] = observation
         ordered = sorted(
             merged.values(),
             key=lambda row: (row.timestamp, row.source, row.metric, row.entity, row.eventTime),
