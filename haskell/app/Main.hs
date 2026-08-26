@@ -28312,16 +28312,20 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         poll
 
     sendMarketOrder :: String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
-    sendMarketOrder sideLabel side mQty mQuote mReduceOnly = do
+    sendMarketOrder = sendMarketOrderWithClientOrderId clientOrderId
+
+    sendMarketOrderWithClientOrderId :: Maybe String -> String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
+    sendMarketOrderWithClientOrderId orderClientOrderId sideLabel side mQty mQuote mReduceOnly = do
         let baseOut =
                 baseResult
                     { aorSide = Just sideLabel
                     , aorQuantity = mQty
                     , aorQuoteQuantity = mQuote
+                    , aorClientOrderId = orderClientOrderId
                     }
 
         let tryReconcile ex =
-                case (mode, clientOrderId) of
+                case (mode, orderClientOrderId) of
                     (OrderLive, Just cid) -> do
                         r2 <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
                         case r2 of
@@ -28336,7 +28340,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                  in pure (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body))
                     _ -> pure baseOut{aorMessage = "Order failed: " ++ shortErr ex}
 
-        r <- try (placeMarketOrder env mode sym side mQty mQuote mReduceOnly clientOrderId) :: IO (Either SomeException BL.ByteString)
+        r <- try (placeMarketOrder env mode sym side mQty mQuote mReduceOnly orderClientOrderId) :: IO (Either SomeException BL.ByteString)
         case r of
             Left ex -> tryReconcile ex
             Right body ->
@@ -28490,30 +28494,34 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                          in if qty' <= 0 || px <= 0 || isBad qty' || isBad px
                                 then 0
                                 else qty' * px / leverage
-                    ensureFuturesFunds dir qty =
+                    ensureFuturesFundsFor :: Double -> Int -> Double -> IO (Either String ())
+                    ensureFuturesFundsFor positionAmt dir qty =
                         if qty <= 0
                             then pure (Right ())
                             else do
-                                avail <- fetchFuturesAvailableBalance env quoteAsset
-                                let freed =
-                                        if posAmt * fromIntegral dir < 0
-                                            then marginRequired (abs posAmt)
-                                            else 0
-                                    available = max 0 (avail + freed)
-                                    needed = marginRequired qty
-                                    asset = map toUpper quoteAsset
+                                balanceOrErr <- try (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
                                 pure $
-                                    if needed <= available + 1e-9
-                                        then Right ()
-                                        else
-                                            Left
-                                                ( printf
-                                                    "No order: insufficient futures balance (need %.4f %s, available %.4f, leverage %.1fx)."
-                                                    needed
-                                                    asset
-                                                    available
-                                                    leverage
-                                                )
+                                    case balanceOrErr of
+                                        Left _ -> Left "No order: futures balance unavailable."
+                                        Right avail ->
+                                            let freed =
+                                                    if positionAmt * fromIntegral dir < 0
+                                                        then marginRequired (abs positionAmt)
+                                                        else 0
+                                                available = max 0 (avail + freed)
+                                                needed = marginRequired qty
+                                                asset = map toUpper quoteAsset
+                                             in if needed <= available + 1e-9
+                                                    then Right ()
+                                                    else
+                                                        Left
+                                                            ( printf
+                                                                "No order: insufficient futures balance (need %.4f %s, available %.4f, leverage %.1fx)."
+                                                                needed
+                                                                asset
+                                                                available
+                                                                leverage
+                                                            )
                     volPerBar =
                         case lsVolatility sig of
                             Just vol ->
@@ -28618,7 +28626,6 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     { mriNowMs = nowMs
                                                     , mriDirection = entryDir
                                                     , mriQuantity = qty
-                                                    , mriSignalPrice = currentPrice
                                                     , mriPredictedPrice = lsSizingNext sig
                                                     , mriMinimumEdge = lsOpenThreshold sig
                                                     }
@@ -28731,16 +28738,22 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
 
                 mQuoteFromFraction <-
                     case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
-                        (Nothing, Nothing, Just f) | f > 0 -> do
-                            bal <- fetchFuturesAvailableBalance env quoteAsset
-                            let q0 = bal * f * entryScale
-                                q1 =
-                                    let mCap =
-                                            case argMaxOrderQuote args of
-                                                Just q | q > 0 -> Just q
-                                                _ -> Nothing
-                                     in maybe q0 (`min` q0) mCap
-                            pure (Just q1)
+                        (Nothing, Nothing, Just f)
+                            | f > 0
+                            , posAmt * fromIntegral dir >= 0 -> do
+                                balanceOrErr <- try (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
+                                pure $
+                                    case balanceOrErr of
+                                        Left _ -> Nothing
+                                        Right bal ->
+                                            let q0 = bal * f * entryScale
+                                                q1 =
+                                                    let mCap =
+                                                            case argMaxOrderQuote args of
+                                                                Just q | q > 0 -> Just q
+                                                                _ -> Nothing
+                                                     in maybe q0 (`min` q0) mCap
+                                             in Just q1
                         _ -> pure Nothing
                 let mDesiredQtyRaw =
                         case argOrderQuantity args of
@@ -28761,7 +28774,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                             Nothing -> Right (qRaw, False)
                             Just sf -> normalizeEntryQty sf currentPrice qRaw
 
-                    closeOrder sideLabel side qtyRaw =
+                    closeOrder :: String -> OrderSide -> Double -> IO ApiOrderResult
+                    closeOrder = closeOrderWithClientOrderId clientOrderId
+
+                    closeOrderWithClientOrderId :: Maybe String -> String -> OrderSide -> Double -> IO ApiOrderResult
+                    closeOrderWithClientOrderId orderClientOrderId sideLabel side qtyRaw =
                         case normalizeFuturesQty qtyRaw of
                             Left e ->
                                 case minTradeQtyMaybe mSf currentPrice of
@@ -28771,7 +28788,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 if q <= 0
                                     then pure baseResult{aorMessage = "No order: quantity is 0."}
                                     else do
-                                        out <- sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+                                        out <- sendMarketOrderWithClientOrderId orderClientOrderId sideLabel side (Just q) Nothing (Just True)
                                         if not (aorSent out) || mode /= OrderLive
                                             then pure out
                                             else do
@@ -28787,10 +28804,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                 let waitMax = 12 :: Int
                                                     waitDelayUs = 500000
                                                     waitLoop n = do
-                                                        amt <- fetchFuturesPositionAmt env sym
-                                                        if abs amt <= 1e-12 || n <= 0
-                                                            then pure ()
-                                                            else threadDelay waitDelayUs >> waitLoop (n - 1)
+                                                        amountOrErr <- try (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
+                                                        case amountOrErr of
+                                                            Right amt | abs amt > 1e-12 && n > 0 -> threadDelay waitDelayUs >> waitLoop (n - 1)
+                                                            _ -> pure ()
                                                 waitLoop waitMax
                                                 algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
                                                 case algoOrdersOrErr of
@@ -28816,6 +28833,91 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                     _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
                                                                     pure ()
                                                         pure out
+
+                    reversalCloseClientOrderId :: Maybe String
+                    reversalCloseClientOrderId =
+                        fmap
+                            ( \cid ->
+                                let digest = hashBytesHex (BL.fromStrict (BS.pack ("reversal-close:" ++ cid)))
+                                 in "rc_" ++ take 12 cid ++ "_" ++ take 16 digest
+                            )
+                            clientOrderId
+
+                    confirmReversalClosed :: IO Bool
+                    confirmReversalClosed
+                        | mode /= OrderLive = pure True
+                        | otherwise = do
+                            amountOrErr <- try (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
+                            pure $
+                                case amountOrErr of
+                                    Right amount -> abs amount <= 1e-12
+                                    Left _ -> False
+
+                    combineReversalResults :: ApiOrderResult -> ApiOrderResult -> ApiOrderResult
+                    combineReversalResults closeOut entryOut
+                        | aorSent entryOut =
+                            entryOut
+                                { aorMessage =
+                                    "Reversal close: "
+                                        ++ aorMessage closeOut
+                                        ++ " Reversal entry: "
+                                        ++ aorMessage entryOut
+                                }
+                        | otherwise =
+                            closeOut
+                                { aorMarketRisk = aorMarketRisk entryOut
+                                , aorMessage =
+                                    "Reversal close: "
+                                        ++ aorMessage closeOut
+                                        ++ " Reversal entry not sent: "
+                                        ++ aorMessage entryOut
+                                }
+
+                    sendFuturesTargetEntry :: Int -> String -> OrderSide -> Either String (Double, Bool) -> IO (ApiOrderResult, Bool)
+                    sendFuturesTargetEntry entryDir sideLabel side entryPlan =
+                        let sendEntry fundsPositionAmt (entryQty, bumped) = do
+                                fundsCheck <- ensureFuturesFundsFor fundsPositionAmt entryDir entryQty
+                                case fundsCheck of
+                                    Left msg -> pure (baseResult{aorMessage = msg}, False)
+                                    Right () -> do
+                                        entryOut0 <- sendFuturesEntryRiskChecked entryDir sideLabel side entryQty
+                                        let entrySent = aorSent entryOut0
+                                            entryOut =
+                                                if bumped && entrySent
+                                                    then entryOut0{aorMessage = aorMessage entryOut0 ++ " (min size applied)."}
+                                                    else entryOut0
+                                        pure (entryOut, entrySent)
+                            skipReversalEntry closeOut msg =
+                                closeOut
+                                    { aorMessage =
+                                        "Reversal close: "
+                                            ++ aorMessage closeOut
+                                            ++ " Reversal entry not sent: "
+                                            ++ msg
+                                    }
+                         in if posAmt * fromIntegral entryDir >= 0
+                                then case entryPlan of
+                                    Left msg -> pure (baseResult{aorMessage = msg}, False)
+                                    Right entry -> sendEntry posAmt entry
+                                else do
+                                    closeOut <- closeOrderWithClientOrderId reversalCloseClientOrderId sideLabel side (abs posAmt)
+                                    if not (aorSent closeOut)
+                                        then pure (closeOut, False)
+                                        else do
+                                            closed <- confirmReversalClosed
+                                            if not closed
+                                                then pure (skipReversalEntry closeOut "opposite position did not confirm flat.", False)
+                                                else do
+                                                    cancelProtectionOrders
+                                                    case lstmBlockMsg of
+                                                        Just msg -> pure (skipReversalEntry closeOut msg, False)
+                                                        Nothing ->
+                                                            case entryPlan of
+                                                                Left msg -> pure (skipReversalEntry closeOut msg, False)
+                                                                Right entry -> do
+                                                                    let fundsPositionAmt = if mode == OrderLive then 0 else posAmt
+                                                                    (entryOut, entrySent) <- sendEntry fundsPositionAmt entry
+                                                                    pure (combineReversalResults closeOut entryOut, entrySent)
 
                     noFuturesSizingMsg =
                         if maybe False (> 0) (argOrderQuoteFraction args)
@@ -28847,44 +28949,30 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                          in pure (appendProtectionNote baseResult{aorMessage = baseMsg})
                             else case lstmBlockMsg of
                                 Just msg | posAmt == 0 -> pure baseResult{aorMessage = msg}
-                                _ ->
-                                    case mDesiredQtyRaw of
-                                        Nothing -> pure baseResult{aorMessage = noFuturesSizingMsg}
-                                        Just q0 -> do
-                                            case normalizeFuturesEntryQty q0 of
-                                                Left e -> pure baseResult{aorMessage = "No order: " ++ e}
-                                                Right (qDesired, bumped) -> do
-                                                    fundsCheck <- ensureFuturesFunds 1 qDesired
-                                                    case fundsCheck of
-                                                        Left msg -> pure baseResult{aorMessage = msg}
-                                                        Right () -> do
-                                                            let qtyToBuyRaw = if posAmt < 0 then abs posAmt + qDesired else qDesired
-                                                            case normalizeFuturesQty qtyToBuyRaw of
-                                                                Left e -> pure baseResult{aorMessage = "No order: " ++ e}
-                                                                Right q ->
-                                                                    if q <= 0
-                                                                        then pure baseResult{aorMessage = "No order: quantity is 0."}
-                                                                        else do
-                                                                            out0 <- sendFuturesEntryRiskChecked 1 "BUY" Buy q
-                                                                            let out =
-                                                                                    if bumped && aorSent out0
-                                                                                        then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
-                                                                                        else out0
-                                                                            if aorSent out
-                                                                                then
-                                                                                    if protectionEnabled
-                                                                                        then do
-                                                                                            let fillPx =
-                                                                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                                                                                        (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                                                                                        _ -> currentPrice
-                                                                                            r <- placeProtectionOrders 1 fillPx
-                                                                                            pure $
-                                                                                                case r of
-                                                                                                    Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
-                                                                                                    Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
-                                                                                        else pure (appendProtectionNote out)
-                                                                                else pure out
+                                _ -> do
+                                    let entryPlan =
+                                            case mDesiredQtyRaw of
+                                                Nothing -> Left noFuturesSizingMsg
+                                                Just q0 ->
+                                                    case normalizeFuturesEntryQty q0 of
+                                                        Left e -> Left ("No order: " ++ e)
+                                                        Right normalized -> Right normalized
+                                    (out, entrySent) <- sendFuturesTargetEntry 1 "BUY" Buy entryPlan
+                                    if entrySent
+                                        then
+                                            if protectionEnabled
+                                                then do
+                                                    let fillPx =
+                                                            case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                                (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                                _ -> currentPrice
+                                                    r <- placeProtectionOrders 1 fillPx
+                                                    pure $
+                                                        case r of
+                                                            Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
+                                                            Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                else pure (appendProtectionNote out)
+                                        else pure out
                     (-1) ->
                         case argPositioning args of
                             LongShort ->
@@ -28907,44 +28995,30 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                  in pure (appendProtectionNote baseResult{aorMessage = baseMsg})
                                     else case lstmBlockMsg of
                                         Just msg | posAmt == 0 -> pure baseResult{aorMessage = msg}
-                                        _ ->
-                                            case mDesiredQtyRaw of
-                                                Nothing -> pure baseResult{aorMessage = noFuturesSizingMsg}
-                                                Just q0 -> do
-                                                    case normalizeFuturesEntryQty q0 of
-                                                        Left e -> pure baseResult{aorMessage = "No order: " ++ e}
-                                                        Right (qDesired, bumped) -> do
-                                                            fundsCheck <- ensureFuturesFunds (-1) qDesired
-                                                            case fundsCheck of
-                                                                Left msg -> pure baseResult{aorMessage = msg}
-                                                                Right () -> do
-                                                                    let qtyToSellRaw = if posAmt > 0 then posAmt + qDesired else qDesired
-                                                                    case normalizeFuturesQty qtyToSellRaw of
-                                                                        Left e -> pure baseResult{aorMessage = "No order: " ++ e}
-                                                                        Right q ->
-                                                                            if q <= 0
-                                                                                then pure baseResult{aorMessage = "No order: quantity is 0."}
-                                                                                else do
-                                                                                    out0 <- sendFuturesEntryRiskChecked (-1) "SELL" Sell q
-                                                                                    let out =
-                                                                                            if bumped && aorSent out0
-                                                                                                then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
-                                                                                                else out0
-                                                                                    if aorSent out
-                                                                                        then
-                                                                                            if protectionEnabled
-                                                                                                then do
-                                                                                                    let fillPx =
-                                                                                                            case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                                                                                                (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                                                                                                _ -> currentPrice
-                                                                                                    r <- placeProtectionOrders (-1) fillPx
-                                                                                                    pure $
-                                                                                                        case r of
-                                                                                                            Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
-                                                                                                            Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
-                                                                                                else pure (appendProtectionNote out)
-                                                                                        else pure out
+                                        _ -> do
+                                            let entryPlan =
+                                                    case mDesiredQtyRaw of
+                                                        Nothing -> Left noFuturesSizingMsg
+                                                        Just q0 ->
+                                                            case normalizeFuturesEntryQty q0 of
+                                                                Left e -> Left ("No order: " ++ e)
+                                                                Right normalized -> Right normalized
+                                            (out, entrySent) <- sendFuturesTargetEntry (-1) "SELL" Sell entryPlan
+                                            if entrySent
+                                                then
+                                                    if protectionEnabled
+                                                        then do
+                                                            let fillPx =
+                                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                                        (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                                        _ -> currentPrice
+                                                            r <- placeProtectionOrders (-1) fillPx
+                                                            pure $
+                                                                case r of
+                                                                    Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
+                                                                    Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                        else pure (appendProtectionNote out)
+                                                else pure out
                             LongFlat ->
                                 if posAmt == 0
                                     then do

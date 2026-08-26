@@ -43,7 +43,6 @@ data MarketRiskInput = MarketRiskInput
     { mriNowMs :: !Int64
     , mriDirection :: !Int
     , mriQuantity :: !Double
-    , mriSignalPrice :: !Double
     , mriPredictedPrice :: !(Maybe Double)
     , mriMinimumEdge :: !Double
     }
@@ -131,7 +130,6 @@ marketRiskDecision cfg input snapshot
                 [ "invalid direction" | mriDirection input /= 1 && mriDirection input /= -1
                 ]
                     ++ ["invalid quantity" | not (finitePositive (mriQuantity input))]
-                    ++ ["invalid signal price" | not (finitePositive (mriSignalPrice input))]
                     ++ ["invalid minimum edge" | not (finiteNonNegative (mriMinimumEdge input))]
             snapshotStale = timestampStale (mrcMaxSnapshotAgeMs cfg) (mriNowMs input) (fmsObservedAt snapshot)
             missingReasons =
@@ -141,7 +139,8 @@ marketRiskDecision cfg input snapshot
                     ++ ["premium/funding unavailable" | isNothing (fmsPremium snapshot)]
                     ++ ["ADL risk unavailable" | isNothing (fmsAdlRisk snapshot)]
             criticalReasons = if mrcFailClosed cfg then missingReasons else []
-            edgeBps = expectedEdgeBps input
+            bookMetrics = fmsOrderBook snapshot >>= orderBookMetrics (mriDirection input) (mriQuantity input)
+            edgeBps = expectedEdgeBps input (obmReferencePrice <$> bookMetrics)
             minimumEdgeBps =
                 if finiteNonNegative (mriMinimumEdge input)
                     then mriMinimumEdge input * 10000
@@ -153,7 +152,6 @@ marketRiskDecision cfg input snapshot
                         [ printf "directional forecast edge %.2f bps is below minimum %.2f bps" edge minimumEdgeBps
                         | edge < minimumEdgeBps
                         ]
-            bookMetrics = fmsOrderBook snapshot >>= orderBookMetrics (mriDirection input) (mriQuantity input)
             spreadBps = obmSpreadBps <$> bookMetrics
             impactBps = obmImpactBps <$> bookMetrics
             imbalance = obmImbalance <$> bookMetrics
@@ -295,7 +293,8 @@ shadowSeriesWarnings cfg input label validValue point =
                 ++ [label ++ " stale" | timestampStale (mrcMaxShadowAgeMs cfg) (mriNowMs input) observedAt]
 
 data OrderBookMetrics = OrderBookMetrics
-    { obmSpreadBps :: !Double
+    { obmReferencePrice :: !Double
+    , obmSpreadBps :: !Double
     , obmImpactBps :: !Double
     , obmImbalance :: !Double
     }
@@ -324,7 +323,8 @@ orderBookMetrics direction quantity book = do
                 then
                     Just
                         OrderBookMetrics
-                            { obmSpreadBps = max 0 spread
+                            { obmReferencePrice = midpoint
+                            , obmSpreadBps = max 0 spread
                             , obmImpactBps = max 0 impact
                             , obmImbalance = max (-1) (min 1 imbalance)
                             }
@@ -354,13 +354,14 @@ firstPositive (level : rest)
     | finitePositive (dlPrice level) && finitePositive (dlQuantity level) = Just level
     | otherwise = firstPositive rest
 
-expectedEdgeBps :: MarketRiskInput -> Maybe Double
-expectedEdgeBps input = do
+expectedEdgeBps :: MarketRiskInput -> Maybe Double -> Maybe Double
+expectedEdgeBps input referencePrice = do
     predicted <- mriPredictedPrice input
-    if not (finitePositive predicted) || not (finitePositive (mriSignalPrice input))
+    livePrice <- referencePrice
+    if not (finitePositive predicted) || not (finitePositive livePrice)
         then Nothing
         else
-            let directional = fromIntegral (mriDirection input) * (predicted / mriSignalPrice input - 1) * 10000
+            let directional = fromIntegral (mriDirection input) * (predicted / livePrice - 1) * 10000
              in if finite directional && directional > 0 then Just directional else Nothing
 
 adverseFundingBps :: Int -> FuturesPremiumSnapshot -> Double

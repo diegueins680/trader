@@ -36,6 +36,7 @@ marketRiskSuite =
     , ("blocks adverse funding that consumes edge", testBlocksAdverseFunding)
     , ("blocks missing or counter-directional forecast edge", testBlocksMissingDirectionalEdge)
     , ("blocks forecast edge below the configured minimum", testBlocksEdgeBelowMinimum)
+    , ("measures remaining edge from the live order book", testUsesLiveBookForRemainingEdge)
     , ("blocks high ADL risk", testBlocksHighAdl)
     , ("blocks stale critical feeds", testBlocksStaleFeeds)
     , ("allows bounded venue timestamp skew", testFutureTimestampSkew)
@@ -99,6 +100,19 @@ testBlocksEdgeBelowMinimum = do
     let input = baseInput{mriPredictedPrice = Just 100.05, mriMinimumEdge = 0.001}
         decision = marketRiskDecision defaultMarketRiskConfig input baseSnapshot
     assert "expected sub-threshold forecast edge to block" (not (mrdAllowed decision))
+    assertReason "directional forecast edge" decision
+    assertReason "below minimum" decision
+
+testUsesLiveBookForRemainingEdge :: IO ()
+testUsesLiveBookForRemainingEdge = do
+    let movedBook =
+            (requiredBook baseSnapshot)
+                { obsBids = [DepthLevel 100.9 100]
+                , obsAsks = [DepthLevel 101 100]
+                }
+        snapshot = baseSnapshot{fmsOrderBook = Just movedBook}
+        decision = marketRiskDecision defaultMarketRiskConfig baseInput snapshot
+    assert "expected depleted live edge to block" (not (mrdAllowed decision))
     assertReason "directional forecast edge" decision
     assertReason "below minimum" decision
 
@@ -189,7 +203,6 @@ baseInput =
         { mriNowMs = nowMs
         , mriDirection = 1
         , mriQuantity = 1
-        , mriSignalPrice = 100
         , mriPredictedPrice = Just 101
         , mriMinimumEdge = 0.001
         }
