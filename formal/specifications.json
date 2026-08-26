@@ -225,18 +225,19 @@
     {
       "id": "H-SIGNAL-GATES",
       "title": "Signal admission, directionality, volatility-confidence, and post-direction gates",
-      "features": ["entry threshold", "edge headroom", "fee buffer", "edge spike", "directionality", "prediction sanity", "volatility-confidence gate", "cross-asset confirmation", "funding/open-interest gate", "MTF consensus"],
+      "features": ["entry threshold", "edge headroom", "fee buffer", "edge spike", "directionality", "prediction sanity", "volatility-confidence gate", "cross-asset confirmation", "funding/open-interest gate", "requested-size marketability", "funding edge budget", "symbol ADL risk", "MTF consensus"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/SignalGates.hs", "haskell/app/Trader/VolConfGate.hs"],
+      "implementation": ["haskell/app/Trader/SignalGates.hs", "haskell/app/Trader/VolConfGate.hs", "haskell/app/Trader/MarketRisk.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-REDUCE-ONLY"],
-      "dependsOn": ["H-FEATURES", "H-TA"],
+      "dependsOn": ["H-FEATURES", "H-TA", "H-VENUES"],
       "requires": [{ "id": "H-SIGNAL-GATES-R1", "statement": "A fresh entry requires one explicit finite edge, a finite non-negative threshold/cost, valid sizing evidence, and every enabled gate to admit the same normalized evidence." }],
       "ensures": [{ "id": "H-SIGNAL-GATES-E1", "statement": "Entry is admitted exactly by the conjunction of enabled gates; blocked/exit-only behavior may preserve or reduce existing exposure but cannot open or flip it." }],
       "invariants": [{ "id": "H-SIGNAL-GATES-I1", "statement": "Admissibility is non-increasing as fees, required edge, or strictness rise and non-decreasing as valid supporting edge/confidence rises within the declared domain." }],
       "failures": [{ "id": "H-SIGNAL-GATES-F1", "statement": "Missing/non-finite/out-of-range evidence fails closed with a stable observable rejection reason." }],
       "evidence": [
         { "level": "bounded-exhaustive", "path": "haskell/test/TestMain.hs", "contains": "testSignalGatesFailClosedExhaustive" },
-        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testTradingEntryGateFailClosedMonotone" }
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testTradingEntryGateFailClosedMonotone" },
+        { "level": "regression", "path": "haskell/test/Trader/Test/MarketRisk.hs", "contains": "blocks requested-size impact" }
       ]
     },
     {

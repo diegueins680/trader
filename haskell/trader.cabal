@@ -50,6 +50,7 @@ executable trader-hs
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketGovernor
+                     , Trader.MarketRisk
                      , Trader.MarketContext
                      , Trader.MarketDataIntegrity
                      , Trader.NeuralGovernor
@@ -303,6 +304,7 @@ test-suite trader-tests
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketGovernor
+                     , Trader.MarketRisk
                      , Trader.MarketContext
                      , Trader.MarketDataIntegrity
                      , Trader.NeuralGovernor
@@ -347,6 +349,7 @@ test-suite trader-tests
                      , Trader.Test.Cors
                      , Trader.Test.FormalVerification
                      , Trader.Test.GracefulShutdown
+                     , Trader.Test.MarketRisk
                      , Trader.Test.NeuralGovernorRollout
                      , Trader.Test.OnlineNeural
                      , Trader.Test.Revenue
