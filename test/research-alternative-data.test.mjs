@@ -113,17 +113,29 @@ with tempfile.TemporaryDirectory() as directory:
     assert manifest["symbol"] == "BTCUSDT"
     assert json.loads(manifest_path.read_text(encoding="utf-8"))["intervalMs"] == 60000
 
-    # Identical PIT keys are idempotent; a later collection replaces only the
-    # ingestion copy rather than manufacturing another historical observation.
+    # A changed payload cannot reuse an explicit provider release identity:
+    # preserving the original row prevents the correction from being backdated.
     original = rows[0]
     replacement = alt.Observation(**{
         **original.__dict__,
         "value": original.value + 10,
         "ingestedAt": original.ingestedAt + 1,
     })
-    assert alt.merge_cache(cache_path, [replacement]) == len(alt.FAMILIES)
-    replaced = {row.key(): row for row in alt.read_cache(cache_path)}[replacement.key()]
-    assert replaced.value == replacement.value
+    try:
+        alt.merge_cache(cache_path, [replacement])
+    except ValueError as error:
+        assert "distinct revision or availability timestamp" in str(error)
+    else:
+        raise AssertionError("ambiguous explicit correction must fail closed")
+    preserved = {row.key(): row for row in alt.read_cache(cache_path)}[original.key()]
+    assert preserved.value == original.value
+    distinct_release = alt.Observation(**{
+        **replacement.__dict__,
+        "timestamp": replacement.timestamp + 1,
+    })
+    assert alt.merge_cache(cache_path, [distinct_release]) == len(alt.FAMILIES) + 1
+    released = {row.key(): row for row in alt.read_cache(cache_path)}[distinct_release.key()]
+    assert released.value == distinct_release.value
 
     # A provider without release/vintage timestamps becomes available only
     # when first observed. Later revisions cannot inherit the historical event

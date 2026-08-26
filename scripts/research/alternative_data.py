@@ -746,6 +746,15 @@ def merge_cache(path: str | os.PathLike[str], incoming: Iterable[Observation]) -
                 # new release on every collection.
                 continue
             previous = merged.get(observation.key())
+            if (
+                observation.availabilityMode == "explicit"
+                and previous is not None
+                and previous.payload_key() != observation.payload_key()
+            ):
+                raise ValueError(
+                    f"{observation.source}: conflicting payload for an explicit "
+                    "release; provide a distinct revision or availability timestamp"
+                )
             if previous is None or observation.ingestedAt >= previous.ingestedAt:
                 merged[observation.key()] = observation
                 if observation.availabilityMode == "first_seen":
