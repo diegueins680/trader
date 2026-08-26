@@ -28817,33 +28817,41 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     waitLoop n = do
                                                         amountOrErr <- try (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
                                                         case amountOrErr of
-                                                            Right amt | abs amt > 1e-12 && n > 0 -> threadDelay waitDelayUs >> waitLoop (n - 1)
-                                                            _ -> pure ()
-                                                waitLoop waitMax
-                                                algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
-                                                case algoOrdersOrErr of
-                                                    Left _ -> pure out
-                                                    Right orders -> do
-                                                        let filtered =
-                                                                [ o
-                                                                | o <- orders
-                                                                , let symOk = normalizeKey (faoSymbol o) == normalizeKey sym
-                                                                , symOk
-                                                                , let mCid = faoClientAlgoId o
-                                                                , maybe False isBotAlgo mCid
-                                                                , let ps = faoPositionSide o
-                                                                , case normalizeSide ps of
-                                                                    Just "long" -> matchesSide ps
-                                                                    Just "short" -> matchesSide ps
-                                                                    _ -> True
-                                                                ]
-                                                        forM_ filtered $ \o ->
-                                                            case faoClientAlgoId o of
-                                                                Nothing -> pure ()
-                                                                Just cid -> do
-                                                                    _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
-                                                                    pure ()
-                                                        pure out
+                                                            Right amt
+                                                                | abs amt <= 1e-12 -> pure True
+                                                                | n > 0 -> threadDelay waitDelayUs >> waitLoop (n - 1)
+                                                                | otherwise -> pure False
+                                                            Left _
+                                                                | n > 0 -> threadDelay waitDelayUs >> waitLoop (n - 1)
+                                                                | otherwise -> pure False
+                                                confirmedFlat <- waitLoop waitMax
+                                                if not confirmedFlat
+                                                    then pure out
+                                                    else do
+                                                        algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
+                                                        case algoOrdersOrErr of
+                                                            Left _ -> pure out
+                                                            Right orders -> do
+                                                                let filtered =
+                                                                        [ o
+                                                                        | o <- orders
+                                                                        , let symOk = normalizeKey (faoSymbol o) == normalizeKey sym
+                                                                        , symOk
+                                                                        , let mCid = faoClientAlgoId o
+                                                                        , maybe False isBotAlgo mCid
+                                                                        , let ps = faoPositionSide o
+                                                                        , case normalizeSide ps of
+                                                                            Just "long" -> matchesSide ps
+                                                                            Just "short" -> matchesSide ps
+                                                                            _ -> True
+                                                                        ]
+                                                                forM_ filtered $ \o ->
+                                                                    case faoClientAlgoId o of
+                                                                        Nothing -> pure ()
+                                                                        Just cid -> do
+                                                                            _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
+                                                                            pure ()
+                                                                pure out
 
                     reversalCloseClientOrderId :: Maybe String
                     reversalCloseClientOrderId =
