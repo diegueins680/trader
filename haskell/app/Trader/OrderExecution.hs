@@ -4,6 +4,7 @@ module Trader.OrderExecution (
     orderAppliedFraction,
     applyExecutedQuantity,
     applyReduceOnlyExecutedQuantity,
+    applySplitReversalExecutedQuantities,
 ) where
 
 import Control.Exception (assert)
@@ -120,6 +121,18 @@ applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw =
         neverIncreases = sizeNew <= currentSize || currentSize <= eps
         neverFlips = posNew == 0 || posNew == prevSign
      in assert (neverIncreases && neverFlips) (posNew, sizeNew, closeQty, 0)
+
+{- | Apply independently observed close and entry fills for a split reversal.
+The reduce-only leg is accounted first, so an absent or rejected entry leaves
+the position reduced or flat instead of fabricating a completed flip.
+-}
+applySplitReversalExecutedQuantities :: Int -> Double -> Bool -> Double -> Double -> (Int, Double, Double, Double)
+applySplitReversalExecutedQuantities prevPos prevSize isBuy closeQty entryQty =
+    let (posAfterClose, sizeAfterClose, closeApplied, _) =
+            applyReduceOnlyExecutedQuantity prevPos prevSize closeQty
+        (posNew, sizeNew, entryCloseApplied, openApplied) =
+            applyExecutedQuantity posAfterClose sizeAfterClose isBuy entryQty
+     in (posNew, sizeNew, closeApplied + entryCloseApplied, openApplied)
 
 sanitizeSignedExposure :: Int -> Double -> Double
 sanitizeSignedExposure prevPos prevSize =

@@ -200,7 +200,7 @@ import Trader.Optimizer.Optimize (
     qualityPresetWeightFloor,
  )
 import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
-import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
+import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities)
 import Trader.Platform (Platform (..))
 import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
 import Trader.PortfolioSelection (
@@ -615,6 +615,7 @@ main = do
     testBacktestCostAttributionGrossNetConsistency
     testBacktestCostAttributionNonFiniteComponentsRegression
     testOrderExecutionFillSanitizationInvariant
+    testSplitReversalExecutionInvariant
     testOrderExecutionCorruptedInputInvariant
     testCoinbaseBuildRangesOverflowRegression
     testCoinbaseOrderInfoDecodeInvariant
@@ -7044,6 +7045,22 @@ testOrderExecutionFillSanitizationInvariant = do
     assert
         "reduce-only fills only close existing exposure and never reopen a position"
         (all reduceOnlyInvariant reduceOnlySamples)
+
+testSplitReversalExecutionInvariant :: IO ()
+testSplitReversalExecutionInvariant = do
+    let (partialPos, partialSize, partialClose, partialOpen) =
+            applySplitReversalExecutedQuantities (-1) 1 True 0.6 0.25
+    assert
+        "a completed close with no entry leaves a split reversal flat"
+        (applySplitReversalExecutedQuantities 1 1 False 1 0 == (0, 0, 1, 0))
+    assert
+        "a completed close and partial entry preserve both legs independently"
+        (applySplitReversalExecutedQuantities 1 1 False 1 0.4 == (-1, 0.4, 1, 0.4))
+    assert
+        "a partial close cannot fabricate more opposite exposure than the entry fill"
+        (partialPos == -1 && partialOpen == 0)
+    assertNear "partial split reversal retains the remaining original position" 0.15 partialSize 1e-12
+    assertNear "partial split reversal accounts both close contributions" 0.85 partialClose 1e-12
 
 testOrderExecutionCorruptedInputInvariant :: IO ()
 testOrderExecutionCorruptedInputInvariant = do

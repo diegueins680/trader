@@ -444,7 +444,7 @@ import Trader.Optimizer.Optimize (
     optimizerRecordsSummaryJson,
     readOptimizerRecordsSummary,
  )
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedFraction)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, orderAppliedFraction)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -1756,6 +1756,8 @@ data ApiOrderResult = ApiOrderResult
     , aorTxHash :: Maybe String
     , aorResponse :: Maybe String
     , aorMarketRisk :: Maybe MarketRiskDecision
+    , aorReduceOnly :: Bool
+    , aorPrecedingClose :: Maybe ApiOrderResult
     , aorMessage :: String
     }
     deriving (Eq, Show, Generic)
@@ -11535,14 +11537,18 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                 (-1, 1) -> startSize + entrySize
                 _ -> max startSize entrySize
         closeOnlySwitch = desiredPosSignal == 0 && startPos0 /= 0
+        primaryIntent =
+            case mOrder of
+                Just o | aorReduceOnly o -> startSize
+                _ -> targetQtyForSwitch
         executedQtyRaw
             | not wantSwitch = 0
-            | not tradeEnabled = targetQtyForSwitch
-            | alreadyMsg = targetQtyForSwitch
+            | not tradeEnabled = primaryIntent
+            | alreadyMsg = primaryIntent
             | otherwise =
                 case mOrder of
                     Nothing -> 0
-                    Just o -> fromMaybe 0 (executedFractionFromOrder targetQtyForSwitch o)
+                    Just o -> fromMaybe 0 (executedFractionFromOrder primaryIntent o)
         (desiredPos, desiredSize, closeQty, openQty)
             | not wantSwitch =
                 let size0 =
@@ -11550,8 +11556,18 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
                             then 0
                             else startSize
                  in (startPos0, size0, 0, 0)
-            | closeOnlySwitch = applyReduceOnlyExecutedQuantity startPos0 startSize executedQtyRaw
-            | otherwise = applyExecutedQuantity startPos0 startSize (opSide == "BUY") executedQtyRaw
+            | otherwise =
+                case mOrder of
+                    Just o
+                        | tradeEnabled
+                        , Just closeOut <- aorPrecedingClose o ->
+                            let closeExecuted = fromMaybe 0 (executedFractionFromOrder startSize closeOut)
+                                entryExecuted = fromMaybe 0 (executedFractionFromOrder entrySize o)
+                             in applySplitReversalExecutedQuantities startPos0 startSize (opSide == "BUY") closeExecuted entryExecuted
+                    _ ->
+                        if closeOnlySwitch || maybe False aorReduceOnly mOrder
+                            then applyReduceOnlyExecutedQuantity startPos0 startSize executedQtyRaw
+                            else applyExecutedQuantity startPos0 startSize (opSide == "BUY") executedQtyRaw
         appliedExecution = isPositiveQty closeQty || isPositiveQty openQty
         stateReconciled = alreadyMsg || appliedExecution
         appliedSwitch =
@@ -15538,14 +15554,25 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             alreadyMsg =
                                 let msg = aorMessage o
                                  in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
+                            primaryIntent =
+                                if aorReduceOnly o
+                                    then prevSize
+                                    else targetQtyForSwitch
                             executedQtyRaw
-                                | not tradeEnabled = targetQtyForSwitch
-                                | alreadyMsg = targetQtyForSwitch
-                                | otherwise = fromMaybe 0 (executedFractionFromOrder targetQtyForSwitch o)
+                                | not tradeEnabled = primaryIntent
+                                | alreadyMsg = primaryIntent
+                                | otherwise = fromMaybe 0 (executedFractionFromOrder primaryIntent o)
                             (posNew, sizeNew, closeQty, openQty) =
-                                if closeOnlySwitch
-                                    then applyReduceOnlyExecutedQuantity prevPos prevSize executedQtyRaw
-                                    else applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
+                                case aorPrecedingClose o of
+                                    Just closeOut
+                                        | tradeEnabled ->
+                                            let closeExecuted = fromMaybe 0 (executedFractionFromOrder prevSize closeOut)
+                                                entryExecuted = fromMaybe 0 (executedFractionFromOrder entrySize o)
+                                             in applySplitReversalExecutedQuantities prevPos prevSize (opSide == "BUY") closeExecuted entryExecuted
+                                    _ ->
+                                        if closeOnlySwitch || aorReduceOnly o
+                                            then applyReduceOnlyExecutedQuantity prevPos prevSize executedQtyRaw
+                                            else applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
                             appliedExecution =
                                 isPositiveQty closeQty || isPositiveQty openQty
                             eqAfterFee =
@@ -16033,13 +16060,13 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
 placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
-        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+        then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
         else placeOrderForSignalBot args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeBotCloseIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
-        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+        then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
         else placeBotCloseOrder args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> Bool -> IO ApiOrderResult
@@ -23775,6 +23802,8 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                                                                 , aorTxHash = Nothing
                                                                                 , aorResponse = Nothing
                                                                                 , aorMarketRisk = Nothing
+                                                                                , aorReduceOnly = False
+                                                                                , aorPrecedingClose = Nothing
                                                                                 , aorMessage = ""
                                                                                 }
 
@@ -24704,6 +24733,8 @@ noOrderResult msg =
         , aorTxHash = Nothing
         , aorResponse = Nothing
         , aorMarketRisk = Nothing
+        , aorReduceOnly = False
+        , aorPrecedingClose = Nothing
         , aorMessage = msg
         }
 
@@ -24765,6 +24796,8 @@ dryRunOrderResult args sig =
             , aorTxHash = Nothing
             , aorResponse = Nothing
             , aorMarketRisk = Nothing
+            , aorReduceOnly = False
+            , aorPrecedingClose = Nothing
             , aorMessage = message
             }
 
@@ -24852,6 +24885,8 @@ placeDexOrderForSignal args sig = do
                 , aorTxHash = Nothing
                 , aorResponse = Nothing
                 , aorMarketRisk = Nothing
+                , aorReduceOnly = False
+                , aorPrecedingClose = Nothing
                 , aorMessage = ""
                 }
         noOrder msg = pure baseResult{aorMessage = msg}
@@ -28000,6 +28035,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             , aorTxHash = Nothing
             , aorResponse = Nothing
             , aorMarketRisk = Nothing
+            , aorReduceOnly = False
+            , aorPrecedingClose = Nothing
             , aorMessage = ""
             }
 
@@ -28241,6 +28278,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     { aorSide = Just sideLabel
                     , aorQuantity = Just qty
                     , aorQuoteQuantity = mQuote
+                    , aorReduceOnly = fromMaybe False mReduceOnly
                     }
             fallback reason =
                 if argExecutionMakerFallbackMarket args
@@ -28322,6 +28360,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     , aorQuantity = mQty
                     , aorQuoteQuantity = mQuote
                     , aorClientOrderId = orderClientOrderId
+                    , aorReduceOnly = fromMaybe False mReduceOnly
                     }
 
         let tryReconcile ex =
@@ -28736,35 +28775,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                     (_, Left e) -> Left ("Protection order failed: " ++ e)
                                     _ -> Right ()
 
-                mQuoteFromFraction <-
-                    case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
-                        (Nothing, Nothing, Just f)
-                            | f > 0
-                            , posAmt * fromIntegral dir >= 0 -> do
-                                balanceOrErr <- try (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
-                                pure $
-                                    case balanceOrErr of
-                                        Left _ -> Nothing
-                                        Right bal ->
-                                            let q0 = bal * f * entryScale
-                                                q1 =
-                                                    let mCap =
-                                                            case argMaxOrderQuote args of
-                                                                Just q | q > 0 -> Just q
-                                                                _ -> Nothing
-                                                     in maybe q0 (`min` q0) mCap
-                                             in Just q1
-                        _ -> pure Nothing
-                let mDesiredQtyRaw =
-                        case argOrderQuantity args of
-                            Just q | q > 0 -> Just (q * entryScale)
-                            Just _ -> Nothing
-                            Nothing ->
-                                case fmap (* entryScale) (argOrderQuote args) <|> mQuoteFromFraction of
-                                    Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
-                                    _ -> Nothing
-
-                    normalizeFuturesQty qRaw =
+                let normalizeFuturesQty qRaw =
                         case mSf of
                             Nothing -> Right qRaw
                             Just sf -> normalizeQty sf currentPrice qRaw
@@ -28857,7 +28868,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     combineReversalResults closeOut entryOut
                         | aorSent entryOut =
                             entryOut
-                                { aorMessage =
+                                { aorPrecedingClose = Just closeOut
+                                , aorMessage =
                                     "Reversal close: "
                                         ++ aorMessage closeOut
                                         ++ " Reversal entry: "
@@ -28873,8 +28885,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         ++ aorMessage entryOut
                                 }
 
-                    sendFuturesTargetEntry :: Int -> String -> OrderSide -> Either String (Double, Bool) -> IO (ApiOrderResult, Bool)
-                    sendFuturesTargetEntry entryDir sideLabel side entryPlan =
+                    sendFuturesTargetEntry :: Int -> String -> OrderSide -> IO (Either String (Double, Bool)) -> IO (ApiOrderResult, Bool)
+                    sendFuturesTargetEntry entryDir sideLabel side entryPlanAction =
                         let sendEntry fundsPositionAmt (entryQty, bumped) = do
                                 fundsCheck <- ensureFuturesFundsFor fundsPositionAmt entryDir entryQty
                                 case fundsCheck of
@@ -28896,9 +28908,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                             ++ msg
                                     }
                          in if posAmt * fromIntegral entryDir >= 0
-                                then case entryPlan of
-                                    Left msg -> pure (baseResult{aorMessage = msg}, False)
-                                    Right entry -> sendEntry posAmt entry
+                                then do
+                                    entryPlan <- entryPlanAction
+                                    case entryPlan of
+                                        Left msg -> pure (baseResult{aorMessage = msg}, False)
+                                        Right entry -> sendEntry posAmt entry
                                 else do
                                     closeOut <- closeOrderWithClientOrderId reversalCloseClientOrderId sideLabel side (abs posAmt)
                                     if not (aorSent closeOut)
@@ -28908,21 +28922,66 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                             if not closed
                                                 then pure (skipReversalEntry closeOut "opposite position did not confirm flat.", False)
                                                 else do
+                                                    let confirmedCloseOut =
+                                                            closeOut
+                                                                { aorStatus = Just "filled"
+                                                                , aorExecutedQty = aorExecutedQty closeOut <|> aorQuantity closeOut
+                                                                }
                                                     cancelProtectionOrders
                                                     case lstmBlockMsg of
-                                                        Just msg -> pure (skipReversalEntry closeOut msg, False)
-                                                        Nothing ->
+                                                        Just msg -> pure (skipReversalEntry confirmedCloseOut msg, False)
+                                                        Nothing -> do
+                                                            entryPlan <- entryPlanAction
                                                             case entryPlan of
-                                                                Left msg -> pure (skipReversalEntry closeOut msg, False)
+                                                                Left msg -> pure (skipReversalEntry confirmedCloseOut msg, False)
                                                                 Right entry -> do
                                                                     let fundsPositionAmt = if mode == OrderLive then 0 else posAmt
                                                                     (entryOut, entrySent) <- sendEntry fundsPositionAmt entry
-                                                                    pure (combineReversalResults closeOut entryOut, entrySent)
+                                                                    pure (combineReversalResults confirmedCloseOut entryOut, entrySent)
 
                     noFuturesSizingMsg =
                         if maybe False (> 0) (argOrderQuoteFraction args)
                             then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
                             else "No order: futures requires orderQuantity or orderQuote."
+
+                    buildFuturesEntryPlan :: IO (Either String (Double, Bool))
+                    buildFuturesEntryPlan = do
+                        desiredQtyRaw <-
+                            case argOrderQuantity args of
+                                Just quantity | quantity > 0 -> pure (Just (quantity * entryScale))
+                                Just _ -> pure Nothing
+                                Nothing ->
+                                    case argOrderQuote args of
+                                        Just quote | quote > 0 -> pure (quoteToQuantity (quote * entryScale))
+                                        Just _ -> pure Nothing
+                                        Nothing ->
+                                            case argOrderQuoteFraction args of
+                                                Just fraction | fraction > 0 -> do
+                                                    balanceOrErr <- try (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
+                                                    pure $
+                                                        case balanceOrErr of
+                                                            Left _ -> Nothing
+                                                            Right balance ->
+                                                                let quote0 = balance * fraction * entryScale
+                                                                    quote = maybe quote0 (`min` quote0) positiveMaxOrderQuote
+                                                                 in quoteToQuantity quote
+                                                _ -> pure Nothing
+                        pure $
+                            case desiredQtyRaw of
+                                Nothing -> Left noFuturesSizingMsg
+                                Just quantity ->
+                                    case normalizeFuturesEntryQty quantity of
+                                        Left e -> Left ("No order: " ++ e)
+                                        Right normalized -> Right normalized
+                      where
+                        positiveMaxOrderQuote =
+                            case argMaxOrderQuote args of
+                                Just quote | quote > 0 -> Just quote
+                                _ -> Nothing
+                        quoteToQuantity quote =
+                            if quote > 0 && currentPrice > 0
+                                then Just (quote / currentPrice)
+                                else Nothing
 
                 case dir of
                     1 ->
@@ -28950,14 +29009,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                             else case lstmBlockMsg of
                                 Just msg | posAmt == 0 -> pure baseResult{aorMessage = msg}
                                 _ -> do
-                                    let entryPlan =
-                                            case mDesiredQtyRaw of
-                                                Nothing -> Left noFuturesSizingMsg
-                                                Just q0 ->
-                                                    case normalizeFuturesEntryQty q0 of
-                                                        Left e -> Left ("No order: " ++ e)
-                                                        Right normalized -> Right normalized
-                                    (out, entrySent) <- sendFuturesTargetEntry 1 "BUY" Buy entryPlan
+                                    (out, entrySent) <- sendFuturesTargetEntry 1 "BUY" Buy buildFuturesEntryPlan
                                     if entrySent
                                         then
                                             if protectionEnabled
@@ -28996,14 +29048,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                     else case lstmBlockMsg of
                                         Just msg | posAmt == 0 -> pure baseResult{aorMessage = msg}
                                         _ -> do
-                                            let entryPlan =
-                                                    case mDesiredQtyRaw of
-                                                        Nothing -> Left noFuturesSizingMsg
-                                                        Just q0 ->
-                                                            case normalizeFuturesEntryQty q0 of
-                                                                Left e -> Left ("No order: " ++ e)
-                                                                Right normalized -> Right normalized
-                                            (out, entrySent) <- sendFuturesTargetEntry (-1) "SELL" Sell entryPlan
+                                            (out, entrySent) <- sendFuturesTargetEntry (-1) "SELL" Sell buildFuturesEntryPlan
                                             if entrySent
                                                 then
                                                     if protectionEnabled
@@ -29099,6 +29144,8 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             , aorTxHash = Nothing
             , aorResponse = Nothing
             , aorMarketRisk = Nothing
+            , aorReduceOnly = False
+            , aorPrecedingClose = Nothing
             , aorMessage = ""
             }
 
