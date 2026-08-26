@@ -5,6 +5,7 @@ module Trader.OrderExecution (
     applyExecutedQuantity,
     applyReduceOnlyExecutedQuantity,
     applySplitReversalExecutedQuantities,
+    confirmedCloseExecutedQuantity,
 ) where
 
 import Control.Exception (assert)
@@ -133,6 +134,17 @@ applySplitReversalExecutedQuantities prevPos prevSize isBuy closeQty entryQty =
         (posNew, sizeNew, entryCloseApplied, openApplied) =
             applyExecutedQuantity posAfterClose sizeAfterClose isBuy entryQty
      in (posNew, sizeNew, closeApplied + entryCloseApplied, openApplied)
+
+{- | Once the venue confirms a close left the account flat, the requested
+close quantity is the authoritative completed amount.  An earlier partial
+execution report describes an intermediate state and must not survive that
+later confirmation in bot accounting.
+-}
+confirmedCloseExecutedQuantity :: Maybe Double -> Maybe Double -> Maybe Double
+confirmedCloseExecutedQuantity requested reported =
+    case requested >>= positiveFinite of
+        Just qty -> Just qty
+        Nothing -> reported >>= positiveFinite
 
 sanitizeSignedExposure :: Int -> Double -> Double
 sanitizeSignedExposure prevPos prevSize =

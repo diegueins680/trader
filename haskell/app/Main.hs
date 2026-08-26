@@ -444,7 +444,7 @@ import Trader.Optimizer.Optimize (
     optimizerRecordsSummaryJson,
     readOptimizerRecordsSummary,
  )
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, orderAppliedFraction)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -28933,7 +28933,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     let confirmedCloseOut =
                                                             closeOut
                                                                 { aorStatus = Just "filled"
-                                                                , aorExecutedQty = aorExecutedQty closeOut <|> aorQuantity closeOut
+                                                                , aorExecutedQty = confirmedCloseExecutedQuantity (aorQuantity closeOut) (aorExecutedQty closeOut)
                                                                 }
                                                     cancelProtectionOrders
                                                     case lstmBlockMsg of

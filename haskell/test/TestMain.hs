@@ -200,7 +200,7 @@ import Trader.Optimizer.Optimize (
     qualityPresetWeightFloor,
  )
 import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
-import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities)
+import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity)
 import Trader.Platform (Platform (..))
 import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
 import Trader.PortfolioSelection (
@@ -7056,6 +7056,9 @@ testSplitReversalExecutionInvariant = do
     assert
         "a completed close and partial entry preserve both legs independently"
         (applySplitReversalExecutedQuantities 1 1 False 1 0.4 == (-1, 0.4, 1, 0.4))
+    assert
+        "flat confirmation replaces an intermediate partial close report with the requested quantity"
+        (confirmedCloseExecutedQuantity (Just 1) (Just 0.6) == Just 1)
     assert
         "a partial close cannot fabricate more opposite exposure than the entry fill"
         (partialPos == -1 && partialOpen == 0)
