@@ -25,6 +25,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import System.Directory (removeFile)
 import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Env (canonicalizeUuidEnvValues)
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
@@ -5642,6 +5643,17 @@ testExplicitDeployableOverrideIsBoundedAndAuditable = do
             && not (deployableOverrideEvidenceEligible False True (Just "quarantined"))
             && not (deployableOverrideEvidenceEligible False True (Just "future-tier"))
         )
+    assert
+        "valid override UUIDs are canonicalized before lookup and deduplication"
+        ( canonicalizeUuidEnvValues
+            [ "550E8400-E29B-41D4-A716-446655440000"
+            , "550e8400-e29b-41d4-a716-446655440000"
+            ]
+            == Right ["550e8400-e29b-41d4-a716-446655440000"]
+        )
+    assert
+        "invalid override UUIDs remain fail-closed and identifiable"
+        (canonicalizeUuidEnvValues ["not-a-uuid"] == Left ["not-a-uuid"])
     assert
         "a relaxed deployment remains explicit and preserves its failed strict gates"
         ( relaxedFlag == Just True

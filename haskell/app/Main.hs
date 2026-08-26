@@ -119,7 +119,7 @@ import Trader.App.AutoStartBackoff (
  )
 import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceAuthFailureFromMessage, binanceTradeTestConfirmsAuth, parseBinanceError)
 import Trader.App.Csv (loadCsvPriceSeries)
-import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
+import Trader.App.Env (canonicalizeUuidEnvValues, getBuildCommit, loadEnvFile, traderVersion)
 import Trader.App.GracefulShutdown (
     DrainController,
     WorkerRegistry,
@@ -9075,16 +9075,15 @@ resolveBotSymbolsAuto args = do
 topComboDeployableOverrideUuidsFromEnv :: IO [Text]
 topComboDeployableOverrideUuidsFromEnv = do
     raw <- lookupTrimmedEnv "TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS"
-    let values = maybe [] splitEnvList raw
-        invalid = filter (isNothing . UUID.fromString) values
-    unless (null invalid) $
-        ioError
-            ( userError
-                ( "TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS contains invalid UUID(s): "
-                    ++ intercalate ", " invalid
+    case canonicalizeUuidEnvValues (maybe [] splitEnvList raw) of
+        Left invalid ->
+            ioError
+                ( userError
+                    ( "TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS contains invalid UUID(s): "
+                        ++ intercalate ", " invalid
+                    )
                 )
-            )
-    pure (map T.pack (dedupeStable values))
+        Right canonical -> pure canonical
 
 comboPollSecondsFromEnv :: IO Int
 comboPollSecondsFromEnv = do

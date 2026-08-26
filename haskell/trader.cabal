@@ -392,6 +392,7 @@ test-suite trader-tests
                      , scientific
                      , text
                      , time
+                     , uuid
                      , vector >=0.12
   -- The test component recompiles the optimizer and full trading engine; -O1
   -- exceeds bounded local/CI memory on the largest modules without improving

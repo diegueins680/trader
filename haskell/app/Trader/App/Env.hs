@@ -1,4 +1,5 @@
 module Trader.App.Env (
+    canonicalizeUuidEnvValues,
     getBuildCommit,
     loadEnvFile,
     traderVersion,
@@ -10,6 +11,8 @@ import Control.Monad (forM_, when)
 import Data.Char (isSpace)
 import Data.List (isPrefixOf, stripPrefix)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import qualified Data.Text as T
+import qualified Data.UUID as UUID
 import Data.Version (showVersion)
 import qualified Paths_trader as Paths
 import System.Directory (doesFileExist, findExecutable, getCurrentDirectory)
@@ -19,7 +22,21 @@ import System.FilePath (isAbsolute, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.Process (proc, readCreateProcessWithExitCode)
 
-import Trader.Text (trim)
+import Trader.Text (dedupeStable, trim)
+
+{- | Parse UUID-valued environment entries and retain only their canonical
+text representation. UUID parsing is case-insensitive, while downstream maps
+and persisted evidence use lowercase canonical text.
+-}
+canonicalizeUuidEnvValues :: [String] -> Either [String] [T.Text]
+canonicalizeUuidEnvValues values =
+    case invalid of
+        [] -> Right (dedupeStable canonical)
+        _ -> Left invalid
+  where
+    parsed = [(raw, UUID.fromText (T.strip (T.pack raw))) | raw <- values]
+    invalid = [raw | (raw, Nothing) <- parsed]
+    canonical = [UUID.toText uuid | (_, Just uuid) <- parsed]
 
 traderVersion :: String
 traderVersion = showVersion Paths.version
