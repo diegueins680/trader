@@ -34,8 +34,11 @@ marketRiskSuite =
     , ("blocks excessive spread", testBlocksExcessiveSpread)
     , ("blocks requested-size impact", testBlocksExcessiveImpact)
     , ("blocks adverse funding that consumes edge", testBlocksAdverseFunding)
+    , ("blocks missing or counter-directional forecast edge", testBlocksMissingDirectionalEdge)
+    , ("blocks forecast edge below the configured minimum", testBlocksEdgeBelowMinimum)
     , ("blocks high ADL risk", testBlocksHighAdl)
     , ("blocks stale critical feeds", testBlocksStaleFeeds)
+    , ("allows bounded venue timestamp skew", testFutureTimestampSkew)
     , ("fails closed when critical feeds are missing", testFailsClosedOnMissingFeeds)
     , ("keeps missing shadow feeds non-blocking and visible", testShadowFeedWarnings)
     , ("emits structured market-risk evidence", testStructuredEvidence)
@@ -82,6 +85,23 @@ testBlocksAdverseFunding = do
     assert "expected adverse funding to block" (not (mrdAllowed decision))
     assertReason "consumes edge" decision
 
+testBlocksMissingDirectionalEdge :: IO ()
+testBlocksMissingDirectionalEdge = do
+    let missingDecision = marketRiskDecision defaultMarketRiskConfig baseInput{mriPredictedPrice = Nothing} baseSnapshot
+        counterDecision = marketRiskDecision defaultMarketRiskConfig baseInput{mriPredictedPrice = Just 99} baseSnapshot
+    assert "expected missing forecast edge to block" (not (mrdAllowed missingDecision))
+    assert "expected counter-directional forecast edge to block" (not (mrdAllowed counterDecision))
+    assertReason "directional forecast edge unavailable or non-positive" missingDecision
+    assertReason "directional forecast edge unavailable or non-positive" counterDecision
+
+testBlocksEdgeBelowMinimum :: IO ()
+testBlocksEdgeBelowMinimum = do
+    let input = baseInput{mriPredictedPrice = Just 100.05, mriMinimumEdge = 0.001}
+        decision = marketRiskDecision defaultMarketRiskConfig input baseSnapshot
+    assert "expected sub-threshold forecast edge to block" (not (mrdAllowed decision))
+    assertReason "directional forecast edge" decision
+    assertReason "below minimum" decision
+
 testBlocksHighAdl :: IO ()
 testBlocksHighAdl = do
     let snapshot = baseSnapshot{fmsAdlRisk = Just (FuturesAdlRiskSnapshot "high" nowMs)}
@@ -102,6 +122,14 @@ testBlocksStaleFeeds = do
         decision = marketRiskDecision defaultMarketRiskConfig baseInput snapshot
     assert "expected stale critical feeds to block" (not (mrdAllowed decision))
     assertReason "source timestamp stale" decision
+
+testFutureTimestampSkew :: IO ()
+testFutureTimestampSkew = do
+    let withinDecision = marketRiskDecision defaultMarketRiskConfig baseInput (shiftCriticalTimestamps 5000 baseSnapshot)
+        beyondDecision = marketRiskDecision defaultMarketRiskConfig baseInput (shiftCriticalTimestamps 5001 baseSnapshot)
+    assert "expected bounded venue timestamp skew to pass" (mrdAllowed withinDecision)
+    assert "expected excessive future timestamp skew to block" (not (mrdAllowed beyondDecision))
+    assertReason "stale" beyondDecision
 
 testFailsClosedOnMissingFeeds :: IO ()
 testFailsClosedOnMissingFeeds = do
@@ -206,6 +234,23 @@ requiredBook snapshot =
     case fmsOrderBook snapshot of
         Just book -> book
         Nothing -> error "test fixture missing order book"
+
+shiftCriticalTimestamps :: Int64 -> FuturesMarketSnapshot -> FuturesMarketSnapshot
+shiftCriticalTimestamps offset snapshot =
+    let shiftedAt = nowMs + offset
+        book =
+            (requiredBook snapshot)
+                { obsEventTime = Just shiftedAt
+                , obsTransactionTime = Just shiftedAt
+                }
+        premium = (requiredPremium snapshot){fpsTime = shiftedAt}
+        adl = FuturesAdlRiskSnapshot "low" shiftedAt
+     in snapshot
+            { fmsObservedAt = shiftedAt
+            , fmsOrderBook = Just book
+            , fmsPremium = Just premium
+            , fmsAdlRisk = Just adl
+            }
 
 nowMs :: Int64
 nowMs = 1700000000000

@@ -14,7 +14,7 @@ import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.List (intercalate)
-import Data.Maybe (catMaybes, fromMaybe, isNothing)
+import Data.Maybe (catMaybes, isNothing)
 import System.Environment (lookupEnv)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
@@ -132,8 +132,8 @@ marketRiskDecision cfg input snapshot
                 ]
                     ++ ["invalid quantity" | not (finitePositive (mriQuantity input))]
                     ++ ["invalid signal price" | not (finitePositive (mriSignalPrice input))]
-            snapshotAge = mriNowMs input - fmsObservedAt snapshot
-            snapshotStale = snapshotAge < 0 || snapshotAge > mrcMaxSnapshotAgeMs cfg
+                    ++ ["invalid minimum edge" | not (finiteNonNegative (mriMinimumEdge input))]
+            snapshotStale = timestampStale (mrcMaxSnapshotAgeMs cfg) (mriNowMs input) (fmsObservedAt snapshot)
             missingReasons =
                 [ "market snapshot stale" | snapshotStale
                 ]
@@ -142,6 +142,17 @@ marketRiskDecision cfg input snapshot
                     ++ ["ADL risk unavailable" | isNothing (fmsAdlRisk snapshot)]
             criticalReasons = if mrcFailClosed cfg then missingReasons else []
             edgeBps = expectedEdgeBps input
+            minimumEdgeBps =
+                if finiteNonNegative (mriMinimumEdge input)
+                    then mriMinimumEdge input * 10000
+                    else 0
+            edgeReasons =
+                case edgeBps of
+                    Nothing -> ["directional forecast edge unavailable or non-positive"]
+                    Just edge ->
+                        [ printf "directional forecast edge %.2f bps is below minimum %.2f bps" edge minimumEdgeBps
+                        | edge < minimumEdgeBps
+                        ]
             bookMetrics = fmsOrderBook snapshot >>= orderBookMetrics (mriDirection input) (mriQuantity input)
             spreadBps = obmSpreadBps <$> bookMetrics
             impactBps = obmImpactBps <$> bookMetrics
@@ -190,8 +201,7 @@ marketRiskDecision cfg input snapshot
                     Nothing -> (Nothing, [])
                     Just adl ->
                         let risk = map toLower (farsRisk adl)
-                            age = mriNowMs input - farsUpdateTime adl
-                            stale = age < 0 || age > mrcMaxAdlAgeMs cfg
+                            stale = timestampStale (mrcMaxAdlAgeMs cfg) (mriNowMs input) (farsUpdateTime adl)
                             reasons =
                                 ["ADL risk stale" | stale && mrcFailClosed cfg]
                                     ++ ["ADL risk is high" | risk == "high"]
@@ -202,7 +212,7 @@ marketRiskDecision cfg input snapshot
                     ++ shadowSeriesWarnings cfg input "open interest change" finite (fmsOpenInterestChangePct snapshot)
                     ++ shadowSeriesWarnings cfg input "taker ratio" finitePositive (fmsTakerBuySellRatio snapshot)
                     ++ shadowSeriesWarnings cfg input "historical basis" finite (fmsBasisRate snapshot)
-            reasons = invalidInputReasons ++ criticalReasons ++ bookReasons ++ premiumReasons ++ adlReasons
+            reasons = invalidInputReasons ++ edgeReasons ++ criticalReasons ++ bookReasons ++ premiumReasons ++ adlReasons
          in MarketRiskDecision
                 { mrdAllowed = null reasons
                 , mrdReasons = reasons
@@ -345,17 +355,13 @@ firstPositive (level : rest)
     | otherwise = firstPositive rest
 
 expectedEdgeBps :: MarketRiskInput -> Maybe Double
-expectedEdgeBps input =
-    let floorEdge = max 0 (mriMinimumEdge input) * 10000
-        predictedEdge = do
-            predicted <- mriPredictedPrice input
-            if not (finitePositive predicted) || not (finitePositive (mriSignalPrice input))
-                then Nothing
-                else
-                    let directional = fromIntegral (mriDirection input) * (predicted / mriSignalPrice input - 1) * 10000
-                     in if finite directional then Just (max 0 directional) else Nothing
-        edge = max floorEdge (fromMaybe 0 predictedEdge)
-     in if finite edge && edge > 0 then Just edge else Nothing
+expectedEdgeBps input = do
+    predicted <- mriPredictedPrice input
+    if not (finitePositive predicted) || not (finitePositive (mriSignalPrice input))
+        then Nothing
+        else
+            let directional = fromIntegral (mriDirection input) * (predicted / mriSignalPrice input - 1) * 10000
+             in if finite directional && directional > 0 then Just directional else Nothing
 
 adverseFundingBps :: Int -> FuturesPremiumSnapshot -> Double
 adverseFundingBps direction premium =
@@ -408,7 +414,10 @@ finite value = not (isNaN value || isInfinite value)
 timestampStale :: Int64 -> Int64 -> Int64 -> Bool
 timestampStale maxAge now observed =
     let age = now - observed
-     in age < 0 || age > max 0 maxAge
+     in age < negate maxFutureTimestampSkewMs || age > max 0 maxAge
+
+maxFutureTimestampSkewMs :: Int64
+maxFutureTimestampSkewMs = 5000
 
 trim :: String -> String
 trim = reverse . dropWhile (== ' ') . reverse . dropWhile (== ' ')

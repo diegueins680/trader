@@ -46,6 +46,7 @@ module Trader.Binance (
     fetchSymbolFilters,
     quantizeDown,
     getTimestampMs,
+    getBinanceTimestampMs,
     signQuery,
     placeMarketOrder,
     placeFuturesMarketOrderWithPositionSide,
@@ -80,6 +81,7 @@ module Trader.Binance (
 ) where
 
 import Control.Applicative ((<|>))
+import Control.Concurrent (MVar, ThreadId, forkIO, killThread, newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Exception (SomeException, displayException, fromException, throwIO, try)
 import qualified Control.Monad
 import Crypto.Hash.Algorithms (SHA256)
@@ -1524,14 +1526,21 @@ fetchFuturesMarketSnapshot :: BinanceEnv -> String -> String -> IO FuturesMarket
 fetchFuturesMarketSnapshot env symbol period = do
     Control.Monad.when (beMarket env /= MarketFutures) $
         throwIO (userError "fetchFuturesMarketSnapshot requires MarketFutures")
-    observedAt <- getTimestampMs
-    depthE <- try (fetchOrderBookSnapshot env symbol 100) :: IO (Either SomeException OrderBookSnapshot)
-    premiumE <- try (fetchFuturesPremiumSnapshot env symbol) :: IO (Either SomeException FuturesPremiumSnapshot)
-    oiE <- try (fetchFuturesOpenInterestSnapshot env symbol) :: IO (Either SomeException FuturesOpenInterestSnapshot)
-    oiHistoryE <- try (fetchOpenInterestHist env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
-    adlE <- try (fetchFuturesAdlRiskSnapshot env symbol) :: IO (Either SomeException FuturesAdlRiskSnapshot)
-    takerE <- try (fetchTakerLongShortRatio env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
-    basisE <- try (fetchBasisHistory env symbol period 2) :: IO (Either SomeException [(Int64, Double)])
+    depthTask <- startBestEffort (fetchOrderBookSnapshot env symbol 100)
+    premiumTask <- startBestEffort (fetchFuturesPremiumSnapshot env symbol)
+    adlTask <- startBestEffort (fetchFuturesAdlRiskSnapshot env symbol)
+    oiTask <- startBestEffort (fetchFuturesOpenInterestSnapshot env symbol)
+    oiHistoryTask <- startBestEffort (fetchOpenInterestHist env symbol period 2)
+    takerTask <- startBestEffort (fetchTakerLongShortRatio env symbol period 2)
+    basisTask <- startBestEffort (fetchBasisHistory env symbol period 2)
+    depthE <- awaitBestEffort depthTask
+    premiumE <- awaitBestEffort premiumTask
+    adlE <- awaitBestEffort adlTask
+    observedAt <- getBinanceTimestampMs env
+    openInterest <- finishCompletedBestEffort oiTask
+    openInterestHistory <- finishCompletedBestEffort oiHistoryTask
+    takerHistory <- finishCompletedBestEffort takerTask
+    basisHistory <- finishCompletedBestEffort basisTask
     let eitherMaybe = either (const Nothing) Just
         latest = listToMaybe . reverse
         latestOpenInterestChange rows =
@@ -1549,12 +1558,32 @@ fetchFuturesMarketSnapshot env symbol period = do
             { fmsObservedAt = observedAt
             , fmsOrderBook = eitherMaybe depthE
             , fmsPremium = eitherMaybe premiumE
-            , fmsOpenInterest = eitherMaybe oiE
-            , fmsOpenInterestChangePct = either (const Nothing) latestOpenInterestChange oiHistoryE
+            , fmsOpenInterest = openInterest
+            , fmsOpenInterestChangePct = openInterestHistory >>= latestOpenInterestChange
             , fmsAdlRisk = eitherMaybe adlE
-            , fmsTakerBuySellRatio = either (const Nothing) latest takerE
-            , fmsBasisRate = either (const Nothing) latest basisE
+            , fmsTakerBuySellRatio = takerHistory >>= latest
+            , fmsBasisRate = basisHistory >>= latest
             }
+
+type BestEffortTask a = (ThreadId, MVar (Either SomeException a))
+
+startBestEffort :: IO a -> IO (BestEffortTask a)
+startBestEffort action = do
+    resultVar <- newEmptyMVar
+    threadId <- forkIO $ do
+        result <- try action
+        putMVar resultVar result
+    pure (threadId, resultVar)
+
+awaitBestEffort :: BestEffortTask a -> IO (Either SomeException a)
+awaitBestEffort = takeMVar . snd
+
+finishCompletedBestEffort :: BestEffortTask a -> IO (Maybe a)
+finishCompletedBestEffort (threadId, resultVar) = do
+    result <- tryTakeMVar resultVar
+    case result of
+        Nothing -> killThread threadId >> pure Nothing
+        Just completed -> pure (either (const Nothing) Just completed)
 
 data Ticker24h = Ticker24h
     { t24Symbol :: !String

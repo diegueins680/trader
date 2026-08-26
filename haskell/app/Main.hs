@@ -216,6 +216,7 @@ import Trader.Binance (
     fetchSymbolFilters,
     fetchTicker24hPrice,
     fetchTickerPrice,
+    getBinanceTimestampMs,
     getTimestampMs,
     keepAliveListenKey,
     newBinanceEnv,
@@ -28609,7 +28610,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                     sendMarketOrderWithMaker mSf True sideLabel side (Just qty) Nothing Nothing
                                 else do
                                     snapshot <- fetchFuturesMarketSnapshot env sym "5m"
-                                    nowMs <- getTimestampMs
+                                    nowMs <- getBinanceTimestampMs env
                                     let decision =
                                             marketRiskDecision
                                                 riskConfig
