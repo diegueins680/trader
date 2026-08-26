@@ -3,5 +3,7 @@
 *.csv
 *.parquet
 *.feather
+*.lock
+*-alternative.json
 .collector/
 !.gitignore

@@ -1538,15 +1538,22 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(deployScript, /\/health reported commit/);
   assert.match(deployScript, /Remote deployment started for \$\{TRADER_GIT_COMMIT\}/);
   assert.match(deployScript, /\"\$\{compose\[@\]\}\" build api/);
+  assert.match(deployScript, /run --rm --no-deps caddy caddy validate --config \/etc\/caddy\/Caddyfile --adapter caddyfile/);
   assert.match(deployScript, /--force-recreate api/);
+  assert.match(deployScript, /--force-recreate caddy/);
+  assert.match(deployScript, /exec -T caddy caddy validate --config \/etc\/caddy\/Caddyfile --adapter caddyfile/);
   assert.match(deployScript, /Rolling API back to/);
   assert.match(deployScript, /TRADER_API_IMAGE="\$ROLLBACK_IMAGE"/);
   assert.match(dockerfile, /postgresql-client/);
   assert.match(dockerfile, /COPY haskell\/scripts\/rollup_performance\.sh \/usr\/local\/bin\/rollup-performance/);
   assert.match(deployScript, /exec rollup-performance/);
   assert.match(deployScript, /TRADER_OPS_ROLLUP_ON_DEPLOY/);
+  assert.match(deployScript, /until "\$\{compose\[@\]\}" exec -T api/);
+  assert.match(deployScript, /rollup_attempt >= 3/);
+  assert.match(deployScript, /retrying the transaction/);
   assert.match(rollupScript, /BEGIN;/);
   assert.match(rollupScript, /pg_advisory_xact_lock/);
+  assert.match(rollupScript, /LOCK TABLE platform_symbols IN SHARE ROW EXCLUSIVE MODE;/);
   assert.match(rollupScript, /COMMIT;/);
 });
 
@@ -1643,11 +1650,11 @@ test("top-combo PostgreSQL replication preserves UUID typing and portfolio evide
   const main = await fs.readFile(new URL("../haskell/app/Main.hs", import.meta.url), "utf8");
 
   const uuidArrayPredicates = main.match(/combo_uuid = ANY\(\?::uuid\[\]\)/g) ?? [];
-  assert.equal(
-    uuidArrayPredicates.length,
-    2,
-    "both top-combo UUID array queries must bind uuid[] instead of driver-inferred text[]",
+  assert.ok(
+    uuidArrayPredicates.length >= 2,
+    "top-combo and live-evidence UUID array queries must bind uuid[] instead of driver-inferred text[]",
   );
+  assert.doesNotMatch(main, /combo_uuid = ANY\(\?\)/, "combo UUID arrays must never rely on inferred PostgreSQL types");
 
   const persistBegin = main.indexOf("persistTopCombosToDbBulk ::");
   assert.notEqual(persistBegin, -1, "expected Main.hs to contain top-combo DB persistence");
@@ -1668,6 +1675,8 @@ test("trading auto-start prioritizes recoverable positions without pinning later
 
   assert.match(main, /lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES"/);
   assert.match(main, /lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"/);
+  assert.match(main, /lookupEnv "TRADER_BOT_ONLINE_OPTIMIZER_ENABLED"/);
+  assert.match(main, /readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOTS" 1 5/);
   assert.match(autoStartLoop, /targetSymbolsBase = dedupeStable \(topSymbols \+\+ liveBaseSymbols\)/);
   assert.match(autoStartLoop, /capBotStartSymbolsPreservingOrphans maxBots targetSymbolsBase orphanSymbols/);
   assert.match(autoStartLoop, /filterBotStartAttemptsPreservingOrphans\s+circuitOpen[\s\S]*?orphanSymbols\s+missingAll/);
@@ -1703,7 +1712,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   );
   assert.match(
     autoStartLoop,
-    /case portfolioRolloutMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,
+    /case effectivePortfolioMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,
   );
   assert.match(autoStartLoop, /\(PortfolioShadow, _\) -> independentTargets/);
   assert.match(autoStartLoop, /symbol `elem` map normalizeSymbol baseSymbols/);
@@ -1726,8 +1735,10 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     "../deploy/hetzner/trader.trading.env.managed",
   ]) {
     const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
-    assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=canary/);
+    assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
+    assert.match(config, /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.05/);
+    assert.match(config, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
   }
 
   const compose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
@@ -1735,6 +1746,22 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(
     compose,
     /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT: \$\{TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT:-\}/,
+  );
+  assert.match(
+    compose,
+    /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP: \$\{TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP:-\}/,
+  );
+  assert.match(
+    compose,
+    /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS: \$\{TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS:-\}/,
+  );
+  assert.match(
+    compose,
+    /TRADER_BOT_ONLINE_OPTIMIZER_ENABLED: \$\{TRADER_BOT_ONLINE_OPTIMIZER_ENABLED:-true\}/,
+  );
+  assert.match(
+    compose,
+    /TRADER_PORTFOLIO_AUTO_GRADUATE_ENABLED: \$\{TRADER_PORTFOLIO_AUTO_GRADUATE_ENABLED:-false\}/,
   );
   assert.match(compose, /TRADER_LSTM_REUSE_PERSISTED: \$\{TRADER_LSTM_REUSE_PERSISTED:-false\}/);
   assert.match(compose, /TRADER_EXECUTION_MAKER_FIRST: \$\{TRADER_EXECUTION_MAKER_FIRST:-true\}/);
@@ -1751,15 +1778,26 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART=true/);
   assert.match(
     hetznerTrading,
-    /TRADER_BOT_SYMBOLS=AAVEUSDT,ADAUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BCHUSDT,BNBUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETCUSDT,ETHUSDT,FILUSDT,LINKUSDT,LTCUSDT,NEARUSDT,OPUSDT,SOLUSDT,SUIUSDT,TRXUSDT,UNIUSDT,XRPUSDT/,
+    /TRADER_BOT_SYMBOLS=AVAXUSDT,UNIUSDT,SUIUSDT,ETCUSDT,ADAUSDT/,
   );
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=3/);
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=3/);
-  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=3/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=3/);
-  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=canary/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=3/);
+  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=5/);
+  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=5/);
+  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=5/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=5/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=5/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
+  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.05/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0\.05/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0\.25/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MIN_DAYS=30/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_ENABLED=true/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_STARTED_AT_MS=1787322000000/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_DAILY_OBSERVATIONS=30/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY=0\.95/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY=0\.99/);
+  assert.match(hetznerTrading, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
+  assert.match(hetznerTrading, /TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false/);
   assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_FORCE_ENV_PRESET=false/);
@@ -1767,6 +1805,8 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_EXECUTION_MAKER_FALLBACK_MARKET=true/);
   assert.match(compose, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS: \$\{TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS:-false\}/);
   assert.match(main, /lookupEnv "TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS"/);
+  assert.match(main, /resolvePortfolioGraduationMode/);
+  assert.match(main, /"portfolio\.graduated"/);
 
   const fly = await fs.readFile(new URL("../fly.toml", import.meta.url), "utf8");
   assert.match(fly, /kill_signal = "SIGTERM"/);

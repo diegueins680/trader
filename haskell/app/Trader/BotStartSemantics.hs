@@ -19,6 +19,7 @@ module Trader.BotStartSemantics (
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
     adoptionMaxPositionSizeCap,
+    capAdoptedMinPositionSize,
     capAdoptedMaxPositionSize,
     capAdoptedMaxPositionSizeWithCap,
     AdoptionEvidenceConfig (..),
@@ -70,6 +71,19 @@ capAdoptedMaxPositionSizeWithCap capRaw raw
     | isNaN capRaw || isInfinite capRaw = 0
     | capRaw < 0 = 0
     | otherwise = min capRaw raw
+
+{- | Keep an adopted combo's confidence-sizing floor reachable after its
+'maxPositionSize' has been reduced. A legacy floor above the adopted maximum
+would otherwise make every non-flat target fail with @MIN_SIZE@. Invalid floors
+collapse to zero; valid conservative floors below the maximum are preserved.
+-}
+capAdoptedMinPositionSize :: Double -> Double -> Double
+capAdoptedMinPositionSize adoptedMax raw
+    | isNaN raw || isInfinite raw = 0
+    | raw < 0 = 0
+    | isNaN adoptedMax || isInfinite adoptedMax = 0
+    | adoptedMax < 0 = 0
+    | otherwise = min adoptedMax raw
 
 {- | Minimum backtest @tradeCount@ a top-combo must report on its stored
 metrics before the bot-start path is allowed to adopt it for live trading.

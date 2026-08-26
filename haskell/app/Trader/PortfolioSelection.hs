@@ -11,7 +11,19 @@ module Trader.PortfolioSelection (
     PortfolioRolloutMode (..),
     PortfolioSelection (..),
     PortfolioSelectorConfig (..),
+    PortfolioGraduationConfig (..),
+    PortfolioGraduationDecision (..),
+    PortfolioGraduationEvidence (..),
+    PortfolioGraduationReview (..),
     defaultPortfolioSelectorConfig,
+    defaultPortfolioGraduationConfig,
+    portfolioGraduationConfigVersion,
+    portfolioGraduationDecisionCode,
+    portfolioGraduationExecutionReliability,
+    portfolioGraduationPerformance,
+    portfolioGraduationReview,
+    portfolioGraduationReviewApplies,
+    portfolioGraduationStatusReliability,
     portfolioSelectorConfigVersion,
     parsePortfolioRolloutMode,
     portfolioRolloutModeCode,
@@ -252,6 +264,214 @@ data PortfolioSelectorConfig = PortfolioSelectorConfig
     , pscValidForMs :: !Int64
     }
     deriving (Eq, Show, Generic)
+
+data PortfolioGraduationConfig = PortfolioGraduationConfig
+    { pgcEnabled :: !Bool
+    , pgcStartedAtMs :: !Int64
+    , pgcMinimumDailyObservations :: !Int
+    , pgcMinimumNetReturn :: !Double
+    , pgcMaximumDrawdown :: !Double
+    , pgcMinimumExecutionAttempts :: !Int
+    , pgcMinimumExecutionReliability :: !Double
+    , pgcMinimumStatusReliability :: !Double
+    }
+    deriving (Eq, Show, Generic)
+
+data PortfolioGraduationDecision
+    = PortfolioGraduationPending
+    | PortfolioGraduated
+    deriving (Eq, Ord, Show, Generic)
+
+portfolioGraduationDecisionCode :: PortfolioGraduationDecision -> Text
+portfolioGraduationDecisionCode PortfolioGraduationPending = "pending"
+portfolioGraduationDecisionCode PortfolioGraduated = "graduated"
+
+instance ToJSON PortfolioGraduationDecision where
+    toJSON = Aeson.String . portfolioGraduationDecisionCode
+
+instance FromJSON PortfolioGraduationDecision where
+    parseJSON = Aeson.withText "PortfolioGraduationDecision" $ \raw ->
+        case T.toLower (T.strip raw) of
+            "pending" -> pure PortfolioGraduationPending
+            "graduated" -> pure PortfolioGraduated
+            _ -> fail "portfolio graduation decision must be pending or graduated"
+
+data PortfolioGraduationEvidence = PortfolioGraduationEvidence
+    { pgeDailyObservationCount :: !Int
+    , pgeNetReturn :: !Double
+    , pgeMaxDrawdown :: !Double
+    , pgeExecutionAttempts :: !Int
+    , pgeExecutionSuccesses :: !Int
+    , pgeStatusSamples :: !Int
+    , pgeHealthyStatusSamples :: !Int
+    , pgeLatestStatusesHealthy :: !Bool
+    }
+    deriving (Eq, Show, Generic)
+
+instance ToJSON PortfolioGraduationEvidence where
+    toJSON value =
+        object
+            [ "dailyObservationCount" .= pgeDailyObservationCount value
+            , "netReturn" .= pgeNetReturn value
+            , "maxDrawdown" .= pgeMaxDrawdown value
+            , "executionAttempts" .= pgeExecutionAttempts value
+            , "executionSuccesses" .= pgeExecutionSuccesses value
+            , "executionReliability" .= portfolioGraduationExecutionReliability value
+            , "statusSamples" .= pgeStatusSamples value
+            , "healthyStatusSamples" .= pgeHealthyStatusSamples value
+            , "statusReliability" .= portfolioGraduationStatusReliability value
+            , "latestStatusesHealthy" .= pgeLatestStatusesHealthy value
+            ]
+
+instance FromJSON PortfolioGraduationEvidence where
+    parseJSON = withObject "PortfolioGraduationEvidence" $ \obj ->
+        PortfolioGraduationEvidence
+            <$> obj .: "dailyObservationCount"
+            <*> obj .: "netReturn"
+            <*> obj .: "maxDrawdown"
+            <*> obj .: "executionAttempts"
+            <*> obj .: "executionSuccesses"
+            <*> obj .: "statusSamples"
+            <*> obj .: "healthyStatusSamples"
+            <*> obj .: "latestStatusesHealthy"
+
+data PortfolioGraduationReview = PortfolioGraduationReview
+    { pgrReviewedAtMs :: !Int64
+    , pgrReviewedUuids :: ![Text]
+    , pgrDecision :: !PortfolioGraduationDecision
+    , pgrReasons :: ![Text]
+    , pgrEvidence :: !PortfolioGraduationEvidence
+    , pgrConfigVersion :: !Text
+    }
+    deriving (Eq, Show, Generic)
+
+instance ToJSON PortfolioGraduationReview where
+    toJSON value =
+        object
+            [ "reviewedAtMs" .= pgrReviewedAtMs value
+            , "reviewedUuids" .= pgrReviewedUuids value
+            , "decision" .= pgrDecision value
+            , "reasons" .= pgrReasons value
+            , "evidence" .= pgrEvidence value
+            , "configVersion" .= pgrConfigVersion value
+            ]
+
+instance FromJSON PortfolioGraduationReview where
+    parseJSON = withObject "PortfolioGraduationReview" $ \obj ->
+        PortfolioGraduationReview
+            <$> obj .: "reviewedAtMs"
+            <*> obj .: "reviewedUuids"
+            <*> obj .: "decision"
+            <*> obj .: "reasons"
+            <*> obj .: "evidence"
+            <*> obj .: "configVersion"
+
+defaultPortfolioGraduationConfig :: PortfolioGraduationConfig
+defaultPortfolioGraduationConfig =
+    PortfolioGraduationConfig
+        { pgcEnabled = False
+        , pgcStartedAtMs = 0
+        , pgcMinimumDailyObservations = 30
+        , pgcMinimumNetReturn = 0
+        , pgcMaximumDrawdown = 0.10
+        , pgcMinimumExecutionAttempts = 10
+        , pgcMinimumExecutionReliability = 0.95
+        , pgcMinimumStatusReliability = 0.99
+        }
+
+portfolioGraduationConfigVersion :: PortfolioGraduationConfig -> Text
+portfolioGraduationConfigVersion config =
+    T.intercalate
+        ":"
+        [ "portfolio-graduation-v1"
+        , T.pack (show (pgcEnabled config))
+        , T.pack (show (pgcStartedAtMs config))
+        , T.pack (show (pgcMinimumDailyObservations config))
+        , T.pack (show (pgcMinimumNetReturn config))
+        , T.pack (show (pgcMaximumDrawdown config))
+        , T.pack (show (pgcMinimumExecutionAttempts config))
+        , T.pack (show (pgcMinimumExecutionReliability config))
+        , T.pack (show (pgcMinimumStatusReliability config))
+        ]
+
+portfolioGraduationExecutionReliability :: PortfolioGraduationEvidence -> Double
+portfolioGraduationExecutionReliability evidence =
+    ratio (pgeExecutionSuccesses evidence) (pgeExecutionAttempts evidence)
+
+portfolioGraduationStatusReliability :: PortfolioGraduationEvidence -> Double
+portfolioGraduationStatusReliability evidence =
+    ratio (pgeHealthyStatusSamples evidence) (pgeStatusSamples evidence)
+
+ratio :: Int -> Int -> Double
+ratio numerator denominator
+    | denominator <= 0 = 0
+    | otherwise = fromIntegral numerator / fromIntegral denominator
+
+portfolioGraduationPerformance :: [Double] -> Either String (Int, Double, Double)
+portfolioGraduationPerformance equities
+    | any (\value -> not (isFinite value) || value <= 0) equities = Left "graduation fleet equity must be finite and positive"
+    | otherwise =
+        case equities of
+            [] -> Right (0, 0, 0)
+            _ ->
+                let returns = zipWith (\previous current -> current / previous - 1) (1 : equities) equities
+                 in Right (length equities, last equities - 1, portfolioMaxDrawdown returns)
+
+portfolioGraduationReview :: PortfolioGraduationConfig -> Int64 -> [Text] -> PortfolioGraduationEvidence -> PortfolioGraduationReview
+portfolioGraduationReview config now reviewedUuidsRaw evidence =
+    PortfolioGraduationReview
+        { pgrReviewedAtMs = now
+        , pgrReviewedUuids = reviewedUuids
+        , pgrDecision = if null reasons then PortfolioGraduated else PortfolioGraduationPending
+        , pgrReasons = reasons
+        , pgrEvidence = evidence
+        , pgrConfigVersion = portfolioGraduationConfigVersion config
+        }
+  where
+    reviewedUuids = nub (sort (map (T.toLower . T.strip) reviewedUuidsRaw))
+    finite = isFinite
+    reasons =
+        [ "automatic-graduation-disabled"
+        | not (pgcEnabled config)
+        ]
+            ++ [ "graduation-start-time-invalid"
+               | pgcStartedAtMs config <= 0
+               ]
+            ++ [ "reviewed-uuid-set-empty"
+               | null reviewedUuids
+               ]
+            ++ [ "daily-observations-below-minimum"
+               | pgeDailyObservationCount evidence < pgcMinimumDailyObservations config
+               ]
+            ++ [ "net-return-below-minimum"
+               | not (finite (pgeNetReturn evidence))
+                    || pgeNetReturn evidence <= pgcMinimumNetReturn config
+               ]
+            ++ [ "max-drawdown-above-limit"
+               | not (finite (pgeMaxDrawdown evidence))
+                    || pgeMaxDrawdown evidence > pgcMaximumDrawdown config
+               ]
+            ++ [ "execution-attempts-below-minimum"
+               | pgeExecutionAttempts evidence < pgcMinimumExecutionAttempts config
+               ]
+            ++ [ "execution-reliability-below-minimum"
+               | portfolioGraduationExecutionReliability evidence < pgcMinimumExecutionReliability config
+               ]
+            ++ [ "status-reliability-below-minimum"
+               | portfolioGraduationStatusReliability evidence < pgcMinimumStatusReliability config
+               ]
+            ++ [ "latest-status-unhealthy"
+               | not (pgeLatestStatusesHealthy evidence)
+               ]
+
+portfolioGraduationReviewApplies :: PortfolioGraduationConfig -> [Text] -> PortfolioGraduationReview -> Bool
+portfolioGraduationReviewApplies config reviewedUuidsRaw review =
+    pgcEnabled config
+        && pgrDecision review == PortfolioGraduated
+        && pgrConfigVersion review == portfolioGraduationConfigVersion config
+        && pgrReviewedUuids review == reviewedUuids
+  where
+    reviewedUuids = nub (sort (map (T.toLower . T.strip) reviewedUuidsRaw))
 
 defaultPortfolioSelectorConfig :: PortfolioSelectorConfig
 defaultPortfolioSelectorConfig =

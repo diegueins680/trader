@@ -243,6 +243,7 @@ import Trader.BotStartSemantics (
     botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
     capAdoptedMaxPositionSizeWithCap,
+    capAdoptedMinPositionSize,
     capBotStartSymbolsPreservingOrphans,
     comboMinEdgeMeetsAdoptionFloorWithConfig,
     comboTradeCountMeetsAdoptionFloorWithConfig,
@@ -433,6 +434,7 @@ import Trader.Optimizer.Common (
     normalizeObjectiveCode,
     objectiveScoreWithConfig,
     optimizerAdmissionStats,
+    optimizerObjectiveArgs,
     selectAutoOptimizerScopes,
     selectAutoOptimizerScopesWithHeadroom,
  )
@@ -464,14 +466,23 @@ import Trader.PortfolioSelection (
     PortfolioCandidate (..),
     PortfolioDailyReturn (..),
     PortfolioEvidence (..),
+    PortfolioGraduationConfig (..),
+    PortfolioGraduationDecision (..),
+    PortfolioGraduationEvidence (..),
+    PortfolioGraduationReview (..),
     PortfolioMember (..),
     PortfolioMetrics (..),
     PortfolioRolloutMode (..),
     PortfolioSelection (..),
     PortfolioSelectorConfig (..),
+    defaultPortfolioGraduationConfig,
     defaultPortfolioSelectorConfig,
     parsePortfolioRolloutMode,
     portfolioFailureCacheLookup,
+    portfolioGraduationConfigVersion,
+    portfolioGraduationPerformance,
+    portfolioGraduationReview,
+    portfolioGraduationReviewApplies,
     portfolioRolloutModeCode,
     portfolioSelectionShouldRotate,
     portfolioSelectorConfigVersion,
@@ -581,6 +592,7 @@ import Trader.TopCombosStore (
     liveStatsQuarantined,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
+    mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
     newTopCombosStore,
     normalizeTopCombosPayload,
     readTopCombosValueLocal,
@@ -1856,6 +1868,7 @@ instance FromJSON ApiListenKeyActionParams where
 
 data ApiListenKeyResponse = ApiListenKeyResponse
     { alrListenKey :: !String
+    , alrTenantKey :: !String
     , alrMarket :: !String
     , alrTestnet :: !Bool
     , alrWsUrl :: !String
@@ -6107,6 +6120,7 @@ comboParamsRowToTopCombo uuid row = do
             , tcCreatedAtMs = cprCreatedAtMs row
             , tcBacktestRefreshedAtMs = mBacktestRefreshedAtMs
             , tcPortfolioEvidence = mPortfolioEvidence
+            , tcProcessing = Nothing
             }
 
 readTopComboByUuidFromDb :: OpsStore -> UUID.UUID -> IO (Maybe TopCombo)
@@ -6325,6 +6339,7 @@ data TopCombo = TopCombo
     , tcSource :: !(Maybe String)
     , tcParams :: !Aeson.Object
     , tcMetrics :: !(Maybe Aeson.Object)
+    , tcProcessing :: !(Maybe Aeson.Object)
     , tcCreatedAtMs :: !(Maybe Int64)
     , tcBacktestRefreshedAtMs :: !(Maybe Int64)
     , tcPortfolioEvidence :: !(Maybe PortfolioEvidence)
@@ -6352,6 +6367,7 @@ instance FromJSON TopCombo where
             <*> o Aeson..:? "source"
             <*> pure params
             <*> pure metrics
+            <*> o Aeson..:? "processing"
             <*> o Aeson..:? "createdAtMs"
             <*> o Aeson..:? "backtestRefreshedAtMs"
             <*> pure portfolioEvidence
@@ -8114,6 +8130,7 @@ botBacktestResultFromState st =
      in BacktestResult
             { brEquityCurve = eq
             , brPositions = map fromIntegral posForMetrics
+            , brExposureCurve = map fromIntegral posForMetrics
             , brAgreementOk = []
             , brAgreementValid = []
             , brPositionChanges = posChanges
@@ -9053,6 +9070,20 @@ resolveBotSymbolsAuto args = do
         then pure (Left "bot autostart requires binanceSymbol or TRADER_BOT_SYMBOLS")
         else pure (Right normalized)
 
+topComboDeployableOverrideUuidsFromEnv :: IO [Text]
+topComboDeployableOverrideUuidsFromEnv = do
+    raw <- lookupTrimmedEnv "TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS"
+    let values = maybe [] splitEnvList raw
+        invalid = filter (isNothing . UUID.fromString) values
+    unless (null invalid) $
+        ioError
+            ( userError
+                ( "TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS contains invalid UUID(s): "
+                    ++ intercalate ", " invalid
+                )
+            )
+    pure (map T.pack (dedupeStable values))
+
 comboPollSecondsFromEnv :: IO Int
 comboPollSecondsFromEnv = do
     pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
@@ -9060,6 +9091,11 @@ comboPollSecondsFromEnv = do
         case pollEnv >>= readMaybe of
             Just n | n >= 5 -> n
             _ -> 30
+
+botOnlineOptimizerEnabledFromEnv :: IO Bool
+botOnlineOptimizerEnabledFromEnv = do
+    raw <- lookupEnv "TRADER_BOT_ONLINE_OPTIMIZER_ENABLED"
+    pure (readEnvBool raw True)
 
 readBoundedIntEnv :: String -> Int -> Int -> Int -> IO Int
 readBoundedIntEnv name minValue maxValue fallback = do
@@ -9155,9 +9191,41 @@ portfolioSelectorRolloutModeFromEnv = do
     raw <- lookupEnv "TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE"
     pure $ fromMaybe PortfolioShadow (raw >>= parsePortfolioRolloutMode)
 
+portfolioGraduationConfigFromEnv :: IO PortfolioGraduationConfig
+portfolioGraduationConfigFromEnv = do
+    enabledRaw <- lookupEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_ENABLED"
+    startedRaw <- lookupEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_STARTED_AT_MS"
+    minimumDailyObservations <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_DAILY_OBSERVATIONS" 2 365 (pgcMinimumDailyObservations defaults)
+    minimumNetReturn <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_NET_RETURN" (-0.99) 10 (pgcMinimumNetReturn defaults)
+    maximumDrawdown <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_DRAWDOWN" 0.001 1 (pgcMaximumDrawdown defaults)
+    minimumExecutionAttempts <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_ATTEMPTS" 1 100000 (pgcMinimumExecutionAttempts defaults)
+    minimumExecutionReliability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY" 0.5 1 (pgcMinimumExecutionReliability defaults)
+    minimumStatusReliability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY" 0.5 1 (pgcMinimumStatusReliability defaults)
+    let startedAtMs =
+            case startedRaw >>= readMaybe of
+                Just value | value > 0 -> value
+                _ -> pgcStartedAtMs defaults
+    pure
+        defaults
+            { pgcEnabled = readEnvBool enabledRaw (pgcEnabled defaults)
+            , pgcStartedAtMs = startedAtMs
+            , pgcMinimumDailyObservations = minimumDailyObservations
+            , pgcMinimumNetReturn = minimumNetReturn
+            , pgcMaximumDrawdown = maximumDrawdown
+            , pgcMinimumExecutionAttempts = minimumExecutionAttempts
+            , pgcMinimumExecutionReliability = minimumExecutionReliability
+            , pgcMinimumStatusReliability = minimumStatusReliability
+            }
+  where
+    defaults = defaultPortfolioGraduationConfig
+
+portfolioGraduationReviewEverySecFromEnv :: IO Int
+portfolioGraduationReviewEverySecFromEnv =
+    readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_REVIEW_EVERY_SEC" 60 86400 3600
+
 portfolioSelectorConfigFromEnv :: IO PortfolioSelectorConfig
 portfolioSelectorConfigFromEnv = do
-    maxMembers <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOTS" 1 3 (pscMaxMembers defaults)
+    maxMembers <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOTS" 1 5 (pscMaxMembers defaults)
     maxWeight <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT" 0.01 0.25 (pscMaxMemberWeight defaults)
     maxGross <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT" 0.05 0.75 (pscMaxGrossWeight defaults)
     maxDrawdown <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_DRAWDOWN" 0.01 0.10 (pscMaxDrawdown defaults)
@@ -9185,6 +9253,9 @@ portfolioSelectorConfigFromEnv = do
 portfolioSelectionPath :: TopCombosStore -> FilePath
 portfolioSelectionPath store = takeDirectory (tcsPath store) </> "portfolio-selection.json"
 
+portfolioGraduationPath :: TopCombosStore -> FilePath
+portfolioGraduationPath store = takeDirectory (tcsPath store) </> "portfolio-graduation.json"
+
 readPortfolioSelectionMaybe :: FilePath -> IO (Maybe PortfolioSelection)
 readPortfolioSelectionMaybe path = do
     exists <- doesFileExist path
@@ -9205,6 +9276,38 @@ writePortfolioSelection path selection = do
     hFlush handle
     hClose handle
     renameFile tmpPath path
+
+readPortfolioGraduationReviewMaybe :: FilePath -> IO (Maybe PortfolioGraduationReview)
+readPortfolioGraduationReviewMaybe path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure Nothing
+        else do
+            decoded <- try (eitherDecode <$> BL.readFile path) :: IO (Either SomeException (Either String PortfolioGraduationReview))
+            pure $ case decoded of
+                Right (Right review) -> Just review
+                _ -> Nothing
+
+writePortfolioGraduationReview :: FilePath -> PortfolioGraduationReview -> IO ()
+writePortfolioGraduationReview path review = do
+    let dir = takeDirectory path
+    createDirectoryIfMissing True dir
+    (tmpPath, handle) <- openTempFile dir "portfolio-graduation.tmp"
+    BL.hPutStr handle (encode review <> "\n")
+    hFlush handle
+    hClose handle
+    renameFile tmpPath path
+
+portfolioEffectiveRolloutMode :: TopCombosStore -> PortfolioGraduationConfig -> [Text] -> PortfolioRolloutMode -> IO PortfolioRolloutMode
+portfolioEffectiveRolloutMode store graduationConfig reviewedUuids configuredMode
+    | configuredMode /= PortfolioShadow = pure configuredMode
+    | not (pgcEnabled graduationConfig) = pure configuredMode
+    | otherwise = do
+        review <- readPortfolioGraduationReviewMaybe (portfolioGraduationPath store)
+        pure $
+            if maybe False (portfolioGraduationReviewApplies graduationConfig reviewedUuids) review
+                then PortfolioEnforce
+                else configuredMode
 
 {- | Environment-tunable auto-start backoff policy. The defaults come from
 'defaultBackoffPolicy' but can be overridden so operators can shrink the
@@ -9869,6 +9972,31 @@ topCombosTopTargetsWithArgs now args disabledSymbols topN export =
     let adoptionEvidenceConfig = effectiveAdoptionEvidenceConfigFromArgs now args (tceCombos export)
      in topCombosTopTargets now adoptionEvidenceConfig disabledSymbols topN export
 
+{- | Resolve an explicit operator-approved combo list in its declared order.
+This is deliberately separate from threshold relaxation: only the named UUIDs
+can enter the target set, and every row must still parse, match the live market,
+fit API compute limits, carry a symbol, and avoid the disabled-symbol list.
+-}
+topCombosDeployableOverrideTargets :: ApiComputeLimits -> Args -> [String] -> [Text] -> TopCombosExport -> [(String, TopCombo)]
+topCombosDeployableOverrideTargets limits args disabledSymbols overrideUuids export =
+    dedupeTopComboTargets (mapMaybe resolve overrideUuids)
+  where
+    combosByUuid = M.fromList [(topComboUuid combo, combo) | combo <- tceCombos export]
+    resolve comboUuid = do
+        combo <- M.lookup comboUuid combosByUuid
+        symRaw <- topComboSymbol combo
+        let sym = normalizeSymbol symRaw
+        if null sym || botStartSymbolDisabled disabledSymbols sym
+            then Nothing
+            else case applyTopComboForStartWithUuid args combo of
+                Left _ -> Nothing
+                Right (applied, _)
+                    | argBinanceMarket applied /= argBinanceMarket args -> Nothing
+                    | otherwise ->
+                        case validateApiComputeLimits limits applied of
+                            Left _ -> Nothing
+                            Right _ -> Just (sym, combo)
+
 topCombosTopTargetsWithPolicy :: Bool -> Int64 -> ApiComputeLimits -> Args -> [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
 topCombosTopTargetsWithPolicy allowStaleIncomplete now limits args disabledSymbols topN export =
     let freshTargets = topCombosTopTargetsWithArgs now args disabledSymbols topN export
@@ -10414,15 +10542,23 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
             webhookNotifyMaybe mWebhook (webhookEventBotStarted (botArgs st0) (botSymbol st0))
             stVar <- newMVar st0
             persistBotStatusMaybe mBotStateDir st0
-            optimizerStopSig <- newEmptyMVar
-            optimizerPending <- newMVar Nothing
-            optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal topCombosStore stVar optimizerStopSig optimizerPending)
-            let optimizerRt =
-                    BotOptimizerRuntime
-                        { borThreadId = optimizerTid
-                        , borStopSignal = optimizerStopSig
-                        , borPendingUpdate = optimizerPending
-                        }
+            onlineOptimizerEnabled <- botOnlineOptimizerEnabledFromEnv
+            (mOptimizerRt, mOptimizerPending) <-
+                if onlineOptimizerEnabled
+                    then do
+                        optimizerStopSig <- newEmptyMVar
+                        optimizerPending <- newMVar Nothing
+                        optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal topCombosStore stVar optimizerStopSig optimizerPending)
+                        pure
+                            ( Just
+                                BotOptimizerRuntime
+                                    { borThreadId = optimizerTid
+                                    , borStopSignal = optimizerStopSig
+                                    , borPendingUpdate = optimizerPending
+                                    }
+                            , Just optimizerPending
+                            )
+                    else pure (Nothing, Nothing)
             startOk <-
                 modifyMVar (bcRuntime ctrl) $ \mrt ->
                     case HM.lookup tenantKey mrt of
@@ -10430,15 +10566,17 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                             case HM.lookup sym tenantMap of
                                 Just (BotStarting rt)
                                     | bsrThreadId rt == tid ->
-                                        let tenantMap' = HM.insert sym (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))) tenantMap
+                                        let tenantMap' = HM.insert sym (BotRunning (BotRuntime tid stVar stopSig mOptimizerRt)) tenantMap
                                          in pure (HM.insert tenantKey tenantMap' mrt, True)
                                 _ -> pure (mrt, False)
                         Nothing -> pure (mrt, False)
             if startOk
-                then botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stopSig (Just optimizerPending)
-                else do
-                    _ <- tryPutMVar optimizerStopSig ()
-                    killThread optimizerTid
+                then botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stopSig mOptimizerPending
+                else case mOptimizerRt of
+                    Nothing -> pure ()
+                    Just optimizerRt -> do
+                        _ <- tryPutMVar (borStopSignal optimizerRt) ()
+                        killThread (borThreadId optimizerRt)
 
 botAutoStartLoop ::
     Maybe OpsStore ->
@@ -10487,8 +10625,11 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         maxStartsPerCycle <- botAutoStartMaxStartsPerCycleFromEnv
                         portfolioSelectorConfig <- portfolioSelectorConfigFromEnv
                         portfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
+                        portfolioGraduationConfig <- portfolioGraduationConfigFromEnv
+                        portfolioGraduationReviewEverySec <- portfolioGraduationReviewEverySecFromEnv
                         topComboAdoptionEnabled <- botStartTopComboAdoptionEnabledFromEnv
                         allowStaleIncompleteCombos <- botStartAllowStaleIncompleteCombosFromEnv
+                        deployableOverrideUuids <- topComboDeployableOverrideUuidsFromEnv
                         topComboBotCountRaw <- topComboBotCountFromEnv
                         let topComboBotCount =
                                 if topComboAdoptionEnabled
@@ -10505,6 +10646,9 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         topErrRef <- newIORef Nothing
                         topTargetsRef <- newIORef []
                         portfolioSelectionFailureRef <- newIORef Nothing
+                        portfolioGraduationReviewAtRef <- newIORef 0
+                        effectivePortfolioModeRef <- newIORef portfolioRolloutMode
+                        portfolioGraduationWarnRef <- newIORef Nothing
                         topTargetsWarnRef <- newIORef Nothing
                         targetCapWarnRef <- newIORef Nothing
                         startThrottleWarnRef <- newIORef Nothing
@@ -10545,10 +10689,25 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 ++ ". Portfolio selector mode="
                                 ++ T.unpack (portfolioRolloutModeCode portfolioRolloutMode)
                             )
+                        when (pgcEnabled portfolioGraduationConfig) $
+                            putStrLn
+                                ( "Automatic portfolio graduation enabled: reviewed UUIDs="
+                                    ++ intercalate ", " (map T.unpack deployableOverrideUuids)
+                                    ++ ", startedAtMs="
+                                    ++ show (pgcStartedAtMs portfolioGraduationConfig)
+                                    ++ ", minimumDailyObservations="
+                                    ++ show (pgcMinimumDailyObservations portfolioGraduationConfig)
+                                    ++ ", targetMode=enforce."
+                                )
                         unless topComboAdoptionEnabled $
                             putStrLn "Live bot auto-start top-combo adoption disabled (TRADER_BOT_START_TOP_COMBO_ADOPTION=false)."
                         when allowStaleIncompleteCombos $
                             putStrLn "Live bot auto-start permits stale or incomplete existing combos (TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true)."
+                        unless (null deployableOverrideUuids) $
+                            putStrLn
+                                ( "Live bot auto-start deployable override UUIDs: "
+                                    ++ intercalate ", " (map T.unpack deployableOverrideUuids)
+                                )
                         unless (bsTradeEnabled settings) $
                             putStrLn "Live bot auto-start paper mode: external Binance positions will not be adopted by this node."
 
@@ -10601,9 +10760,46 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                 fallbackTargetsForUnavailableStore
                                     Right export -> do
                                         now <- getTimestampMs
+                                        previousEffectiveMode <- readIORef effectivePortfolioModeRef
+                                        lastGraduationReviewAt <- readIORef portfolioGraduationReviewAtRef
+                                        (effectivePortfolioMode, _graduationReview, graduationErr) <-
+                                            if now - lastGraduationReviewAt < fromIntegral portfolioGraduationReviewEverySec * 1000
+                                                then pure (previousEffectiveMode, Nothing, Nothing)
+                                                else do
+                                                    writeIORef portfolioGraduationReviewAtRef now
+                                                    resolvePortfolioGraduationMode
+                                                        mOps
+                                                        topCombosStore
+                                                        now
+                                                        tenantKey
+                                                        portfolioGraduationConfig
+                                                        deployableOverrideUuids
+                                                        portfolioRolloutMode
+                                                        argsBase
+                                                        portfolioSelectorConfig
+                                                        disabledSymbols
+                                                        export
+                                        writeIORef effectivePortfolioModeRef effectivePortfolioMode
+                                        case graduationErr of
+                                            Nothing -> writeIORef portfolioGraduationWarnRef Nothing
+                                            Just err ->
+                                                logChanged
+                                                    portfolioGraduationWarnRef
+                                                    err
+                                                    ("Automatic portfolio graduation remains pending: " ++ err)
+                                        when (previousEffectiveMode /= effectivePortfolioMode) $
+                                            putStrLn
+                                                ( "Automatic portfolio graduation changed effective selector mode from "
+                                                    ++ T.unpack (portfolioRolloutModeCode previousEffectiveMode)
+                                                    ++ " to "
+                                                    ++ T.unpack (portfolioRolloutModeCode effectivePortfolioMode)
+                                                    ++ "; reviewed UUID allowlist active="
+                                                    ++ show (effectivePortfolioMode == PortfolioShadow)
+                                                    ++ "."
+                                                )
                                         let selectionSnapshot = portfolioSelectionSnapshotKey export
                                         selectionOrErrMaybe <-
-                                            case portfolioRolloutMode of
+                                            case effectivePortfolioMode of
                                                 PortfolioShadow -> do
                                                     writeIORef portfolioSelectionFailureRef Nothing
                                                     pure Nothing
@@ -10619,7 +10815,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                         now
                                                                         argsBase
                                                                         portfolioSelectorConfig
-                                                                        portfolioRolloutMode
+                                                                        effectivePortfolioMode
                                                                         disabledSymbols
                                                                         export
                                                                 case resolved of
@@ -10627,7 +10823,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                     Right _ -> writeIORef portfolioSelectionFailureRef Nothing
                                                                 pure resolved
                                                     pure (Just result)
-                                        let independentTargets =
+                                        let rankedIndependentTargets =
                                                 [ (symbol, combo, Nothing)
                                                 | (symbol, combo) <-
                                                     topCombosTopTargetsWithPolicy
@@ -10640,10 +10836,26 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         export
                                                 , symbol `elem` map normalizeSymbol baseSymbols
                                                 ]
+                                            overrideIndependentTargets =
+                                                [ (symbol, combo, Nothing)
+                                                | (symbol, combo) <-
+                                                    take topComboTargetCount $
+                                                        topCombosDeployableOverrideTargets
+                                                            limits
+                                                            argsBase
+                                                            disabledSymbols
+                                                            deployableOverrideUuids
+                                                            export
+                                                , symbol `elem` map normalizeSymbol baseSymbols
+                                                ]
+                                            independentTargets =
+                                                if argAdoptionRelaxGates argsBase && not (null deployableOverrideUuids)
+                                                    then overrideIndependentTargets
+                                                    else rankedIndependentTargets
                                             targets =
-                                                case (portfolioRolloutMode, selectionOrErrMaybe) of
+                                                case (effectivePortfolioMode, selectionOrErrMaybe) of
                                                     (PortfolioShadow, _) -> independentTargets
-                                                    (_, Just (Right selection)) -> portfolioSelectionTargets portfolioRolloutMode topComboTargetCount export selection
+                                                    (_, Just (Right selection)) -> portfolioSelectionTargets effectivePortfolioMode topComboTargetCount export selection
                                                     _ -> []
                                             targetCount = length targets
                                         case selectionOrErrMaybe of
@@ -10674,12 +10886,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         pure targets
                               where
                                 fallbackTargetsForUnavailableStore =
-                                    case portfolioRolloutMode of
+                                    readIORef effectivePortfolioModeRef >>= \effectivePortfolioMode -> case effectivePortfolioMode of
                                         PortfolioShadow -> readIORef topTargetsRef
                                         _ -> do
                                             now <- getTimestampMs
                                             selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
-                                            if maybe False (\value -> now <= psValidUntilMs value && psMode value == portfolioRolloutMode) selection
+                                            if maybe False (\value -> now <= psValidUntilMs value && psMode value == effectivePortfolioMode) selection
                                                 then readIORef topTargetsRef
                                                 else do
                                                     writeIORef topTargetsRef []
@@ -10851,6 +11063,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     if adoptionPriority
                                         then pure []
                                         else loadTopTargets topComboTargetCount
+                                effectivePortfolioMode <- readIORef effectivePortfolioModeRef
                                 let topTargetMap =
                                         foldl'
                                             (\acc (sym, combo, weight) -> HM.insertWith (\_ old -> old) sym (combo, weight) acc)
@@ -10859,7 +11072,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     topSymbols = map (\(symbol, _, _) -> symbol) topTargets
                                     disabledBaseSymbols = filter (botStartSymbolDisabled disabledSymbols) baseSymbols
                                     liveBaseSymbols =
-                                        case portfolioRolloutMode of
+                                        case effectivePortfolioMode of
                                             PortfolioShadow -> filterBotDisabledSymbols disabledSymbols baseSymbols
                                             _ -> []
                                     targetSymbolsBase = dedupeStable (topSymbols ++ liveBaseSymbols)
@@ -13637,28 +13850,28 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , sym
                                                                                         , "--source-label"
                                                                                         , "binance"
-                                                                                        , "--objective"
-                                                                                        , objective
-                                                                                        , "--min-round-trips"
-                                                                                        , show (minRoundTripsVal :: Int)
-                                                                                        , "--min-exposure"
-                                                                                        , show (minExposureVal :: Double)
-                                                                                        , "--min-sharpe"
-                                                                                        , show (minSharpeVal :: Double)
-                                                                                        , "--min-calmar"
-                                                                                        , show (minCalmarVal :: Double)
-                                                                                        , "--min-wf-sharpe-mean"
-                                                                                        , show minWfSharpeMean
-                                                                                        , "--max-wf-sharpe-std"
-                                                                                        , show maxWfSharpeStd
-                                                                                        , "--search-max-wf-sharpe-std"
-                                                                                        , show searchMaxWfSharpeStd
-                                                                                        , "--wf-sharpe-std-score-penalty"
-                                                                                        , show wfSharpeStdScorePenalty
-                                                                                        , "--binary"
-                                                                                        , exePath
-                                                                                        , "--disable-lstm-persistence"
                                                                                         ]
+                                                                                            ++ optimizerObjectiveArgs objective
+                                                                                            ++ [ "--min-round-trips"
+                                                                                               , show (minRoundTripsVal :: Int)
+                                                                                               , "--min-exposure"
+                                                                                               , show (minExposureVal :: Double)
+                                                                                               , "--min-sharpe"
+                                                                                               , show (minSharpeVal :: Double)
+                                                                                               , "--min-calmar"
+                                                                                               , show (minCalmarVal :: Double)
+                                                                                               , "--min-wf-sharpe-mean"
+                                                                                               , show minWfSharpeMean
+                                                                                               , "--max-wf-sharpe-std"
+                                                                                               , show maxWfSharpeStd
+                                                                                               , "--search-max-wf-sharpe-std"
+                                                                                               , show searchMaxWfSharpeStd
+                                                                                               , "--wf-sharpe-std-score-penalty"
+                                                                                               , show wfSharpeStdScorePenalty
+                                                                                               , "--binary"
+                                                                                               , exePath
+                                                                                               , "--disable-lstm-persistence"
+                                                                                               ]
                                                                                             ++ lstmAdamRangeArgs
                                                                                             ++ routerRegimeArgs
                                                                                             ++ survivorParentArgs
@@ -16158,6 +16371,7 @@ applyBotStartupEnvPreset args = do
     minSignalToNoiseRaw <- lookupTrimmedEnv "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE"
     openThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_OPEN_THRESHOLD"
     closeThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_CLOSE_THRESHOLD"
+    adoptionMaxPositionSizeCapRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP"
     adoptionRelaxGatesRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES"
     adoptionRelaxTargetCountRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"
     executionMakerFirstRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FIRST"
@@ -16185,6 +16399,7 @@ applyBotStartupEnvPreset args = do
     mMinSignalToNoise <- readBotStartupNonNegativeDoubleEnv "TRADER_BOT_START_MIN_SIGNAL_TO_NOISE" minSignalToNoiseRaw
     mOpenThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_OPEN_THRESHOLD" openThresholdRaw
     mCloseThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_CLOSE_THRESHOLD" closeThresholdRaw
+    mAdoptionMaxPositionSizeCap <- readBotStartupThresholdEnv "TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP" adoptionMaxPositionSizeCapRaw
     mAdoptionRelaxGates <- readBotStartupBoolEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES" adoptionRelaxGatesRaw
     mAdoptionRelaxTargetCount <- readBotStartupPositiveIntEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT" adoptionRelaxTargetCountRaw
     mExecutionMakerFirst <- readBotStartupBoolEnv "TRADER_EXECUTION_MAKER_FIRST" executionMakerFirstRaw
@@ -16208,6 +16423,7 @@ applyBotStartupEnvPreset args = do
                 , minSignalToNoiseRaw
                 , openThresholdRaw
                 , closeThresholdRaw
+                , adoptionMaxPositionSizeCapRaw
                 , adoptionRelaxGatesRaw
                 , adoptionRelaxTargetCountRaw
                 , executionMakerFirstRaw
@@ -16225,6 +16441,7 @@ applyBotStartupEnvPreset args = do
                 , argMinSignalToNoise = fromMaybe (argMinSignalToNoise args) mMinSignalToNoise
                 , argOpenThreshold = openThreshold
                 , argCloseThreshold = closeThreshold
+                , argAdoptionMaxPositionSizeCap = fromMaybe (argAdoptionMaxPositionSizeCap args) mAdoptionMaxPositionSizeCap
                 , argAdoptionRelaxGates = fromMaybe (argAdoptionRelaxGates args) mAdoptionRelaxGates
                 , argAdoptionRelaxTargetCount = fromMaybe (argAdoptionRelaxTargetCount args) mAdoptionRelaxTargetCount
                 , argExecutionMakerFirst = fromMaybe (argExecutionMakerFirst args) mExecutionMakerFirst
@@ -20973,6 +21190,201 @@ portfolioSelectionSnapshotKey export =
     maximumMaybe [] = Nothing
     maximumMaybe values = Just (maximum values)
 
+emptyPortfolioGraduationEvidence :: PortfolioGraduationEvidence
+emptyPortfolioGraduationEvidence =
+    PortfolioGraduationEvidence
+        { pgeDailyObservationCount = 0
+        , pgeNetReturn = 0
+        , pgeMaxDrawdown = 0
+        , pgeExecutionAttempts = 0
+        , pgeExecutionSuccesses = 0
+        , pgeStatusSamples = 0
+        , pgeHealthyStatusSamples = 0
+        , pgeLatestStatusesHealthy = False
+        }
+
+fetchPortfolioGraduationEvidence :: OpsStore -> TenantKey -> PortfolioGraduationConfig -> [Text] -> Int64 -> IO (Either String PortfolioGraduationEvidence)
+fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
+    case traverse uuidFromText reviewedUuids of
+        Nothing -> pure (Left "automatic portfolio graduation requires valid reviewed UUIDs")
+        Just reviewedUuidValues
+            | null reviewedUuidValues -> pure (Left "automatic portfolio graduation requires at least one reviewed UUID")
+            | reviewEndMs <= firstFullDayMs -> pure (Right emptyPortfolioGraduationEvidence)
+            | otherwise ->
+                withOpsConnection store $ \conn -> do
+                    dailyRows <-
+                        query
+                            conn
+                            ( "WITH ranked AS ("
+                                <> "SELECT combo_uuid, (at_ms / 86400000) * 86400000 AS day_ms, equity, "
+                                <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid, (at_ms / 86400000) ORDER BY at_ms DESC, id DESC) AS rn "
+                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? AND equity IS NOT NULL "
+                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                <> "), daily AS ("
+                                <> "SELECT combo_uuid, day_ms, equity FROM ranked WHERE rn = 1"
+                                <> ") SELECT day_ms, 1.0 + SUM(equity - 1.0) AS fleet_equity "
+                                <> "FROM daily GROUP BY day_ms HAVING COUNT(DISTINCT combo_uuid) = ? ORDER BY day_ms"
+                            )
+                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs, length reviewedUuidValues) ::
+                            IO [(Int64, Double)]
+                    orderRows <-
+                        query
+                            conn
+                            ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE result_json #>> '{event,order,sent}' = 'true') "
+                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                <> "AND kind = 'bot.order' AND at_ms >= ? AND at_ms < ?"
+                            )
+                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                            IO [(Int64, Int64)]
+                    statusRows <-
+                        query
+                            conn
+                            ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE "
+                                <> "NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                <> "AND result_json->>'error' IS NULL) "
+                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? "
+                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                            )
+                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                            IO [(Int64, Int64)]
+                    latestRows <-
+                        query
+                            conn
+                            ( "SELECT combo_uuid, "
+                                <> "NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                <> "AND result_json->>'error' IS NULL AS healthy "
+                                <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, result_json "
+                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
+                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
+                            )
+                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, now) ::
+                            IO [(UUID.UUID, Bool)]
+                    pure $ do
+                        (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance (map snd dailyRows)
+                        let (executionAttempts, executionSuccesses) = intPair orderRows
+                            (statusSamples, healthyStatusSamples) = intPair statusRows
+                            latestStatusesHealthy =
+                                length latestRows == length reviewedUuidValues
+                                    && all snd latestRows
+                        Right
+                            PortfolioGraduationEvidence
+                                { pgeDailyObservationCount = dailyObservationCount
+                                , pgeNetReturn = netReturn
+                                , pgeMaxDrawdown = maxDrawdown
+                                , pgeExecutionAttempts = executionAttempts
+                                , pgeExecutionSuccesses = executionSuccesses
+                                , pgeStatusSamples = statusSamples
+                                , pgeHealthyStatusSamples = healthyStatusSamples
+                                , pgeLatestStatusesHealthy = latestStatusesHealthy
+                                }
+  where
+    dayMs = 86400000
+    reviewedUuids = dedupeStable (map (T.toLower . T.strip) reviewedUuidsRaw)
+    firstFullDayMs = ((pgcStartedAtMs config + dayMs - 1) `div` dayMs) * dayMs
+    reviewEndMs = (now `div` dayMs) * dayMs
+    intPair rows =
+        case rows of
+            ((left, right) : _) -> (fromIntegral left, fromIntegral right)
+            _ -> (0, 0)
+
+resolvePortfolioGraduationMode ::
+    Maybe OpsStore ->
+    TopCombosStore ->
+    Int64 ->
+    TenantKey ->
+    PortfolioGraduationConfig ->
+    [Text] ->
+    PortfolioRolloutMode ->
+    Args ->
+    PortfolioSelectorConfig ->
+    [String] ->
+    TopCombosExport ->
+    IO (PortfolioRolloutMode, Maybe PortfolioGraduationReview, Maybe String)
+resolvePortfolioGraduationMode mOps store now tenantKey graduationConfig reviewedUuids configuredMode args selectorConfig disabledSymbols export
+    | configuredMode /= PortfolioShadow = pure (configuredMode, Nothing, Nothing)
+    | not (pgcEnabled graduationConfig) = pure (configuredMode, Nothing, Nothing)
+    | null reviewedUuids = pure (configuredMode, Nothing, Just "automatic portfolio graduation has no reviewed UUID allowlist")
+    | otherwise = do
+        existing <- readPortfolioGraduationReviewMaybe path
+        if maybe False (portfolioGraduationReviewApplies graduationConfig reviewedUuids) existing
+            then pure (PortfolioEnforce, existing, Nothing)
+            else do
+                evidenceResult <-
+                    case mOps of
+                        Nothing -> pure (Left "operations database unavailable")
+                        Just opsStore -> do
+                            result <- try (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String PortfolioGraduationEvidence))
+                            pure $
+                                case result of
+                                    Left ex -> Left (displayException ex)
+                                    Right value -> value
+                case evidenceResult of
+                    Left err -> persistPending emptyPortfolioGraduationEvidence "graduation-evidence-unavailable" (Just err)
+                    Right evidence -> do
+                        let liveReview = portfolioGraduationReview graduationConfig now reviewedUuids evidence
+                        case pgrDecision liveReview of
+                            PortfolioGraduationPending -> persistReview PortfolioShadow liveReview Nothing
+                            PortfolioGraduated -> do
+                                selectionResult <-
+                                    resolvePortfolioSelection
+                                        store
+                                        now
+                                        args
+                                        selectorConfig
+                                        PortfolioEnforce
+                                        disabledSymbols
+                                        export
+                                case selectionResult of
+                                    Left err -> persistPending evidence "strict-portfolio-selection-unavailable" (Just err)
+                                    Right selection -> do
+                                        writeResult <- try (writePortfolioGraduationReview path liveReview) :: IO (Either SomeException ())
+                                        case writeResult of
+                                            Left ex -> pure (PortfolioShadow, Just liveReview{pgrDecision = PortfolioGraduationPending, pgrReasons = ["graduation-state-persist-failed"]}, Just (displayException ex))
+                                            Right () -> do
+                                                opsAppendMaybe
+                                                    mOps
+                                                    (Just tenantKey)
+                                                    "portfolio.graduated"
+                                                    Nothing
+                                                    Nothing
+                                                    ( Just
+                                                        ( object
+                                                            [ "review" .= liveReview
+                                                            , "selection" .= selection
+                                                            , "effectiveMode" .= PortfolioEnforce
+                                                            , "allowlistActive" .= False
+                                                            ]
+                                                        )
+                                                    )
+                                                    Nothing
+                                                    Nothing
+                                                    Nothing
+                                                    Nothing
+                                                pure (PortfolioEnforce, Just liveReview, Nothing)
+  where
+    path = portfolioGraduationPath store
+    persistPending evidence reason mErr =
+        let review0 = portfolioGraduationReview graduationConfig now reviewedUuids evidence
+            review =
+                review0
+                    { pgrDecision = PortfolioGraduationPending
+                    , pgrReasons = dedupeStable (pgrReasons review0 ++ [reason])
+                    }
+         in persistReview PortfolioShadow review mErr
+    persistReview mode review mErr = do
+        writeResult <- try (writePortfolioGraduationReview path review) :: IO (Either SomeException ())
+        pure $
+            case writeResult of
+                Left ex -> (PortfolioShadow, Just review, Just (displayException ex))
+                Right () -> (mode, Just review, mErr)
+
 resolvePortfolioSelection ::
     TopCombosStore ->
     Int64 ->
@@ -21318,9 +21730,14 @@ applyTopComboForStart base combo = do
         -- 10-20x perp leverage that is the cliff size from the 2026-06-13
         -- incident. Clamp on adoption to keep new exposure bounded until
         -- combos produced under the new defaults take over.
+        adoptedMaxPositionSize =
+            capAdoptedMaxPositionSizeWithCap
+                (argAdoptionMaxPositionSizeCap base)
+                (argMaxPositionSize args2)
         args3 =
             args2
-                { argMaxPositionSize = capAdoptedMaxPositionSizeWithCap (argAdoptionMaxPositionSizeCap base) (argMaxPositionSize args2)
+                { argMaxPositionSize = adoptedMaxPositionSize
+                , argMinPositionSize = capAdoptedMinPositionSize adoptedMaxPositionSize (argMinPositionSize args2)
                 }
     pure (normalizeBarsForLookback args3)
 
@@ -21417,6 +21834,19 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
     let topValBackfilled = topVal
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
+    configuredDeployableOverrides <- topComboDeployableOverrideUuidsFromEnv
+    configuredPortfolioMode <- portfolioSelectorRolloutModeFromEnv
+    graduationConfig <- portfolioGraduationConfigFromEnv
+    effectivePortfolioMode <-
+        portfolioEffectiveRolloutMode
+            topCombosStore
+            graduationConfig
+            configuredDeployableOverrides
+            configuredPortfolioMode
+    let deployableOverrides =
+            if effectivePortfolioMode == PortfolioShadow
+                then configuredDeployableOverrides
+                else []
     _ <-
         case (mOps, topValBackfilled) of
             (Just opsStore, Right val) -> do
@@ -21472,7 +21902,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
     now <- getTimestampMs
     let maxResponseCombos = max minPersist maxCombos
         (mergedVal, TopCombosMergeStats{tcmsRawCount = rawCount, tcmsDroppedCount = droppedCount, tcmsDedupedCount = dedupedCount}) =
-            mergeTopCombosPayloadsWithStats maxResponseCombos now responseVals
+            mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxResponseCombos now responseVals
         combos = extractCombos mergedVal
         payloadSources =
             concatMap
@@ -23186,6 +23616,7 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
                                                                 let resp =
                                                                         ApiListenKeyResponse
                                                                             { alrListenKey = streamId
+                                                                            , alrTenantKey = T.unpack tenantKey
                                                                             , alrMarket = marketCode market
                                                                             , alrTestnet = testnet
                                                                             , alrWsUrl = binanceSpotWsApiUrl testnet
@@ -23206,6 +23637,7 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
                                                                     let resp =
                                                                             ApiListenKeyResponse
                                                                                 { alrListenKey = lk
+                                                                                , alrTenantKey = T.unpack tenantKey
                                                                                 , alrMarket = marketCode market
                                                                                 , alrTestnet = testnet
                                                                                 , alrWsUrl = binanceUserStreamWsUrl market testnet lk
@@ -23925,8 +24357,16 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                     Left e -> respond (jsonError status400 e)
                                     Right tenantKey -> do
                                         tradeEnabledRaw <- lookupEnv "TRADER_BOT_TRADE"
-                                        portfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
+                                        configuredPortfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
                                         portfolioSelectorConfig <- portfolioSelectorConfigFromEnv
+                                        portfolioGraduationConfig <- portfolioGraduationConfigFromEnv
+                                        reviewedUuids <- topComboDeployableOverrideUuidsFromEnv
+                                        portfolioRolloutMode <-
+                                            portfolioEffectiveRolloutMode
+                                                topCombosStore
+                                                portfolioGraduationConfig
+                                                reviewedUuids
+                                                configuredPortfolioRolloutMode
                                         let argsBase =
                                                 applyBackendAutostartSizingDefault $
                                                     normalizeBarsForLookback argsRequested{argTradeOnly = True}
@@ -24127,8 +24567,11 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
 
 portfolioSelectorStatusJson :: Maybe OpsStore -> Args -> TopCombosStore -> IO Aeson.Value
 portfolioSelectorStatusJson _mOps args topCombosStore = do
-    mode <- portfolioSelectorRolloutModeFromEnv
+    configuredMode <- portfolioSelectorRolloutModeFromEnv
     config <- portfolioSelectorConfigFromEnv
+    graduationConfig <- portfolioGraduationConfigFromEnv
+    reviewedUuids <- topComboDeployableOverrideUuidsFromEnv
+    graduationReview <- readPortfolioGraduationReviewMaybe (portfolioGraduationPath topCombosStore)
     disabledSymbols <- botDisabledSymbolsFromEnv
     selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
     -- Bot status is a latency-sensitive runtime endpoint. The selector summary is
@@ -24136,7 +24579,13 @@ portfolioSelectorStatusJson _mOps args topCombosStore = do
     -- shared ops connection (which also handles bot event persistence).
     exportOrErr <- readTopCombosExport topCombosStore
     now <- getTimestampMs
-    let selectionValid =
+    let mode =
+            if maybe False (portfolioGraduationReviewApplies graduationConfig reviewedUuids) graduationReview
+                then PortfolioEnforce
+                else configuredMode
+        firstFullDayMs = ((pgcStartedAtMs graduationConfig + 86400000 - 1) `div` 86400000) * 86400000
+        earliestReviewAtMs = firstFullDayMs + fromIntegral (pgcMinimumDailyObservations graduationConfig) * 86400000
+        selectionValid =
             case (selection, exportOrErr) of
                 (Just selected, Right export) ->
                     let candidates = strictPortfolioCandidates now args config disabledSymbols export
@@ -24155,12 +24604,33 @@ portfolioSelectorStatusJson _mOps args topCombosStore = do
     pure $
         object
             [ "mode" .= mode
+            , "configuredMode" .= configuredMode
             , "selection" .= selection
             , "selectionValid" .= selectionValid
             , "evidenceAgeDays"
                 .= fmap
                     (\value -> fromIntegral (max 0 (now - psEvidenceEndMs value)) / (86400000 :: Double))
                     selection
+            , "graduation"
+                .= object
+                    [ "enabled" .= pgcEnabled graduationConfig
+                    , "startedAtMs" .= pgcStartedAtMs graduationConfig
+                    , "earliestReviewAtMs" .= earliestReviewAtMs
+                    , "targetMode" .= PortfolioEnforce
+                    , "reviewedUuids" .= reviewedUuids
+                    , "allowlistActive" .= (mode == PortfolioShadow && not (null reviewedUuids))
+                    , "review" .= graduationReview
+                    , "configVersion" .= portfolioGraduationConfigVersion graduationConfig
+                    , "requirements"
+                        .= object
+                            [ "minimumDailyObservations" .= pgcMinimumDailyObservations graduationConfig
+                            , "minimumNetReturn" .= pgcMinimumNetReturn graduationConfig
+                            , "maximumDrawdown" .= pgcMaximumDrawdown graduationConfig
+                            , "minimumExecutionAttempts" .= pgcMinimumExecutionAttempts graduationConfig
+                            , "minimumExecutionReliability" .= pgcMinimumExecutionReliability graduationConfig
+                            , "minimumStatusReliability" .= pgcMinimumStatusReliability graduationConfig
+                            ]
+                    ]
             , "configuration"
                 .= object
                     [ "maxBots" .= pscMaxMembers config
@@ -32133,6 +32603,7 @@ baselineSimLongFlat perSideCost prices wantLong =
      in BacktestResult
             { brEquityCurve = reverse eqRev'
             , brPositions = reverse posRev
+            , brExposureCurve = reverse posRev
             , brAgreementOk = replicate stepCount True
             , brAgreementValid = replicate stepCount True
             , brPositionChanges = changesFinal'
@@ -36491,6 +36962,18 @@ takeExternalFeatureInputs n efi =
         , efiCot = V.take n <$> efiCot efi
         , efiNews = V.take n <$> efiNews efi
         , efiFilings = V.take n <$> efiFilings efi
+        , efiPolicy = V.take n <$> efiPolicy efi
+        , efiFundamentals = V.take n <$> efiFundamentals efi
+        , efiStablecoin = V.take n <$> efiStablecoin efi
+        , efiInstitutionalFlows = V.take n <$> efiInstitutionalFlows efi
+        , efiNetwork = V.take n <$> efiNetwork efi
+        , efiDeveloper = V.take n <$> efiDeveloper efi
+        , efiGovernance = V.take n <$> efiGovernance efi
+        , efiAttention = V.take n <$> efiAttention efi
+        , efiSocial = V.take n <$> efiSocial efi
+        , efiPredictionMarket = V.take n <$> efiPredictionMarket efi
+        , efiRealWorld = V.take n <$> efiRealWorld efi
+        , efiSecurity = V.take n <$> efiSecurity efi
         }
 
 dropExternalFeatureInputs :: Int -> ExternalFeatureInputs -> ExternalFeatureInputs
@@ -36503,6 +36986,18 @@ dropExternalFeatureInputs n efi =
         , efiCot = V.drop n <$> efiCot efi
         , efiNews = V.drop n <$> efiNews efi
         , efiFilings = V.drop n <$> efiFilings efi
+        , efiPolicy = V.drop n <$> efiPolicy efi
+        , efiFundamentals = V.drop n <$> efiFundamentals efi
+        , efiStablecoin = V.drop n <$> efiStablecoin efi
+        , efiInstitutionalFlows = V.drop n <$> efiInstitutionalFlows efi
+        , efiNetwork = V.drop n <$> efiNetwork efi
+        , efiDeveloper = V.drop n <$> efiDeveloper efi
+        , efiGovernance = V.drop n <$> efiGovernance efi
+        , efiAttention = V.drop n <$> efiAttention efi
+        , efiSocial = V.drop n <$> efiSocial efi
+        , efiPredictionMarket = V.drop n <$> efiPredictionMarket efi
+        , efiRealWorld = V.drop n <$> efiRealWorld efi
+        , efiSecurity = V.drop n <$> efiSecurity efi
         }
 
 appendExternalLast :: Maybe ExternalFeatureInputs -> Maybe ExternalFeatureInputs
@@ -36517,6 +37012,18 @@ appendExternalLast = fmap go
             , efiCot = appendLast <$> efiCot efi
             , efiNews = appendLast <$> efiNews efi
             , efiFilings = appendLast <$> efiFilings efi
+            , efiPolicy = appendLast <$> efiPolicy efi
+            , efiFundamentals = appendLast <$> efiFundamentals efi
+            , efiStablecoin = appendLast <$> efiStablecoin efi
+            , efiInstitutionalFlows = appendLast <$> efiInstitutionalFlows efi
+            , efiNetwork = appendLast <$> efiNetwork efi
+            , efiDeveloper = appendLast <$> efiDeveloper efi
+            , efiGovernance = appendLast <$> efiGovernance efi
+            , efiAttention = appendLast <$> efiAttention efi
+            , efiSocial = appendLast <$> efiSocial efi
+            , efiPredictionMarket = appendLast <$> efiPredictionMarket efi
+            , efiRealWorld = appendLast <$> efiRealWorld efi
+            , efiSecurity = appendLast <$> efiSecurity efi
             }
     appendLast v =
         if V.null v

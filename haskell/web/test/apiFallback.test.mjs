@@ -1310,6 +1310,7 @@ test("api fallback allows inferred /api cross-origin failover for tenant-scoped 
         directTenantHeader = new Headers(init.headers).get("X-Tenant-Key");
         return jsonResponse(200, {
           listenKey: "listen-key-1",
+          tenantKey: "tenant",
           market: "spot",
           testnet: false,
           wsUrl: "wss://stream.example.com/ws/listen-key-1",
@@ -1321,6 +1322,7 @@ test("api fallback allows inferred /api cross-origin failover for tenant-scoped 
     async (api) => {
       const out = await api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 });
       assert.equal(out.listenKey, "listen-key-1");
+      assert.equal(out.tenantKey, "tenant");
     },
   );
   assert.deepEqual(calls, ["/api/binance/listenKey", "https://api.example.com/binance/listenKey"]);

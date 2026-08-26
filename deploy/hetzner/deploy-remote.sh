@@ -328,9 +328,17 @@ trap 'rollback_deployment $?' ERR
 # an already-running container when Compose decides its configuration is
 # unchanged; that would update the static UI but leave the API's commit stale.
 "${compose[@]}" build api
+"${compose[@]}" run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null
 "${compose[@]}" up -d --no-deps --force-recreate api
 "${compose[@]}" up -d --remove-orphans
 wait_for_api_health
+
+# rsync installs changed files with a new inode. A long-lived container keeps
+# reading the old inode behind a bind-mounted Caddyfile even though the host
+# path contains the new routes. Recreate Caddy only after the API is healthy so
+# every release loads the validated proxy config without extending API downtime.
+"${compose[@]}" up -d --no-deps --force-recreate caddy
+"${compose[@]}" exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null
 
 health_json="$(api_health_json)"
 reported_commit="$(printf '%s' "$health_json" | health_commit)"
@@ -341,13 +349,26 @@ fi
 
 # Populate /ops/performance after the API and schema are healthy. The rollup
 # script runs transactionally, so a failed rebuild preserves the prior views.
-"${compose[@]}" exec -T api /bin/sh -ec '
+# A freshly started API can briefly contend with the rollup while registering
+# its platform/symbol inventory. PostgreSQL aborts one side of that deadlock;
+# retry the complete transaction instead of rolling back an otherwise healthy
+# release on the first transient collision.
+rollup_attempt=1
+until "${compose[@]}" exec -T api /bin/sh -ec '
   case "${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}" in
     true|TRUE|1) exec rollup-performance ;;
     false|FALSE|0|"") echo "==> Performance rollup disabled" ;;
     *) echo "TRADER_OPS_ROLLUP_ON_DEPLOY must be true/false/1/0" >&2; exit 64 ;;
   esac
-' </dev/null
+' </dev/null; do
+  if ((rollup_attempt >= 3)); then
+    echo "ERROR: performance rollup failed after ${rollup_attempt} attempts." >&2
+    false
+  fi
+  echo "WARN: performance rollup attempt ${rollup_attempt} failed; retrying the transaction." >&2
+  sleep $((rollup_attempt * 2))
+  ((rollup_attempt += 1))
+done
 
 trap - ERR
 docker image prune -f >/dev/null 2>&1 || true

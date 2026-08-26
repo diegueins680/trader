@@ -43,6 +43,7 @@ module Trader.TopCombosStore (
     isTopCombosPayload,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
+    mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
     newTopCombosStore,
     normalizeTopCombosPayload,
     recalculateComboPerformanceFromOperation,
@@ -1456,10 +1457,44 @@ comboProcessingValue val =
         , "reasons" .= comboProcessingReasons val
         ]
 
+comboProcessingValueWithDeployableOverrides :: Set.Set T.Text -> Aeson.Value -> Aeson.Value
+comboProcessingValueWithDeployableOverrides overrides val
+    | comboProcessingTier val /= "candidate" = comboProcessingValue val
+    | maybe False (`Set.member` overrides) comboUuid =
+        object
+            [ "tier" .= ("deployable" :: String)
+            , "tierRank" .= (0 :: Int)
+            , "validatedScore" .= comboValidatedScore val
+            , "overfitMultiplier" .= comboOverfitMultiplier val
+            , "mapEliteBucket" .= comboMapEliteBucket val
+            , "reasons" .= ([] :: [String])
+            , "relaxed" .= True
+            , "relaxedReasons" .= comboProcessingReasons val
+            ]
+    | otherwise = comboProcessingValue val
+  where
+    comboUuid :: Maybe T.Text
+    comboUuid =
+        case val of
+            Aeson.Object o -> T.strip <$> (KM.lookup (AK.fromString "uuid") o >>= AT.parseMaybe Aeson.parseJSON)
+            _ -> Nothing
+
 annotateComboProcessing :: Aeson.Value -> Aeson.Value
 annotateComboProcessing val =
     case val of
         Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "processing") (comboProcessingValue val) o)
+        _ -> val
+
+annotateComboProcessingWithDeployableOverrides :: Set.Set T.Text -> Aeson.Value -> Aeson.Value
+annotateComboProcessingWithDeployableOverrides overrides val =
+    case val of
+        Aeson.Object o ->
+            Aeson.Object
+                ( KM.insert
+                    (AK.fromString "processing")
+                    (comboProcessingValueWithDeployableOverrides overrides val)
+                    o
+                )
         _ -> val
 
 extractPayloadSource :: Aeson.Value -> Maybe String
@@ -1507,7 +1542,15 @@ mergeTopCombosPayloads :: Int -> Int64 -> [Aeson.Value] -> Aeson.Value
 mergeTopCombosPayloads maxItems now payloads = fst (mergeTopCombosPayloadsWithStats maxItems now payloads)
 
 mergeTopCombosPayloadsWithStats :: Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
-mergeTopCombosPayloadsWithStats maxItems now payloads =
+mergeTopCombosPayloadsWithStats = mergeTopCombosPayloadsWithStatsAndDeployableOverrides []
+
+{- | Apply an explicit, bounded operator override while constructing an API
+view of the leaderboard. Only otherwise-valid @candidate@ rows are promoted;
+raw and quarantined rows remain fail-closed. The original failed gates stay in
+@processing.relaxedReasons@ so the exception remains visible and auditable.
+-}
+mergeTopCombosPayloadsWithStatsAndDeployableOverrides :: [T.Text] -> Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
+mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxItems now payloads =
     let rawCount = sum (map payloadComboCount payloads)
         sanitized = map (fst . sanitizeTopCombosValue) payloads
         dropTombstones = mergeComboDropTombstones sanitized
@@ -1548,6 +1591,8 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
         , stats
         )
   where
+    deployableOverrideSet = Set.fromList (map T.strip deployableOverrides)
+
     payloadComboCount :: Aeson.Value -> Int
     payloadComboCount = length . extractCombos
 
@@ -1603,7 +1648,7 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
 
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
-        case annotateComboProcessing val of
+        case annotateComboProcessingWithDeployableOverrides deployableOverrideSet val of
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
 

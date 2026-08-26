@@ -74,6 +74,39 @@ Equivalent npm commands are `npm run verify:haskell`, `npm run verify:web`, `npm
 
 The automation gate validates Fly TOML, both Hetzner Compose roles, formal-spec coverage, the canonical risk register, and root automation regressions. Formal feature contracts live in `formal/specifications.json`; canonical risk IDs and lifecycle state live in `formal/risk-register.json`; the verification model is explained in `docs/formal-specifications.md`.
 
+## Alternative data
+
+The research pipeline can ingest non-exchange CSV, JSON, and RSS feeds for macro data, policy releases, news, company fundamentals and filings, on-chain activity, stablecoins, institutional/custody flows, miner and validator activity, developer activity, governance and token supply, search/web attention, social activity, prediction markets, real-world operations, security incidents, CFTC positioning, options volatility, and archival microstructure. The checked-in [source configuration](scripts/research/alternative-data.example.json) contains a disabled example for every family; enable only feeds whose timestamps, licenses, and credentials you have verified.
+
+Each cached observation records the underlying event time separately from the time it became available. Revisions remain separate point-in-time releases. The panel builder uses only availability timestamps, applies publication lags and maximum ages, causally normalizes each metric before combining metrics, and emits coverage alongside every family. Stateful readings are carried forward only until their configured age limit; event/flow readings reset between bars.
+
+Use `aggregation=last` for state, or `sum`, `mean`, and `count` for observations that belong only to their publication bar. `transform` supports `zscore`, `delta`, `pct_change`, and `raw`; `raw` should be reserved for an already bounded/standardized signal. `polarity=-1` makes adverse readings consistently negative, while `minHistory` and `maxAgeSeconds` control causal warm-up and staleness.
+
+After configuring sources, collect them and build a feature panel against the exact price-bar grid:
+
+```bash
+python3 scripts/research/alternative_data.py collect \
+  --config scripts/research/alternative-data.example.json
+
+python3 scripts/research/alternative_data.py panel \
+  --cache data/research/alternative-observations.csv \
+  --bars data/research/BTCUSDT_1h.csv \
+  --symbol BTCUSDT \
+  --output data/research/BTCUSDT_1h-alternative.csv \
+  --manifest data/research/BTCUSDT_1h-alternative.json
+```
+
+`run` combines collection and panel construction. A provider failure is isolated and reported as degraded; successful sources are still cached atomically, while the command returns non-zero unless `--allow-partial` is explicit. Secrets referenced by `queryFromEnv` or `headersFromEnv` are read only from the environment and are never stored or printed.
+
+Attach one or more generated panels to Haskell research, backtests, or bot predictors with `--external-data --external-data-csv PATH`, or set:
+
+```dotenv
+TRADER_EXTERNAL_DATA=true
+TRADER_EXTERNAL_DATA_CSVS=data/research/BTCUSDT_1h-alternative.csv
+```
+
+In source configuration, `entity`/`entityField` identifies the target trading asset, not an internal provider record ID; an empty entity is global. Panel construction requires either `--symbol` (which includes that full/base asset plus global observations) or an explicit `--global`; generated symbol rows apply only to that full or base asset. Enabling alternative data changes the predictor feature dimension, so models must be retrained and validated through walk-forward/holdout tests. Collection alone does not authorize a signal for live trading, and missing data stays neutral rather than being interpreted as a bullish or bearish observation.
+
 ## CLI and API
 
 List the complete CLI surface with:
@@ -96,11 +129,14 @@ Important operational endpoints:
 - `POST /signal`, `/backtest`, `/trade` — synchronous work
 - `/signal/async`, `/backtest/async`, `/trade/async` — persisted asynchronous work
 - `POST /binance/revenue` — futures income, execution, and cost reconciliation (signed Binance credentials required)
+- `POST /binance/listenKey` and `GET /binance/listenKey/stream` — start and relay a tenant-scoped Binance user-data stream
 - `/bot/start`, `/bot/status`, `/bot/stop` — live-bot lifecycle
 
-On SIGTERM or SIGINT, serve mode marks readiness as draining, rejects new compute/order/bot-start work, persists `server.stop` and bot snapshots, stops workers and jobs, closes PostgreSQL, and observes `TRADER_API_SHUTDOWN_TIMEOUT_SEC` (default `20`). Hetzner is the sole live executor; Fly is checked in as a read-only standby and cannot claim positions or place orders. The live profile persists bot state and LSTM weights under `/var/lib/trader`, reuses compatible saved models, keeps all 22 production-universe symbols eligible, and stages three portfolio-selected workers under `canary` mode. Each worker selects the highest-ranked compatible, non-quarantined combo for its symbol and polls for better evidence every 30 seconds. The live profile explicitly enables `TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS`, so all selection paths use the best compatible existing combo even when its evidence is stale or incomplete; the default remains fail-closed when that flag is unset. Flat workers rotate when the selected combo changes, while workers managing an open position retain its origin combo until flat. On replacement startup, `/ready` stays at HTTP 503 with `status=recovering_positions` until exchange inventory has been inspected and every open-position symbol has a registered live owner. Inventory errors fail closed; adoption bypasses portfolio, per-cycle start, backoff, and new-entry circuit caps and precedes new flat-symbol exposure. Backoff filtering happens before start throttling, so one invalid or cooling-down target cannot pin every later bot. Position-owner upserts explicitly target the partial `positions.bot_id` index, making adoption visible immediately to the Positions UI instead of leaving a live runtime labeled orphaned. Bot status remains independent of slower position/database enrichment; until the first successful status response, the Overview displays activity as unknown rather than asserting that the fleet is stopped, and a later timeout preserves the last observed fleet.
+On SIGTERM or SIGINT, serve mode marks readiness as draining, rejects new compute/order/bot-start work, persists `server.stop` and bot snapshots, stops workers and jobs, closes PostgreSQL, and observes `TRADER_API_SHUTDOWN_TIMEOUT_SEC` (default `20`). Hetzner is the sole live executor; Fly is checked in as a read-only standby and cannot claim positions or place orders. The live profile persists bot state and LSTM weights under `/var/lib/trader`, reuses compatible saved models, and runs five explicitly reviewed relaxed candidates for AVAX, UNI, SUI, ETC, and ADA under independent `shadow` selection. Each adopted strategy is capped at 5%, bounding the five-worker configuration to 25% aggregate configured exposure; an inherited minimum-size floor above 5% is reduced to the adopted maximum so it cannot make the worker structurally unable to enter. The pinned fleet sets `TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false`, preventing per-bot re-optimization from replacing a reviewed UUID and triggering the pinning controller to restart it. After 30 complete UTC live-evidence days, the server automatically reviews fleet net return, drawdown, order-submission reliability, status health, and strict selector admission; it atomically graduates to effective `enforce` mode and stops using the UUID target allowlist only when every gate passes. Any missing or failing evidence retains the existing shadow safeguards. Flat workers rotate when the selected combo changes, while workers managing an open position retain its origin combo until flat. On replacement startup, `/ready` stays at HTTP 503 with `status=recovering_positions` until exchange inventory has been inspected and every open-position symbol has a registered live owner. Inventory errors fail closed; adoption bypasses portfolio, per-cycle start, backoff, and new-entry circuit caps and precedes new flat-symbol exposure. Backoff filtering happens before start throttling, so one invalid or cooling-down target cannot pin every later bot. Position-owner upserts explicitly target the partial `positions.bot_id` index, making adoption visible immediately to the Positions UI instead of leaving a live runtime labeled orphaned. Bot status remains independent of slower position/database enrichment; until the first successful status response, the Overview displays activity as unknown rather than asserting that the fleet is stopped, and a later timeout preserves the last observed fleet.
 
 The web client runtime-validates the safety envelope returned by `/bot/start`, `/bot/status`, and `/bot/stop` before updating bot state. Malformed successful responses become explicit errors and are not retried as mutations.
+
+`POST /binance/listenKey` returns the tenant key that owns the newly created stream. The web client uses that authoritative value for the immediate SSE request, avoiding a startup race while the browser is still deriving the same tenant identity from inline credentials.
 
 ## Revenue accounting and Strategy Assurance
 
@@ -129,6 +165,24 @@ npm run assurance:outreach -- \
 
 The command writes initial and single-follow-up drafts, source snapshots, exact message hashes, null outcome fields, and a copy of the checklist under `.tmp/strategy-assurance/outreach/`. It rejects unknown and unacknowledged watchlist prospects and performs no send, submission, community join, affiliation claim, member-data collection, or pipeline transition. Run `npm run assurance:outreach -- --help` for queue, checklist, date, output, and overwrite options.
 
+Track only real acquisition events in the separate local pre-proposal registry:
+
+```bash
+npm run assurance:acquisition -- import \
+  --campaign .tmp/strategy-assurance/outreach/CAMPAIGN/campaign.json
+
+npm run assurance:acquisition -- advance \
+  --id LEAD_ID \
+  --status contacted \
+  --channel "Official organization contact form" \
+  --evidence "Receipt or sent-record reference" \
+  --at 2026-08-20
+
+npm run assurance:acquisition -- summary
+```
+
+Campaign import validates the source package and its content hashes, is idempotent, and prevents a second campaign for the same organization. Forward transitions require dated evidence; contact and follow-up events require the channel, wait periods are based on the actual contact/follow-up dates, and `proposed` requires a matching generated `engagement.json`. Summaries expose exact acquisition conversions, performance by queue source kind, eligible follow-ups and closures, and next actions. The default registry is `.tmp/strategy-assurance/acquisition.json`; this command records events but sends nothing and does not mutate the commercial pipeline. Run `npm run assurance:acquisition -- --help` for the full lifecycle and path options.
+
 Generate a prospect-specific commercial package without sending data or making any network request:
 
 ```bash
@@ -141,6 +195,20 @@ npm run assurance:kit -- \
 ```
 
 The command writes a tailored proposal/SOW, evidence request, initial and follow-up outreach copy, pro-forma payment request in Markdown and JSON, and a versioned engagement JSON record under `.tmp/strategy-assurance/`. The payment request is explicitly not a tax invoice or receipt, contains no bank or payment-provider credentials, and records that no external payment action occurred. The generator refuses to replace an existing package unless `--force` is supplied. Run `npm run assurance:kit -- --help` for scope, period, pricing, validity, and output options.
+
+For a qualified acquisition lead, commit the reviewed proposal to both local registries with one recoverable, idempotent handoff:
+
+```bash
+npm run assurance:handoff -- commit \
+  --lead LEAD_ID \
+  --engagement .tmp/strategy-assurance/CLIENT-DATE/engagement.json \
+  --evidence "Reviewed proposal sent-record reference" \
+  --at 2026-08-21
+
+npm run assurance:handoff -- reconcile --as-of 2026-08-21
+```
+
+The handoff validates the complete acquisition and commercial-pipeline states before writing, imports the engagement first, and then records the proposal link. If the second atomic file write is interrupted, rerunning the identical command completes the link without duplicating either record. Reconciliation reports qualified leads awaiting proposals, missing or inconsistent imports, exact linked review value and net cash, and pipeline engagements that need direct/referral provenance. It performs no proposal generation, sending, signing, payment request, charge, or external action.
 
 Import that engagement record into the local commercial pipeline, then advance it only when the real-world event has occurred:
 
@@ -162,7 +230,7 @@ npm run assurance:pipeline -- advance \
 npm run assurance:pipeline -- summary
 ```
 
-The pipeline records an append-only lifecycle from proposal through acceptance, payment, delivery, and optional monitoring. A `paid` event requires the actual USD cash amount, a `refunded` event requires the actual refund, and a `delivered` event requires actual delivery hours. Its versioned summary separates open and booked contract value from gross cash, refunds, net cash, delivered net cash, delivery hours, realized review revenue per hour, contracted monitoring MRR/ARR, expired proposals, exact funnel conversions, and the next action for every active engagement. Status alone never manufactures collected cash. The default registry is `.tmp/strategy-assurance/pipeline.json`; use `npm run assurance:pipeline -- --help` for alternate paths, event evidence, terminal statuses, and JSON output.
+Use direct pipeline import for referrals or legacy engagements without an acquisition lead; otherwise prefer `assurance:handoff`. The pipeline records an append-only lifecycle from proposal through acceptance, payment, delivery, and optional monitoring. A `paid` event requires the actual USD cash amount, a `refunded` event requires the actual refund, and a `delivered` event requires actual delivery hours. Its versioned summary separates open and booked contract value from gross cash, refunds, net cash, delivered net cash, delivery hours, realized review revenue per hour, contracted monitoring MRR/ARR, expired proposals, exact funnel conversions, and the next action for every active engagement. Status alone never manufactures collected cash. The default registry is `.tmp/strategy-assurance/pipeline.json`; use `npm run assurance:pipeline -- --help` for alternate paths, event evidence, terminal statuses, and JSON output.
 
 After a standard review reaches `delivered`, generate a monitoring order for the recurring-revenue offer:
 
@@ -303,9 +371,9 @@ Tenant identity is derived consistently by the backend, browser, and AWS deploym
 
 ## Top-combo portfolio selection
 
-Optimizer exports include timestamped daily returns derived from the net out-of-sample equity curve. Live portfolio selection requires at least 180 aligned days plus the existing freshness, venue-cost, 20-trade, walk-forward Sharpe, stability, position-size, and quarantine gates; legacy combos without the new evidence remain visible but cannot receive portfolio capital.
+Optimizer exports include timestamped daily returns derived from the net out-of-sample equity curve. The selector defaults to at least 180 aligned days plus the existing freshness, venue-cost, 20-trade, walk-forward Sharpe, stability, position-size, and quarantine gates; legacy combos without the new evidence remain visible but cannot receive portfolio capital. The managed five-worker graduation explicitly uses a 30-day selector floor, while retaining every other strict admission gate and adding an independent 30-complete-day live review.
 
-Leaderboard `processing.tier=deployable` uses the same fail-closed evidence contract: `params.minEdge >= 0.0018`, at least 20 trades, walk-forward mean Sharpe at least `0.3`, and walk-forward Sharpe standard deviation at most `1.5`. Missing or failing readings keep the row at `candidate`/`raw` and are listed in `processing.reasons`.
+Leaderboard `processing.tier=deployable` uses the same fail-closed evidence contract: `params.minEdge >= 0.0018`, at least 20 trades, walk-forward mean Sharpe at least `0.3`, and walk-forward Sharpe standard deviation at most `1.5`. Missing or failing readings keep the row at `candidate`/`raw` and are listed in `processing.reasons`. `TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS` is a bounded operator exception: only named candidate UUIDs are promoted, `raw` and `quarantined` rows remain blocked, and the bypassed strict gates remain visible under `processing.relaxedReasons` with `processing.relaxed=true`.
 
 Scheduled and startup re-backtests backfill the same timestamped net daily-return evidence onto legacy combos. A refresh therefore makes an older combo assessable by the portfolio selector, but never bypasses the existing activity, walk-forward, cost, freshness, position-size, or drawdown gates.
 
@@ -321,23 +389,33 @@ Once per week, the server evaluates up to three unique-symbol bots jointly. It s
 
 The decision is atomically persisted beside `top-combos.json` as `portfolio-selection.json` and expires after eight days. Open/orphaned positions are always restored first for safe management: live startup scans exchange inventory before loading or rebuilding portfolio selection, skips selection and rotation while any position still needs adoption or its worker is initializing, and lets every adoption bypass ordinary portfolio, per-cycle start, stale-backoff, and new-entry circuit-breaker caps. In `canary` or `enforce`, an absent, expired, or invalid decision blocks new portfolio entries instead of falling back to independent combo ranking. Canary scales aggregate portfolio capital to 25%; enforce uses the selected weights up to the normal 75% ceiling. The default `shadow` mode reports the challenger through `/bot/status` and the Live Bot UI without changing the existing fleet.
 
-The checked-in Hetzner trading profile is the sole live executor. It keeps all 22 production-universe symbols eligible but caps automatic, top-combo, startup, adoption-relaxation, and batch targets at three while the portfolio selector runs in `canary`; existing-position recovery still bypasses those caps. It permits two new starts per polling cycle and applies the best compatible, non-quarantined existing per-symbol combo without an environment preset overwriting its parameters. Fleet targeting is restricted to the configured universe, and position-recovery reservations do not consume its three ordinary slots. The explicit stale/incomplete fallback keeps symbols on their best existing combo while research refreshes old evidence. Fly omits `--binance-live` and sets `TRADER_BOT_TRADE=false`, making it a read-only standby even when CI recreates its app machine. Research profiles request 1,100-day lookbacks on 6h-or-longer intervals and reserve 64 of the bars actually fetched before deriving a safe capped window; exchange pagination and shorter symbol histories therefore cannot land just below the train/tune/backtest split requirement while enough OOS coverage remains for the 180-day evidence floor. Long-horizon searches run as recurring batches of four broad primary trials and, when needed, six activity-focused recovery trials, so the two passes explore distinct neighborhoods and completed evidence is merged incrementally. The recovery edge band remains cost-safe at `0.0018..0.0024`. Hetzner research caps each optimizer child at an 8 GiB Haskell heap with `TRADER_OPTIMIZER_TRIAL_HEAP_CAP=8g`, preserving headroom for the API and PostgreSQL while recording heap-overflow trials as failures. Hetzner research favors faster TA methods and refreshes only 20 stale incumbents daily after seven days, leaving most CPU for discovery. Optimizer telemetry distinguishes `optimizer.auto.admitted` from `optimizer.auto.no_admission`, includes board counts and newest timestamps, and reports database persistence failures instead of treating every successful merge process as a new combo.
+The checked-in Hetzner trading profile is the sole live executor. Its current bounded relaxation pins five reviewed UUIDs for AVAX, UNI, SUI, ETC, and ADA, starts at most two workers per polling cycle, disables their online combo replacement, and initially runs independent `shadow` selection. Each adopted combo is capped at 5%, and any larger inherited minimum-size floor is reduced to that cap, so the five-worker configuration can enter but cannot exceed 25% aggregate configured exposure; existing-position recovery still takes priority and bypasses ordinary fleet caps. Starting with the first full UTC day after `2026-08-21T14:20:00Z`, automatic graduation requires 30 complete days present for every reviewed UUID, positive aggregate normalized fleet return, maximum drawdown at or below 10%, at least 10 order attempts with 95% successful submission reliability, at least 99% healthy persisted status samples, and a healthy latest status for every UUID. It then also requires the strict 30-day portfolio selector to produce a valid enforcement selection. The review runs hourly, persists pending evidence beside the leaderboard, and writes a durable `portfolio.graduated` decision before effective mode changes to `enforce`; database, evidence, selector, or persistence failure leaves shadow mode and the UUID target allowlist active. The 5%/25% exposure caps and normal risk controls are not removed by graduation. The override does not change optimizer discovery thresholds or promote any unnamed candidate. Fly omits `--binance-live` and sets `TRADER_BOT_TRADE=false`, making it a read-only standby even when CI recreates its app machine. Research profiles request 1,100-day lookbacks on 6h-or-longer intervals and reserve 64 of the bars actually fetched before deriving a safe capped window; exchange pagination and shorter symbol histories therefore cannot land just below the train/tune/backtest split requirement while enough OOS coverage remains for the default 180-day evidence floor. Long-horizon searches run as recurring batches of four broad primary trials and, when needed, six activity-focused recovery trials, so the two passes explore distinct neighborhoods and completed evidence is merged incrementally. The recovery edge band remains cost-safe at `0.0018..0.0024`. The managed Hetzner research profile optimizes Sharpe and forwards that objective to both outer candidate scoring and nested threshold tuning. Exposure metrics use the position held during each return interval, while the position series remains the end-of-bar state; same-bar exits therefore retain their real exposure without appearing open after the bar. Hetzner research caps each optimizer child at an 8 GiB Haskell heap with `TRADER_OPTIMIZER_TRIAL_HEAP_CAP=8g`, preserving headroom for the API and PostgreSQL while recording heap-overflow trials as failures. Hetzner research favors faster TA methods and refreshes only 20 stale incumbents daily after seven days, leaving most CPU for discovery. Optimizer telemetry distinguishes `optimizer.auto.admitted` from `optimizer.auto.no_admission`, includes board counts and newest timestamps, and reports database persistence failures instead of treating every successful merge process as a new combo.
 
 Hetzner releases rebuild `/ops/performance` transactionally after health and commit attestation (`TRADER_OPS_ROLLUP_ON_DEPLOY=true`). Futures entries remain maker-first with the existing 2 bps / 3 second defaults; `TRADER_EXECUTION_MAKER_*` exposes those settings, and persisted `bot.order` results report `executionPath` as `maker-filled`, `maker-partial`, `market-fallback`, or `maker-skipped` for canary review before tuning.
 
 Every live Binance futures entry now passes a final, fail-closed market-risk boundary. The boundary requires a positive directional forecast edge—remeasured from the live order-book midpoint—at or above the configured minimum, walks the book for the actual requested quantity, enforces spread and expected-impact ceilings, charges side-adverse funding against the remaining edge budget, rejects extreme mark/index basis, and blocks high, stale, or unavailable symbol-level ADL evidence. Critical feeds are collected concurrently and checked against Binance-adjusted time with a bounded clock-skew allowance; shadow-only requests cannot delay the admission decision. It never blocks position reductions or protective orders: a reversal first sends and confirms an unconditional reduce-only close, calculates balance-fraction sizing after the account is flat, then subjects only the new opposite-side quantity to entry admission. Existing bot protection orders are removed only after the venue confirms that the closed side is flat; transient position-query failures retain that protection. The order result records the reduce-only effect and both reversal legs separately so bot state remains flat when the entry is rejected and reflects partial entry fills exactly. Current open interest and its interval change, taker buy/sell ratio, historical basis, and book imbalance are persisted as structured `marketRisk` order evidence but remain shadow-only until out-of-sample validation justifies using them as alpha. Missing, invalid, and stale shadow readings are reported without blocking; `TRADER_MARKET_RISK_MAX_SHADOW_AGE_SEC` controls their freshness horizon. The remaining `TRADER_MARKET_RISK_*` settings configure critical freshness and cost ceilings; setting `TRADER_MARKET_RISK_FAIL_CLOSED=false` is an explicit unsafe availability tradeoff. Binance klines also retain quote volume, trade count, and taker-buy base/quote volume instead of discarding those exchange fields.
 
 ```dotenv
-TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=canary
-TRADER_PORTFOLIO_SELECTOR_MAX_BOTS=3
-TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0.25
-TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0.75
+TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow
+TRADER_PORTFOLIO_SELECTOR_MAX_BOTS=5
+TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0.05
+TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0.25
+TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false
 TRADER_PORTFOLIO_SELECTOR_MAX_DRAWDOWN=0.10
-TRADER_PORTFOLIO_SELECTOR_MIN_DAYS=180
+TRADER_PORTFOLIO_SELECTOR_MIN_DAYS=30
 TRADER_PORTFOLIO_SELECTOR_BOOTSTRAP_SAMPLES=1000
 TRADER_PORTFOLIO_SELECTOR_BLOCK_DAYS=7
 TRADER_PORTFOLIO_SELECTOR_ROTATION_IMPROVEMENT=0.02
 TRADER_PORTFOLIO_SELECTOR_ROTATION_PROBABILITY=0.90
+TRADER_PORTFOLIO_AUTO_GRADUATE_ENABLED=true
+TRADER_PORTFOLIO_AUTO_GRADUATE_STARTED_AT_MS=1787322000000
+TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_DAILY_OBSERVATIONS=30
+TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_NET_RETURN=0
+TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_DRAWDOWN=0.10
+TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_ATTEMPTS=10
+TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY=0.95
+TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY=0.99
+TRADER_PORTFOLIO_AUTO_GRADUATE_REVIEW_EVERY_SEC=3600
 ```
 
 ## Neural-governor rollout
@@ -367,7 +445,7 @@ TRADER_BOT_NEURAL_GOVERNOR_ROLLBACK_ADVANTAGE_FLOOR=-0.02
 - Render: [deploy/render/README.md](deploy/render/README.md)
 - Fly: `fly.toml`, `fly.research.toml`, and `haskell/web/fly.frontend.toml`
 
-For Hetzner CI, both trading and research boxes are mandatory. The workflow requires the SSH key, both role hosts, and pinned `known_hosts` entries, and deploys only the latest green commit. Each release explicitly builds and recreates the API, retains the previous image, waits for container health, and verifies the exact `/health` commit. The SSH-streamed health probe detaches stdin so it cannot consume the remaining remote deployment program. CI rejects a deploy that exits without the remote attestation and rolls back on failed health or commit attestation.
+For Hetzner CI, both trading and research boxes are mandatory. The workflow requires the SSH key, both role hosts, and pinned `known_hosts` entries, and deploys only the latest green commit. Each release explicitly builds and recreates the API, retains the previous image, waits for container health, and verifies the exact `/health` commit. It validates the incoming Caddyfile and recreates Caddy after the API is healthy so an `rsync`-replaced bind mount cannot leave stale proxy routes active. The SSH-streamed health probe detaches stdin so it cannot consume the remaining remote deployment program. The transactional performance rollup retries up to three times when it collides with freshly started platform/symbol registration; persistent failure still rolls back the release. CI rejects a deploy that exits without the remote attestation and rolls back on failed health or commit attestation.
 
 ## Automation and maintenance
 

@@ -771,6 +771,7 @@ data BacktestResult = BacktestResult
     { brEquityCurve :: [Double]
     , brTrades :: [Trade]
     , brPositions :: [Double]
+    , brExposureCurve :: [Double]
     , brAgreementOk :: [Bool]
     , brAgreementValid :: [Bool]
     , brPositionChanges :: Int
@@ -1905,7 +1906,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             then (Nothing, 0)
                                                             else (Just side, size0)
 
-                                    stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, costTotals, costAcc, dead, cooldownLeft, lossStreak, riskState0, factorOpenPrev, factorClosePrev) t =
+                                    stepFn (posSide, posSize, equity, eqAcc, posAcc, exposureAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, costTotals, costAcc, dead, cooldownLeft, lossStreak, riskState0, factorOpenPrev, factorClosePrev) t =
                                         if dead
                                             then
                                                 ( Nothing
@@ -1913,6 +1914,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , equity
                                                 , equity : eqAcc
                                                 , 0 : posAcc
+                                                , 0 : exposureAcc
                                                 , False : agreeAcc
                                                 , False : agreeValidAcc
                                                 , changes
@@ -3158,11 +3160,18 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             Just side ->
                                                                 let s = posSizeFinal3
                                                                  in if isBad s then 0 else sideSign side * s
+                                                    exposureForBar =
+                                                        case posAfterSwitch of
+                                                            Nothing -> 0
+                                                            Just side ->
+                                                                let s = posSizeAfterSwitch
+                                                                 in if isBad s then 0 else sideSign side * s
                                                  in ( posFinal3
                                                     , posSizeFinal3
                                                     , equityFinal3
                                                     , equityFinal3 : eqAcc
                                                     , posForBar : posAcc
+                                                    , exposureForBar : exposureAcc
                                                     , agreeOk : agreeAcc
                                                     , agreeValid : agreeValidAcc
                                                     , changesFinal3
@@ -3178,13 +3187,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     , factorCloseNext
                                                     )
 
-                                    (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, finalCostTotals, costRev, _deadFinal, _cooldownFinal, _lossStreakFinal, _riskFinal, _factorOpenFinal, _factorCloseFinal) =
+                                    (_finalPos, finalPosSize, finalEq, eqRev, posRev, exposureRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, finalCostTotals, costRev, _deadFinal, _cooldownFinal, _lossStreakFinal, _riskFinal, _factorOpenFinal, _factorCloseFinal) =
                                         foldl'
                                             stepFn
                                             ( Nothing :: Maybe PositionSide
                                             , 0 :: Double
                                             , 1.0
                                             , [1.0]
+                                            , []
                                             , []
                                             , []
                                             , []
@@ -3246,6 +3256,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                  in BacktestResult
                                         { brEquityCurve = eqCurve
                                         , brPositions = reverse posRev
+                                        , brExposureCurve = reverse exposureRev
                                         , brAgreementOk = reverse agreeRev
                                         , brAgreementValid = reverse agreeValidRev
                                         , brPositionChanges = changes

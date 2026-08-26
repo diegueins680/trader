@@ -61,7 +61,7 @@ This cadence is a human checklist. Nothing in the repository sends messages, sub
 
 - Send at most two individually reviewed messages through official organization routes.
 - Lead with the decision the review supports, its fixed scope, and the evidence boundary.
-- Record the date, route, and exact message locally; leave pipeline status untouched.
+- Record `contacted`, its date, route, and a sent-record reference in the acquisition registry; leave the commercial pipeline untouched.
 
 ### Day 3 — one structured channel action
 
@@ -76,8 +76,9 @@ This cadence is a human checklist. Nothing in the repository sends messages, sub
 
 ### Day 5 — qualify and measure
 
-- Classify each outcome as no response, permission denied, permission granted, discovery requested, or not a fit.
+- Classify each real outcome as responded, qualified, disqualified, or—only after the permitted follow-up window—closed-no-response.
 - Generate a prospect-specific commercial kit only after a real decision owner confirms the review could be useful.
+- After the real proposal event, use `npm run assurance:handoff -- commit` so the proposal link and commercial-pipeline import share the same validated engagement evidence; use `reconcile` to expose any missing handoff.
 - Schedule one follow-up no sooner than five business days after the initial ask, then close the outreach after one unanswered follow-up.
 
 Track source-to-conversation and conversation-to-proposal conversion by route. After 20 permission-based asks, stop any route with zero qualified conversations and concentrate on the route with the strongest paid-review conversion—not the largest audience.
