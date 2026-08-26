@@ -36,13 +36,29 @@ module Trader.BotStartSemantics (
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
+    deployableOverrideEvidenceEligible,
 ) where
 
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
 import Trader.CostCalibration (venueMinEdgeFloor)
-import Trader.Text (dedupeStable)
+import Trader.Text (dedupeStable, normalizeKey)
+
+{- | An explicit UUID override may relax candidate performance gates, but it
+must never rescue a raw, quarantined, or unknown processing tier.  Recompute
+the non-raw evidence boundary at use time so stale annotations cannot bypass
+the live-start guard.
+-}
+deployableOverrideEvidenceEligible :: Bool -> Bool -> Maybe String -> Bool
+deployableOverrideEvidenceEligible liveQuarantined hasNonRawEvidence storedTier =
+    not liveQuarantined
+        && hasNonRawEvidence
+        && case normalizeKey <$> storedTier of
+            Nothing -> True
+            Just "candidate" -> True
+            Just "deployable" -> True
+            _ -> False
 
 {- | Hard cap on the 'maxPositionSize' the bot will accept when adopting an
 existing top-combo for live trading. Legacy combos on the leaderboard can

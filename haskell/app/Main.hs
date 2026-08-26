@@ -250,6 +250,7 @@ import Trader.BotStartSemantics (
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
     defaultBotStartupBacktestMinTrades,
+    deployableOverrideEvidenceEligible,
     filterBotStartAttemptsPreservingOrphans,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -9985,18 +9986,35 @@ topCombosDeployableOverrideTargets limits args disabledSymbols overrideUuids exp
     combosByUuid = M.fromList [(topComboUuid combo, combo) | combo <- tceCombos export]
     resolve comboUuid = do
         combo <- M.lookup comboUuid combosByUuid
-        symRaw <- topComboSymbol combo
-        let sym = normalizeSymbol symRaw
-        if null sym || botStartSymbolDisabled disabledSymbols sym
+        if not (topComboDeployableOverrideEvidenceEligible combo)
             then Nothing
-            else case applyTopComboForStartWithUuid args combo of
-                Left _ -> Nothing
-                Right (applied, _)
-                    | argBinanceMarket applied /= argBinanceMarket args -> Nothing
-                    | otherwise ->
-                        case validateApiComputeLimits limits applied of
-                            Left _ -> Nothing
-                            Right _ -> Just (sym, combo)
+            else do
+                symRaw <- topComboSymbol combo
+                let sym = normalizeSymbol symRaw
+                if null sym || botStartSymbolDisabled disabledSymbols sym
+                    then Nothing
+                    else case applyTopComboForStartWithUuid args combo of
+                        Left _ -> Nothing
+                        Right (applied, _)
+                            | argBinanceMarket applied /= argBinanceMarket args -> Nothing
+                            | otherwise ->
+                                case validateApiComputeLimits limits applied of
+                                    Left _ -> Nothing
+                                    Right _ -> Just (sym, combo)
+
+topComboDeployableOverrideEvidenceEligible :: TopCombo -> Bool
+topComboDeployableOverrideEvidenceEligible combo =
+    deployableOverrideEvidenceEligible
+        (topComboLiveQuarantined combo)
+        hasNonRawEvidence
+        storedTier
+  where
+    hasNonRawEvidence =
+        not (topComboTradeCountBelowFloor combo)
+            && maybe False isFiniteDouble (topComboMetricDouble "annualizedReturn" combo)
+    storedTier = do
+        processing <- tcProcessing combo
+        KM.lookup "tier" processing >>= AT.parseMaybe parseJSON
 
 topCombosTopTargetsWithPolicy :: Bool -> Int64 -> ApiComputeLimits -> Args -> [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
 topCombosTopTargetsWithPolicy allowStaleIncomplete now limits args disabledSymbols topN export =
@@ -21255,7 +21273,8 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                         query
                             conn
                             ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE "
-                                <> "NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                <> "COALESCE((result_json->>'running')::boolean, false) "
+                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
                                 <> "AND result_json->>'error' IS NULL) "
                                 <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
                                 <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? "
@@ -21268,7 +21287,8 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                         query
                             conn
                             ( "SELECT combo_uuid, "
-                                <> "NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                <> "COALESCE((result_json->>'running')::boolean, false) "
+                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
                                 <> "AND result_json->>'error' IS NULL AS healthy "
                                 <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, result_json "
                                 <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
