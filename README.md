@@ -96,7 +96,7 @@ python3 scripts/research/alternative_data.py panel \
   --manifest data/research/BTCUSDT_1h-alternative.json
 ```
 
-`run` combines collection and panel construction. A provider failure is isolated and reported as degraded; successful sources are still cached atomically, while the command returns non-zero unless `--allow-partial` is explicit. Secrets referenced by `queryFromEnv` or `headersFromEnv` are read only from the environment and are never stored or printed.
+`run` combines collection and panel construction. A provider failure is isolated and reported as degraded; successful sources are still cached atomically, while the command returns non-zero unless `--allow-partial` is explicit. Generated family headers—including `microstructure`, `options_vol`, and `onchain`—are accepted directly by the Haskell CSV loader. Secrets referenced by `queryFromEnv` or `headersFromEnv` are read only from the environment and are never stored or printed.
 
 Attach one or more generated panels to Haskell research, backtests, or bot predictors with `--external-data --external-data-csv PATH`, or set:
 
@@ -181,7 +181,7 @@ npm run assurance:acquisition -- advance \
 npm run assurance:acquisition -- summary
 ```
 
-Campaign import validates the source package and its content hashes, is idempotent, and prevents a second campaign for the same organization. Forward transitions require dated evidence; contact and follow-up events require the channel, wait periods are based on the actual contact/follow-up dates, and `proposed` requires a matching generated `engagement.json`. Summaries expose exact acquisition conversions, performance by queue source kind, eligible follow-ups and closures, and next actions. The default registry is `.tmp/strategy-assurance/acquisition.json`; this command records events but sends nothing and does not mutate the commercial pipeline. Run `npm run assurance:acquisition -- --help` for the full lifecycle and path options.
+Campaign import validates the source package and its content hashes, is idempotent, and prevents a second campaign for the same organization. Forward transitions require dated evidence; contact and follow-up events require the channel, wait periods are based on the actual contact/follow-up dates, and `proposed` requires a generated `engagement.json` whose client matches the lead organization and whose provider matches the lead provider. Summaries expose exact acquisition conversions, performance by queue source kind, eligible follow-ups and closures, and next actions. The default registry is `.tmp/strategy-assurance/acquisition.json`; this command records events but sends nothing and does not mutate the commercial pipeline. Run `npm run assurance:acquisition -- --help` for the full lifecycle and path options.
 
 Generate a prospect-specific commercial package without sending data or making any network request:
 
@@ -208,7 +208,7 @@ npm run assurance:handoff -- commit \
 npm run assurance:handoff -- reconcile --as-of 2026-08-21
 ```
 
-The handoff validates the complete acquisition and commercial-pipeline states before writing, imports the engagement first, and then records the proposal link. If the second atomic file write is interrupted, rerunning the identical command completes the link without duplicating either record. Reconciliation reports qualified leads awaiting proposals, missing or inconsistent imports, exact linked review value and net cash, and pipeline engagements that need direct/referral provenance. It performs no proposal generation, sending, signing, payment request, charge, or external action.
+The handoff validates the complete acquisition and commercial-pipeline states before writing, including client-to-lead ownership and provider identity, imports the engagement first, and then records the proposal link. If the second atomic file write is interrupted, rerunning the identical command completes the link without duplicating either record. Reconciliation reports qualified leads awaiting proposals, missing or inconsistent imports, exact linked review value and net cash, and pipeline engagements that need direct/referral provenance. It performs no proposal generation, sending, signing, payment request, charge, or external action.
 
 Import that engagement record into the local commercial pipeline, then advance it only when the real-world event has occurred:
 
@@ -393,6 +393,8 @@ The checked-in Hetzner trading profile is the sole live executor. Its current bo
 
 Valid `TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS` values are canonicalized before lookup and deduplication, so equivalent uppercase and lowercase UUID spellings select the same reviewed candidate.
 
+Automatic graduation also requires one current healthy status for every reviewed worker. `TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_LATEST_STATUS_AGE_SEC` defaults to 900 seconds; a missing, future-dated, or older latest status leaves shadow targeting and the UUID safeguards active.
+
 Hetzner releases rebuild `/ops/performance` transactionally after health and commit attestation (`TRADER_OPS_ROLLUP_ON_DEPLOY=true`). Futures entries remain maker-first with the existing 2 bps / 3 second defaults; `TRADER_EXECUTION_MAKER_*` exposes those settings, and persisted `bot.order` results report `executionPath` as `maker-filled`, `maker-partial`, `market-fallback`, or `maker-skipped` for canary review before tuning.
 
 Every live Binance futures entry now passes a final, fail-closed market-risk boundary. The boundary requires a positive directional forecast edge—remeasured from the live order-book midpoint—at or above the configured minimum, walks the book for the actual requested quantity, enforces spread and expected-impact ceilings, charges side-adverse funding against the remaining edge budget, rejects extreme mark/index basis, and blocks high, stale, or unavailable symbol-level ADL evidence. Critical feeds are collected concurrently and checked against Binance-adjusted time with a bounded clock-skew allowance; shadow-only requests cannot delay the admission decision. It never blocks position reductions or protective orders: a reversal first sends and confirms an unconditional reduce-only close, calculates balance-fraction sizing after the account is flat, then subjects only the new opposite-side quantity to entry admission. Existing bot protection orders are removed only after the venue confirms that the closed side is flat; transient position-query failures retain that protection. The order result records the reduce-only effect and both reversal legs separately so bot state remains flat when the entry is rejected and reflects partial entry fills exactly. Current open interest and its interval change, taker buy/sell ratio, historical basis, and book imbalance are persisted as structured `marketRisk` order evidence but remain shadow-only until out-of-sample validation justifies using them as alpha. Missing, invalid, and stale shadow readings are reported without blocking; `TRADER_MARKET_RISK_MAX_SHADOW_AGE_SEC` controls their freshness horizon. The remaining `TRADER_MARKET_RISK_*` settings configure critical freshness and cost ceilings; setting `TRADER_MARKET_RISK_FAIL_CLOSED=false` is an explicit unsafe availability tradeoff. Binance klines also retain quote volume, trade count, and taker-buy base/quote volume instead of discarding those exchange fields.
@@ -417,6 +419,7 @@ TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_DRAWDOWN=0.10
 TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_ATTEMPTS=10
 TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY=0.95
 TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY=0.99
+TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_LATEST_STATUS_AGE_SEC=900
 TRADER_PORTFOLIO_AUTO_GRADUATE_REVIEW_EVERY_SEC=3600
 ```
 

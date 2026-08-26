@@ -7,6 +7,7 @@ module Trader.ExternalData (
     ExternalFeature (..),
     ExternalJsonSpec (..),
     alignedExternalFeatureInputs,
+    externalCsvFeatureForColumn,
     externalSymbolMatches,
     externalDataConfigFromEnv,
     fetchExternalFeatureInputs,
@@ -672,7 +673,8 @@ featureColumns =
     [
         ( ExternalMicrostructure
         ,
-            [ "bookImbalance"
+            [ "microstructure"
+            , "bookImbalance"
             , "orderBookImbalance"
             , "l2Imbalance"
             , "depthImbalance"
@@ -686,7 +688,8 @@ featureColumns =
     ,
         ( ExternalOptionsVol
         ,
-            [ "dvol"
+            [ "options_vol"
+            , "dvol"
             , "volatilityIndex"
             , "iv"
             , "atmIv"
@@ -700,7 +703,8 @@ featureColumns =
     ,
         ( ExternalOnChain
         ,
-            [ "exchangeNetFlow"
+            [ "onchain"
+            , "exchangeNetFlow"
             , "netflow"
             , "exchangeBalance"
             , "sopr"
@@ -883,6 +887,15 @@ featureColumns =
             ]
         )
     ]
+
+externalCsvFeatureForColumn :: String -> Maybe ExternalFeature
+externalCsvFeatureForColumn raw =
+    listToMaybe
+        [ feature
+        | (feature, columns) <- featureColumns
+        , column <- columns
+        , normalizeKey column == normalizeKey raw
+        ]
 
 timeColumns :: [String]
 timeColumns =

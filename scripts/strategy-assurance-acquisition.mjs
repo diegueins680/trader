@@ -563,6 +563,9 @@ export function validateAcquisitionRegistry(value) {
         if (earliestClose == null || at < earliestClose) throw new Error(`${id} no-response closure is premature`);
       }
       if (status === "proposed") {
+        if (evidence.engagementClient.toLocaleLowerCase("en-US") !== organizationKey) {
+          throw new Error(`${id} proposal client does not match lead organization`);
+        }
         if (evidence.engagementProvider !== record.provider) throw new Error(`${id} proposal provider does not match lead provider`);
         if (at < evidence.engagementProposalDate) throw new Error(`${id} proposal event precedes engagement proposalDate`);
         if (engagementIds.has(evidence.engagementId)) throw new Error(`duplicate proposed engagementId: ${evidence.engagementId}`);
@@ -670,6 +673,9 @@ export function advanceLead(registryValue, idValue, statusValue, atValue, detail
     if (at < earliestClose) throw new Error(`closed-no-response cannot be recorded before ${earliestClose}`);
   }
   if (status === "proposed") {
+    if (evidence.engagementClient.toLocaleLowerCase("en-US") !== current.organization.toLocaleLowerCase("en-US")) {
+      throw new Error("engagement client does not match lead organization");
+    }
     if (evidence.engagementProvider !== current.provider) throw new Error("engagement provider does not match lead provider");
     if (at < evidence.engagementProposalDate) throw new Error("proposal event precedes engagement proposalDate");
     const duplicate = registry.leads.some((lead) =>

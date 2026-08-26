@@ -21,6 +21,7 @@ module Trader.PortfolioSelection (
     portfolioGraduationDecisionCode,
     portfolioGraduationExecutionReliability,
     portfolioGraduationFleetEquities,
+    portfolioGraduationLatestStatusesHealthy,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
@@ -275,6 +276,7 @@ data PortfolioGraduationConfig = PortfolioGraduationConfig
     , pgcMinimumExecutionAttempts :: !Int
     , pgcMinimumExecutionReliability :: !Double
     , pgcMinimumStatusReliability :: !Double
+    , pgcMaximumLatestStatusAgeMs :: !Int64
     }
     deriving (Eq, Show, Generic)
 
@@ -378,13 +380,14 @@ defaultPortfolioGraduationConfig =
         , pgcMinimumExecutionAttempts = 10
         , pgcMinimumExecutionReliability = 0.95
         , pgcMinimumStatusReliability = 0.99
+        , pgcMaximumLatestStatusAgeMs = 15 * 60 * 1000
         }
 
 portfolioGraduationConfigVersion :: PortfolioGraduationConfig -> Text
 portfolioGraduationConfigVersion config =
     T.intercalate
         ":"
-        [ "portfolio-graduation-v1"
+        [ "portfolio-graduation-v2"
         , T.pack (show (pgcEnabled config))
         , T.pack (show (pgcStartedAtMs config))
         , T.pack (show (pgcMinimumDailyObservations config))
@@ -393,7 +396,22 @@ portfolioGraduationConfigVersion config =
         , T.pack (show (pgcMinimumExecutionAttempts config))
         , T.pack (show (pgcMinimumExecutionReliability config))
         , T.pack (show (pgcMinimumStatusReliability config))
+        , T.pack (show (pgcMaximumLatestStatusAgeMs config))
         ]
+
+portfolioGraduationLatestStatusesHealthy :: Int64 -> Int64 -> [Text] -> [(Text, Int64, Bool)] -> Bool
+portfolioGraduationLatestStatusesHealthy now maximumAgeMs reviewedUuidsRaw rows =
+    not (null reviewedUuids)
+        && maximumAgeMs > 0
+        && length rows == length reviewedUuids
+        && sort (map (normalizeUuid . firstOfThree) rows) == reviewedUuids
+        && all freshAndHealthy rows
+  where
+    reviewedUuids = nub (sort (map normalizeUuid reviewedUuidsRaw))
+    cutoff = now - maximumAgeMs
+    normalizeUuid = T.toLower . T.strip
+    firstOfThree (uuid, _, _) = uuid
+    freshAndHealthy (_, atMs, healthy) = healthy && atMs >= cutoff && atMs <= now
 
 portfolioGraduationExecutionReliability :: PortfolioGraduationEvidence -> Double
 portfolioGraduationExecutionReliability evidence =

@@ -143,8 +143,12 @@ test("proposal handoff validates both states and is identical-rerun idempotent",
     async () => prepareProposalHandoff(registry, emptyPipeline(), id, wrongProvider, "2026-08-21", "proposal P-2"),
     /provider does not match/,
   );
+  await assert.rejects(
+    async () => prepareProposalHandoff(registry, emptyPipeline(), id, engagement("Different Client"), "2026-08-21", "proposal P-3"),
+    /client does not match/,
+  );
   assert.throws(
-    () => prepareProposalHandoff(emptyAcquisitionRegistry(), emptyPipeline(), id, source, "2026-08-21", "proposal P-3"),
+    () => prepareProposalHandoff(emptyAcquisitionRegistry(), emptyPipeline(), id, source, "2026-08-21", "proposal P-4"),
     /unknown lead id/,
   );
 });

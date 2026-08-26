@@ -194,7 +194,7 @@ test("acquisition lifecycle enforces real evidence, wait periods, and proposal l
   });
   registry = advance(registry, jesseId, "responded", "2026-08-21", { evidence: "moderator reply 12" });
   registry = advance(registry, jesseId, "qualified", "2026-08-21", { evidence: "discovery note Q-12" });
-  const wrongProviderProposal = proposal("Referred Operator", "2026-08-22");
+  const wrongProviderProposal = proposal("Jesse", "2026-08-22");
   wrongProviderProposal.provider = "Different Provider";
   assert.throws(
     () =>
@@ -204,7 +204,16 @@ test("acquisition lifecycle enforces real evidence, wait periods, and proposal l
       }),
     /provider does not match/,
   );
-  const validProposal = proposal();
+  const wrongClientProposal = proposal("Different Client", "2026-08-22");
+  assert.throws(
+    () =>
+      advanceLead(registry, jesseId, "proposed", "2026-08-22", {
+        evidence: "proposal package",
+        engagement: wrongClientProposal,
+      }),
+    /client does not match/,
+  );
+  const validProposal = proposal("Jesse");
   registry = advance(registry, jesseId, "proposed", "2026-08-22", {
     evidence: "engagement package generated and reviewed",
     engagement: validProposal,

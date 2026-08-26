@@ -61,7 +61,7 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
-import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalSymbolMatches, parseExternalJsonSpec)
+import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCsvFeatureForColumn, externalSymbolMatches, parseExternalJsonSpec)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -222,6 +222,7 @@ import Trader.PortfolioSelection (
     portfolioAnnualizedReturn,
     portfolioFailureCacheLookup,
     portfolioGraduationFleetEquities,
+    portfolioGraduationLatestStatusesHealthy,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
@@ -938,6 +939,12 @@ testExternalDataFeatureInputs = do
                 , "security"
                 ]
             ]
+        )
+    assert
+        "generated panel family headers are recognized by the Haskell CSV loader"
+        ( externalCsvFeatureForColumn "microstructure" == Just ExternalMicrostructure
+            && externalCsvFeatureForColumn "options_vol" == Just ExternalOptionsVol
+            && externalCsvFeatureForColumn "onchain" == Just ExternalOnChain
         )
     assert
         "symbol-scoped external rows match full/base symbols without leaking to peers"
@@ -5778,6 +5785,7 @@ portfolioGraduationConfigForTest =
         , pgcMinimumExecutionAttempts = 10
         , pgcMinimumExecutionReliability = 0.95
         , pgcMinimumStatusReliability = 0.99
+        , pgcMaximumLatestStatusAgeMs = 900000
         }
 
 passingPortfolioGraduationEvidence :: PortfolioGraduationEvidence
@@ -5808,6 +5816,30 @@ testPortfolioGraduationRequiresEveryReviewGate = do
     assert "portfolio graduation fails closed when any latest worker status is unhealthy" (pgrDecision unhealthy == PortfolioGraduationPending)
     assert "a graduated review applies only to its exact normalized UUID set" (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a", "uuid-b"] passed)
     assert "a graduated review cannot authorize a different UUID set" (not (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a"] passed))
+    assert
+        "graduation requires one fresh healthy latest status per reviewed worker"
+        ( portfolioGraduationLatestStatusesHealthy
+            2000000
+            900000
+            ["uuid-a", "uuid-b"]
+            [("uuid-b", 1999000, True), ("uuid-a", 1100000, True)]
+        )
+    assert
+        "a stale latest worker status fails graduation closed"
+        ( not
+            ( portfolioGraduationLatestStatusesHealthy
+                2000000
+                900000
+                ["uuid-a", "uuid-b"]
+                [("uuid-a", 1099999, True), ("uuid-b", 1999000, True)]
+            )
+        )
+    assert
+        "missing, unhealthy, or future latest worker status fails graduation closed"
+        ( not (portfolioGraduationLatestStatusesHealthy 2000000 900000 ["uuid-a", "uuid-b"] [("uuid-a", 1999000, True)])
+            && not (portfolioGraduationLatestStatusesHealthy 2000000 900000 ["uuid-a", "uuid-b"] [("uuid-a", 1999000, True), ("uuid-b", 1999000, False)])
+            && not (portfolioGraduationLatestStatusesHealthy 2000000 900000 ["uuid-a", "uuid-b"] [("uuid-a", 1999000, True), ("uuid-b", 2000001, True)])
+        )
 
 testPortfolioGraduationPerformanceAndPersistence :: IO ()
 testPortfolioGraduationPerformanceAndPersistence = do

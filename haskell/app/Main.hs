@@ -482,6 +482,7 @@ import Trader.PortfolioSelection (
     portfolioFailureCacheLookup,
     portfolioGraduationConfigVersion,
     portfolioGraduationFleetEquities,
+    portfolioGraduationLatestStatusesHealthy,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
@@ -9202,6 +9203,7 @@ portfolioGraduationConfigFromEnv = do
     minimumExecutionAttempts <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_ATTEMPTS" 1 100000 (pgcMinimumExecutionAttempts defaults)
     minimumExecutionReliability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY" 0.5 1 (pgcMinimumExecutionReliability defaults)
     minimumStatusReliability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY" 0.5 1 (pgcMinimumStatusReliability defaults)
+    maximumLatestStatusAgeSec <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_LATEST_STATUS_AGE_SEC" 60 86400 (fromIntegral (pgcMaximumLatestStatusAgeMs defaults `div` 1000))
     let startedAtMs =
             case startedRaw >>= readMaybe of
                 Just value | value > 0 -> value
@@ -9216,6 +9218,7 @@ portfolioGraduationConfigFromEnv = do
             , pgcMinimumExecutionAttempts = minimumExecutionAttempts
             , pgcMinimumExecutionReliability = minimumExecutionReliability
             , pgcMinimumStatusReliability = minimumStatusReliability
+            , pgcMaximumLatestStatusAgeMs = fromIntegral maximumLatestStatusAgeSec * 1000
             }
   where
     defaults = defaultPortfolioGraduationConfig
@@ -21285,19 +21288,19 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                     latestRows <-
                         query
                             conn
-                            ( "SELECT combo_uuid, "
+                            ( "SELECT combo_uuid, at_ms, "
                                 <> "COALESCE((result_json->>'running')::boolean, false) "
                                 <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
                                 <> "AND result_json->>'error' IS NULL AS healthy "
-                                <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, result_json "
+                                <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, at_ms, result_json "
                                 <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
                                 <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
                                 <> "AND COALESCE((result_json->>'live')::boolean, false) "
                                 <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
                                 <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
                             )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, now) ::
-                            IO [(UUID.UUID, Bool)]
+                            (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
+                            IO [(UUID.UUID, Int64, Bool)]
                     pure $ do
                         fleetEquities <-
                             portfolioGraduationFleetEquities
@@ -21308,8 +21311,11 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                         let (executionAttempts, executionSuccesses) = intPair orderRows
                             (statusSamples, healthyStatusSamples) = intPair statusRows
                             latestStatusesHealthy =
-                                length latestRows == length reviewedUuidValues
-                                    && all snd latestRows
+                                portfolioGraduationLatestStatusesHealthy
+                                    now
+                                    (pgcMaximumLatestStatusAgeMs config)
+                                    reviewedUuids
+                                    [(UUID.toText uuid, atMs, healthy) | (uuid, atMs, healthy) <- latestRows]
                         Right
                             PortfolioGraduationEvidence
                                 { pgeDailyObservationCount = dailyObservationCount
@@ -21326,6 +21332,7 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
     reviewedUuids = dedupeStable (map (T.toLower . T.strip) reviewedUuidsRaw)
     firstFullDayMs = ((pgcStartedAtMs config + dayMs - 1) `div` dayMs) * dayMs
     reviewEndMs = (now `div` dayMs) * dayMs
+    latestStatusCutoffMs = max firstFullDayMs (now - pgcMaximumLatestStatusAgeMs config)
     intPair rows =
         case rows of
             ((left, right) : _) -> (fromIntegral left, fromIntegral right)
@@ -24666,6 +24673,7 @@ portfolioSelectorStatusJson _mOps args topCombosStore = do
                             , "minimumExecutionAttempts" .= pgcMinimumExecutionAttempts graduationConfig
                             , "minimumExecutionReliability" .= pgcMinimumExecutionReliability graduationConfig
                             , "minimumStatusReliability" .= pgcMinimumStatusReliability graduationConfig
+                            , "maximumLatestStatusAgeMs" .= pgcMaximumLatestStatusAgeMs graduationConfig
                             ]
                     ]
             , "configuration"
