@@ -24426,6 +24426,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                     Left e -> respond (jsonError status400 e)
                                     Right tenantKey -> do
                                         tradeEnabledRaw <- lookupEnv "TRADER_BOT_TRADE"
+                                        protectionOrdersRaw <- lookupEnv "TRADER_BOT_PROTECTION_ORDERS"
                                         configuredPortfolioRolloutMode <- portfolioSelectorRolloutModeFromEnv
                                         portfolioSelectorConfig <- portfolioSelectorConfigFromEnv
                                         portfolioGraduationConfig <- portfolioGraduationConfigFromEnv
@@ -24441,7 +24442,13 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                     normalizeBarsForLookback argsRequested{argTradeOnly = True}
                                             tradeAllowedByEnv = maybe True (\_ -> readEnvBool tradeEnabledRaw False) tradeEnabledRaw
                                             tradeEnabled = tradeAllowedByEnv && botTradeEnabledFromApi (apBotTrade params)
-                                            paramsEffective = params{apBotTrade = Just tradeEnabled}
+                                            protectionOrdersRequiredByEnv = readEnvBool protectionOrdersRaw False
+                                            protectionOrders = protectionOrdersRequiredByEnv || fromMaybe False (apBotProtectionOrders params)
+                                            paramsEffective =
+                                                params
+                                                    { apBotTrade = Just tradeEnabled
+                                                    , apBotProtectionOrders = Just protectionOrders
+                                                    }
                                         symbolsOrErr <- resolveBotSymbols argsBase params
                                         let requestedSymbols =
                                                 case symbolsOrErr of

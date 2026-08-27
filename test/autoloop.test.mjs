@@ -1755,7 +1755,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
 
   const compose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
   assert.match(compose, /TRADER_BOT_PROTECTION_ORDERS: \$\{TRADER_BOT_PROTECTION_ORDERS:-false\}/);
-  assert.match(compose, /TRADER_BOT_DISABLED_SYMBOLS: \$\{TRADER_BOT_DISABLED_SYMBOLS:-\}/);
+  assert.match(compose, /TRADER_BOT_DISABLED_SYMBOLS: \$\{TRADER_BOT_DISABLED_SYMBOLS:-MATICUSDT\}/);
   assert.match(compose, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP: \$\{TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP:-0\.05\}/);
   assert.match(compose, /TRADER_BOT_START_ADOPTION_RELAX_GATES: \$\{TRADER_BOT_START_ADOPTION_RELAX_GATES:-\}/);
   assert.match(
@@ -1824,6 +1824,8 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(compose, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS: \$\{TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS:-false\}/);
   assert.match(main, /lookupEnv "TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS"/);
   assert.match(main, /lookupEnv "TRADER_BOT_PROTECTION_ORDERS"/);
+  assert.match(main, /protectionOrdersRequiredByEnv = readEnvBool protectionOrdersRaw False/);
+  assert.match(main, /apBotProtectionOrders = Just protectionOrders/);
   assert.match(main, /baseOut = \(baseResult sideLabel qty\)\{aorReduceOnly = True\}/);
   assert.match(main, /resolvePortfolioGraduationMode/);
   assert.match(main, /"portfolio\.graduated"/);
