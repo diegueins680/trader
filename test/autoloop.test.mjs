@@ -1542,6 +1542,14 @@ test("Hetzner deploy retries SSH failures and deploys only green commits", async
   assert.match(deployScript, /--force-recreate api/);
   assert.match(deployScript, /--force-recreate caddy/);
   assert.match(deployScript, /exec -T caddy caddy validate --config \/etc\/caddy\/Caddyfile --adapter caddyfile/);
+  assert.match(deployScript, /docker cp "\$\{previous_caddy_container\}:\/etc\/caddy\/Caddyfile" "\$caddy_rollback_file"/);
+  assert.match(deployScript, /cp -- "\$caddy_rollback_file" "\$previous_caddy_config_path"/);
+  assert.match(deployScript, /Caddy rollback healthy/);
+  assert.ok(
+    deployScript.indexOf('docker cp "${previous_caddy_container}:/etc/caddy/Caddyfile"') <
+      deployScript.indexOf("caddy_replaced=true"),
+    "the running proxy config must be preserved before Caddy is replaced",
+  );
   assert.match(deployScript, /Rolling API back to/);
   assert.match(deployScript, /TRADER_API_IMAGE="\$ROLLBACK_IMAGE"/);
   assert.match(dockerfile, /postgresql-client/);

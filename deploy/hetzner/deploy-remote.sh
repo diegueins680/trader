@@ -283,8 +283,12 @@ wait_for_api_health() {
 }
 
 previous_container="$("${compose[@]}" ps -q api 2>/dev/null || true)"
+previous_caddy_container="$("${compose[@]}" ps -q caddy 2>/dev/null || true)"
 previous_image_id=""
 previous_commit=""
+previous_caddy_config_path=""
+caddy_rollback_file=""
+caddy_replaced=false
 if [[ -n "$previous_container" ]]; then
   previous_image_id="$(docker inspect --format '{{.Image}}' "$previous_container" 2>/dev/null || true)"
   previous_commit="$(api_health_json 2>/dev/null | health_commit || true)"
@@ -293,9 +297,21 @@ if [[ -n "$previous_image_id" ]]; then
   docker image tag "$previous_image_id" "$ROLLBACK_IMAGE"
   echo "==> Retained previous API image as ${ROLLBACK_IMAGE}${previous_commit:+ (${previous_commit})}"
 fi
+if [[ -n "$previous_caddy_container" ]]; then
+  previous_caddy_config_path="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}' "$previous_caddy_container" 2>/dev/null || true)"
+  caddy_rollback_file="$(mktemp)"
+  docker cp "${previous_caddy_container}:/etc/caddy/Caddyfile" "$caddy_rollback_file"
+  if [[ -z "$previous_caddy_config_path" || ! -s "$caddy_rollback_file" ]]; then
+    echo "ERROR: unable to preserve the currently running Caddy configuration." >&2
+    rm -f "$caddy_rollback_file"
+    caddy_rollback_file=""
+    exit 1
+  fi
+  echo "==> Retained previous Caddy configuration for rollback"
+fi
 
 rollback_deployment() {
-  local failed_status="$1" rollback_health rollback_commit
+  local failed_status="$1" rollback_health rollback_commit caddy_restore_ok
   trap - ERR
   set +e
   echo "ERROR: deployment of ${TRADER_GIT_COMMIT} failed." >&2
@@ -307,7 +323,26 @@ rollback_deployment() {
   fi
 
   echo "==> Rolling API back to ${ROLLBACK_IMAGE}${previous_commit:+ (${previous_commit})}"
+  caddy_restore_ok=true
+  if [[ "$caddy_replaced" == true ]]; then
+    echo "==> Restoring previous Caddy configuration"
+    if [[ -z "$caddy_rollback_file" || -z "$previous_caddy_config_path" ]] || ! cp -- "$caddy_rollback_file" "$previous_caddy_config_path"; then
+      echo "ERROR: previous Caddy configuration could not be restored." >&2
+      caddy_restore_ok=false
+    fi
+  fi
   TRADER_API_IMAGE="$ROLLBACK_IMAGE" "${compose[@]}" up -d --no-build --remove-orphans
+  if [[ "$caddy_replaced" == true && "$caddy_restore_ok" == true ]]; then
+    if ! "${compose[@]}" up -d --no-deps --force-recreate caddy; then
+      echo "ERROR: Caddy could not be recreated with the restored configuration." >&2
+      caddy_restore_ok=false
+    elif ! "${compose[@]}" exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null; then
+      echo "ERROR: restored Caddy configuration failed validation." >&2
+      caddy_restore_ok=false
+    else
+      echo "==> Caddy rollback healthy"
+    fi
+  fi
   if wait_for_api_health; then
     rollback_health="$(api_health_json 2>/dev/null)"
     rollback_commit="$(printf '%s' "$rollback_health" | health_commit)"
@@ -319,6 +354,7 @@ rollback_deployment() {
   else
     echo "ERROR: rollback image did not become healthy." >&2
   fi
+  rm -f "${caddy_rollback_file:-}"
   exit "$failed_status"
 }
 
@@ -337,6 +373,11 @@ wait_for_api_health
 # reading the old inode behind a bind-mounted Caddyfile even though the host
 # path contains the new routes. Recreate Caddy only after the API is healthy so
 # every release loads the validated proxy config without extending API downtime.
+if [[ -n "$previous_image_id" && -z "$caddy_rollback_file" ]]; then
+  echo "ERROR: refusing to replace Caddy without a rollback configuration." >&2
+  false
+fi
+caddy_replaced=true
 "${compose[@]}" up -d --no-deps --force-recreate caddy
 "${compose[@]}" exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null
 
@@ -371,6 +412,7 @@ until "${compose[@]}" exec -T api /bin/sh -ec '
 done
 
 trap - ERR
+rm -f "${caddy_rollback_file:-}"
 docker image prune -f >/dev/null 2>&1 || true
 echo "==> Deploy healthy and commit-attested ($TRADER_GIT_COMMIT)"
 REMOTE

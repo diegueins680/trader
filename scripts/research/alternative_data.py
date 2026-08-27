@@ -934,7 +934,7 @@ def _metric_values_for_bars(
         elif aggregation == "sum":
             raw.append(sum(values))
         else:
-            raw.append(statistics.fmean(values) if values else 0.0)
+            raw.append(statistics.fmean(values) if values else None)
         present.append(bool(values))
     transformed = _transform_values(
         raw, rows[0].transform, rows[0].polarity, rows[0].minHistory

@@ -1,4 +1,7 @@
 ## Unreleased
+- Deploy/Hetzner Rollback: preserve the running Caddy configuration before proxy replacement and restore and recreate both the prior API and proxy when a later release step fails.
+- Research/Alternative Data Mean Gaps: keep empty `mean` buckets missing through normalization so absent observations cannot become false zero-valued signals.
+- Trading/Bounded Relaxation Tier Safety: reject unknown processing tiers, including database fallback rows without processing metadata, from deployable overrides.
 - Deploy/Hetzner: validate each incoming Caddyfile and force-recreate the proxy after the replacement API becomes healthy, preventing `rsync` inode replacement from leaving a long-lived Caddy container on stale `/api/*` routes.
 - Web/Binance: connect a newly created user-data SSE stream with the authoritative tenant key returned by the backend, eliminating the auto-start race that could display a valid listen key alongside a disconnected “Tenant key required” error while browser credential hashing was still pending.
 - Deploy/Hetzner: acquire the platform-symbol table lock before rebuilding performance analytics so API startup and post-deploy rollups wait in a consistent order instead of deadlocking and rolling back a healthy release.

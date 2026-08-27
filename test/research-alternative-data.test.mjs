@@ -248,6 +248,36 @@ with tempfile.TemporaryDirectory() as directory:
     assert values[2] > 3
     assert values[3] == values[2]
     assert all(present)
+
+    # Empty mean buckets remain missing through transformation: they neither
+    # manufacture a signal nor reset the previous observed value.
+    mean_rows = [
+        alt.Observation(
+            timestamp=timestamp,
+            eventTime=timestamp,
+            source="mean",
+            family="news",
+            metric="sentiment",
+            entity="BTC",
+            value=value,
+            unit="",
+            revision="",
+            ingestedAt=1,
+            aggregation="mean",
+            transform="delta",
+            polarity=1,
+            maxAgeMs=None,
+            minHistory=1,
+        )
+        for timestamp, value in [(1000, 1.0), (121000, 3.0)]
+    ]
+    mean_values, mean_present = alt._metric_values_for_bars(
+        mean_rows,
+        [59999, 119999, 179999],
+        [0, 60000, 120000],
+    )
+    assert mean_values == [0, None, 2], mean_values
+    assert mean_present == [True, False, True]
 `;
 
   const result = spawnSync("python3", ["-c", program, RESEARCH_DIR], {

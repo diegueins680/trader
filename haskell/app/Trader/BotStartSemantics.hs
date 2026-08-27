@@ -55,7 +55,7 @@ deployableOverrideEvidenceEligible liveQuarantined hasNonRawEvidence storedTier 
     not liveQuarantined
         && hasNonRawEvidence
         && case normalizeKey <$> storedTier of
-            Nothing -> True
+            Nothing -> False
             Just "candidate" -> True
             Just "deployable" -> True
             _ -> False

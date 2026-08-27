@@ -5644,7 +5644,7 @@ testExplicitDeployableOverrideIsBoundedAndAuditable = do
         "the runtime override boundary rejects raw, quarantined, and unknown processing state"
         ( deployableOverrideEvidenceEligible False True (Just "candidate")
             && deployableOverrideEvidenceEligible False True (Just "deployable")
-            && deployableOverrideEvidenceEligible False True Nothing
+            && not (deployableOverrideEvidenceEligible False True Nothing)
             && not (deployableOverrideEvidenceEligible False False (Just "candidate"))
             && not (deployableOverrideEvidenceEligible True True (Just "deployable"))
             && not (deployableOverrideEvidenceEligible False True (Just "raw"))
