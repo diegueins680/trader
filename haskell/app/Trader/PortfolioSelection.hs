@@ -25,6 +25,7 @@ module Trader.PortfolioSelection (
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationStatusCoverage,
     portfolioGraduationStatusReliability,
     portfolioSelectorConfigVersion,
     parsePortfolioRolloutMode,
@@ -276,6 +277,8 @@ data PortfolioGraduationConfig = PortfolioGraduationConfig
     , pgcMinimumExecutionAttempts :: !Int
     , pgcMinimumExecutionReliability :: !Double
     , pgcMinimumStatusReliability :: !Double
+    , pgcMaximumBaselineAgeMs :: !Int64
+    , pgcStatusIntervalMs :: !Int64
     , pgcMaximumLatestStatusAgeMs :: !Int64
     }
     deriving (Eq, Show, Generic)
@@ -380,6 +383,8 @@ defaultPortfolioGraduationConfig =
         , pgcMinimumExecutionAttempts = 10
         , pgcMinimumExecutionReliability = 0.95
         , pgcMinimumStatusReliability = 0.99
+        , pgcMaximumBaselineAgeMs = 15 * 60 * 1000
+        , pgcStatusIntervalMs = 15 * 60 * 1000
         , pgcMaximumLatestStatusAgeMs = 15 * 60 * 1000
         }
 
@@ -387,7 +392,7 @@ portfolioGraduationConfigVersion :: PortfolioGraduationConfig -> Text
 portfolioGraduationConfigVersion config =
     T.intercalate
         ":"
-        [ "portfolio-graduation-v2"
+        [ "portfolio-graduation-v3"
         , T.pack (show (pgcEnabled config))
         , T.pack (show (pgcStartedAtMs config))
         , T.pack (show (pgcMinimumDailyObservations config))
@@ -396,6 +401,8 @@ portfolioGraduationConfigVersion config =
         , T.pack (show (pgcMinimumExecutionAttempts config))
         , T.pack (show (pgcMinimumExecutionReliability config))
         , T.pack (show (pgcMinimumStatusReliability config))
+        , T.pack (show (pgcMaximumBaselineAgeMs config))
+        , T.pack (show (pgcStatusIntervalMs config))
         , T.pack (show (pgcMaximumLatestStatusAgeMs config))
         ]
 
@@ -421,6 +428,22 @@ portfolioGraduationStatusReliability :: PortfolioGraduationEvidence -> Double
 portfolioGraduationStatusReliability evidence =
     ratio (pgeHealthyStatusSamples evidence) (pgeStatusSamples evidence)
 
+{- | Charge every expected per-worker heartbeat interval to the reliability
+denominator. Missing intervals are therefore unhealthy rather than absent.
+-}
+portfolioGraduationStatusCoverage :: Int64 -> Int64 -> Int64 -> Int -> (Int, Int) -> (Int, Int)
+portfolioGraduationStatusCoverage windowStartMs windowEndMs intervalMs workerCount (observedIntervals, healthyIntervals)
+    | windowStartMs < 0 || windowEndMs <= windowStartMs || intervalMs <= 0 || workerCount <= 0 = (0, 0)
+    | expectedInteger > toInteger (maxBound :: Int) = (maxBound, 0)
+    | observedIntervals < 0 || healthyIntervals < 0 || healthyIntervals > observedIntervals || observedIntervals > expected = (expected, 0)
+    | otherwise = (expected, healthyIntervals)
+  where
+    duration = toInteger windowEndMs - toInteger windowStartMs
+    interval = toInteger intervalMs
+    intervalsPerWorker = (duration + interval - 1) `div` interval
+    expectedInteger = toInteger workerCount * intervalsPerWorker
+    expected = fromInteger expectedInteger
+
 ratio :: Int -> Int -> Double
 ratio numerator denominator
     | denominator <= 0 = 0
@@ -430,8 +453,10 @@ ratio numerator denominator
 construct complete daily fleet observations from those relative equity paths.
 Pre-window gains and losses must not contribute to the graduation review.
 -}
-portfolioGraduationFleetEquities :: [Text] -> [(Text, Double)] -> [(Int64, Text, Double)] -> Either String [Double]
-portfolioGraduationFleetEquities reviewedUuidsRaw baselineRows dailyRows = do
+portfolioGraduationFleetEquities :: Int64 -> Int64 -> [Text] -> [(Text, Int64, Double)] -> [(Int64, Text, Double)] -> Either String [Double]
+portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs reviewedUuidsRaw baselineRows dailyRows = do
+    when (boundaryMs <= 0) (Left "graduation baseline boundary is invalid")
+    when (maximumBaselineAgeMs <= 0) (Left "graduation maximum baseline age is invalid")
     when (null reviewedUuids) (Left "graduation reviewed UUID set is empty")
     baselines <- foldM insertBaseline M.empty baselineRows
     unless (M.keys baselines == reviewedUuids) (Left "graduation baseline is missing for a reviewed UUID")
@@ -441,17 +466,20 @@ portfolioGraduationFleetEquities reviewedUuidsRaw baselineRows dailyRows = do
     normalizeUuid = T.toLower . T.strip
     reviewedUuids = nub (sort (map normalizeUuid reviewedUuidsRaw))
     isReviewed uuid = uuid `elem` reviewedUuids
-    insertBaseline acc (rawUuid, equity) =
+    insertBaseline acc (rawUuid, atMs, equity) =
         let uuid = normalizeUuid rawUuid
          in if not (isReviewed uuid)
                 then Left "graduation baseline contains an unknown UUID"
                 else
-                    if not (isFinite equity) || equity <= 0
-                        then Left "graduation baseline equity must be finite and positive"
+                    if atMs < 0 || atMs > boundaryMs || boundaryMs - atMs > maximumBaselineAgeMs
+                        then Left "graduation baseline is outside the boundary freshness window"
                         else
-                            if M.member uuid acc
-                                then Left "graduation baseline contains a duplicate UUID"
-                                else Right (M.insert uuid equity acc)
+                            if not (isFinite equity) || equity <= 0
+                                then Left "graduation baseline equity must be finite and positive"
+                                else
+                                    if M.member uuid acc
+                                        then Left "graduation baseline contains a duplicate UUID"
+                                        else Right (M.insert uuid equity acc)
     insertDaily acc (dayMs, rawUuid, equity) =
         let uuid = normalizeUuid rawUuid
             dayRows = M.findWithDefault M.empty dayMs acc

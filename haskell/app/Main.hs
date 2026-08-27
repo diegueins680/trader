@@ -486,6 +486,7 @@ import Trader.PortfolioSelection (
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationStatusCoverage,
     portfolioRolloutModeCode,
     portfolioSelectionShouldRotate,
     portfolioSelectorConfigVersion,
@@ -9203,6 +9204,8 @@ portfolioGraduationConfigFromEnv = do
     minimumExecutionAttempts <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_ATTEMPTS" 1 100000 (pgcMinimumExecutionAttempts defaults)
     minimumExecutionReliability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY" 0.5 1 (pgcMinimumExecutionReliability defaults)
     minimumStatusReliability <- readBoundedDoubleEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY" 0.5 1 (pgcMinimumStatusReliability defaults)
+    maximumBaselineAgeSec <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_BASELINE_AGE_SEC" 60 86400 (fromIntegral (pgcMaximumBaselineAgeMs defaults `div` 1000))
+    statusIntervalSec <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_STATUS_INTERVAL_SEC" 60 86400 (fromIntegral (pgcStatusIntervalMs defaults `div` 1000))
     maximumLatestStatusAgeSec <- readBoundedIntEnv "TRADER_PORTFOLIO_AUTO_GRADUATE_MAX_LATEST_STATUS_AGE_SEC" 60 86400 (fromIntegral (pgcMaximumLatestStatusAgeMs defaults `div` 1000))
     let startedAtMs =
             case startedRaw >>= readMaybe of
@@ -9218,6 +9221,8 @@ portfolioGraduationConfigFromEnv = do
             , pgcMinimumExecutionAttempts = minimumExecutionAttempts
             , pgcMinimumExecutionReliability = minimumExecutionReliability
             , pgcMinimumStatusReliability = minimumStatusReliability
+            , pgcMaximumBaselineAgeMs = fromIntegral maximumBaselineAgeSec * 1000
+            , pgcStatusIntervalMs = fromIntegral statusIntervalSec * 1000
             , pgcMaximumLatestStatusAgeMs = fromIntegral maximumLatestStatusAgeSec * 1000
             }
   where
@@ -21236,17 +21241,17 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                     baselineRows <-
                         query
                             conn
-                            ( "SELECT combo_uuid, equity FROM ("
-                                <> "SELECT combo_uuid, equity, "
+                            ( "SELECT combo_uuid, at_ms, equity FROM ("
+                                <> "SELECT combo_uuid, at_ms, equity, "
                                 <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid ORDER BY at_ms DESC, id DESC) AS rn "
                                 <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms <= ? AND equity IS NOT NULL "
+                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? AND equity IS NOT NULL "
                                 <> "AND COALESCE((result_json->>'live')::boolean, false) "
                                 <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
                                 <> ") baseline WHERE rn = 1 ORDER BY combo_uuid"
                             )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs) ::
-                            IO [(UUID.UUID, Double)]
+                            (tenantKey, PGArray reviewedUuidValues, baselineCutoffMs, firstFullDayMs) ::
+                            IO [(UUID.UUID, Int64, Double)]
                     dailyRows <-
                         query
                             conn
@@ -21274,16 +21279,21 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                     statusRows <-
                         query
                             conn
-                            ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE "
-                                <> "COALESCE((result_json->>'running')::boolean, false) "
-                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
-                                <> "AND result_json->>'error' IS NULL) "
+                            ( "WITH bucketed_rows AS ("
+                                <> "SELECT combo_uuid, ((at_ms - ?) / ?) AS bucket_index, result_json "
                                 <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? "
-                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ?"
+                                <> "), bucketed AS ("
+                                <> "SELECT combo_uuid, bucket_index, BOOL_AND("
+                                <> "COALESCE((result_json->>'live')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'running')::boolean, false) "
+                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                <> "AND result_json->>'error' IS NULL) AS healthy "
+                                <> "FROM bucketed_rows GROUP BY combo_uuid, bucket_index"
+                                <> ") SELECT COUNT(*), COUNT(*) FILTER (WHERE healthy) FROM bucketed"
                             )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                            (firstFullDayMs, pgcStatusIntervalMs config, tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
                             IO [(Int64, Int64)]
                     latestRows <-
                         query
@@ -21304,12 +21314,21 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                     pure $ do
                         fleetEquities <-
                             portfolioGraduationFleetEquities
+                                firstFullDayMs
+                                (pgcMaximumBaselineAgeMs config)
                                 reviewedUuids
-                                [(UUID.toText uuid, equity) | (uuid, equity) <- baselineRows]
+                                [(UUID.toText uuid, atMs, equity) | (uuid, atMs, equity) <- baselineRows]
                                 [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
                         (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance fleetEquities
                         let (executionAttempts, executionSuccesses) = intPair orderRows
-                            (statusSamples, healthyStatusSamples) = intPair statusRows
+                            statusCoverage =
+                                portfolioGraduationStatusCoverage
+                                    firstFullDayMs
+                                    reviewEndMs
+                                    (pgcStatusIntervalMs config)
+                                    (length reviewedUuids)
+                                    (intPair statusRows)
+                            (statusSamples, healthyStatusSamples) = statusCoverage
                             latestStatusesHealthy =
                                 portfolioGraduationLatestStatusesHealthy
                                     now
@@ -21332,6 +21351,7 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
     reviewedUuids = dedupeStable (map (T.toLower . T.strip) reviewedUuidsRaw)
     firstFullDayMs = ((pgcStartedAtMs config + dayMs - 1) `div` dayMs) * dayMs
     reviewEndMs = (now `div` dayMs) * dayMs
+    baselineCutoffMs = max 0 (firstFullDayMs - pgcMaximumBaselineAgeMs config)
     latestStatusCutoffMs = max firstFullDayMs (now - pgcMaximumLatestStatusAgeMs config)
     intPair rows =
         case rows of
@@ -24673,6 +24693,8 @@ portfolioSelectorStatusJson _mOps args topCombosStore = do
                             , "minimumExecutionAttempts" .= pgcMinimumExecutionAttempts graduationConfig
                             , "minimumExecutionReliability" .= pgcMinimumExecutionReliability graduationConfig
                             , "minimumStatusReliability" .= pgcMinimumStatusReliability graduationConfig
+                            , "maximumBaselineAgeMs" .= pgcMaximumBaselineAgeMs graduationConfig
+                            , "statusIntervalMs" .= pgcStatusIntervalMs graduationConfig
                             , "maximumLatestStatusAgeMs" .= pgcMaximumLatestStatusAgeMs graduationConfig
                             ]
                     ]

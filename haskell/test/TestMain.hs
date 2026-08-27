@@ -226,6 +226,7 @@ import Trader.PortfolioSelection (
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationStatusCoverage,
     portfolioMaxDrawdown,
     portfolioMembersRemainAdmitted,
     portfolioSelectionShouldRotate,
@@ -5785,6 +5786,8 @@ portfolioGraduationConfigForTest =
         , pgcMinimumExecutionAttempts = 10
         , pgcMinimumExecutionReliability = 0.95
         , pgcMinimumStatusReliability = 0.99
+        , pgcMaximumBaselineAgeMs = 900000
+        , pgcStatusIntervalMs = 900000
         , pgcMaximumLatestStatusAgeMs = 900000
         }
 
@@ -5809,10 +5812,21 @@ testPortfolioGraduationRequiresEveryReviewGate = do
         losing = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeNetReturn = 0}
         unreliable = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeExecutionSuccesses = 18}
         unhealthy = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeLatestStatusesHealthy = False}
+        (expectedStatusIntervals, healthyStatusIntervals) = portfolioGraduationStatusCoverage 0 3600000 900000 2 (7, 7)
+        missingHeartbeat =
+            portfolioGraduationReview
+                portfolioGraduationConfigForTest
+                2000
+                reviewedUuids
+                passingPortfolioGraduationEvidence
+                    { pgeStatusSamples = expectedStatusIntervals
+                    , pgeHealthyStatusSamples = healthyStatusIntervals
+                    }
     assert "portfolio graduation passes only after all configured live review gates clear" (pgrDecision passed == PortfolioGraduated)
     assert "portfolio graduation remains pending before 30 complete daily observations" (pgrDecision tooEarly == PortfolioGraduationPending)
     assert "portfolio graduation requires positive net performance" (pgrDecision losing == PortfolioGraduationPending)
     assert "portfolio graduation requires the configured execution reliability" (pgrDecision unreliable == PortfolioGraduationPending)
+    assert "portfolio graduation charges a missing heartbeat interval as unhealthy" (expectedStatusIntervals == 8 && pgrDecision missingHeartbeat == PortfolioGraduationPending)
     assert "portfolio graduation fails closed when any latest worker status is unhealthy" (pgrDecision unhealthy == PortfolioGraduationPending)
     assert "a graduated review applies only to its exact normalized UUID set" (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a", "uuid-b"] passed)
     assert "a graduated review cannot authorize a different UUID set" (not (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a"] passed))
@@ -5843,7 +5857,9 @@ testPortfolioGraduationRequiresEveryReviewGate = do
 
 testPortfolioGraduationPerformanceAndPersistence :: IO ()
 testPortfolioGraduationPerformanceAndPersistence = do
-    let baselines = [("uuid-a", 1.20), ("uuid-b", 0.80)]
+    let boundaryMs = 1000
+        maximumBaselineAgeMs = 100
+        baselines = [("uuid-a", 950, 1.20), ("uuid-b", 1000, 0.80)]
         daily =
             [ (1, "uuid-a", 1.20)
             , (1, "uuid-b", 0.80)
@@ -5852,10 +5868,22 @@ testPortfolioGraduationPerformanceAndPersistence = do
             ]
     assert
         "portfolio graduation rebases each worker at the review-window boundary"
-        (portfolioGraduationFleetEquities ["uuid-a", "uuid-b"] baselines daily == Right [1.0, 1.0])
+        (portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] baselines daily == Right [1.0, 1.0])
     assert
         "portfolio graduation fails closed when any reviewed worker lacks a window baseline"
-        (case portfolioGraduationFleetEquities ["uuid-a", "uuid-b"] [("uuid-a", 1)] daily of Left _ -> True; Right _ -> False)
+        (case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] [("uuid-a", 950, 1)] daily of Left _ -> True; Right _ -> False)
+    assert
+        "portfolio graduation rejects stale or post-boundary worker baselines"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] [("uuid-a", 899, 1.20), ("uuid-b", 1000, 0.80)] daily of
+            Left _ -> True
+            Right _ -> False
+        )
+    assert
+        "portfolio graduation rejects a future worker baseline"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] [("uuid-a", 950, 1.20), ("uuid-b", 1001, 0.80)] daily of
+            Left _ -> True
+            Right _ -> False
+        )
     case portfolioGraduationPerformance [1.01, 1.02, 0.99, 1.03] of
         Left err -> ioError (userError ("valid portfolio graduation performance failed: " ++ err))
         Right (observations, netReturn, drawdown) -> do
