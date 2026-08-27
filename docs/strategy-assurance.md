@@ -157,12 +157,47 @@ npm run assurance:outreach -- \
 
 The local-only command snapshots each official route and its dated evidence, tailors an initial permission or partner-evaluation note, computes the earliest follow-up after five business days, permits only one follow-up, hashes the exact drafts, and copies the pre-live checklist into the campaign package. It refuses more than three prospects, duplicate or unknown organizations, and watchlist entries unless `--include-watchlist` is explicitly supplied. Its records remain `prepared` with null send and response fields: it cannot send, submit forms, join communities, claim affiliations, collect member data, or advance the commercial pipeline.
 
-For the first week, validate the top four sources, select at most three distinct routes, make at most two reviewed organization-level asks plus one formal partner or moderator-permission request, and prepare proof only for respondents. Record no response, permission, discovery, or rejection locally. Wait at least five business days before one follow-up and close the outreach after that follow-up goes unanswered. The repository does not send messages or submit partner forms.
+Import a reviewed campaign into the separate local acquisition registry, then record a transition only after the corresponding event actually occurs:
 
-Once a prospect confirms that the decision is useful, generate their commercial package, review the proposal for applicable legal terms, and send the evidence request only after scope and payment expectations are understood. Keep `engagement.json` with the delivery record so the reviewed scope, quoted economics, and later monitoring conversion share one stable identity.
+```bash
+npm run assurance:acquisition -- import \
+  --campaign .tmp/strategy-assurance/outreach/CAMPAIGN/campaign.json
+
+npm run assurance:acquisition -- advance \
+  --id LEAD_ID \
+  --status contacted \
+  --channel "Official organization contact form" \
+  --evidence "Receipt or sent-record reference" \
+  --at 2026-08-20
+
+npm run assurance:acquisition -- summary --as-of 2026-08-20
+```
+
+The acquisition lifecycle is prepared → contacted → follow-up-sent → responded → qualified → proposed. A prepared or responded lead may instead become disqualified, and an unanswered lead may become closed-no-response only five business days after its single recorded follow-up. Every transition requires a short evidence reference; contact events also require the channel. The manual `advance proposed` route requires the generated `engagement.json`, verifies the provider and proposal date, and records its digest and stable ID without importing it into the commercial pipeline. Campaign import verifies the record, message, follow-up, and checklist hashes, is idempotent for identical evidence, and refuses a second campaign for an organization already in the registry.
+
+Use `npm run assurance:acquisition -- summary` for exact prepared-to-contacted, contacted-to-responded, responded-to-qualified, qualified-to-proposed, contacted-to-proposed, and follow-up-to-response ratios, plus current stages, performance by queue source kind, eligible follow-ups/closures, and dated next actions. The default registry is `.tmp/strategy-assurance/acquisition.json`; it contains evidence references, not credentials or pasted message bodies, and makes no external action.
+
+For the first week, validate the top four sources, select at most three distinct routes, make at most two reviewed organization-level asks plus one formal partner or moderator-permission request, and prepare proof only for respondents. Record actual outcomes in the acquisition registry. Wait at least five business days after the real contact date before one follow-up and another five business days before closing it as unanswered. The repository does not send messages or submit partner forms.
+
+Once a prospect confirms that the decision is useful, generate their commercial package and review the proposal for applicable legal terms. After the real proposal event, commit one recoverable handoff instead of separately updating the two registries:
+
+```bash
+npm run assurance:handoff -- commit \
+  --lead LEAD_ID \
+  --engagement .tmp/strategy-assurance/CLIENT-DATE/engagement.json \
+  --evidence "Reviewed proposal sent-record reference" \
+  --at 2026-08-21
+
+npm run assurance:handoff -- reconcile --as-of 2026-08-21
+```
+
+The command computes and validates both next states before any write. It saves the commercial pipeline first and the acquisition link second; if that second atomic write is interrupted, the identical command safely completes it on rerun. The reconciliation report exposes qualified leads awaiting a proposal, proposed leads missing from the pipeline, inconsistent identity or digest evidence, linked quoted value and cash, and pipeline records with no acquisition link. Unlinked pipeline records are reported for provenance review because direct and referral engagements can be legitimate. The handoff does not generate, send, sign, invoice, request payment, charge, or perform any external action.
+
+Send the evidence request only after scope and payment expectations are understood. Keep `engagement.json` with the delivery record so the reviewed scope, quoted economics, and later monitoring conversion share one stable identity.
 
 Track weekly:
 
+- prepared, contacted, responded, qualified, and proposed leads by source kind;
 - qualified conversations;
 - evidence checklists sent;
 - proposals issued and accepted;
@@ -171,7 +206,7 @@ Track weekly:
 - standard reviews converted to monthly monitoring; and
 - revenue and delivery hours per engagement.
 
-Use `npm run assurance:pipeline -- summary` as the baseline for proposal, conversion, cash, unit-economics, expiry, and contracted monitoring metrics. Qualitative findings still require the explicit delivery artifacts; do not infer them from pipeline status.
+Use `npm run assurance:acquisition -- summary` for pre-proposal source conversion and next actions, `npm run assurance:handoff -- reconcile` for qualified-to-linked leakage and linked value, and `npm run assurance:pipeline -- summary` as the baseline for proposal, payment, delivery, cash, unit-economics, expiry, and contracted monitoring metrics. Qualitative findings still require the explicit delivery artifacts; do not infer them from pipeline status.
 
 At two standard reviews per month, the offer produces USD 5,000 in one-time monthly revenue before add-ons. Monitor actual delivery hours and conversion before changing the price or scope.
 

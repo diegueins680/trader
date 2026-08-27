@@ -99,7 +99,7 @@ computeMetrics periodsPerYear br =
         avgHold = if tradeCount == 0 then 0 else fromIntegral totalHold / fromIntegral tradeCount
 
         exposure =
-            let pos = brPositions br
+            let pos = brExposureCurve br
                 (sumAbs, count) =
                     foldl'
                         ( \(acc, n) v ->

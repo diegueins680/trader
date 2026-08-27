@@ -5,6 +5,8 @@
     "haskell/web"
   ],
   "scripts": {
+    "assurance:acquisition": "node scripts/strategy-assurance-acquisition.mjs",
+    "assurance:handoff": "node scripts/strategy-assurance-handoff.mjs",
     "assurance:kit": "node scripts/generate-strategy-assurance-kit.mjs",
     "assurance:outreach": "node scripts/generate-strategy-assurance-outreach.mjs",
     "assurance:pipeline": "node scripts/strategy-assurance-pipeline.mjs",
@@ -19,6 +21,7 @@
     "smoke": "bash scripts/verify.sh smoke",
     "monitor:fly-postgres-disk": "node scripts/check-fly-postgres-disk.mjs",
     "radio:maintain": "node scripts/maintain-radio-stations.mjs",
+    "research:alternative-data": "python3 scripts/research/alternative_data.py",
     "test": "npm run test:haskell && npm run test:web && npm run test:autoloop",
     "test:autoloop": "node --test test/*.test.mjs",
     "test:formal": "node scripts/verify-formal-specs.mjs && node --test test/formal-specs.test.mjs",

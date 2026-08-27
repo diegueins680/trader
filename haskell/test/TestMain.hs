@@ -15,7 +15,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (isInfixOf, isPrefixOf, nub)
+import Data.List (find, isInfixOf, isPrefixOf, nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -25,10 +25,11 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import System.Directory (removeFile)
 import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Env (canonicalizeUuidEnvValues)
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -60,7 +61,7 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
-import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, parseExternalJsonSpec)
+import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCsvFeatureForColumn, externalSymbolMatches, parseExternalJsonSpec)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -161,7 +162,7 @@ import Trader.NeuralGovernor (
  )
 import Trader.OnlineStats (Welford (..), emptyWelford, updateWelford, varianceWelford)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
-import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), OptimizerAdmissionStats (..), autoOptimizerRequiredBarsForSweep, optimizerAdmissionStats, selectAutoOptimizerScopes, selectAutoOptimizerScopesWithHeadroom)
+import Trader.Optimizer.Common (AutoOptimizerScopeSelection (..), OptimizerAdmissionStats (..), autoOptimizerRequiredBarsForSweep, optimizerAdmissionStats, optimizerObjectiveArgs, selectAutoOptimizerScopes, selectAutoOptimizerScopesWithHeadroom)
 import qualified Trader.Optimizer.Common as OptimizerCommon
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
@@ -207,14 +208,25 @@ import Trader.PortfolioSelection (
     PortfolioCandidate (..),
     PortfolioDailyReturn (..),
     PortfolioEvidence (..),
+    PortfolioGraduationConfig (..),
+    PortfolioGraduationDecision (..),
+    PortfolioGraduationEvidence (..),
+    PortfolioGraduationReview (..),
     PortfolioMember (..),
     PortfolioMetrics (..),
     PortfolioRolloutMode (..),
     PortfolioSelection (..),
     PortfolioSelectorConfig (..),
+    defaultPortfolioGraduationConfig,
     defaultPortfolioSelectorConfig,
     portfolioAnnualizedReturn,
     portfolioFailureCacheLookup,
+    portfolioGraduationFleetEquities,
+    portfolioGraduationLatestStatusesHealthy,
+    portfolioGraduationPerformance,
+    portfolioGraduationReview,
+    portfolioGraduationReviewApplies,
+    portfolioGraduationStatusCoverage,
     portfolioMaxDrawdown,
     portfolioMembersRemainAdmitted,
     portfolioSelectionShouldRotate,
@@ -341,6 +353,7 @@ import Trader.TopCombosStore (
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
     mergeTopCombosPayloads,
+    mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
@@ -417,6 +430,7 @@ main = do
     testVolConfHoldPreservesLivePosition
     testLongShortFlipCountsExitAndEntryTurnover
     testIntrabarTakeProfitUsesExitBarCost
+    testIntrabarRoundTripRecordsExposure
     testPartialTakeProfitMovesLongStopToBreakeven
     testPartialTakeProfitMovesShortStopToBreakeven
     testPartialTakeProfitTradeFeesMatchAttribution
@@ -576,6 +590,7 @@ main = do
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
     testDeployableTierRequiresCompleteAdoptionEvidence
+    testExplicitDeployableOverrideIsBoundedAndAuditable
     testTopComboFreshnessMultiplierDefaultsDisabled
     testPortfolioAnnualizationAndDrawdown
     testOptimizerExtractsTimestampedPortfolioEvidence
@@ -584,6 +599,8 @@ main = do
     testPortfolioSelectionRejectsSparseWinner
     testPortfolioCurrentEvidenceRiskGate
     testPortfolioFailureCacheInvalidatesOnSnapshotChange
+    testPortfolioGraduationRequiresEveryReviewGate
+    testPortfolioGraduationPerformanceAndPersistence
     testPortfolioSelectionRotationHysteresis
     testPortfolioSelectionJsonRoundTrip
     testMergeFreshnessScoringPromotesFreshCandidate
@@ -621,6 +638,7 @@ main = do
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
     testAutoOptimizerCappedLookbackScopes
+    testAutoOptimizerObjectiveAlignment
     testOptimizerAdmissionStats
     testSweepThresholdMinRoundTripsFallback
     testSweepThresholdZeroCandidatesKeepsBasePair
@@ -870,14 +888,26 @@ testExternalDataFeatureInputs = do
                         , efiCot = Just (V.replicate n 0.5)
                         , efiNews = Just (V.replicate n 0.6)
                         , efiFilings = Just (V.replicate n 0.7)
+                        , efiPolicy = Just (V.replicate n 0.8)
+                        , efiFundamentals = Just (V.replicate n 0.9)
+                        , efiStablecoin = Just (V.replicate n 1.0)
+                        , efiInstitutionalFlows = Just (V.replicate n 1.1)
+                        , efiNetwork = Just (V.replicate n 1.2)
+                        , efiDeveloper = Just (V.replicate n 1.3)
+                        , efiGovernance = Just (V.replicate n 1.4)
+                        , efiAttention = Just (V.replicate n 1.5)
+                        , efiSocial = Just (V.replicate n 1.6)
+                        , efiPredictionMarket = Just (V.replicate n 1.7)
+                        , efiRealWorld = Just (V.replicate n 1.8)
+                        , efiSecurity = Just (V.replicate n 1.9)
                         }
                 extInputs = withExternalInputs (Just extLong) baseInputs
                 t = 40
             case (featuresAtWithInputsWithMarket fs Nothing baseInputs t, featuresAtWithInputsWithMarket fs Nothing extInputs t) of
                 (Just featsBase, Just featsExternal) -> do
                     assert
-                        "external bundle appends 14 fixed-width family features"
-                        (length featsExternal == length featsBase + 14)
+                        "external bundle appends 38 fixed-width family features"
+                        (length featsExternal == length featsBase + 38)
                     assert
                         "default-off external data keeps the base feature prefix unchanged"
                         (take (length featsBase) featsExternal == featsBase)
@@ -888,6 +918,44 @@ testExternalDataFeatureInputs = do
         ( case parseExternalJsonSpec "onchain|https://example.invalid/metric|t|v" of
             Just spec -> ejsFeature spec == ExternalOnChain
             Nothing -> False
+        )
+    assert
+        "every alternative-data family can be selected by a generic source"
+        ( and
+            [ case parseExternalJsonSpec (family ++ "|https://example.invalid/metric|t|v") of
+                Just _ -> True
+                Nothing -> False
+            | family <-
+                [ "policy"
+                , "fundamentals"
+                , "stablecoin"
+                , "institutional_flows"
+                , "network"
+                , "developer"
+                , "governance"
+                , "attention"
+                , "social"
+                , "prediction_market"
+                , "real_world"
+                , "security"
+                ]
+            ]
+        )
+    assert
+        "generated panel family headers are recognized by the Haskell CSV loader"
+        ( externalCsvFeatureForColumn "microstructure" == Just ExternalMicrostructure
+            && externalCsvFeatureForColumn "options_vol" == Just ExternalOptionsVol
+            && externalCsvFeatureForColumn "onchain" == Just ExternalOnChain
+        )
+    assert
+        "symbol-scoped external rows match full/base symbols without leaking to peers"
+        ( and
+            [ externalSymbolMatches (Just "BTCUSDT") (Just "BTCUSDT")
+            , externalSymbolMatches (Just "BTCUSDT") (Just "BTC")
+            , externalSymbolMatches (Just "BTCUSDT") (Just "")
+            , externalSymbolMatches (Just "BTCUSDT") Nothing
+            , not (externalSymbolMatches (Just "ETHUSDT") (Just "BTC"))
+            ]
         )
 
 {- | Multivariate LSTM: a single channel is byte-identical to the univariate
@@ -5525,6 +5593,81 @@ testDeployableTierRequiresCompleteAdoptionEvidence = do
             && maybe False ("walk-forward-std-above-ceiling" `elem`) (unstableMerged >>= comboProcessingReasonsForTest)
         )
 
+testExplicitDeployableOverrideIsBoundedAndAuditable :: IO ()
+testExplicitDeployableOverrideIsBoundedAndAuditable = do
+    let relaxed = processingComboForTest "relaxed-candidate" "db" False Nothing 2.0 adoptionMinTradeCount
+        untouched = processingComboForTest "untouched-candidate" "db" False Nothing 1.5 adoptionMinTradeCount
+        raw = processingComboForTest "raw-candidate" "db" False Nothing 4.0 (adoptionMinTradeCount - 1)
+        payload = Aeson.object ["combos" .= [relaxed, untouched, raw]]
+        (merged, _) =
+            mergeTopCombosPayloadsWithStatsAndDeployableOverrides
+                ["relaxed-candidate", "raw-candidate"]
+                10
+                9500
+                [payload]
+        combos =
+            case merged of
+                Aeson.Object o ->
+                    case KM.lookup "combos" o of
+                        Just (Aeson.Array values) -> V.toList values
+                        _ -> []
+                _ -> []
+        byUuid :: T.Text -> Maybe Aeson.Value
+        byUuid uuid =
+            find
+                ( \case
+                    Aeson.Object o ->
+                        (KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON) == Just uuid
+                    _ -> False
+                )
+                combos
+        processingField :: AK.Key -> Aeson.Value -> Maybe Aeson.Value
+        processingField key = \case
+            Aeson.Object o ->
+                case KM.lookup "processing" o of
+                    Just (Aeson.Object processing) -> KM.lookup key processing
+                    _ -> Nothing
+            _ -> Nothing
+        relaxedReasons :: Maybe [T.Text]
+        relaxedReasons = byUuid "relaxed-candidate" >>= processingField "relaxedReasons" >>= AT.parseMaybe Aeson.parseJSON
+        relaxedFlag :: Maybe Bool
+        relaxedFlag = byUuid "relaxed-candidate" >>= processingField "relaxed" >>= AT.parseMaybe Aeson.parseJSON
+    assert
+        "an explicit candidate UUID becomes deployable without promoting another candidate"
+        ( (byUuid "relaxed-candidate" >>= comboProcessingTierForTest) == Just "deployable"
+            && (byUuid "untouched-candidate" >>= comboProcessingTierForTest) == Just "candidate"
+        )
+    assert
+        "a deployable override cannot promote a raw row"
+        ((byUuid "raw-candidate" >>= comboProcessingTierForTest) == Just "raw")
+    assert
+        "the runtime override boundary rejects raw, quarantined, and unknown processing state"
+        ( deployableOverrideEvidenceEligible False True (Just "candidate")
+            && deployableOverrideEvidenceEligible False True (Just "deployable")
+            && not (deployableOverrideEvidenceEligible False True Nothing)
+            && not (deployableOverrideEvidenceEligible False False (Just "candidate"))
+            && not (deployableOverrideEvidenceEligible True True (Just "deployable"))
+            && not (deployableOverrideEvidenceEligible False True (Just "raw"))
+            && not (deployableOverrideEvidenceEligible False True (Just "quarantined"))
+            && not (deployableOverrideEvidenceEligible False True (Just "future-tier"))
+        )
+    assert
+        "valid override UUIDs are canonicalized before lookup and deduplication"
+        ( canonicalizeUuidEnvValues
+            [ "550E8400-E29B-41D4-A716-446655440000"
+            , "550e8400-e29b-41d4-a716-446655440000"
+            ]
+            == Right ["550e8400-e29b-41d4-a716-446655440000"]
+        )
+    assert
+        "invalid override UUIDs remain fail-closed and identifiable"
+        (canonicalizeUuidEnvValues ["not-a-uuid"] == Left ["not-a-uuid"])
+    assert
+        "a relaxed deployment remains explicit and preserves its failed strict gates"
+        ( relaxedFlag == Just True
+            && maybe False ("walk-forward-missing" `elem`) (relaxedReasons :: Maybe [T.Text])
+        )
+
 testTopComboFreshnessMultiplierDefaultsDisabled :: IO ()
 testTopComboFreshnessMultiplierDefaultsDisabled =
     assert
@@ -5631,6 +5774,128 @@ testPortfolioFailureCacheInvalidatesOnSnapshotChange = do
     assert "portfolio selector failure cache reuses an unchanged fresh snapshot" (portfolioFailureCacheLookup 10000 1500 (4, 1) cached == Just "no admissible portfolio")
     assert "portfolio selector failure cache invalidates when evidence changes" (isNothing (portfolioFailureCacheLookup 10000 1500 (4, 2) cached))
     assert "portfolio selector failure cache expires at its TTL" (isNothing (portfolioFailureCacheLookup 10000 11000 (4, 1) cached))
+
+portfolioGraduationConfigForTest :: PortfolioGraduationConfig
+portfolioGraduationConfigForTest =
+    defaultPortfolioGraduationConfig
+        { pgcEnabled = True
+        , pgcStartedAtMs = 1000
+        , pgcMinimumDailyObservations = 30
+        , pgcMinimumNetReturn = 0
+        , pgcMaximumDrawdown = 0.10
+        , pgcMinimumExecutionAttempts = 10
+        , pgcMinimumExecutionReliability = 0.95
+        , pgcMinimumStatusReliability = 0.99
+        , pgcMaximumBaselineAgeMs = 900000
+        , pgcStatusIntervalMs = 900000
+        , pgcMaximumLatestStatusAgeMs = 900000
+        }
+
+passingPortfolioGraduationEvidence :: PortfolioGraduationEvidence
+passingPortfolioGraduationEvidence =
+    PortfolioGraduationEvidence
+        { pgeDailyObservationCount = 30
+        , pgeNetReturn = 0.02
+        , pgeMaxDrawdown = 0.04
+        , pgeExecutionAttempts = 20
+        , pgeExecutionSuccesses = 19
+        , pgeStatusSamples = 1000
+        , pgeHealthyStatusSamples = 990
+        , pgeLatestStatusesHealthy = True
+        }
+
+testPortfolioGraduationRequiresEveryReviewGate :: IO ()
+testPortfolioGraduationRequiresEveryReviewGate = do
+    let reviewedUuids = ["UUID-B", "uuid-a"]
+        passed = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence
+        tooEarly = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeDailyObservationCount = 29}
+        losing = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeNetReturn = 0}
+        unreliable = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeExecutionSuccesses = 18}
+        unhealthy = portfolioGraduationReview portfolioGraduationConfigForTest 2000 reviewedUuids passingPortfolioGraduationEvidence{pgeLatestStatusesHealthy = False}
+        (expectedStatusIntervals, healthyStatusIntervals) = portfolioGraduationStatusCoverage 0 3600000 900000 2 (7, 7)
+        missingHeartbeat =
+            portfolioGraduationReview
+                portfolioGraduationConfigForTest
+                2000
+                reviewedUuids
+                passingPortfolioGraduationEvidence
+                    { pgeStatusSamples = expectedStatusIntervals
+                    , pgeHealthyStatusSamples = healthyStatusIntervals
+                    }
+    assert "portfolio graduation passes only after all configured live review gates clear" (pgrDecision passed == PortfolioGraduated)
+    assert "portfolio graduation remains pending before 30 complete daily observations" (pgrDecision tooEarly == PortfolioGraduationPending)
+    assert "portfolio graduation requires positive net performance" (pgrDecision losing == PortfolioGraduationPending)
+    assert "portfolio graduation requires the configured execution reliability" (pgrDecision unreliable == PortfolioGraduationPending)
+    assert "portfolio graduation charges a missing heartbeat interval as unhealthy" (expectedStatusIntervals == 8 && pgrDecision missingHeartbeat == PortfolioGraduationPending)
+    assert "portfolio graduation fails closed when any latest worker status is unhealthy" (pgrDecision unhealthy == PortfolioGraduationPending)
+    assert "a graduated review applies only to its exact normalized UUID set" (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a", "uuid-b"] passed)
+    assert "a graduated review cannot authorize a different UUID set" (not (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a"] passed))
+    assert
+        "graduation requires one fresh healthy latest status per reviewed worker"
+        ( portfolioGraduationLatestStatusesHealthy
+            2000000
+            900000
+            ["uuid-a", "uuid-b"]
+            [("uuid-b", 1999000, True), ("uuid-a", 1100000, True)]
+        )
+    assert
+        "a stale latest worker status fails graduation closed"
+        ( not
+            ( portfolioGraduationLatestStatusesHealthy
+                2000000
+                900000
+                ["uuid-a", "uuid-b"]
+                [("uuid-a", 1099999, True), ("uuid-b", 1999000, True)]
+            )
+        )
+    assert
+        "missing, unhealthy, or future latest worker status fails graduation closed"
+        ( not (portfolioGraduationLatestStatusesHealthy 2000000 900000 ["uuid-a", "uuid-b"] [("uuid-a", 1999000, True)])
+            && not (portfolioGraduationLatestStatusesHealthy 2000000 900000 ["uuid-a", "uuid-b"] [("uuid-a", 1999000, True), ("uuid-b", 1999000, False)])
+            && not (portfolioGraduationLatestStatusesHealthy 2000000 900000 ["uuid-a", "uuid-b"] [("uuid-a", 1999000, True), ("uuid-b", 2000001, True)])
+        )
+
+testPortfolioGraduationPerformanceAndPersistence :: IO ()
+testPortfolioGraduationPerformanceAndPersistence = do
+    let boundaryMs = 1000
+        maximumBaselineAgeMs = 100
+        baselines = [("uuid-a", 950, 1.20), ("uuid-b", 1000, 0.80)]
+        daily =
+            [ (1, "uuid-a", 1.20)
+            , (1, "uuid-b", 0.80)
+            , (2, "uuid-a", 1.08)
+            , (2, "uuid-b", 0.88)
+            ]
+    assert
+        "portfolio graduation rebases each worker at the review-window boundary"
+        (portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] baselines daily == Right [1.0, 1.0])
+    assert
+        "portfolio graduation fails closed when any reviewed worker lacks a window baseline"
+        (case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] [("uuid-a", 950, 1)] daily of Left _ -> True; Right _ -> False)
+    assert
+        "portfolio graduation rejects stale or post-boundary worker baselines"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] [("uuid-a", 899, 1.20), ("uuid-b", 1000, 0.80)] daily of
+            Left _ -> True
+            Right _ -> False
+        )
+    assert
+        "portfolio graduation rejects a future worker baseline"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs ["uuid-a", "uuid-b"] [("uuid-a", 950, 1.20), ("uuid-b", 1001, 0.80)] daily of
+            Left _ -> True
+            Right _ -> False
+        )
+    case portfolioGraduationPerformance [1.01, 1.02, 0.99, 1.03] of
+        Left err -> ioError (userError ("valid portfolio graduation performance failed: " ++ err))
+        Right (observations, netReturn, drawdown) -> do
+            assert "portfolio graduation counts complete fleet equity observations" (observations == 4)
+            assert "portfolio graduation measures net return from the normalized fleet baseline" (abs (netReturn - 0.03) < 1.0e-12)
+            assert "portfolio graduation measures peak-to-trough drawdown" (abs (drawdown - (1.02 - 0.99) / 1.02) < 1.0e-12)
+    assert
+        "portfolio graduation rejects malformed fleet equity rather than skipping it"
+        (case portfolioGraduationPerformance [1.01, 0 / 0] of Left _ -> True; Right _ -> False)
+    let review = portfolioGraduationReview portfolioGraduationConfigForTest 2000 ["uuid-a"] passingPortfolioGraduationEvidence
+        decoded = Aeson.eitherDecode (Aeson.encode review) :: Either String PortfolioGraduationReview
+    assert "portfolio graduation reviews round-trip through their durable JSON marker" (decoded == Right review)
 
 testPortfolioSelectionRejectsSparseWinner :: IO ()
 testPortfolioSelectionRejectsSparseWinner = do
@@ -7313,6 +7578,14 @@ testAutoOptimizerCappedLookbackScopes = do
         "auto optimizer reserves point headroom before deriving a capped scope"
         (aosScopes headroomSelection == [("5m", "2925m")] && aosCappedScopes headroomSelection == [("5m", "2925m")])
 
+testAutoOptimizerObjectiveAlignment :: IO ()
+testAutoOptimizerObjectiveAlignment =
+    assert
+        "auto optimizer passes its ranking objective through to child threshold tuning"
+        ( optimizerObjectiveArgs "sharpe"
+            == ["--objective", "sharpe", "--tune-objective", "sharpe"]
+        )
+
 testOptimizerAdmissionStats :: IO ()
 testOptimizerAdmissionStats = do
     let combo uuid createdAt =
@@ -8633,6 +8906,7 @@ testMetricsConsumesTradingPublicResults = do
                 { brEquityCurve = [1.0, 1.1]
                 , brTrades = [trade]
                 , brPositions = [0, 1]
+                , brExposureCurve = [0, 1]
                 , brAgreementOk = [True]
                 , brAgreementValid = [True]
                 , brPositionChanges = 1
@@ -8657,6 +8931,7 @@ testMetricsFiniteInputBoundary = do
                 { brEquityCurve = [1, 0 / 0, 1 / 0, 1.0e-300, 1.0e308]
                 , brTrades = []
                 , brPositions = [0, 0 / 0, 1 / 0, -1]
+                , brExposureCurve = [0, 0 / 0, 1 / 0, -1]
                 , brAgreementOk = [True]
                 , brAgreementValid = [True]
                 , brPositionChanges = -3
@@ -8723,6 +8998,7 @@ testIndependentRoiSpecification = do
                 { brEquityCurve = [1, 1.02, 1.01, 1.05]
                 , brTrades = []
                 , brPositions = [0, 0.5, 0.5, 0]
+                , brExposureCurve = [0, 0.5, 0.5, 0]
                 , brAgreementOk = [True, False, True]
                 , brAgreementValid = [True, True, True]
                 , brPositionChanges = 2
@@ -9593,6 +9869,35 @@ testIntrabarTakeProfitUsesExitBarCost = do
                 "intrabar take-profit exit charges volatility-dependent slippage from the exit bar"
                 (bcaRealizedSlippageCost attribution > 0)
 
+-- Exposure measures capital used during each return interval, not merely the
+-- position left at the bar close. A same-bar round trip must therefore retain
+-- exposure evidence even though its closing-position series is entirely flat.
+testIntrabarRoundTripRecordsExposure :: IO ()
+testIntrabarRoundTripRecordsExposure = do
+    let prices = V.fromList [100 :: Double, 100, 100]
+        highs = V.fromList [100 :: Double, 104, 100]
+        lows = prices
+        preds = V.fromList [102 :: Double, 100]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecTakeProfit = Just 0.03
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        result = simulateEnsembleWithHLChecked cfg 1 prices highs lows preds preds (Nothing :: Maybe (V.Vector StepMeta))
+    case result of
+        Left err -> ioError (userError ("intrabar exposure regression failed to simulate: " ++ err))
+        Right bt -> do
+            assert "same-bar take-profit produces a completed trade" (not (null (brTrades bt)))
+            assert "same-bar take-profit leaves every closing position flat" (all ((<= 1e-12) . abs) (brPositions bt))
+            assert "same-bar take-profit records realized interval exposure" (any ((> 1e-12) . abs) (brExposureCurve bt))
+            assert "same-bar take-profit contributes positive exposure metrics" (bmExposure (computeMetrics 252 bt) > 0)
+
 -- A partial take-profit should convert the remaining position into a protected
 -- runner: the residual stop moves to breakeven and can close the rest without
 -- giving back the first realized target.
@@ -9891,6 +10196,12 @@ testCapAdoptedMaxPositionSizeBoundsLiveExposure = do
     assert
         "custom adoption cap can intentionally disable adopted exposure"
         (capAdoptedMaxPositionSizeWithCap 0 0.30 == 0)
+    assert
+        "adoption sizing floor is reachable when a legacy combo floor exceeds the cap"
+        (capAdoptedMinPositionSize 0.05 0.16 == 0.05)
+    assert
+        "adoption sizing floor preserves a conservative value below the cap"
+        (capAdoptedMinPositionSize 0.05 0.03 == 0.03)
     assert
         "cap clamps negative inputs to zero"
         (capAdoptedMaxPositionSize (negate 0.5) == 0)

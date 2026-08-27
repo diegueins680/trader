@@ -19,6 +19,7 @@ module Trader.BotStartSemantics (
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
     adoptionMaxPositionSizeCap,
+    capAdoptedMinPositionSize,
     capAdoptedMaxPositionSize,
     capAdoptedMaxPositionSizeWithCap,
     AdoptionEvidenceConfig (..),
@@ -35,13 +36,29 @@ module Trader.BotStartSemantics (
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
+    deployableOverrideEvidenceEligible,
 ) where
 
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
 import Trader.CostCalibration (venueMinEdgeFloor)
-import Trader.Text (dedupeStable)
+import Trader.Text (dedupeStable, normalizeKey)
+
+{- | An explicit UUID override may relax candidate performance gates, but it
+must never rescue a raw, quarantined, or unknown processing tier.  Recompute
+the non-raw evidence boundary at use time so stale annotations cannot bypass
+the live-start guard.
+-}
+deployableOverrideEvidenceEligible :: Bool -> Bool -> Maybe String -> Bool
+deployableOverrideEvidenceEligible liveQuarantined hasNonRawEvidence storedTier =
+    not liveQuarantined
+        && hasNonRawEvidence
+        && case normalizeKey <$> storedTier of
+            Nothing -> False
+            Just "candidate" -> True
+            Just "deployable" -> True
+            _ -> False
 
 {- | Hard cap on the 'maxPositionSize' the bot will accept when adopting an
 existing top-combo for live trading. Legacy combos on the leaderboard can
@@ -70,6 +87,19 @@ capAdoptedMaxPositionSizeWithCap capRaw raw
     | isNaN capRaw || isInfinite capRaw = 0
     | capRaw < 0 = 0
     | otherwise = min capRaw raw
+
+{- | Keep an adopted combo's confidence-sizing floor reachable after its
+'maxPositionSize' has been reduced. A legacy floor above the adopted maximum
+would otherwise make every non-flat target fail with @MIN_SIZE@. Invalid floors
+collapse to zero; valid conservative floors below the maximum are preserved.
+-}
+capAdoptedMinPositionSize :: Double -> Double -> Double
+capAdoptedMinPositionSize adoptedMax raw
+    | isNaN raw || isInfinite raw = 0
+    | raw < 0 = 0
+    | isNaN adoptedMax || isInfinite adoptedMax = 0
+    | adoptedMax < 0 = 0
+    | otherwise = min adoptedMax raw
 
 {- | Minimum backtest @tradeCount@ a top-combo must report on its stored
 metrics before the bot-start path is allowed to adopt it for live trading.

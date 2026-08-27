@@ -17,11 +17,21 @@ import {
   prepareTopComboRows,
   readExactSafeInteger,
   readNonNegativeExactSafeInteger,
+  resolveListenKeyTenantKey,
   sanitizeOptimizationComboOperation,
   selectTopCombosFallbackSource,
   sortBinancePositions,
   splitStats,
 } from "../.tmp/web-tests/appHelpers.js";
+
+test("listen-key SSE uses the authoritative tenant returned by stream creation", () => {
+  assert.equal(
+    resolveListenKeyTenantKey({ tenantKey: " binance:authoritative " }, "binance:stale"),
+    "binance:authoritative",
+  );
+  assert.equal(resolveListenKeyTenantKey({}, " binance:derived "), "binance:derived");
+  assert.equal(resolveListenKeyTenantKey(null, null), null);
+});
 
 test("bot fleet display never reports a false stopped/zero state before status is known", () => {
   assert.deepEqual(botFleetDisplayState(false, null, 0, 0), {

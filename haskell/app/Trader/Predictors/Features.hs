@@ -68,6 +68,18 @@ data ExternalFeatureInputs = ExternalFeatureInputs
     , efiCot :: !(Maybe (V.Vector Double))
     , efiNews :: !(Maybe (V.Vector Double))
     , efiFilings :: !(Maybe (V.Vector Double))
+    , efiPolicy :: !(Maybe (V.Vector Double))
+    , efiFundamentals :: !(Maybe (V.Vector Double))
+    , efiStablecoin :: !(Maybe (V.Vector Double))
+    , efiInstitutionalFlows :: !(Maybe (V.Vector Double))
+    , efiNetwork :: !(Maybe (V.Vector Double))
+    , efiDeveloper :: !(Maybe (V.Vector Double))
+    , efiGovernance :: !(Maybe (V.Vector Double))
+    , efiAttention :: !(Maybe (V.Vector Double))
+    , efiSocial :: !(Maybe (V.Vector Double))
+    , efiPredictionMarket :: !(Maybe (V.Vector Double))
+    , efiRealWorld :: !(Maybe (V.Vector Double))
+    , efiSecurity :: !(Maybe (V.Vector Double))
     }
     deriving (Eq, Show)
 
@@ -292,6 +304,18 @@ externalFeatures inputs t =
                 , efiCot efi
                 , efiNews efi
                 , efiFilings efi
+                , efiPolicy efi
+                , efiFundamentals efi
+                , efiStablecoin efi
+                , efiInstitutionalFlows efi
+                , efiNetwork efi
+                , efiDeveloper efi
+                , efiGovernance efi
+                , efiAttention efi
+                , efiSocial efi
+                , efiPredictionMarket efi
+                , efiRealWorld efi
+                , efiSecurity efi
                 ]
   where
     familyFeatures mv =

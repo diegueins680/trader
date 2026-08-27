@@ -1548,6 +1548,16 @@ export function normalizeListenKeyStreamStatus(raw: string): ListenKeyStreamStat
   }
 }
 
+export function resolveListenKeyTenantKey(
+  info: Pick<BinanceListenKeyResponse, "tenantKey"> | null | undefined,
+  fallback: string | null | undefined,
+): string | null {
+  const authoritative = info?.tenantKey?.trim();
+  if (authoritative) return authoritative;
+  const derived = fallback?.trim();
+  return derived || null;
+}
+
 export function safeJsonParse<T = unknown>(raw: string): T | null {
   try {
     return JSON.parse(raw) as T;

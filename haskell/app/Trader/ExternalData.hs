@@ -7,6 +7,8 @@ module Trader.ExternalData (
     ExternalFeature (..),
     ExternalJsonSpec (..),
     alignedExternalFeatureInputs,
+    externalCsvFeatureForColumn,
+    externalSymbolMatches,
     externalDataConfigFromEnv,
     fetchExternalFeatureInputs,
     parseExternalJsonSpec,
@@ -52,6 +54,18 @@ data ExternalFeature
     | ExternalCot
     | ExternalNews
     | ExternalFilings
+    | ExternalPolicy
+    | ExternalFundamentals
+    | ExternalStablecoin
+    | ExternalInstitutionalFlows
+    | ExternalNetwork
+    | ExternalDeveloper
+    | ExternalGovernance
+    | ExternalAttention
+    | ExternalSocial
+    | ExternalPredictionMarket
+    | ExternalRealWorld
+    | ExternalSecurity
     deriving (Eq, Ord, Show)
 
 data ExternalJsonSpec = ExternalJsonSpec
@@ -156,7 +170,7 @@ fetchExternalFeatureInputs cfg mSymbol barOpenTimes intervalMs
 
 fetchExternalObservations :: ExternalDataConfig -> Maybe String -> V.Vector Int64 -> IO [ExternalObservation]
 fetchExternalObservations cfg mSymbol barOpenTimes = do
-    csvObs <- concat <$> mapM fetchCsvObservations (edcCsvPaths cfg)
+    csvObs <- concat <$> mapM (fetchCsvObservations mSymbol) (edcCsvPaths cfg)
     jsonObs <- concat <$> mapM fetchJsonSpecObservations (edcJsonSpecs cfg)
     fredObs <- fetchFredObservations cfg barOpenTimes
     deribitObs <- fetchDeribitObservations cfg barOpenTimes
@@ -206,13 +220,25 @@ alignedExternalFeatureInputs barOpenTimes intervalMs observations =
                 , efiCot = seriesFor ExternalCot
                 , efiNews = seriesFor ExternalNews
                 , efiFilings = seriesFor ExternalFilings
+                , efiPolicy = seriesFor ExternalPolicy
+                , efiFundamentals = seriesFor ExternalFundamentals
+                , efiStablecoin = seriesFor ExternalStablecoin
+                , efiInstitutionalFlows = seriesFor ExternalInstitutionalFlows
+                , efiNetwork = seriesFor ExternalNetwork
+                , efiDeveloper = seriesFor ExternalDeveloper
+                , efiGovernance = seriesFor ExternalGovernance
+                , efiAttention = seriesFor ExternalAttention
+                , efiSocial = seriesFor ExternalSocial
+                , efiPredictionMarket = seriesFor ExternalPredictionMarket
+                , efiRealWorld = seriesFor ExternalRealWorld
+                , efiSecurity = seriesFor ExternalSecurity
                 }
      in if Map.null grouped then Nothing else Just bundle
   where
     mergeBuckets (aSum, aCount) (bSum, bCount) = (aSum + bSum, aCount + bCount)
 
-fetchCsvObservations :: FilePath -> IO [ExternalObservation]
-fetchCsvObservations path = do
+fetchCsvObservations :: Maybe String -> FilePath -> IO [ExternalObservation]
+fetchCsvObservations mSymbol path = do
     exists <- doesFileExist path
     if not exists
         then do
@@ -231,13 +257,14 @@ fetchCsvObservations path = do
                         Nothing -> do
                             hPutStrLn stderr ("WARN: external data CSV has no timestamp column: " ++ path)
                             pure []
-                        Just timeKey -> pure (concatMap (rowObservations hdrList timeKey) (V.toList rows))
+                        Just timeKey -> pure (concatMap (rowObservations mSymbol hdrList timeKey) (V.toList rows))
 
-rowObservations :: [BS.ByteString] -> BS.ByteString -> Csv.NamedRecord -> [ExternalObservation]
-rowObservations hdrList timeKey row =
-    case HM.lookup timeKey row >>= parseCellTime of
-        Nothing -> []
-        Just ts ->
+rowObservations :: Maybe String -> [BS.ByteString] -> BS.ByteString -> Csv.NamedRecord -> [ExternalObservation]
+rowObservations mSymbol hdrList timeKey row =
+    case (rowMatchesSymbol mSymbol row, HM.lookup timeKey row >>= parseCellTime) of
+        (False, _) -> []
+        (_, Nothing) -> []
+        (_, Just ts) ->
             genericSourceObservations ts row
                 ++ concatMap (featureColumnObservations ts row) featureColumns
   where
@@ -253,6 +280,19 @@ rowObservations hdrList timeKey row =
          in case values of
                 [] -> []
                 _ -> [(feature, ts, sum values / fromIntegral (length values))]
+
+rowMatchesSymbol :: Maybe String -> Csv.NamedRecord -> Bool
+rowMatchesSymbol mSymbol row =
+    externalSymbolMatches mSymbol (BS.unpack <$> lookupAny symbolColumns row)
+
+externalSymbolMatches :: Maybe String -> Maybe String -> Bool
+externalSymbolMatches Nothing _ = True
+externalSymbolMatches (Just _) Nothing = True
+externalSymbolMatches (Just symbol) (Just rawScope) =
+    let scope = normalizeKey rawScope
+        full = normalizeKey symbol
+        base = normalizeKey (symbolBase symbol)
+     in null scope || scope == full || scope == base
 
 genericSourceObservations :: Int64 -> Csv.NamedRecord -> [ExternalObservation]
 genericSourceObservations ts row =
@@ -537,9 +577,12 @@ parseCellDouble raw =
 lookupAny :: [String] -> Csv.NamedRecord -> Maybe BS.ByteString
 lookupAny candidates row =
     firstJust
-        [ HM.lookup key row
-        | key <- HM.keys row
-        , normalizeKey (BS.unpack key) `elem` map normalizeKey candidates
+        [ firstJust
+            [ HM.lookup key row
+            | key <- HM.keys row
+            , normalizeKey (BS.unpack key) == normalizeKey candidate
+            ]
+        | candidate <- candidates
         ]
 
 findHeaderKey :: [BS.ByteString] -> String -> Maybe BS.ByteString
@@ -579,6 +622,50 @@ parseExternalFeature raw =
         "sec" -> Just ExternalFilings
         "edgar" -> Just ExternalFilings
         "etf" -> Just ExternalFilings
+        "policy" -> Just ExternalPolicy
+        "centralbank" -> Just ExternalPolicy
+        "government" -> Just ExternalPolicy
+        "regulation" -> Just ExternalPolicy
+        "fundamentals" -> Just ExternalFundamentals
+        "companyfundamentals" -> Just ExternalFundamentals
+        "earnings" -> Just ExternalFundamentals
+        "guidance" -> Just ExternalFundamentals
+        "stablecoin" -> Just ExternalStablecoin
+        "stablecoins" -> Just ExternalStablecoin
+        "institutionalflows" -> Just ExternalInstitutionalFlows
+        "fundflows" -> Just ExternalInstitutionalFlows
+        "custodyflows" -> Just ExternalInstitutionalFlows
+        "etfflows" -> Just ExternalInstitutionalFlows
+        "network" -> Just ExternalNetwork
+        "networkoperations" -> Just ExternalNetwork
+        "minervalidator" -> Just ExternalNetwork
+        "validator" -> Just ExternalNetwork
+        "developer" -> Just ExternalDeveloper
+        "development" -> Just ExternalDeveloper
+        "github" -> Just ExternalDeveloper
+        "governance" -> Just ExternalGovernance
+        "tokensupply" -> Just ExternalGovernance
+        "tokenunlock" -> Just ExternalGovernance
+        "emissions" -> Just ExternalGovernance
+        "attention" -> Just ExternalAttention
+        "search" -> Just ExternalAttention
+        "web" -> Just ExternalAttention
+        "appactivity" -> Just ExternalAttention
+        "social" -> Just ExternalSocial
+        "community" -> Just ExternalSocial
+        "predictionmarket" -> Just ExternalPredictionMarket
+        "predictionmarkets" -> Just ExternalPredictionMarket
+        "polymarket" -> Just ExternalPredictionMarket
+        "realworld" -> Just ExternalRealWorld
+        "operations" -> Just ExternalRealWorld
+        "shipping" -> Just ExternalRealWorld
+        "weather" -> Just ExternalRealWorld
+        "satellite" -> Just ExternalRealWorld
+        "security" -> Just ExternalSecurity
+        "exploit" -> Just ExternalSecurity
+        "exploits" -> Just ExternalSecurity
+        "depeg" -> Just ExternalSecurity
+        "outage" -> Just ExternalSecurity
         _ -> Nothing
 
 featureColumns :: [(ExternalFeature, [String])]
@@ -586,7 +673,8 @@ featureColumns =
     [
         ( ExternalMicrostructure
         ,
-            [ "bookImbalance"
+            [ "microstructure"
+            , "bookImbalance"
             , "orderBookImbalance"
             , "l2Imbalance"
             , "depthImbalance"
@@ -600,7 +688,8 @@ featureColumns =
     ,
         ( ExternalOptionsVol
         ,
-            [ "dvol"
+            [ "options_vol"
+            , "dvol"
             , "volatilityIndex"
             , "iv"
             , "atmIv"
@@ -614,15 +703,13 @@ featureColumns =
     ,
         ( ExternalOnChain
         ,
-            [ "exchangeNetFlow"
+            [ "onchain"
+            , "exchangeNetFlow"
             , "netflow"
             , "exchangeBalance"
-            , "stablecoinSupply"
-            , "stablecoinFlows"
             , "sopr"
             , "mvrv"
             , "activeAddresses"
-            , "minerFlow"
             , "whaleFlow"
             ]
         )
@@ -671,16 +758,152 @@ featureColumns =
             , "filingScore"
             , "secScore"
             , "filingsCount"
-            , "etfFlow"
-            , "flows"
             , "edgar"
+            ]
+        )
+    ,
+        ( ExternalPolicy
+        ,
+            [ "policy"
+            , "rateDecision"
+            , "policySurprise"
+            , "regulationScore"
+            , "fiscalImpulse"
+            ]
+        )
+    ,
+        ( ExternalFundamentals
+        ,
+            [ "fundamentals"
+            , "earningsSurprise"
+            , "guidanceScore"
+            , "revenueGrowth"
+            , "insiderFlow"
+            , "shortInterest"
+            ]
+        )
+    ,
+        ( ExternalStablecoin
+        ,
+            [ "stablecoin"
+            , "stablecoinSupply"
+            , "stablecoinIssuance"
+            , "stablecoinRedemptions"
+            , "stablecoinFlows"
+            , "stablecoinDepeg"
+            ]
+        )
+    ,
+        ( ExternalInstitutionalFlows
+        ,
+            [ "institutionalFlows"
+            , "etfFlow"
+            , "fundFlow"
+            , "custodyFlow"
+            , "creationsRedemptions"
+            ]
+        )
+    ,
+        ( ExternalNetwork
+        ,
+            [ "network"
+            , "minerReserves"
+            , "minerFlow"
+            , "stakingExits"
+            , "validatorQueue"
+            , "hashRate"
+            , "networkFees"
+            ]
+        )
+    ,
+        ( ExternalDeveloper
+        ,
+            [ "developer"
+            , "developerActivity"
+            , "commits"
+            , "releases"
+            , "contributors"
+            ]
+        )
+    ,
+        ( ExternalGovernance
+        ,
+            [ "governance"
+            , "governanceVote"
+            , "tokenUnlock"
+            , "tokenEmissions"
+            , "treasuryFlow"
+            ]
+        )
+    ,
+        ( ExternalAttention
+        ,
+            [ "attention"
+            , "searchTrends"
+            , "webTraffic"
+            , "appRank"
+            , "downloads"
+            ]
+        )
+    ,
+        ( ExternalSocial
+        ,
+            [ "social"
+            , "socialSentiment"
+            , "postVolume"
+            , "accountGrowth"
+            , "topicVelocity"
+            ]
+        )
+    ,
+        ( ExternalPredictionMarket
+        ,
+            [ "predictionMarket"
+            , "eventProbability"
+            , "upProbability"
+            , "downProbability"
+            ]
+        )
+    ,
+        ( ExternalRealWorld
+        ,
+            [ "realWorld"
+            , "shipping"
+            , "weather"
+            , "energyUse"
+            , "mobility"
+            , "satelliteScore"
+            ]
+        )
+    ,
+        ( ExternalSecurity
+        ,
+            [ "security"
+            , "exploitScore"
+            , "bridgeOutflow"
+            , "depegScore"
+            , "outageScore"
+            , "auditFinding"
             ]
         )
     ]
 
+externalCsvFeatureForColumn :: String -> Maybe ExternalFeature
+externalCsvFeatureForColumn raw =
+    listToMaybe
+        [ feature
+        | (feature, columns) <- featureColumns
+        , column <- columns
+        , normalizeKey column == normalizeKey raw
+        ]
+
 timeColumns :: [String]
 timeColumns =
-    [ "openTimeMs"
+    [ "availableTime"
+    , "available_time"
+    , "publishedAt"
+    , "published_at"
+    , "openTimeMs"
     , "open_time_ms"
     , "timestampMs"
     , "timestamp"
@@ -690,7 +913,12 @@ timeColumns =
     ]
 
 sourceColumns :: [String]
-sourceColumns = ["source", "family", "feature", "dataset", "class", "type"]
+-- Prefer the semantic family over the provider name in canonical long-form
+-- caches (e.g. family=macro, source=fred).
+sourceColumns = ["family", "feature", "dataset", "class", "type", "source"]
+
+symbolColumns :: [String]
+symbolColumns = ["symbol", "asset", "baseAsset"]
 
 valueColumns :: [String]
 valueColumns = ["value", "metric", "signal", "score", "reading"]

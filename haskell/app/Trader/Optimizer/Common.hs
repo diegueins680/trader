@@ -7,6 +7,7 @@ module Trader.Optimizer.Common (
     applyCloseTimingMetrics,
     autoOptimizerRequiredBarsForSweep,
     closeTimingReportFromBacktest,
+    optimizerObjectiveArgs,
     normalizeObjectiveCode,
     objectiveScore,
     objectiveScoreWithConfig,
@@ -232,6 +233,18 @@ objectiveScoreWithConfig roiCfg0 metrics objective penaltyMaxDd penaltyTurnover 
 
 normalizeObjectiveCode :: String -> Either String String
 normalizeObjectiveCode raw = tuneObjectiveCode <$> parseTuneObjective raw
+
+{- | Keep the outer ranking objective and each child trial's threshold-tuning
+objective aligned. Callers may still invoke @optimize-equity@ directly with
+distinct flags when deliberately testing a mixed-objective search.
+-}
+optimizerObjectiveArgs :: String -> [String]
+optimizerObjectiveArgs objective =
+    [ "--objective"
+    , objective
+    , "--tune-objective"
+    , objective
+    ]
 
 autoOptimizerRequiredBarsForSweep :: Double -> Double -> Int -> Maybe Int
 autoOptimizerRequiredBarsForSweep backtestRatio tuneRatio lookbackBars

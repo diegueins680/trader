@@ -37,6 +37,10 @@ fi
 psql "${DB_URL}" -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 SELECT pg_advisory_xact_lock(hashtext('trader.performance_rollups'));
+-- Match API startup's platform-symbol-before-performance lock order. Waiting
+-- here avoids holding analytics-table locks while startup finishes its symbol
+-- inventory transaction, which would otherwise form a deadlock cycle.
+LOCK TABLE platform_symbols IN SHARE ROW EXCLUSIVE MODE;
 SELECT CAST(EXTRACT(EPOCH FROM NOW())*1000 AS BIGINT) AS now_ms \gset
 
 DROP VIEW IF EXISTS performance_combo_deltas;

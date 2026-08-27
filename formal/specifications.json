@@ -495,39 +495,49 @@
     },
     {
       "id": "A-COMMERCIAL",
-      "title": "Strategy Assurance commercial package generation",
-      "features": ["validated prospect scope", "bounded organization outreach preparation", "proposal generation", "evidence request", "outreach copy", "pro-forma payment request", "versioned engagement record", "commercial lifecycle registry", "funnel and recurring-revenue summary", "monitoring renewal offer"],
+      "title": "Strategy Assurance acquisition and commercial lifecycle",
+      "features": ["validated prospect scope", "bounded organization outreach preparation", "evidenced acquisition lifecycle registry", "source conversion summary", "recoverable proposal handoff", "cross-registry handoff reconciliation", "proposal generation", "evidence request", "outreach copy", "pro-forma payment request", "versioned engagement record", "commercial lifecycle registry", "funnel and recurring-revenue summary", "monitoring renewal offer"],
       "criticality": "operational",
-      "implementation": ["scripts/generate-strategy-assurance-kit.mjs", "scripts/generate-strategy-assurance-outreach.mjs", "scripts/strategy-assurance-pipeline.mjs", "scripts/generate-strategy-assurance-renewal.mjs"],
+      "implementation": ["scripts/generate-strategy-assurance-kit.mjs", "scripts/generate-strategy-assurance-outreach.mjs", "scripts/strategy-assurance-acquisition.mjs", "scripts/strategy-assurance-handoff.mjs", "scripts/strategy-assurance-pipeline.mjs", "scripts/generate-strategy-assurance-renewal.mjs"],
       "uses": ["G-SECRET", "G-DETERMINISTIC", "G-BOUNDED", "G-IDEMPOTENT"],
       "dependsOn": ["W-PRESENTATION"],
       "requires": [
         { "id": "A-COMMERCIAL-R1", "statement": "Client, provider, decision owner, strategy, and deployment are explicit single-line values; dates are real ISO calendar dates; price, validity, and turnaround values are finite positive bounded numbers." },
         { "id": "A-COMMERCIAL-R2", "statement": "A pipeline import carries the generated stable engagement identity and schema; a lifecycle mutation names an existing engagement, an allowed immediate successor status, and a date not earlier than that engagement's latest event; paid/refunded events carry finite positive USD cash amounts and delivered events carry finite positive delivery hours." },
         { "id": "A-COMMERCIAL-R3", "statement": "A monitoring renewal offer names an existing delivered engagement, a proposed start not earlier than the offer date, and bounded positive initial monthly cycles; its source pipeline and output location are explicit local paths." },
-        { "id": "A-COMMERCIAL-R4", "statement": "Outreach preparation names a provider, human sender, real campaign date, and one through three unique organizations from a validated dated queue; watchlist inclusion requires an explicit opt-in and the queue and checklist are explicit local paths." }
+        { "id": "A-COMMERCIAL-R4", "statement": "Outreach preparation names a provider, human sender, real campaign date, and one through three unique organizations from a validated dated queue; watchlist inclusion requires an explicit opt-in and the queue and checklist are explicit local paths." },
+        { "id": "A-COMMERCIAL-R5", "statement": "Acquisition import receives a complete local campaign package whose organization records and initial, follow-up, and checklist content match their SHA-256 evidence; each forward transition names one known lead, a real non-backdated date, and a non-secret evidence reference, with channel evidence for contact events and a valid generated engagement for proposal linkage." },
+        { "id": "A-COMMERCIAL-R6", "statement": "A proposal handoff names one qualified lead, its validated generated engagement, the real non-backdated handoff date, non-secret event evidence, and explicit local acquisition and commercial-pipeline paths; reconciliation names an as-of date not earlier than either registry's latest evidence." }
       ],
       "ensures": [
         { "id": "A-COMMERCIAL-E1", "statement": "Fixed validated input produces one tailored proposal, evidence request, outreach document, and schema-versioned engagement record with coherent scope, dates, pricing, and access restrictions." },
         { "id": "A-COMMERCIAL-E2", "statement": "The local pipeline preserves dated lifecycle and event evidence and emits a versioned summary with exact funnel, expiry, next-action, contract-value, gross/refunded/net-cash, delivered-cash, delivery-hour, realized hourly-rate, and contracted recurring-revenue aggregates as of an explicit date." },
         { "id": "A-COMMERCIAL-E3", "statement": "A delivered engagement produces one Markdown and one schema-versioned monitoring offer whose parent identity, scope, dates, monthly price, initial cycles, and total contract value reconcile exactly." },
-        { "id": "A-COMMERCIAL-E4", "statement": "Each selected queue organization produces a human-review-required initial draft, a single follow-up dated no earlier than five business days later, a source-and-route snapshot, exact content hashes, null manual outcomes, and a campaign copy of the pre-live checklist." }
+        { "id": "A-COMMERCIAL-E4", "statement": "Each selected queue organization produces a human-review-required initial draft, a single follow-up dated no earlier than five business days later, a source-and-route snapshot, exact content hashes, null manual outcomes, and a campaign copy of the pre-live checklist." },
+        { "id": "A-COMMERCIAL-E5", "statement": "The atomic acquisition registry preserves dated package and lifecycle evidence and emits exact prepared/contacted/responded/qualified/proposed and follow-up conversions, source-kind performance, wait-period eligibility, and next actions as of a date not earlier than its latest evidence." },
+        { "id": "A-COMMERCIAL-E6", "statement": "A successful handoff binds the same engagement identity, provider, client, proposal date, and source digest in both registries; reconciliation reports exact qualified-to-linked and proposed-to-linked conversion, linked review value and net cash, missing or inconsistent links, and unlinked pipeline provenance." }
       ],
       "invariants": [
         { "id": "A-COMMERCIAL-I1", "statement": "Commercial generation and tracking perform no network request, accept no credential value, never claim investment performance, cannot replace an existing package unless force is explicit, and never send a message, submit a form, join a community, collect member data, claim an affiliation, or perform an external sales, signature, invoice, charge, or billing action; pro-forma payment artifacts remain explicitly distinct from tax invoices and receipts." },
-        { "id": "A-COMMERCIAL-I2", "statement": "Identical imports are idempotent; pipeline events move only through declared forward transitions; status alone cannot synthesize collected cash or delivery hours; total refunds cannot exceed recorded paid cash; cancelled and refunded engagements cannot remain counted as current booked review revenue." }
+        { "id": "A-COMMERCIAL-I2", "statement": "Identical imports are idempotent; pipeline events move only through declared forward transitions; status alone cannot synthesize collected cash or delivery hours; total refunds cannot exceed recorded paid cash; cancelled and refunded engagements cannot remain counted as current booked review revenue." },
+        { "id": "A-COMMERCIAL-I3", "statement": "One organization has at most one acquisition record; follow-up requires at least five business days after actual contact, no-response closure requires at least five business days after the sole follow-up, and the manual proposal-link transition does not import or mutate the commercial engagement pipeline." },
+        { "id": "A-COMMERCIAL-I4", "statement": "Handoff computes and validates both next states before writing, commits the pipeline import before the acquisition link, is idempotent for identical evidence, and treats pipeline engagements without acquisition links as provenance-review items rather than proof of inconsistency because direct and referral channels remain valid." }
       ],
       "failures": [
         { "id": "A-COMMERCIAL-F1", "statement": "Invalid input or a pre-existing output directory without force fails before writing; a file-system failure returns non-success and never performs an external sales or billing action." },
         { "id": "A-COMMERCIAL-F2", "statement": "Malformed, colliding, unknown, backward, skipped, backdated, missing cash/hour evidence, or over-refund pipeline input fails explicitly and does not replace the prior registry." },
         { "id": "A-COMMERCIAL-F3", "statement": "Unknown or non-delivered renewal scope, invalid dates/cycles, or an existing renewal directory without force fails explicitly and cannot mutate the pipeline or perform an external action." },
-        { "id": "A-COMMERCIAL-F4", "statement": "Malformed queue evidence, duplicate or unknown outreach organizations, excessive campaign size, an unacknowledged watchlist entry, or force against a different campaign identity fails explicitly before replacing generated content and cannot perform an external action." }
+        { "id": "A-COMMERCIAL-F4", "statement": "Malformed queue evidence, duplicate or unknown outreach organizations, excessive campaign size, an unacknowledged watchlist entry, or force against a different campaign identity fails explicitly before replacing generated content and cannot perform an external action." },
+        { "id": "A-COMMERCIAL-F5", "statement": "Tampered or partial campaign packages, repeated organizations, missing event evidence, skipped/backdated transitions, premature follow-up or closure, mismatched proposal providers, duplicate engagement linkage, and summary dates before latest evidence fail explicitly without replacing prior acquisition state or performing an external action." },
+        { "id": "A-COMMERCIAL-F6", "statement": "Semantic handoff failure occurs before either registry write; a pipeline write failure leaves acquisition untouched, while an acquisition write failure after a validated pipeline import reports the recoverable state and an identical rerun completes the link without duplication." }
       ],
       "evidence": [
         { "level": "regression", "path": "test/strategy-assurance-kit.test.mjs", "contains": "preserves the credential boundary" },
         { "level": "regression", "path": "test/strategy-assurance-pipeline.test.mjs", "contains": "exact funnel, revenue, expirations, and next actions" },
         { "level": "regression", "path": "test/strategy-assurance-renewal.test.mjs", "contains": "without mutating lifecycle state" },
-        { "level": "regression", "path": "test/strategy-assurance-outreach.test.mjs", "contains": "produces review-only drafts" }
+        { "level": "regression", "path": "test/strategy-assurance-outreach.test.mjs", "contains": "produces review-only drafts" },
+        { "level": "regression", "path": "test/strategy-assurance-acquisition.test.mjs", "contains": "reports exact source conversions and dated next actions" },
+        { "level": "regression", "path": "test/strategy-assurance-handoff.test.mjs", "contains": "persists pipeline before acquisition and reconciles exact linked value" }
       ]
     },
     {

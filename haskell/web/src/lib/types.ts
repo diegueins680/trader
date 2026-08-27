@@ -273,6 +273,7 @@ export type CoinbaseKeysStatus = {
 
 export type BinanceListenKeyResponse = {
   listenKey: string;
+  tenantKey?: string;
   market: Market;
   testnet: boolean;
   wsUrl: string;

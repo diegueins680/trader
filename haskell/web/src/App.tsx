@@ -276,6 +276,7 @@ import {
   roundRatioUp,
   readExactSafeInteger,
   readNonNegativeExactSafeInteger,
+  resolveListenKeyTenantKey,
   safeJsonParse,
   sanitizeSymbolForPlatform,
   sanitizeOptimizationComboOperation,
@@ -5302,7 +5303,7 @@ export function App() {
   );
 
   const openListenKeyStream = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; tenantKey?: string | null }) => {
       const controller = new AbortController();
       const streamId = ++listenKeyStreamSeqRef.current;
       let scheduleRetry: ((reason: string | null) => void) | null = null;
@@ -5314,7 +5315,7 @@ export function App() {
       }
 
       try {
-        const tenantKey = binanceTenantKeyResolved?.trim();
+        const tenantKey = resolveListenKeyTenantKey(listenKeyInfoRef.current, opts?.tenantKey ?? binanceTenantKeyResolved);
         if (!tenantKey) {
           throw new Error("Tenant key required. Add Binance API keys (or check keys) to open the listen key stream.");
         }
@@ -5482,7 +5483,7 @@ export function App() {
 
         setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
         listenKeyInfoRef.current = out;
-        void openListenKeyStream({ silent });
+        void openListenKeyStream({ silent, tenantKey: out.tenantKey });
         if (!silent) showToast("Listen key started");
       } catch (e) {
         const msg = isTimeoutError(e)

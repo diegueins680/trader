@@ -359,6 +359,7 @@ export function buildOutreachCampaign(queueValue, checklistText, config) {
       campaignId,
       organization: prospect.organization,
       queueRank: prospect.rank,
+      queueKind: prospect.kind,
       queuePriority: prospect.priority,
       queueStatus: prospect.status,
       queueResearchedAt: queue.researchedAt,

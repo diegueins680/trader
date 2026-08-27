@@ -11,7 +11,22 @@ module Trader.PortfolioSelection (
     PortfolioRolloutMode (..),
     PortfolioSelection (..),
     PortfolioSelectorConfig (..),
+    PortfolioGraduationConfig (..),
+    PortfolioGraduationDecision (..),
+    PortfolioGraduationEvidence (..),
+    PortfolioGraduationReview (..),
     defaultPortfolioSelectorConfig,
+    defaultPortfolioGraduationConfig,
+    portfolioGraduationConfigVersion,
+    portfolioGraduationDecisionCode,
+    portfolioGraduationExecutionReliability,
+    portfolioGraduationFleetEquities,
+    portfolioGraduationLatestStatusesHealthy,
+    portfolioGraduationPerformance,
+    portfolioGraduationReview,
+    portfolioGraduationReviewApplies,
+    portfolioGraduationStatusCoverage,
+    portfolioGraduationStatusReliability,
     portfolioSelectorConfigVersion,
     parsePortfolioRolloutMode,
     portfolioRolloutModeCode,
@@ -24,7 +39,7 @@ module Trader.PortfolioSelection (
     portfolioSelectionShouldRotate,
 ) where
 
-import Control.Monad (replicateM, unless)
+import Control.Monad (foldM, replicateM, unless, when)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Char (ord, toLower)
@@ -252,6 +267,314 @@ data PortfolioSelectorConfig = PortfolioSelectorConfig
     , pscValidForMs :: !Int64
     }
     deriving (Eq, Show, Generic)
+
+data PortfolioGraduationConfig = PortfolioGraduationConfig
+    { pgcEnabled :: !Bool
+    , pgcStartedAtMs :: !Int64
+    , pgcMinimumDailyObservations :: !Int
+    , pgcMinimumNetReturn :: !Double
+    , pgcMaximumDrawdown :: !Double
+    , pgcMinimumExecutionAttempts :: !Int
+    , pgcMinimumExecutionReliability :: !Double
+    , pgcMinimumStatusReliability :: !Double
+    , pgcMaximumBaselineAgeMs :: !Int64
+    , pgcStatusIntervalMs :: !Int64
+    , pgcMaximumLatestStatusAgeMs :: !Int64
+    }
+    deriving (Eq, Show, Generic)
+
+data PortfolioGraduationDecision
+    = PortfolioGraduationPending
+    | PortfolioGraduated
+    deriving (Eq, Ord, Show, Generic)
+
+portfolioGraduationDecisionCode :: PortfolioGraduationDecision -> Text
+portfolioGraduationDecisionCode PortfolioGraduationPending = "pending"
+portfolioGraduationDecisionCode PortfolioGraduated = "graduated"
+
+instance ToJSON PortfolioGraduationDecision where
+    toJSON = Aeson.String . portfolioGraduationDecisionCode
+
+instance FromJSON PortfolioGraduationDecision where
+    parseJSON = Aeson.withText "PortfolioGraduationDecision" $ \raw ->
+        case T.toLower (T.strip raw) of
+            "pending" -> pure PortfolioGraduationPending
+            "graduated" -> pure PortfolioGraduated
+            _ -> fail "portfolio graduation decision must be pending or graduated"
+
+data PortfolioGraduationEvidence = PortfolioGraduationEvidence
+    { pgeDailyObservationCount :: !Int
+    , pgeNetReturn :: !Double
+    , pgeMaxDrawdown :: !Double
+    , pgeExecutionAttempts :: !Int
+    , pgeExecutionSuccesses :: !Int
+    , pgeStatusSamples :: !Int
+    , pgeHealthyStatusSamples :: !Int
+    , pgeLatestStatusesHealthy :: !Bool
+    }
+    deriving (Eq, Show, Generic)
+
+instance ToJSON PortfolioGraduationEvidence where
+    toJSON value =
+        object
+            [ "dailyObservationCount" .= pgeDailyObservationCount value
+            , "netReturn" .= pgeNetReturn value
+            , "maxDrawdown" .= pgeMaxDrawdown value
+            , "executionAttempts" .= pgeExecutionAttempts value
+            , "executionSuccesses" .= pgeExecutionSuccesses value
+            , "executionReliability" .= portfolioGraduationExecutionReliability value
+            , "statusSamples" .= pgeStatusSamples value
+            , "healthyStatusSamples" .= pgeHealthyStatusSamples value
+            , "statusReliability" .= portfolioGraduationStatusReliability value
+            , "latestStatusesHealthy" .= pgeLatestStatusesHealthy value
+            ]
+
+instance FromJSON PortfolioGraduationEvidence where
+    parseJSON = withObject "PortfolioGraduationEvidence" $ \obj ->
+        PortfolioGraduationEvidence
+            <$> obj .: "dailyObservationCount"
+            <*> obj .: "netReturn"
+            <*> obj .: "maxDrawdown"
+            <*> obj .: "executionAttempts"
+            <*> obj .: "executionSuccesses"
+            <*> obj .: "statusSamples"
+            <*> obj .: "healthyStatusSamples"
+            <*> obj .: "latestStatusesHealthy"
+
+data PortfolioGraduationReview = PortfolioGraduationReview
+    { pgrReviewedAtMs :: !Int64
+    , pgrReviewedUuids :: ![Text]
+    , pgrDecision :: !PortfolioGraduationDecision
+    , pgrReasons :: ![Text]
+    , pgrEvidence :: !PortfolioGraduationEvidence
+    , pgrConfigVersion :: !Text
+    }
+    deriving (Eq, Show, Generic)
+
+instance ToJSON PortfolioGraduationReview where
+    toJSON value =
+        object
+            [ "reviewedAtMs" .= pgrReviewedAtMs value
+            , "reviewedUuids" .= pgrReviewedUuids value
+            , "decision" .= pgrDecision value
+            , "reasons" .= pgrReasons value
+            , "evidence" .= pgrEvidence value
+            , "configVersion" .= pgrConfigVersion value
+            ]
+
+instance FromJSON PortfolioGraduationReview where
+    parseJSON = withObject "PortfolioGraduationReview" $ \obj ->
+        PortfolioGraduationReview
+            <$> obj .: "reviewedAtMs"
+            <*> obj .: "reviewedUuids"
+            <*> obj .: "decision"
+            <*> obj .: "reasons"
+            <*> obj .: "evidence"
+            <*> obj .: "configVersion"
+
+defaultPortfolioGraduationConfig :: PortfolioGraduationConfig
+defaultPortfolioGraduationConfig =
+    PortfolioGraduationConfig
+        { pgcEnabled = False
+        , pgcStartedAtMs = 0
+        , pgcMinimumDailyObservations = 30
+        , pgcMinimumNetReturn = 0
+        , pgcMaximumDrawdown = 0.10
+        , pgcMinimumExecutionAttempts = 10
+        , pgcMinimumExecutionReliability = 0.95
+        , pgcMinimumStatusReliability = 0.99
+        , pgcMaximumBaselineAgeMs = 15 * 60 * 1000
+        , pgcStatusIntervalMs = 15 * 60 * 1000
+        , pgcMaximumLatestStatusAgeMs = 15 * 60 * 1000
+        }
+
+portfolioGraduationConfigVersion :: PortfolioGraduationConfig -> Text
+portfolioGraduationConfigVersion config =
+    T.intercalate
+        ":"
+        [ "portfolio-graduation-v3"
+        , T.pack (show (pgcEnabled config))
+        , T.pack (show (pgcStartedAtMs config))
+        , T.pack (show (pgcMinimumDailyObservations config))
+        , T.pack (show (pgcMinimumNetReturn config))
+        , T.pack (show (pgcMaximumDrawdown config))
+        , T.pack (show (pgcMinimumExecutionAttempts config))
+        , T.pack (show (pgcMinimumExecutionReliability config))
+        , T.pack (show (pgcMinimumStatusReliability config))
+        , T.pack (show (pgcMaximumBaselineAgeMs config))
+        , T.pack (show (pgcStatusIntervalMs config))
+        , T.pack (show (pgcMaximumLatestStatusAgeMs config))
+        ]
+
+portfolioGraduationLatestStatusesHealthy :: Int64 -> Int64 -> [Text] -> [(Text, Int64, Bool)] -> Bool
+portfolioGraduationLatestStatusesHealthy now maximumAgeMs reviewedUuidsRaw rows =
+    not (null reviewedUuids)
+        && maximumAgeMs > 0
+        && length rows == length reviewedUuids
+        && sort (map (normalizeUuid . firstOfThree) rows) == reviewedUuids
+        && all freshAndHealthy rows
+  where
+    reviewedUuids = nub (sort (map normalizeUuid reviewedUuidsRaw))
+    cutoff = now - maximumAgeMs
+    normalizeUuid = T.toLower . T.strip
+    firstOfThree (uuid, _, _) = uuid
+    freshAndHealthy (_, atMs, healthy) = healthy && atMs >= cutoff && atMs <= now
+
+portfolioGraduationExecutionReliability :: PortfolioGraduationEvidence -> Double
+portfolioGraduationExecutionReliability evidence =
+    ratio (pgeExecutionSuccesses evidence) (pgeExecutionAttempts evidence)
+
+portfolioGraduationStatusReliability :: PortfolioGraduationEvidence -> Double
+portfolioGraduationStatusReliability evidence =
+    ratio (pgeHealthyStatusSamples evidence) (pgeStatusSamples evidence)
+
+{- | Charge every expected per-worker heartbeat interval to the reliability
+denominator. Missing intervals are therefore unhealthy rather than absent.
+-}
+portfolioGraduationStatusCoverage :: Int64 -> Int64 -> Int64 -> Int -> (Int, Int) -> (Int, Int)
+portfolioGraduationStatusCoverage windowStartMs windowEndMs intervalMs workerCount (observedIntervals, healthyIntervals)
+    | windowStartMs < 0 || windowEndMs <= windowStartMs || intervalMs <= 0 || workerCount <= 0 = (0, 0)
+    | expectedInteger > toInteger (maxBound :: Int) = (maxBound, 0)
+    | observedIntervals < 0 || healthyIntervals < 0 || healthyIntervals > observedIntervals || observedIntervals > expected = (expected, 0)
+    | otherwise = (expected, healthyIntervals)
+  where
+    duration = toInteger windowEndMs - toInteger windowStartMs
+    interval = toInteger intervalMs
+    intervalsPerWorker = (duration + interval - 1) `div` interval
+    expectedInteger = toInteger workerCount * intervalsPerWorker
+    expected = fromInteger expectedInteger
+
+ratio :: Int -> Int -> Double
+ratio numerator denominator
+    | denominator <= 0 = 0
+    | otherwise = fromIntegral numerator / fromIntegral denominator
+
+{- | Rebase each reviewed worker at the graduation-window boundary, then
+construct complete daily fleet observations from those relative equity paths.
+Pre-window gains and losses must not contribute to the graduation review.
+-}
+portfolioGraduationFleetEquities :: Int64 -> Int64 -> [Text] -> [(Text, Int64, Double)] -> [(Int64, Text, Double)] -> Either String [Double]
+portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs reviewedUuidsRaw baselineRows dailyRows = do
+    when (boundaryMs <= 0) (Left "graduation baseline boundary is invalid")
+    when (maximumBaselineAgeMs <= 0) (Left "graduation maximum baseline age is invalid")
+    when (null reviewedUuids) (Left "graduation reviewed UUID set is empty")
+    baselines <- foldM insertBaseline M.empty baselineRows
+    unless (M.keys baselines == reviewedUuids) (Left "graduation baseline is missing for a reviewed UUID")
+    dailyByDay <- foldM insertDaily M.empty dailyRows
+    traverse (fleetEquity baselines) (completeDays dailyByDay)
+  where
+    normalizeUuid = T.toLower . T.strip
+    reviewedUuids = nub (sort (map normalizeUuid reviewedUuidsRaw))
+    isReviewed uuid = uuid `elem` reviewedUuids
+    insertBaseline acc (rawUuid, atMs, equity) =
+        let uuid = normalizeUuid rawUuid
+         in if not (isReviewed uuid)
+                then Left "graduation baseline contains an unknown UUID"
+                else
+                    if atMs < 0 || atMs > boundaryMs || boundaryMs - atMs > maximumBaselineAgeMs
+                        then Left "graduation baseline is outside the boundary freshness window"
+                        else
+                            if not (isFinite equity) || equity <= 0
+                                then Left "graduation baseline equity must be finite and positive"
+                                else
+                                    if M.member uuid acc
+                                        then Left "graduation baseline contains a duplicate UUID"
+                                        else Right (M.insert uuid equity acc)
+    insertDaily acc (dayMs, rawUuid, equity) =
+        let uuid = normalizeUuid rawUuid
+            dayRows = M.findWithDefault M.empty dayMs acc
+         in if not (isReviewed uuid)
+                then Left "graduation daily equity contains an unknown UUID"
+                else
+                    if not (isFinite equity) || equity <= 0
+                        then Left "graduation daily equity must be finite and positive"
+                        else
+                            if M.member uuid dayRows
+                                then Left "graduation daily equity contains a duplicate UUID"
+                                else Right (M.insert dayMs (M.insert uuid equity dayRows) acc)
+    completeDays dailyByDay =
+        [ rows
+        | (_, rows) <- M.toAscList dailyByDay
+        , M.keys rows == reviewedUuids
+        ]
+    fleetEquity baselines rows =
+        let equity =
+                1
+                    + sum
+                        [ current / baseline - 1
+                        | uuid <- reviewedUuids
+                        , let current = rows M.! uuid
+                        , let baseline = baselines M.! uuid
+                        ]
+         in if isFinite equity && equity > 0
+                then Right equity
+                else Left "graduation relative fleet equity must be finite and positive"
+
+portfolioGraduationPerformance :: [Double] -> Either String (Int, Double, Double)
+portfolioGraduationPerformance equities
+    | any (\value -> not (isFinite value) || value <= 0) equities = Left "graduation fleet equity must be finite and positive"
+    | otherwise =
+        case equities of
+            [] -> Right (0, 0, 0)
+            _ ->
+                let returns = zipWith (\previous current -> current / previous - 1) (1 : equities) equities
+                 in Right (length equities, last equities - 1, portfolioMaxDrawdown returns)
+
+portfolioGraduationReview :: PortfolioGraduationConfig -> Int64 -> [Text] -> PortfolioGraduationEvidence -> PortfolioGraduationReview
+portfolioGraduationReview config now reviewedUuidsRaw evidence =
+    PortfolioGraduationReview
+        { pgrReviewedAtMs = now
+        , pgrReviewedUuids = reviewedUuids
+        , pgrDecision = if null reasons then PortfolioGraduated else PortfolioGraduationPending
+        , pgrReasons = reasons
+        , pgrEvidence = evidence
+        , pgrConfigVersion = portfolioGraduationConfigVersion config
+        }
+  where
+    reviewedUuids = nub (sort (map (T.toLower . T.strip) reviewedUuidsRaw))
+    finite = isFinite
+    reasons =
+        [ "automatic-graduation-disabled"
+        | not (pgcEnabled config)
+        ]
+            ++ [ "graduation-start-time-invalid"
+               | pgcStartedAtMs config <= 0
+               ]
+            ++ [ "reviewed-uuid-set-empty"
+               | null reviewedUuids
+               ]
+            ++ [ "daily-observations-below-minimum"
+               | pgeDailyObservationCount evidence < pgcMinimumDailyObservations config
+               ]
+            ++ [ "net-return-below-minimum"
+               | not (finite (pgeNetReturn evidence))
+                    || pgeNetReturn evidence <= pgcMinimumNetReturn config
+               ]
+            ++ [ "max-drawdown-above-limit"
+               | not (finite (pgeMaxDrawdown evidence))
+                    || pgeMaxDrawdown evidence > pgcMaximumDrawdown config
+               ]
+            ++ [ "execution-attempts-below-minimum"
+               | pgeExecutionAttempts evidence < pgcMinimumExecutionAttempts config
+               ]
+            ++ [ "execution-reliability-below-minimum"
+               | portfolioGraduationExecutionReliability evidence < pgcMinimumExecutionReliability config
+               ]
+            ++ [ "status-reliability-below-minimum"
+               | portfolioGraduationStatusReliability evidence < pgcMinimumStatusReliability config
+               ]
+            ++ [ "latest-status-unhealthy"
+               | not (pgeLatestStatusesHealthy evidence)
+               ]
+
+portfolioGraduationReviewApplies :: PortfolioGraduationConfig -> [Text] -> PortfolioGraduationReview -> Bool
+portfolioGraduationReviewApplies config reviewedUuidsRaw review =
+    pgcEnabled config
+        && pgrDecision review == PortfolioGraduated
+        && pgrConfigVersion review == portfolioGraduationConfigVersion config
+        && pgrReviewedUuids review == reviewedUuids
+  where
+    reviewedUuids = nub (sort (map (T.toLower . T.strip) reviewedUuidsRaw))
 
 defaultPortfolioSelectorConfig :: PortfolioSelectorConfig
 defaultPortfolioSelectorConfig =

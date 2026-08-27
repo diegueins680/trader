@@ -3045,6 +3045,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
             BacktestResult
                 { brEquityCurve = [1]
                 , brPositions = []
+                , brExposureCurve = []
                 , brAgreementOk = []
                 , brAgreementValid = []
                 , brPositionChanges = 0
