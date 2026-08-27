@@ -1792,7 +1792,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_BOT_TRADE=true/);
   assert.match(hetznerTrading, /TRADER_BOT_PROTECTION_ORDERS=true/);
   assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART=true/);
-  assert.match(hetznerTrading, /^TRADER_BOT_DISABLED_SYMBOLS=$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_DISABLED_SYMBOLS=MATICUSDT$/m);
   assert.match(
     hetznerTrading,
     /TRADER_BOT_SYMBOLS=AVAXUSDT,UNIUSDT,SUIUSDT,ETCUSDT,ADAUSDT/,
