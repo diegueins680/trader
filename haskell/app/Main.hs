@@ -21299,14 +21299,14 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                         query
                             conn
                             ( "SELECT combo_uuid, at_ms, "
-                                <> "COALESCE((result_json->>'running')::boolean, false) "
+                                <> "COALESCE((result_json->>'live')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                <> "AND COALESCE((result_json->>'running')::boolean, false) "
                                 <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
                                 <> "AND result_json->>'error' IS NULL AS healthy "
                                 <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, at_ms, result_json "
                                 <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
                                 <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
-                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
                                 <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
                             )
                             (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
