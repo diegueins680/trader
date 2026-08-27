@@ -7624,6 +7624,7 @@ defaultBotSettings args =
 defaultBotSettingsFromEnv :: Args -> IO BotSettings
 defaultBotSettingsFromEnv args = do
     tradeEnabledRaw <- lookupEnv "TRADER_BOT_TRADE"
+    protectionOrdersRaw <- lookupEnv "TRADER_BOT_PROTECTION_ORDERS"
     onlineEpochs <- readBoundedIntEnv "TRADER_BOT_ONLINE_EPOCHS" 0 50 defaultBotOnlineEpochs
     onlineValRatio <- readBoundedDoubleEnv "TRADER_BOT_ONLINE_VAL_RATIO" 0 0.95 defaultBotOnlineValRatio
     onlinePatience <- readBoundedIntEnv "TRADER_BOT_ONLINE_PATIENCE" 0 50 defaultBotOnlinePatience
@@ -7640,6 +7641,7 @@ defaultBotSettingsFromEnv args = do
         -- When present, this is a deployment-level kill switch.  Invalid
         -- values fail closed; absence preserves the legacy/API default.
         tradeEnabled = maybe True (\_ -> readEnvBool tradeEnabledRaw False) tradeEnabledRaw
+        protectionOrders = maybe False (\_ -> readEnvBool protectionOrdersRaw False) protectionOrdersRaw
     neuralRolloutMode <-
         case neuralRolloutRaw of
             Nothing -> pure (ngcRolloutMode neuralDefaults)
@@ -7699,6 +7701,7 @@ defaultBotSettingsFromEnv args = do
                     , ngcRollbackAdvantageFloor = neuralRollbackAdvantageFloor
                     }
             , bsTradeEnabled = tradeEnabled
+            , bsProtectionOrders = protectionOrders
             }
 
 botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
@@ -24329,7 +24332,7 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                                                                             case posSideForOrder of
                                                                                                 Just s | s /= "BOTH" -> Just s
                                                                                                 _ -> Nothing
-                                                                                baseOut = baseResult sideLabel qty
+                                                                                baseOut = (baseResult sideLabel qty){aorReduceOnly = True}
                                                                             r2 <- try (placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty (Just True) Nothing posSideParam) :: IO (Either SomeException BL.ByteString)
                                                                             case r2 of
                                                                                 Left ex ->
