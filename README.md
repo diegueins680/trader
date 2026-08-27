@@ -387,7 +387,7 @@ Production research nodes own scheduled evidence backfills; trading nodes consum
 
 Production roles launch bot auto-start before the combo replica worker, then give replica synchronization a 30-second startup grace period. Bot auto-start can therefore assess the atomically persisted local leaderboard before the CPU-heavy 5,000-combo replica merge begins; recurring synchronization still runs every 60 seconds afterward.
 
-Once per week, the server evaluates up to three unique-symbol bots jointly. It searches 5% weight increments, caps each bot at 25% and total deployed capital at 75%, and leaves unused capital in cash. A deterministic seven-day moving-block bootstrap maximizes the 10th-percentile annualized net return while requiring the 95th-percentile maximum drawdown to remain at or below 10%. Rotation additionally requires two percentage points of conservative annualized improvement and at least 90% paired-bootstrap outperformance probability.
+Once per week, the server evaluates up to three unique-symbol bots jointly. The selector defaults to 5% weight increments, caps each bot at 25% and total deployed capital at 75%, and leaves unused capital in cash; the managed micro-live profile uses 1% increments with its 1% member cap. A deterministic seven-day moving-block bootstrap maximizes the 10th-percentile annualized net return while requiring the 95th-percentile maximum drawdown to remain at or below 10%. Rotation additionally requires two percentage points of conservative annualized improvement and at least 90% paired-bootstrap outperformance probability.
 
 The decision is atomically persisted beside `top-combos.json` as `portfolio-selection.json` and expires after eight days. Open/orphaned positions are always restored first for safe management: live startup scans exchange inventory before loading or rebuilding portfolio selection, skips selection and rotation while any position still needs adoption or its worker is initializing, and lets every adoption bypass ordinary portfolio, per-cycle start, stale-backoff, and new-entry circuit-breaker caps. In `canary` or `enforce`, an absent, expired, or invalid decision blocks new portfolio entries instead of falling back to independent combo ranking. Canary scales aggregate portfolio capital to 25%; enforce uses the selected weights up to the normal 75% ceiling. The default `shadow` mode reports the challenger through `/bot/status` and the Live Bot UI without changing the existing fleet.
 
@@ -406,6 +406,7 @@ TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow
 TRADER_PORTFOLIO_SELECTOR_MAX_BOTS=5
 TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0.01
 TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0.05
+TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP=0.01
 TRADER_BOT_PROTECTION_ORDERS=true
 TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false
 TRADER_PORTFOLIO_SELECTOR_MAX_DRAWDOWN=0.10

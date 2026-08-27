@@ -1685,6 +1685,8 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(main, /lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"/);
   assert.match(main, /lookupEnv "TRADER_BOT_ONLINE_OPTIMIZER_ENABLED"/);
   assert.match(main, /readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOTS" 1 5/);
+  assert.match(main, /readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP" 0\.01 0\.25/);
+  assert.match(main, /readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MIN_DAYS" 10 365/);
   assert.match(autoStartLoop, /targetSymbolsBase = dedupeStable \(topSymbols \+\+ liveBaseSymbols\)/);
   assert.match(autoStartLoop, /capBotStartSymbolsPreservingOrphans maxBots targetSymbolsBase orphanSymbols/);
   assert.match(autoStartLoop, /filterBotStartAttemptsPreservingOrphans\s+circuitOpen[\s\S]*?orphanSymbols\s+missingAll/);
@@ -1744,6 +1746,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   ]) {
     const config = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(config, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
+    assert.match(config, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP=0\.01/);
     assert.match(config, /TRADER_BOT_PROTECTION_ORDERS=true/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.01/);
@@ -1753,6 +1756,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   const compose = await fs.readFile(new URL("../deploy/hetzner/docker-compose.yml", import.meta.url), "utf8");
   assert.match(compose, /TRADER_BOT_PROTECTION_ORDERS: \$\{TRADER_BOT_PROTECTION_ORDERS:-false\}/);
   assert.match(compose, /TRADER_BOT_DISABLED_SYMBOLS: \$\{TRADER_BOT_DISABLED_SYMBOLS:-\}/);
+  assert.match(compose, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP: \$\{TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP:-0\.05\}/);
   assert.match(compose, /TRADER_BOT_START_ADOPTION_RELAX_GATES: \$\{TRADER_BOT_START_ADOPTION_RELAX_GATES:-\}/);
   assert.match(
     compose,
@@ -1803,6 +1807,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.01/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0\.01/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0\.05/);
+  assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP=0\.01/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MIN_DAYS=10/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_ENABLED=true/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_STARTED_AT_MS=1787809701000/);

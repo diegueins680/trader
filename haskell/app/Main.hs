@@ -9240,8 +9240,9 @@ portfolioSelectorConfigFromEnv = do
     maxMembers <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOTS" 1 5 (pscMaxMembers defaults)
     maxWeight <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT" 0.01 0.25 (pscMaxMemberWeight defaults)
     maxGross <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT" 0.05 0.75 (pscMaxGrossWeight defaults)
+    weightStep <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP" 0.01 0.25 (min maxWeight (pscWeightStep defaults))
     maxDrawdown <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_MAX_DRAWDOWN" 0.01 0.10 (pscMaxDrawdown defaults)
-    minObservations <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MIN_DAYS" 30 365 (pscMinimumObservations defaults)
+    minObservations <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_MIN_DAYS" 10 365 (pscMinimumObservations defaults)
     bootstrapSamples <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_BOOTSTRAP_SAMPLES" 100 5000 (pscBootstrapSamples defaults)
     blockDays <- readBoundedIntEnv "TRADER_PORTFOLIO_SELECTOR_BLOCK_DAYS" 1 30 (pscBootstrapBlockDays defaults)
     improvement <- readBoundedDoubleEnv "TRADER_PORTFOLIO_SELECTOR_ROTATION_IMPROVEMENT" 0 1 (pscRotationImprovementFloor defaults)
@@ -9251,6 +9252,7 @@ portfolioSelectorConfigFromEnv = do
             { pscMaxMembers = maxMembers
             , pscMaxMemberWeight = maxWeight
             , pscMaxGrossWeight = maxGross
+            , pscWeightStep = weightStep
             , pscMaxDrawdown = maxDrawdown
             , pscMinimumObservations = minObservations
             , pscBootstrapSamples = bootstrapSamples

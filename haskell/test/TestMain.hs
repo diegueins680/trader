@@ -595,6 +595,7 @@ main = do
     testPortfolioAnnualizationAndDrawdown
     testOptimizerExtractsTimestampedPortfolioEvidence
     testPortfolioSelectionIsDeterministicAndBounded
+    testPortfolioSelectionAcceptsMicroLiveBounds
     testPortfolioSelectionFailsClosedOnInvalidNumbers
     testPortfolioSelectionRejectsSparseWinner
     testPortfolioCurrentEvidenceRiskGate
@@ -5755,6 +5756,27 @@ testPortfolioSelectionIsDeterministicAndBounded = do
             assert "portfolio gross weight respects the 75% hard cap" (sum weights <= 0.75 + 1.0e-12)
             assert "portfolio bootstrap drawdown respects the configured hard cap" (pmMaxDrawdownP95 (psMetrics selection) <= pscMaxDrawdown portfolioTestConfig)
             assert "portfolio snapshots fingerprint the complete selector configuration" (psConfigVersion selection == portfolioSelectorConfigVersion portfolioTestConfig)
+
+testPortfolioSelectionAcceptsMicroLiveBounds :: IO ()
+testPortfolioSelectionAcceptsMicroLiveBounds = do
+    let config =
+            defaultPortfolioSelectorConfig
+                { pscMaxMembers = 5
+                , pscMaxMemberWeight = 0.01
+                , pscMaxGrossWeight = 0.05
+                , pscWeightStep = 0.01
+                , pscMinimumObservations = 10
+                , pscMaximumObservations = 10
+                , pscBootstrapSamples = 100
+                , pscBootstrapPortfolioLimit = 64
+                }
+        candidate = portfolioCandidateForTest "micro-live" "ADAUSDT" (replicate 10 0.001)
+    case selectPortfolio config 1 PortfolioShadow [] [candidate] of
+        Left err -> ioError (userError ("micro-live portfolio selection unexpectedly failed: " ++ err))
+        Right selection ->
+            assert
+                "portfolio selection accepts the managed 10-day, 1%-step safety bounds"
+                (map pmWeight (psMembers selection) == [0.01])
 
 testPortfolioSelectionFailsClosedOnInvalidNumbers :: IO ()
 testPortfolioSelectionFailsClosedOnInvalidNumbers = do
