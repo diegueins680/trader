@@ -254,10 +254,18 @@ fetchCsvObservations mSymbol path = do
                     let hdrList = V.toList hdr
                         mTimeKey = firstJust [findHeaderKey hdrList c | c <- timeColumns]
                     case mTimeKey of
-                        Nothing -> do
+                                                Nothing -> do
                             hPutStrLn stderr ("WARN: external data CSV has no timestamp column: " ++ path)
                             pure []
-                        Just timeKey -> pure (concatMap (rowObservations mSymbol hdrList timeKey) (V.toList rows))
+                        Just timeKey -> do
+                            let rowsList = V.toList rows
+                            if any (rowHasScopedSymbolWithoutTarget mSymbol) rowsList
+                                then
+                                    hPutStrLn
+                                        stderr
+                                        ("WARN: external data CSV rejected symbol-scoped rows because target symbol is unknown (" ++ path ++ ")")
+                                else pure ()
+                            pure (concatMap (rowObservations mSymbol hdrList timeKey) rowsList)
 
 rowObservations :: Maybe String -> [BS.ByteString] -> BS.ByteString -> Csv.NamedRecord -> [ExternalObservation]
 rowObservations mSymbol hdrList timeKey row =
@@ -285,8 +293,15 @@ rowMatchesSymbol :: Maybe String -> Csv.NamedRecord -> Bool
 rowMatchesSymbol mSymbol row =
     externalSymbolMatches mSymbol (BS.unpack <$> lookupAny symbolColumns row)
 
+rowHasScopedSymbolWithoutTarget :: Maybe String -> Csv.NamedRecord -> Bool
+rowHasScopedSymbolWithoutTarget mSymbol row =
+    case (mSymbol, BS.unpack <$> lookupAny symbolColumns row) of
+        (Nothing, Just rawScope) -> not (null (normalizeKey rawScope))
+        _ -> False
+
 externalSymbolMatches :: Maybe String -> Maybe String -> Bool
-externalSymbolMatches Nothing _ = True
+externalSymbolMatches Nothing Nothing = True
+externalSymbolMatches Nothing (Just rawScope) = null (normalizeKey rawScope)
 externalSymbolMatches (Just _) Nothing = True
 externalSymbolMatches (Just symbol) (Just rawScope) =
     let scope = normalizeKey rawScope

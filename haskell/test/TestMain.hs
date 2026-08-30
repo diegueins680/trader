@@ -61,7 +61,7 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
-import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCsvFeatureForColumn, externalSymbolMatches, parseExternalJsonSpec)
+import Trader.ExternalData (ExternalDataConfig (..), ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCsvFeatureForColumn, externalSymbolMatches, fetchExternalFeatureInputs, parseExternalJsonSpec)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -694,7 +694,8 @@ main = do
     testFormalRiskLossStreakHalt
     testSignalGatesFailClosedExhaustive
     testPredictorLivenessDetectsDegenerateForecast
-    testCrossExchangeCoinbaseInputs
+        testCrossExchangeCoinbaseInputs
+    testExternalDataRejectsScopedRowsWithoutTargetSymbol
     testExternalDataFeatureInputs
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
@@ -853,7 +854,54 @@ testCrossExchangeCoinbaseInputs = do
             assert
                 "basis feature reflects the ~+2% Coinbase premium"
                 (basisNow > 0.015 && basisNow < 0.025)
-        _ -> assert "feature vectors should be computable at t" False
+                _ -> assert "feature vectors should be computable at t" False
+
+testExternalDataRejectsScopedRowsWithoutTargetSymbol :: IO ()
+testExternalDataRejectsScopedRowsWithoutTargetSymbol = do
+    assert
+        "unknown target symbols admit only global external scopes"
+        ( externalSymbolMatches Nothing Nothing
+            && externalSymbolMatches Nothing (Just "")
+            && not (externalSymbolMatches Nothing (Just "BTC"))
+        )
+    (path, handle) <- openTempFile "/tmp" "trader-external-scopes.csv"
+    hClose handle
+    let csv = BL.fromStrict "timestamp,symbol,microstructure\n0,,1\n60000,BTCUSDT,2\n120000,BTC,3\n180000,ETHUSDT,4\n"
+        cfg =
+            ExternalDataConfig
+                { edcEnabled = True
+                , edcCsvPaths = [path]
+                , edcJsonSpecs = []
+                , edcFredApiKey = Nothing
+                , edcFredSeries = []
+                , edcFredPitLagDays = 0
+                , edcDeribitCurrencies = []
+                , edcGlassnodeApiKey = Nothing
+                , edcGlassnodeAsset = Nothing
+                , edcGlassnodeMetrics = []
+                , edcGlassnodeInterval = "24h"
+                , edcGdeltQueries = []
+                , edcSecCiks = []
+                , edcSecUserAgent = Nothing
+                }
+        openTimes = V.fromList [0, 60000, 120000, 180000]
+        intervalMs = 60000
+    BL.writeFile path csv
+    unknownTargetInputs <- fetchExternalFeatureInputs cfg Nothing openTimes intervalMs
+    btcInputs <- fetchExternalFeatureInputs cfg (Just "BTCUSDT") openTimes intervalMs
+    _ <- try (removeFile path) :: IO (Either SomeException ())
+    assert
+        "unknown target symbol rejects symbol-scoped rows but keeps global rows"
+        (case unknownTargetInputs >>= efiMicrostructure of
+            Just series -> series == V.fromList [1, 1, 1, 1]
+            Nothing -> False
+        )
+    assert
+        "explicit target symbol still admits matching full-symbol and base-asset rows"
+        (case btcInputs >>= efiMicrostructure of
+            Just series -> series == V.fromList [1, 2, 3, 3]
+            Nothing -> False
+        )
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do
