@@ -37,6 +37,7 @@ formalVerificationSuite =
     , ("risk metrics and loss-streak limits fail closed", testRiskMalformedInputs)
     , ("gate telemetry bounds history and unknown cardinality", testGateTelemetryBounds)
     , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
+    , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
     , ("every formal execution obligation holds", testFormalExecutionReport)
     , ("every formal risk obligation holds", testFormalRiskReport)
     , ("every formal optimization obligation holds", testFormalOptimizationReport)
@@ -189,6 +190,29 @@ testExternalDataSymbolScoping =
             , ("resolved symbol rejects other base-symbol scope", not (externalSymbolMatches target (Just "ETH")))
             ]
 
+testGraduationEquitySessionBoundary :: IO ()
+testGraduationEquitySessionBoundary = do
+    let stableWorker =
+            [ graduationEvidence "stable-worker" "session-stable" 1.00
+            , graduationEvidence "stable-worker" "session-stable" 1.05
+            ]
+        restartedWorker =
+            [ graduationEvidence "restarted-worker" "session-before-restart" 1.00
+            , graduationEvidence "restarted-worker" "session-before-restart" 0.92
+            , graduationEvidence "restarted-worker" "session-after-restart" 1.00
+            , graduationEvidence "restarted-worker" "session-after-restart" 1.03
+            ]
+        reviewedFleet = stableWorker ++ restartedWorker
+    assertBool
+        "single-session fleet evidence remains admissible"
+        (maybe False (\value -> value `approxEq` 0.05) (sessionBoundedFleetReturn stableWorker))
+    assertBool
+        "mid-window session changes fail closed for graduation"
+        (isNothing (sessionBoundedFleetReturn reviewedFleet))
+    assertBool
+        "naive raw-level stitching would have manufactured positive fleet return"
+        (naiveFleetReturn reviewedFleet > 0.07)
+
 testFormalExecutionReport :: IO ()
 testFormalExecutionReport =
     assertChecks
@@ -265,6 +289,60 @@ testFormalOptimizationReport =
         ]
   where
     report = Optimization.verifyFormalOptimization
+
+data GraduationEvidence = GraduationEvidence
+    { geWorker :: String
+    , geSession :: String
+    , geModelEquity :: Double
+    }
+
+graduationEvidence :: String -> String -> Double -> GraduationEvidence
+graduationEvidence = GraduationEvidence
+
+sessionBoundedFleetReturn :: [GraduationEvidence] -> Maybe Double
+sessionBoundedFleetReturn =
+    fmap sum
+        . mapM sessionBoundedWorkerReturn
+        . Map.elems
+        . evidenceByWorker
+
+evidenceByWorker :: [GraduationEvidence] -> Map.Map String [GraduationEvidence]
+evidenceByWorker [] = Map.empty
+evidenceByWorker (sample : samples) =
+    Map.insertWith (++) (geWorker sample) [sample] (evidenceByWorker samples)
+
+sessionBoundedWorkerReturn :: [GraduationEvidence] -> Maybe Double
+sessionBoundedWorkerReturn [] = Nothing
+sessionBoundedWorkerReturn (sample : samples)
+    | not (validEquity (geModelEquity sample)) = Nothing
+    | otherwise = go (geSession sample) (geModelEquity sample) (geModelEquity sample) samples
+  where
+    go _ startEquity currentEquity [] = Just (currentEquity - startEquity)
+    go session startEquity _ (next : rest)
+        | geSession next /= session = Nothing
+        | not (validEquity (geModelEquity next)) = Nothing
+        | otherwise =
+            go session startEquity (geModelEquity next) rest
+
+validEquity :: Double -> Bool
+validEquity value = not (isNaN value) && not (isInfinite value)
+
+naiveFleetReturn :: [GraduationEvidence] -> Double
+naiveFleetReturn =
+    sum
+        . map rawLevelReturn
+        . Map.elems
+        . evidenceByWorker
+
+rawLevelReturn :: [GraduationEvidence] -> Double
+rawLevelReturn [] = 0
+rawLevelReturn (sample : samples) = go (geModelEquity sample) (geModelEquity sample) samples
+  where
+    go startEquity currentEquity [] = currentEquity - startEquity
+    go startEquity _ (next : rest) = go startEquity (geModelEquity next) rest
+
+approxEq :: Double -> Double -> Bool
+approxEq left right = abs (left - right) <= 1.0e-12
 
 assertChecks :: [(String, Bool)] -> IO ()
 assertChecks = mapM_ (uncurry assertBool)

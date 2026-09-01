@@ -118,6 +118,28 @@ Proof sketch:
 - Adding cumulative realized costs back to net produces an accounting reconciliation surface for the emitted path. Subtracting those same cumulative realized costs must therefore recover net, modulo finite serialization and arithmetic residuals.
 - Because the simulator does not replay all subsequent returns on a higher no-cost capital base for this surface, the reconciliation curve cannot be treated as a cost-free counterfactual. The contract is cost attribution for the realized run, not alternate-world performance without costs.
 
+## Formal automatic-graduation session-bounded equity contract
+
+Automatic graduation net-return evidence in `haskell/app/Main.hs` is admissible only when each reviewed worker's model-equity chain stays within one bot session across the evidence window.
+
+Clauses:
+
+1. A reviewed worker's model-equity chain is admissible only when every sampled equity is finite and every sample in that compared chain shares one session identifier.
+2. A session change inside the evidence window is a hard boundary. Pre-restart and post-restart model-equity levels must not be compared as one continuous return chain because a bot restart can rebase model equity near `1.0`.
+3. When a reviewed worker changes session inside the evidence window, automatic-graduation return evidence must split at that boundary or reject the affected worker fail-closed for graduation.
+4. For one admissible session, net-return evidence is the last finite model-equity level minus the first finite model-equity level from that same session only.
+5. This boundary must not allow a restart-rebased worker to manufacture positive fleet-return evidence from cross-session stitching.
+
+Bounded executable obligation:
+
+- `testGraduationEquitySessionBoundary` witnesses that single-session reviewed-worker evidence remains admissible, while a worker that loses equity, restarts mid-window, and resumes near `1.0` is rejected instead of being stitched into a false positive fleet return.
+
+Proof sketch:
+
+- Model equity is session-relative, so a restart can reset the baseline independently of prior losses. Comparing pre-restart and post-restart levels directly therefore breaks return additivity and can manufacture gains.
+- Treating the session identifier as part of the evidence boundary preserves only within-session differences; once the identifier changes, the surrounding levels are no longer on the same equity scale.
+- Splitting or rejecting at the first session boundary is conservative: it can suppress unsafe graduation evidence, but it cannot create a positive fleet-return witness from cross-session data.
+
 ## Formal fee-aware entry gate contract
 
 `normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.
