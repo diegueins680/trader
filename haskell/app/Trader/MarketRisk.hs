@@ -3,6 +3,7 @@
 module Trader.MarketRisk (
     MarketRiskConfig (..),
     MarketRiskInput (..),
+    MarketRiskAdmissionOutcome (..),
     MarketRiskDecision (..),
     defaultMarketRiskConfig,
     loadMarketRiskConfig,
@@ -48,8 +49,15 @@ data MarketRiskInput = MarketRiskInput
     }
     deriving (Eq, Show)
 
+data MarketRiskAdmissionOutcome
+    = MarketRiskAdmissionAllowed
+    | MarketRiskAdmissionDenied
+    | MarketRiskAdmissionInvalid
+    deriving (Eq, Show)
+
 data MarketRiskDecision = MarketRiskDecision
     { mrdAllowed :: !Bool
+    , mrdAdmissionOutcome :: !MarketRiskAdmissionOutcome
     , mrdReasons :: ![String]
     , mrdEdgeBps :: !(Maybe Double)
     , mrdSpreadBps :: !(Maybe Double)
@@ -66,10 +74,21 @@ data MarketRiskDecision = MarketRiskDecision
     }
     deriving (Eq, Show)
 
+marketRiskAdmissionOutcomeCode :: MarketRiskAdmissionOutcome -> String
+marketRiskAdmissionOutcomeCode outcome =
+    case outcome of
+        MarketRiskAdmissionAllowed -> "allowed"
+        MarketRiskAdmissionDenied -> "policy_denied"
+        MarketRiskAdmissionInvalid -> "invalid_request"
+
+instance ToJSON MarketRiskAdmissionOutcome where
+    toJSON = toJSON . marketRiskAdmissionOutcomeCode
+
 instance ToJSON MarketRiskDecision where
     toJSON decision =
         object
             [ "allowed" .= mrdAllowed decision
+            , "admissionOutcome" .= mrdAdmissionOutcome decision
             , "reasons" .= mrdReasons decision
             , "edgeBps" .= mrdEdgeBps decision
             , "spreadBps" .= mrdSpreadBps decision
@@ -124,7 +143,7 @@ loadMarketRiskConfig = do
 
 marketRiskDecision :: MarketRiskConfig -> MarketRiskInput -> FuturesMarketSnapshot -> MarketRiskDecision
 marketRiskDecision cfg input snapshot
-    | not (mrcEnabled cfg) = emptyDecision{mrdAllowed = True}
+    | not (mrcEnabled cfg) = emptyDecision{mrdAllowed = True, mrdAdmissionOutcome = MarketRiskAdmissionAllowed}
     | otherwise =
         let invalidInputReasons =
                 [ "invalid direction" | mriDirection input /= 1 && mriDirection input /= -1
@@ -210,9 +229,15 @@ marketRiskDecision cfg input snapshot
                     ++ shadowSeriesWarnings cfg input "open interest change" finite (fmsOpenInterestChangePct snapshot)
                     ++ shadowSeriesWarnings cfg input "taker ratio" finitePositive (fmsTakerBuySellRatio snapshot)
                     ++ shadowSeriesWarnings cfg input "historical basis" finite (fmsBasisRate snapshot)
-            reasons = invalidInputReasons ++ edgeReasons ++ criticalReasons ++ bookReasons ++ premiumReasons ++ adlReasons
+            policyReasons = edgeReasons ++ criticalReasons ++ bookReasons ++ premiumReasons ++ adlReasons
+            reasons = invalidInputReasons ++ policyReasons
+            admissionOutcome
+                | not (null invalidInputReasons) = MarketRiskAdmissionInvalid
+                | null policyReasons = MarketRiskAdmissionAllowed
+                | otherwise = MarketRiskAdmissionDenied
          in MarketRiskDecision
-                { mrdAllowed = null reasons
+                { mrdAllowed = admissionOutcome == MarketRiskAdmissionAllowed
+                , mrdAdmissionOutcome = admissionOutcome
                 , mrdReasons = reasons
                 , mrdEdgeBps = edgeBps
                 , mrdSpreadBps = spreadBps
@@ -231,6 +256,7 @@ marketRiskDecision cfg input snapshot
     emptyDecision =
         MarketRiskDecision
             { mrdAllowed = False
+            , mrdAdmissionOutcome = MarketRiskAdmissionDenied
             , mrdReasons = []
             , mrdEdgeBps = Nothing
             , mrdSpreadBps = Nothing
@@ -248,7 +274,11 @@ marketRiskDecision cfg input snapshot
 
 marketRiskSummary :: MarketRiskDecision -> String
 marketRiskSummary decision =
-    let outcome = if mrdAllowed decision then "allowed" else "blocked"
+    let outcome =
+            case mrdAdmissionOutcome decision of
+                MarketRiskAdmissionAllowed -> "allowed"
+                MarketRiskAdmissionDenied -> "policy-denied"
+                MarketRiskAdmissionInvalid -> "invalid-request"
         metric label = fmap (printf (label ++ "=%.2f"))
         metrics =
             catMaybes

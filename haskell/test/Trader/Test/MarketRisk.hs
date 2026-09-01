@@ -19,6 +19,7 @@ import Trader.Binance (
     OrderBookSnapshot (..),
  )
 import Trader.MarketRisk (
+    MarketRiskAdmissionOutcome (..),
     MarketRiskConfig (..),
     MarketRiskDecision (..),
     MarketRiskInput (..),
@@ -42,6 +43,8 @@ marketRiskSuite =
     , ("allows bounded venue timestamp skew", testFutureTimestampSkew)
     , ("fails closed when critical feeds are missing", testFailsClosedOnMissingFeeds)
     , ("keeps missing shadow feeds non-blocking and visible", testShadowFeedWarnings)
+    , ("classifies market-risk vetoes as non-error admission denials", testClassifiesPolicyDenyOutcome)
+    , ("classifies malformed admission requests as invalid", testClassifiesInvalidAdmissionOutcome)
     , ("emits structured market-risk evidence", testStructuredEvidence)
     , ("decodes full Binance kline flow fields", testDecodesFullKline)
     ]
@@ -175,12 +178,48 @@ testShadowFeedWarnings = do
     assertShadowWarning "taker ratio unavailable" decision
     assertShadowWarning "historical basis unavailable" decision
 
+testClassifiesPolicyDenyOutcome :: IO ()
+testClassifiesPolicyDenyOutcome = do
+    let spreadBook = (requiredBook baseSnapshot){obsBids = [DepthLevel 99 100], obsAsks = [DepthLevel 101 100]}
+        spreadDecision = marketRiskDecision defaultMarketRiskConfig baseInput baseSnapshot{fmsOrderBook = Just spreadBook}
+        depthDecision = marketRiskDecision defaultMarketRiskConfig baseInput{mriQuantity = 1000} baseSnapshot
+        staleAdlAt = nowMs - mrcMaxAdlAgeMs defaultMarketRiskConfig - 1
+        staleAdlDecision =
+            marketRiskDecision
+                defaultMarketRiskConfig
+                baseInput
+                baseSnapshot{fmsAdlRisk = Just (FuturesAdlRiskSnapshot "low" staleAdlAt)}
+    mapM_
+        ( \(label, expectedReason, decision) -> do
+            assert ("expected " ++ label ++ " to block") (not (mrdAllowed decision))
+            assert ("expected " ++ label ++ " to be a policy denial") (mrdAdmissionOutcome decision == MarketRiskAdmissionDenied)
+            assertReason expectedReason decision
+        )
+        [ ("insufficient depth", "cannot fill requested quantity", depthDecision)
+        , ("excessive spread", "spread", spreadDecision)
+        , ("stale ADL", "ADL risk stale", staleAdlDecision)
+        ]
+    assert "expected policy-denied summary" ("market-risk policy-denied" `isInfixOf` marketRiskSummary spreadDecision)
+
+testClassifiesInvalidAdmissionOutcome :: IO ()
+testClassifiesInvalidAdmissionOutcome = do
+    let invalidDirection = marketRiskDecision defaultMarketRiskConfig baseInput{mriDirection = 0} baseSnapshot
+        invalidQuantity = marketRiskDecision defaultMarketRiskConfig baseInput{mriQuantity = 0} baseSnapshot
+    assert "expected invalid direction to block" (not (mrdAllowed invalidDirection))
+    assert "expected invalid direction classification" (mrdAdmissionOutcome invalidDirection == MarketRiskAdmissionInvalid)
+    assertReason "invalid direction" invalidDirection
+    assert "expected invalid quantity to block" (not (mrdAllowed invalidQuantity))
+    assert "expected invalid quantity classification" (mrdAdmissionOutcome invalidQuantity == MarketRiskAdmissionInvalid)
+    assertReason "invalid quantity" invalidQuantity
+    assert "expected invalid-request summary" ("market-risk invalid-request" `isInfixOf` marketRiskSummary invalidDirection)
+
 testStructuredEvidence :: IO ()
 testStructuredEvidence = do
     let decision = marketRiskDecision defaultMarketRiskConfig baseInput baseSnapshot
     case Aeson.toJSON decision of
         Aeson.Object evidence -> do
-            assert "structured evidence includes the admission outcome" (KM.lookup "allowed" evidence == Just (Aeson.Bool True))
+            assert "structured evidence includes the allow/deny flag" (KM.lookup "allowed" evidence == Just (Aeson.Bool True))
+            assert "structured evidence includes the explicit admission outcome" (KM.lookup "admissionOutcome" evidence == Just (Aeson.String "allowed"))
             assert "structured evidence includes order-book imbalance" (KM.member "bookImbalance" evidence)
             assert "structured evidence includes open-interest change" (KM.member "openInterestChangePct" evidence)
             assert "structured evidence includes shadow data-health warnings" (KM.member "shadowWarnings" evidence)
