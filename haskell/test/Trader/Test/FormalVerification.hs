@@ -8,6 +8,7 @@ import Data.List (isPrefixOf)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
+import Trader.ExternalData (externalSymbolMatches)
 import qualified Trader.Formal.Execution as Execution
 import qualified Trader.Formal.Optimization as Optimization
 import qualified Trader.Formal.Risk as Risk
@@ -35,6 +36,7 @@ formalVerificationSuite =
     [ ("market timestamps fail closed on Int64 overflow", testMarketTimestampOverflow)
     , ("risk metrics and loss-streak limits fail closed", testRiskMalformedInputs)
     , ("gate telemetry bounds history and unknown cardinality", testGateTelemetryBounds)
+    , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
     , ("every formal execution obligation holds", testFormalExecutionReport)
     , ("every formal risk obligation holds", testFormalRiskReport)
     , ("every formal optimization obligation holds", testFormalOptimizationReport)
@@ -170,6 +172,22 @@ testGateTelemetryBounds = do
             , grZScore = Nothing
             , grConfidence = Nothing
             }
+
+testExternalDataSymbolScoping :: IO ()
+testExternalDataSymbolScoping =
+    let target = Just "BTCUSDT"
+     in assertChecks
+            [ ("unknown target accepts missing global scope", externalSymbolMatches Nothing Nothing)
+            , ("unknown target accepts explicit global scope", externalSymbolMatches Nothing (Just ""))
+            , ("unknown target rejects full-symbol scope", not (externalSymbolMatches Nothing (Just "ETHUSDT")))
+            , ("unknown target rejects base-symbol scope", not (externalSymbolMatches Nothing (Just "ETH")))
+            , ("resolved symbol accepts missing global scope", externalSymbolMatches target Nothing)
+            , ("resolved symbol accepts explicit global scope", externalSymbolMatches target (Just ""))
+            , ("resolved symbol accepts matching full-symbol scope", externalSymbolMatches target (Just "BTCUSDT"))
+            , ("resolved symbol accepts matching base-symbol scope", externalSymbolMatches target (Just "BTC"))
+            , ("resolved symbol rejects other full-symbol scope", not (externalSymbolMatches target (Just "ETHUSDT")))
+            , ("resolved symbol rejects other base-symbol scope", not (externalSymbolMatches target (Just "ETH")))
+            ]
 
 testFormalExecutionReport :: IO ()
 testFormalExecutionReport =
