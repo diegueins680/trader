@@ -23,6 +23,7 @@ const STATE_DIR = path.join(ROOT, ".tmp", "autoloop");
 const CYCLES_DIR = path.join(STATE_DIR, "cycles");
 const STATUS_FILE = path.join(STATE_DIR, "status.json");
 const CURRENT_CYCLE_STATUS_FILE = path.join(STATE_DIR, "current-cycle.json");
+const RECOVERY_BLOCK_FILE = path.join(STATE_DIR, "recovery-block.json");
 const PID_FILE = path.join(STATE_DIR, "runner.pid");
 const STOP_FILE = path.join(STATE_DIR, "stop");
 const RUNNER_LOG_FILE = path.join(STATE_DIR, "runner.log");
@@ -55,6 +56,7 @@ let runnerState = {
   runnerLogFile: relativePath(RUNNER_LOG_FILE),
   statusFile: relativePath(STATUS_FILE),
   currentCycleStatusFile: relativePath(CURRENT_CYCLE_STATUS_FILE),
+  recoveryBlockFile: relativePath(RECOVERY_BLOCK_FILE),
   startedAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   cycleCount: 0,
@@ -261,6 +263,18 @@ async function logRunner(message) {
 }
 
 async function detectPreflightBlock() {
+  const recoveryBlock = await readJsonIfPresent(RECOVERY_BLOCK_FILE);
+  if (recoveryBlock) {
+    return {
+      reason: "a failed autoloop cycle was saved to a recovery branch; operator review is required before more bounded cycles run",
+      details: [
+        `recovery branch: ${recoveryBlock.branch ?? "unknown"}`,
+        `recovery commit: ${recoveryBlock.commit ?? "unknown"}`,
+        `clear ${relativePath(RECOVERY_BLOCK_FILE)} only after reviewing or merging the recovery patch`,
+      ],
+    };
+  }
+
   const requestedBackend = String(process.env.AUTOLOOP_BACKEND || "auto").trim().toLowerCase();
   const hasAnthropicKey = Boolean(process.env.ANTHROPIC_API_KEY);
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
@@ -917,6 +931,12 @@ async function tryAutoSnapshotDirtyCycle() {
       recoveredAt: new Date().toISOString(),
       recoveryPushed: pushResult.pushed,
       recoveryBaseSync: baseSync,
+    });
+    await writeJsonFileAtomic(RECOVERY_BLOCK_FILE, {
+      branch: recoveryBranch,
+      commit,
+      paths: dirtyPaths,
+      createdAt: new Date().toISOString(),
     });
     await logRunner(`auto-committed failed dirty cycle to ${recoveryBranch} (${commit}) and restored ${BASE_BRANCH}`);
     return {

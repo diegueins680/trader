@@ -949,12 +949,18 @@ testExternalDataFeatureInputs = do
             && externalCsvFeatureForColumn "onchain" == Just ExternalOnChain
         )
     assert
-        "symbol-scoped external rows match full/base symbols without leaking to peers"
+        "symbol-scoped external rows fail closed when the target symbol is unknown and only match the intended full/base asset"
         ( and
-            [ externalSymbolMatches (Just "BTCUSDT") (Just "BTCUSDT")
+            [ externalSymbolMatches Nothing Nothing
+            , externalSymbolMatches Nothing (Just "")
+            , not (externalSymbolMatches Nothing (Just "BTCUSDT"))
+            , not (externalSymbolMatches Nothing (Just "BTC"))
+            , externalSymbolMatches (Just "BTCUSDT") (Just "BTCUSDT")
             , externalSymbolMatches (Just "BTCUSDT") (Just "BTC")
             , externalSymbolMatches (Just "BTCUSDT") (Just "")
             , externalSymbolMatches (Just "BTCUSDT") Nothing
+            , not (externalSymbolMatches (Just "BTCUSDT") (Just "ETHUSDT"))
+            , not (externalSymbolMatches (Just "BTCUSDT") (Just "ETH"))
             , not (externalSymbolMatches (Just "ETHUSDT") (Just "BTC"))
             ]
         )

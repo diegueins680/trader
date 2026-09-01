@@ -286,7 +286,8 @@ rowMatchesSymbol mSymbol row =
     externalSymbolMatches mSymbol (BS.unpack <$> lookupAny symbolColumns row)
 
 externalSymbolMatches :: Maybe String -> Maybe String -> Bool
-externalSymbolMatches Nothing _ = True
+externalSymbolMatches Nothing Nothing = True
+externalSymbolMatches Nothing (Just rawScope) = null (normalizeKey rawScope)
 externalSymbolMatches (Just _) Nothing = True
 externalSymbolMatches (Just symbol) (Just rawScope) =
     let scope = normalizeKey rawScope

@@ -1331,6 +1331,10 @@ test("autoloop forever script auto-snapshots recoverable dirty cycles before blo
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
   assert.match(script, /const dirtyCheckpoint = await tryAutoCheckpointDirtyWorktree\(\);/);
+  assert.match(script, /const RECOVERY_BLOCK_FILE = path\.join\(STATE_DIR, "recovery-block\.json"\);/);
+  assert.match(script, /const recoveryBlock = await readJsonIfPresent\(RECOVERY_BLOCK_FILE\);/);
+  assert.match(script, /operator review is required before more bounded cycles run/);
+  assert.match(script, /await writeJsonFileAtomic\(RECOVERY_BLOCK_FILE, \{/);
   assert.match(script, /runCommand\("git", \["status", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /function buildDirtyRecoveryBranchName\(kind, rawLabel = ""\)/);
   assert.match(script, /function pushHeadToRecoveryBranch\(branchName\)/);

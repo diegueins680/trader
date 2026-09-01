@@ -107,7 +107,7 @@ TRADER_EXTERNAL_DATA=true
 TRADER_EXTERNAL_DATA_CSVS=data/research/BTCUSDT_1h-alternative.csv
 ```
 
-In source configuration, `entity`/`entityField` identifies the target trading asset, not an internal provider record ID; an empty entity is global. Panel construction requires either `--symbol` (which includes that full/base asset plus global observations) or an explicit `--global`; generated symbol rows apply only to that full or base asset. Enabling alternative data changes the predictor feature dimension, so models must be retrained and validated through walk-forward/holdout tests. Collection alone does not authorize a signal for live trading, and missing data stays neutral rather than being interpreted as a bullish or bearish observation.
+In source configuration, `entity`/`entityField` identifies the target trading asset, not an internal provider record ID; an empty entity is global. Panel construction requires either `--symbol` (which includes that full/base asset plus global observations) or an explicit `--global`; generated symbol rows apply only to that full or base asset. When the Haskell backtest target symbol is unresolved, symbol-scoped rows are ignored and only global observations are admitted. Enabling alternative data changes the predictor feature dimension, so models must be retrained and validated through walk-forward/holdout tests. Collection alone does not authorize a signal for live trading, and missing data stays neutral rather than being interpreted as a bullish or bearish observation.
 
 ## CLI and API
 

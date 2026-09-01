@@ -1,4 +1,8 @@
 ## Unreleased
+
+- Trading/Alternative Data: fail closed when a `--data` backtest cannot resolve its target symbol by ignoring symbol-scoped external CSV rows and admitting only global observations, preventing cross-asset feature leakage from alternative-data panels.
+- Automation: persist an operator-review block after a failed cycle is saved to a recovery branch, preventing the autoloop from repeatedly recreating the same failed patch.
+
 - Trading/Micro-Live Safety: flatten the pre-rollout ADA futures position under a trade freeze, restart the five reviewed shadow workers with exchange-native strategy protection orders, cap adopted exposure at 1% per bot and 5% for the fleet, use a matching 1% selector weight grid, and reset automatic-graduation evidence to 10 complete UTC days beginning with the protected rollout. Forward the protection, disabled-symbol, and selector-step controls through Hetzner Compose, force the protection policy onto API-started workers, preserve the default MATICUSDT start block in every Compose profile when clearing the temporary fleet freeze, accept the explicit 10-day selector floor, and report manual position closes as reduce-only when that order path is used.
 - Deploy/Hetzner Rollback: preserve the running Caddy configuration before proxy replacement and restore and recreate both the prior API and proxy when a later release step fails.
 - Research/Alternative Data Mean Gaps: keep empty `mean` buckets missing through normalization so absent observations cannot become false zero-valued signals.
