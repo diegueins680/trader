@@ -29,6 +29,7 @@ import {
   extractAnthropicResponseText,
   extractCodexExecLastMessage,
   extractResponseText,
+  isAutoloopMergeBranch,
   isAutoloopRecoveryBranch,
   normalizeGitBranchShortName,
   normalizeIdeaSelection,
@@ -946,6 +947,14 @@ test("normalizeGitBranchShortName strips origin and refs prefixes", () => {
   assert.equal(normalizeGitBranchShortName(""), "");
 });
 
+test("isAutoloopMergeBranch accepts only non-recovery autoloop branches", () => {
+  assert.equal(isAutoloopMergeBranch("autoloop/feature/risk-telemetry"), true);
+  assert.equal(isAutoloopMergeBranch("origin/autoloop/recovery/main/cycle-1"), false);
+  assert.equal(isAutoloopMergeBranch("autoloop/checkpoint/main/cycle-1"), false);
+  assert.equal(isAutoloopMergeBranch("dependabot/npm_and_yarn/haskell/web/vite"), false);
+  assert.equal(isAutoloopMergeBranch("feature/operator-work"), false);
+});
+
 test("buildBranchMergeCandidates prefers local heads while deduping remote matches", () => {
   assert.deepEqual(
     buildBranchMergeCandidates({
@@ -1358,6 +1367,7 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
   assert.match(script, /const BASE_BRANCH = normalizeGitBranchShortName\(process\.env\.AUTOLOOP_BASE_BRANCH \|\| "main"\) \|\| "main";/);
   assert.match(script, /const branchSweep = await reconcileUnmergedBranchesOntoBaseBranch\(\);/);
+  assert.match(script, /\.filter\(\(candidate\) => isAutoloopMergeBranch\(candidate\.shortName\)\)/);
   assert.match(script, /runCommand\("git", \["fetch", "origin", "--prune"\], \{ capture: false \}\);/);
   assert.match(
     script,

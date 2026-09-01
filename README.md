@@ -467,7 +467,7 @@ Before replacing Caddy, the deploy preserves the running container's effective c
 - `npm run radio:maintain` checks configured radio streams and refreshes the station file; see `scripts/radio-stations.cron.example`.
 - [docs/ai-workflow.md](docs/ai-workflow.md) documents the AI/bootstrap workflow.
 
-Autoloop never auto-resolves merge conflicts. Conflicted branches remain for operator review, and branch promotion must pass the matching canonical verification wrapper before push.
+Autoloop never auto-resolves merge conflicts. It promotes only non-recovery branches under the `autoloop/` namespace; Dependabot and operator-owned branches remain for explicit review. Promoted branches must pass the matching canonical verification wrapper before push.
 
 ## Project layout
 

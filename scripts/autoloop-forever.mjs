@@ -9,6 +9,7 @@ import { execFileSync, spawn } from "node:child_process";
 import {
   buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
+  isAutoloopMergeBranch,
   isAutoloopRecoveryBranch,
   normalizeGitBranchShortName,
   parseGitStatusPaths,
@@ -630,7 +631,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       localBranches,
       remoteBranches,
       baseBranch: BASE_BRANCH,
-    });
+    }).filter((candidate) => isAutoloopMergeBranch(candidate.shortName));
 
     const mergedBranches = [];
     const conflictAbortedBranches = [];

@@ -420,6 +420,11 @@ export function isAutoloopRecoveryBranch(rawBranch) {
   return shortName.startsWith("autoloop/recovery/") || shortName.startsWith("autoloop/checkpoint/");
 }
 
+export function isAutoloopMergeBranch(rawBranch) {
+  const shortName = normalizeGitBranchShortName(rawBranch);
+  return shortName.startsWith("autoloop/") && !isAutoloopRecoveryBranch(shortName);
+}
+
 export function buildBranchMergeCandidates(
   { localBranches = [], remoteBranches = [], baseBranch = "main", includeRecoveryBranches = false } = {},
 ) {
