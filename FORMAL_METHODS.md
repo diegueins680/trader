@@ -140,6 +140,30 @@ Proof sketch:
 - Treating the session identifier as part of the evidence boundary preserves only within-session differences; once the identifier changes, the surrounding levels are no longer on the same equity scale.
 - Splitting or rejecting at the first session boundary is conservative: it can suppress unsafe graduation evidence, but it cannot create a positive fleet-return witness from cross-session data.
 
+## Formal portfolio-graduation boundary-fresh equity contract
+
+`portfolioGraduationFleetEquities`, `portfolioGraduationPerformance`, and `portfolioGraduationReview` in `haskell/app/Trader/PortfolioSelection.hs` are treated as the fail-closed boundary for automatic portfolio graduation evidence before a reviewed set can remain eligible for graduated selection.
+
+Clauses:
+
+1. Baseline evidence is admissible only when every reviewed UUID has exactly one finite positive baseline no later than `boundaryMs` and no older than `maximumBaselineAgeMs`. Exact equality at `atMs == boundaryMs` and `boundaryMs - atMs == maximumBaselineAgeMs` remains admissible.
+2. Daily equity evidence contributes to fleet performance only when a retained day contains one finite positive sample per reviewed UUID. Unknown UUIDs, duplicate samples, stale baselines, missing reviewed baselines, or malformed baseline/daily equity fail closed; incomplete days are discarded instead of being counted as evidence.
+3. For each retained day, relative fleet equity is `1 + sum (current_i / baseline_i - 1)`, so only boundary-fresh baselines anchor the compared equity levels.
+4. `portfolioGraduationPerformance` accepts only finite positive fleet-equity chains; malformed or non-positive aggregate equity fails closed before net return or drawdown is computed.
+5. `portfolioGraduationReview` keeps exact equality at the minimum net-return floor pending (`netReturn <= minimumNetReturn`), while equality at the maximum drawdown cap and equality at the execution/status reliability minima remain admissible.
+
+Bounded executable obligations:
+
+- `testGraduationPortfolioBoundaryContract` covers exact admissibility at `boundaryMs` and at the freshness boundary `boundaryMs - maximumBaselineAgeMs`, stale-baseline rejection, missing-baseline rejection, malformed daily-equity rejection, strict equality at `pgcMinimumNetReturn`, and inclusive equality at drawdown and reliability thresholds.
+
+Proof sketch:
+
+- `insertBaseline` is the freshness boundary: it accepts only reviewed UUIDs with one finite positive baseline satisfying `0 <= atMs <= boundaryMs` and `boundaryMs - atMs <= maximumBaselineAgeMs`, which preserves the exact boundary equalities while rejecting older evidence.
+- `insertDaily` rejects unknown UUIDs, duplicates, and non-finite or non-positive equity, so malformed raw levels cannot become admissible fleet evidence.
+- `completeDays` only emits days that contain every reviewed UUID, and `fleetEquity` compares those complete days only against the boundary-fresh baselines, which prevents missing or cross-scale evidence from manufacturing return.
+- `portfolioGraduationPerformance` rejects malformed or non-positive fleet-equity chains before computing return or drawdown, so aggregate corruption cannot propagate into review thresholds.
+- `portfolioGraduationReview` uses a strict comparison for minimum net return and inclusive comparisons for drawdown and reliability bounds, making the threshold-equality behavior explicit and executable.
+
 ## Formal fee-aware entry gate contract
 
 `normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.

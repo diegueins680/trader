@@ -29,7 +29,18 @@ import Trader.MarketDataIntegrity (
     normalizeClosedMarketSeries,
     validateMarketSeriesContinuity,
  )
+import Trader.PortfolioSelection (
+    PortfolioGraduationConfig (..),
+    PortfolioGraduationDecision (..),
+    PortfolioGraduationEvidence (..),
+    PortfolioGraduationReview (..),
+    defaultPortfolioGraduationConfig,
+    portfolioGraduationFleetEquities,
+    portfolioGraduationPerformance,
+    portfolioGraduationReview,
+ )
 import Trader.Trading (ExitReason (..), HaltInputs (..), specRiskHalt)
+
 
 formalVerificationSuite :: [(String, IO ())]
 formalVerificationSuite =
@@ -37,8 +48,10 @@ formalVerificationSuite =
     , ("risk metrics and loss-streak limits fail closed", testRiskMalformedInputs)
     , ("gate telemetry bounds history and unknown cardinality", testGateTelemetryBounds)
     , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
-    , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
+        , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
+    , ("portfolio graduation equity boundaries fail closed", testGraduationPortfolioBoundaryContract)
     , ("every formal execution obligation holds", testFormalExecutionReport)
+
     , ("every formal risk obligation holds", testFormalRiskReport)
     , ("every formal optimization obligation holds", testFormalOptimizationReport)
     ]
@@ -209,11 +222,103 @@ testGraduationEquitySessionBoundary = do
     assertBool
         "mid-window session changes fail closed for graduation"
         (isNothing (sessionBoundedFleetReturn reviewedFleet))
-    assertBool
+        assertBool
         "naive raw-level stitching would have manufactured positive fleet return"
         (naiveFleetReturn reviewedFleet > 0.07)
 
+testGraduationPortfolioBoundaryContract :: IO ()
+testGraduationPortfolioBoundaryContract = do
+    let boundaryMs = 2000
+        maximumBaselineAgeMs = 100
+        alpha = T.pack "alpha"
+        beta = T.pack "beta"
+        reviewedUuids = [alpha, beta]
+        admissibleBaselines =
+            [ (alpha, boundaryMs - maximumBaselineAgeMs, 1.0)
+            , (beta, boundaryMs, 1.0)
+            ]
+        admissibleDailyRows =
+            [ (boundaryMs, alpha, 1.0)
+            , (boundaryMs, beta, 1.0)
+            , (boundaryMs + 86400000, alpha, 1.0625)
+            , (boundaryMs + 86400000, beta, 1.0625)
+            ]
+        staleBaselines =
+            [ (alpha, boundaryMs - maximumBaselineAgeMs - 1, 1.0)
+            , (beta, boundaryMs, 1.0)
+            ]
+        malformedDailyRows =
+            [ (boundaryMs, alpha, 1.0)
+            , (boundaryMs, beta, 1.0)
+            , (boundaryMs + 86400000, alpha, 0 / 0)
+            , (boundaryMs + 86400000, beta, 1.0625)
+            ]
+        admissibleEquities =
+            portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs reviewedUuids admissibleBaselines admissibleDailyRows
+        admissiblePerformance = admissibleEquities >>= portfolioGraduationPerformance
+    assertBool
+        "exact boundary timestamps and exact freshness equality remain admissible"
+        (admissibleEquities == Right [1.0, 1.125])
+    assertBool
+        "boundary-fresh fleet performance uses only relative in-window evidence"
+        (admissiblePerformance == Right (2, 0.125, 0))
+    assertBool
+        "stale baseline evidence fails closed"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs reviewedUuids staleBaselines admissibleDailyRows of
+            Left err -> err == "graduation baseline is outside the boundary freshness window"
+            Right _ -> False
+        )
+    assertBool
+        "missing baseline evidence fails closed"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs reviewedUuids [(alpha, boundaryMs, 1.0)] admissibleDailyRows of
+            Left err -> err == "graduation baseline is missing for a reviewed UUID"
+            Right _ -> False
+        )
+    assertBool
+        "malformed daily equity fails closed"
+        ( case portfolioGraduationFleetEquities boundaryMs maximumBaselineAgeMs reviewedUuids admissibleBaselines malformedDailyRows of
+            Left err -> err == "graduation daily equity must be finite and positive"
+            Right _ -> False
+        )
+    case admissiblePerformance of
+        Left err ->
+            ioError (userError ("unexpected admissible graduation performance failure: " ++ err))
+        Right (observationCount, netReturn, maxDrawdown) -> do
+            let config minimumNetReturn =
+                    defaultPortfolioGraduationConfig
+                        { pgcEnabled = True
+                        , pgcStartedAtMs = 1
+                        , pgcMinimumDailyObservations = observationCount
+                        , pgcMinimumNetReturn = minimumNetReturn
+                        , pgcMaximumDrawdown = maxDrawdown
+                        , pgcMinimumExecutionAttempts = 4
+                        , pgcMinimumExecutionReliability = 0.75
+                        , pgcMinimumStatusReliability = 0.5
+                        }
+                evidence =
+                    PortfolioGraduationEvidence
+                        { pgeDailyObservationCount = observationCount
+                        , pgeNetReturn = netReturn
+                        , pgeMaxDrawdown = maxDrawdown
+                        , pgeExecutionAttempts = 4
+                        , pgeExecutionSuccesses = 3
+                        , pgeStatusSamples = 2
+                        , pgeHealthyStatusSamples = 1
+                        , pgeLatestStatusesHealthy = True
+                        }
+                thresholdReview = portfolioGraduationReview (config netReturn) boundaryMs reviewedUuids evidence
+                passingReview = portfolioGraduationReview (config 0.1) boundaryMs reviewedUuids evidence
+            assertBool
+                "exact minimum net-return equality remains pending"
+                ( pgrDecision thresholdReview == PortfolioGraduationPending
+                    && map T.unpack (pgrReasons thresholdReview) == ["net-return-below-minimum"]
+                )
+            assertBool
+                "drawdown and reliability equality stay admissible once net return exceeds the floor"
+                (pgrDecision passingReview == PortfolioGraduated && null (pgrReasons passingReview))
+
 testFormalExecutionReport :: IO ()
+
 testFormalExecutionReport =
     assertChecks
         [ ("implementation matches position-fill spec", Execution.fvrExecImplMatchesSpec report)
