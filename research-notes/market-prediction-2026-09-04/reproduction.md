@@ -29,6 +29,17 @@ bash scripts/verify.sh full
 
 The full wrapper includes the web surface even though this change does not redesign the UI.
 
+## Verify an alternative-data panel artifact
+
+Build every prospective alternative-data panel with `--manifest`, then verify the exact cache, bar grid, panel bytes, ordered schema, and coverage semantics before registering or fitting anything:
+
+```bash
+python3 scripts/research/alternative_data.py verify-panel \
+  --manifest data/research/BTCUSDT_1h-alternative.json
+```
+
+If artifacts were lawfully moved without changing their bytes, pass their new locations with `--cache`, `--bars`, and `--panel`. Do not edit hashes to make changed inputs appear compatible. The verifier checks panel semantics, recomputes the declared populations, and reconstructs exact panel bytes after digest validation, so rehashing a changed panel still fails closed.
+
 ## Reproduce existing negative results safely
 
 The immutable result notes contain the exact registrations, implementation/data hashes, evidence paths, and outcomes:
@@ -49,7 +60,7 @@ Use the corresponding no-flag runner only to validate an existing immutable evid
 The three new registration files define start time `2027-01-21T00:00:00Z`. Do not move it earlier. Before a first development run:
 
 1. Implement the exact registered interpretation and all fail-closed tests.
-2. Freeze and hash source manifests, event/availability schema, code, costs, baselines, artifact schema, and split manifest.
+2. Freeze and hash source manifests, event/availability schema, exact cache, bar grid, panel, code, costs, baselines, artifact schema, and split manifest; run `verify-panel` before fitting.
 3. Count all configurations in the registered budget; a change requires a successor registration.
 4. Run development nested walk-forward only.
 5. Freeze code/hyperparameters/features/costs/gates in a committed receipt.

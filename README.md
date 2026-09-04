@@ -96,9 +96,12 @@ python3 scripts/research/alternative_data.py panel \
   --symbol BTCUSDT \
   --output data/research/BTCUSDT_1h-alternative.csv \
   --manifest data/research/BTCUSDT_1h-alternative.json
+
+python3 scripts/research/alternative_data.py verify-panel \
+  --manifest data/research/BTCUSDT_1h-alternative.json
 ```
 
-`run` combines collection and panel construction. A provider failure is isolated and reported as degraded; successful sources are still cached atomically, while the command returns non-zero unless `--allow-partial` is explicit. Generated family headers—including `microstructure`, `options_vol`, and `onchain`—are accepted directly by the Haskell CSV loader. Secrets referenced by `queryFromEnv` or `headersFromEnv` are read only from the environment and are never stored or printed.
+`run` combines collection and panel construction. A provider failure is isolated and reported as degraded; successful sources are still cached atomically, while the command returns non-zero unless `--allow-partial` is explicit. A panel manifest records the ordered `external_feature_panel_v2` schema, `feature_availability_v2` coverage semantics, and SHA-256 hashes of the exact cache, bar grid, and panel. `verify-panel` checks those hashes; recomputes the eligible observation and metric populations; rejects incompatible columns, unordered timestamps, scope drift, non-finite values, out-of-range coverage, or a non-zero feature with zero coverage; and deterministically reconstructs the panel for byte comparison. Relocated artifacts may be supplied explicitly with `--cache`, `--bars`, and `--panel`; their bytes must still match the recorded hashes. Generated family headers—including `microstructure`, `options_vol`, and `onchain`—are accepted directly by the Haskell CSV loader. Secrets referenced by `queryFromEnv` or `headersFromEnv` are read only from the environment and are never stored or printed.
 
 Attach one or more generated panels to Haskell research, backtests, or bot predictors with `--external-data --external-data-csv PATH`, or set:
 
