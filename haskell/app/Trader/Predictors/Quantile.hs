@@ -59,27 +59,25 @@ trainQuantileModel epochs lr l2 dataset
 
 predictQuantiles :: QuantileModel -> [Double] -> Maybe (Double, Double, Double, Double, Maybe Double)
 predictQuantiles qm x =
-    let dims =
-            [ length (lmW (qm10 qm))
-            , length (lmW (qm50 qm))
-            , length (lmW (qm90 qm))
-            ]
-        expected =
-            case dims of
-                [] -> 0
-                (d : ds) -> if d > 0 && all (== d) ds then d else 0
-        actual = length x
-        modelValid =
-            expected > 0
-                && all (linModelValid expected) [qm10 qm, qm50 qm, qm90 qm]
-        queryValid = actual == expected && all isFinite x
-     in if not modelValid || not queryValid
-            then Nothing
-            else
+    case quantileFeatureDim qm of
+        Nothing -> Nothing
+        Just expected
+            | not (all (linModelValid expected) heads) -> Nothing
+            | length x /= expected || not (all isFinite x) -> Nothing
+            | otherwise ->
                 let q10Raw = predictLin (qm10 qm) x
                     q50Raw = predictLin (qm50 qm) x
                     q90Raw = predictLin (qm90 qm) x
                  in admissibleQuantilePrediction q10Raw q50Raw q90Raw
+  where
+    heads = [qm10 qm, qm50 qm, qm90 qm]
+
+quantileFeatureDim :: QuantileModel -> Maybe Int
+quantileFeatureDim qm =
+    case map (length . lmW) [qm10 qm, qm50 qm, qm90 qm] of
+        d : ds
+            | d > 0 && all (== d) ds -> Just d
+        _ -> Nothing
 
 sanitizeDataset :: [([Double], Double)] -> [([Double], Double)]
 sanitizeDataset dataset =

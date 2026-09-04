@@ -41,15 +41,16 @@ Clauses:
 
 Bounded executable obligations:
 
-- The Haskell regression harness for this invariant should cover empty or dimension-invalid quantile models, non-finite q10/q50/q90 predictions, inverted q10/q90 evidence, the valid equality boundary with unavailable sigma, and monotone non-narrowing as the ordered q10/q90 spread widens.
+- `testQuantileIntervalAdmissibilityContract` is the bounded regression harness for this invariant. It explicitly covers empty models, inconsistent head dimensions, feature-length mismatch, overflowed raw q10/q50/q90 predictions, inverted q10/q90 rejection without sorting, the valid equality boundary with `Just (q10, q10, q10, q50Raw, Nothing)`, and monotone non-narrowing / non-decreasing positive sigma as ordered q10/q90 spreads widen.
+- Direct `sigmaFromQ1090` assertions inside that regression cover zero-width, negative-width, and non-finite-width fail-closed behavior.
 
 Proof sketch:
 
-- The model-dimension check is the first evidence boundary: every quantile head must expose the same positive feature dimension and the forecast vector must match it, otherwise no raw prediction is trusted.
-- `admissibleQuantilePrediction` is the raw-output validity boundary: it rejects the entire interval when any raw quantile is `NaN` or infinite, so malformed q50 evidence cannot be hidden by clamping and malformed q10/q90 evidence cannot define finite bounds.
+- `quantileFeatureDim` is the first evidence boundary: every quantile head must expose the same positive feature dimension and the forecast vector must match it, otherwise `predictQuantiles` returns `Nothing` before any raw prediction can be trusted.
+- `admissibleQuantilePrediction` is the raw-output validity boundary: it rejects the entire interval when any raw quantile is `NaN` or infinite, including overflow from otherwise finite model coefficients and feature values, so malformed q50 evidence cannot be hidden by clamping and malformed q10/q90 evidence cannot define finite bounds.
 - The ordered-bound guard rejects `q10 > q90` instead of sorting the pair. Therefore a crossing quantile model cannot reverse directionality or synthesize a usable interval from contradictory lower/upper evidence.
-- Equality at `q10 == q90` satisfies the ordered-bound predicate and produces a zero-width interval with `Nothing` sigma because `sigmaFromQ1090` requires positive width. This preserves the valid deterministic boundary without creating false confidence from zero spread.
-- After admissibility, the returned lower and upper bounds are exactly the raw q10 and q90 values, so interval width is exactly `q90 - q10`. Widening ordered bounds can only preserve or increase that width, and sigma is width divided by a positive constant when width is positive.
+- Equality at `q10 == q90` satisfies the ordered-bound predicate and produces a zero-width interval with `Nothing` sigma because `sigmaFromQ1090` requires positive finite width. This preserves the valid deterministic boundary without creating false confidence from zero spread.
+- After admissibility, the returned lower and upper bounds are exactly the raw q10 and q90 values, so interval width is exactly `q90 - q10`. Widening ordered bounds can only preserve or increase that width, and sigma is width divided by a positive constant when width is positive, so a wider admissible spread cannot decrease a positive sigma estimate.
 
 ## Formal exogenous alignment contract
 

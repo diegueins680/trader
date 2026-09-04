@@ -39,6 +39,12 @@ import Trader.PortfolioSelection (
     portfolioGraduationPerformance,
     portfolioGraduationReview,
  )
+import Trader.Predictors.Quantile (
+    LinModel (..),
+    QuantileModel (..),
+    predictQuantiles,
+    sigmaFromQ1090,
+ )
 import Trader.Trading (ExitReason (..), HaltInputs (..), specRiskHalt)
 
 formalVerificationSuite :: [(String, IO ())]
@@ -49,6 +55,7 @@ formalVerificationSuite =
     , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
     , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
     , ("portfolio graduation equity boundaries fail closed", testGraduationPortfolioBoundaryContract)
+    , ("quantile intervals fail closed on malformed evidence", testQuantileIntervalAdmissibilityContract)
     , ("every formal execution obligation holds", testFormalExecutionReport)
     , ("every formal risk obligation holds", testFormalRiskReport)
     , ("every formal optimization obligation holds", testFormalOptimizationReport)
@@ -314,6 +321,98 @@ testGraduationPortfolioBoundaryContract = do
             assertBool
                 "drawdown and reliability equality stay admissible once net return exceeds the floor"
                 (pgrDecision passingReview == PortfolioGraduated && null (pgrReasons passingReview))
+
+testQuantileIntervalAdmissibilityContract :: IO ()
+testQuantileIntervalAdmissibilityContract = do
+    let finiteModel bias = LinModel{lmW = [0], lmB = bias}
+        finiteQuantiles q10 q50 q90 =
+            QuantileModel
+                { qm10 = finiteModel q10
+                , qm50 = finiteModel q50
+                , qm90 = finiteModel q90
+                }
+        emptyModel =
+            QuantileModel
+                { qm10 = LinModel{lmW = [], lmB = 0}
+                , qm50 = LinModel{lmW = [], lmB = 0}
+                , qm90 = LinModel{lmW = [], lmB = 0}
+                }
+        inconsistentDims =
+            QuantileModel
+                { qm10 = LinModel{lmW = [0], lmB = 0}
+                , qm50 = LinModel{lmW = [0, 0], lmB = 0}
+                , qm90 = LinModel{lmW = [0], lmB = 0}
+                }
+        overflowModel = LinModel{lmW = [1.0e308], lmB = 0}
+        overflowQ10 =
+            QuantileModel
+                { qm10 = overflowModel
+                , qm50 = finiteModel 2
+                , qm90 = finiteModel 3
+                }
+        overflowQ50 =
+            QuantileModel
+                { qm10 = finiteModel 1
+                , qm50 = overflowModel
+                , qm90 = finiteModel 3
+                }
+        overflowQ90 =
+            QuantileModel
+                { qm10 = finiteModel 1
+                , qm50 = finiteModel 2
+                , qm90 = overflowModel
+                }
+        invertedBounds = finiteQuantiles 3 2 2
+        equalBounds = finiteQuantiles 2 10 2
+        narrowBounds = finiteQuantiles 1 2 3
+        wideBounds = finiteQuantiles 0 2 5
+        validInput = [0]
+        overflowInput = [1.0e308]
+        narrowPrediction = predictQuantiles narrowBounds validInput
+        widePrediction = predictQuantiles wideBounds validInput
+    assertBool
+        "empty quantile models fail closed"
+        (isNothing (predictQuantiles emptyModel validInput))
+    assertBool
+        "inconsistent quantile head dimensions fail closed"
+        (isNothing (predictQuantiles inconsistentDims validInput))
+    assertBool
+        "feature-length mismatch fails closed"
+        (isNothing (predictQuantiles (finiteQuantiles 1 2 3) [0, 0]))
+    assertBool
+        "overflowed q10 evidence fails closed"
+        (isNothing (predictQuantiles overflowQ10 overflowInput))
+    assertBool
+        "overflowed q50 evidence fails closed"
+        (isNothing (predictQuantiles overflowQ50 overflowInput))
+    assertBool
+        "overflowed q90 evidence fails closed"
+        (isNothing (predictQuantiles overflowQ90 overflowInput))
+    assertBool
+        "inverted q10 and q90 evidence is rejected instead of sorted"
+        (isNothing (predictQuantiles invertedBounds validInput))
+    assertBool
+        "q10 equals q90 stays admissible while sigma remains unavailable"
+        (predictQuantiles equalBounds validInput == Just (2, 2, 2, 10, Nothing))
+    assertBool
+        "zero-width sigma is unavailable"
+        (isNothing (sigmaFromQ1090 2 2))
+    assertBool
+        "negative-width sigma is unavailable"
+        (isNothing (sigmaFromQ1090 3 2))
+    assertBool
+        "non-finite width sigma is unavailable"
+        (isNothing (sigmaFromQ1090 (-1.0e308) 1.0e308))
+    case (narrowPrediction, widePrediction) of
+        (Just (narrowQ10, _, narrowQ90, _, Just narrowSigma), Just (wideQ10, _, wideQ90, _, Just wideSigma)) -> do
+            assertBool
+                "widening ordered quantile bounds cannot narrow the emitted interval"
+                ((wideQ90 - wideQ10) >= (narrowQ90 - narrowQ10))
+            assertBool
+                "widening ordered quantile bounds cannot decrease a positive sigma"
+                (wideSigma >= narrowSigma)
+        _ ->
+            ioError (userError "expected admissible ordered quantile bounds with positive sigma")
 
 testFormalExecutionReport :: IO ()
 testFormalExecutionReport =
