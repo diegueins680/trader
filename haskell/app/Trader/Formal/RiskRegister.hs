@@ -187,7 +187,7 @@ riskRegister =
         OPEN
         "Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value"
         "trader-firm-research"
-        "Migrate production feature builders and artifacts to the tested feature_availability_v2 timestamp and mask contract before any affected learned predictor is promotion-eligible"
+        "Wire source-specific event and availability evidence into the v2 external bundle, then migrate production feature builders and artifacts under explicit compatibility versioning before promotion eligibility"
     , riskEntry
         GITHUB_502_001
         MEDIUM

@@ -5,8 +5,12 @@
 module Trader.ExternalData (
     ExternalDataConfig (..),
     ExternalFeature (..),
+    ExternalFeatureInputsV2,
+    ExternalObservationV2 (..),
     ExternalJsonSpec (..),
     alignedExternalFeatureInputs,
+    alignedExternalFeatureInputsV2,
+    externalFeatureSeriesV2,
     externalCellDouble,
     externalCellTime,
     externalCsvFeatureForColumn,
@@ -44,31 +48,16 @@ import Text.Read (readMaybe)
 
 import Trader.App.Args (parseTimestampMs)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
-import Trader.Predictors.Exogenous (alignToBars, neutralFill)
+import Trader.Predictors.Exogenous (afsV2Values)
+import Trader.Predictors.ExternalFeatureSchema (
+    ExternalFeature (..),
+    ExternalFeatureInputsV2,
+    ExternalObservationV2 (..),
+    alignedExternalFeatureInputsV2,
+    externalFeatureSeriesV2,
+ )
 import Trader.Predictors.Features (ExternalFeatureInputs (..))
 import Trader.Text (normalizeKey, trim)
-
-data ExternalFeature
-    = ExternalMicrostructure
-    | ExternalOptionsVol
-    | ExternalOnChain
-    | ExternalMacro
-    | ExternalCot
-    | ExternalNews
-    | ExternalFilings
-    | ExternalPolicy
-    | ExternalFundamentals
-    | ExternalStablecoin
-    | ExternalInstitutionalFlows
-    | ExternalNetwork
-    | ExternalDeveloper
-    | ExternalGovernance
-    | ExternalAttention
-    | ExternalSocial
-    | ExternalPredictionMarket
-    | ExternalRealWorld
-    | ExternalSecurity
-    deriving (Eq, Ord, Show)
 
 data ExternalJsonSpec = ExternalJsonSpec
     { ejsFeature :: !ExternalFeature
@@ -187,79 +176,44 @@ alignedExternalFeatureInputs ::
     [ExternalObservation] ->
     Maybe ExternalFeatureInputs
 alignedExternalFeatureInputs barOpenTimes intervalMs observations =
-    let grouped =
-            foldl
-                ( \acc (feature, ts, value) ->
-                    if finite value
-                        then
-                            Map.insertWith
-                                (Map.unionWith mergeBuckets)
-                                feature
-                                (Map.singleton ts (value, 1 :: Int))
-                                acc
-                        else acc
-                )
-                Map.empty
-                observations
-        seriesFor feature =
-            case Map.lookup feature grouped of
-                Nothing -> Nothing
-                Just byTs ->
-                    let series =
-                            [ (ts, total / fromIntegral count)
-                            | (ts, (total, count)) <- Map.toAscList byTs
-                            , count > 0
-                            ]
-                        aligned = alignToBars barOpenTimes intervalMs series
-                     in if null series || not (V.any isJust aligned)
-                            then Nothing
-                            else Just (neutralFill aligned)
-        bundle =
-            ExternalFeatureInputs
-                { efiMicrostructure = seriesFor ExternalMicrostructure
-                , efiOptionsVol = seriesFor ExternalOptionsVol
-                , efiOnChain = seriesFor ExternalOnChain
-                , efiMacro = seriesFor ExternalMacro
-                , efiCot = seriesFor ExternalCot
-                , efiNews = seriesFor ExternalNews
-                , efiFilings = seriesFor ExternalFilings
-                , efiPolicy = seriesFor ExternalPolicy
-                , efiFundamentals = seriesFor ExternalFundamentals
-                , efiStablecoin = seriesFor ExternalStablecoin
-                , efiInstitutionalFlows = seriesFor ExternalInstitutionalFlows
-                , efiNetwork = seriesFor ExternalNetwork
-                , efiDeveloper = seriesFor ExternalDeveloper
-                , efiGovernance = seriesFor ExternalGovernance
-                , efiAttention = seriesFor ExternalAttention
-                , efiSocial = seriesFor ExternalSocial
-                , efiPredictionMarket = seriesFor ExternalPredictionMarket
-                , efiRealWorld = seriesFor ExternalRealWorld
-                , efiSecurity = seriesFor ExternalSecurity
+    projectExternalFeatureInputs
+        <$> alignedExternalFeatureInputsV2
+            barOpenTimes
+            intervalMs
+            [ ExternalObservationV2
+                { eov2Feature = feature
+                , eov2EventTimeMs = timestamp
+                , eov2AvailabilityTimeMs = timestamp
+                , eov2Value = value
                 }
-     in if any isJust (featureSeries bundle) then Just bundle else Nothing
+            | (feature, timestamp, value) <- observations
+            ]
+
+projectExternalFeatureInputs :: ExternalFeatureInputsV2 -> ExternalFeatureInputs
+projectExternalFeatureInputs inputs =
+    ExternalFeatureInputs
+        { efiMicrostructure = seriesFor ExternalMicrostructure
+        , efiOptionsVol = seriesFor ExternalOptionsVol
+        , efiOnChain = seriesFor ExternalOnChain
+        , efiMacro = seriesFor ExternalMacro
+        , efiCot = seriesFor ExternalCot
+        , efiNews = seriesFor ExternalNews
+        , efiFilings = seriesFor ExternalFilings
+        , efiPolicy = seriesFor ExternalPolicy
+        , efiFundamentals = seriesFor ExternalFundamentals
+        , efiStablecoin = seriesFor ExternalStablecoin
+        , efiInstitutionalFlows = seriesFor ExternalInstitutionalFlows
+        , efiNetwork = seriesFor ExternalNetwork
+        , efiDeveloper = seriesFor ExternalDeveloper
+        , efiGovernance = seriesFor ExternalGovernance
+        , efiAttention = seriesFor ExternalAttention
+        , efiSocial = seriesFor ExternalSocial
+        , efiPredictionMarket = seriesFor ExternalPredictionMarket
+        , efiRealWorld = seriesFor ExternalRealWorld
+        , efiSecurity = seriesFor ExternalSecurity
+        }
   where
-    mergeBuckets (aSum, aCount) (bSum, bCount) = (aSum + bSum, aCount + bCount)
-    featureSeries inputs =
-        [ efiMicrostructure inputs
-        , efiOptionsVol inputs
-        , efiOnChain inputs
-        , efiMacro inputs
-        , efiCot inputs
-        , efiNews inputs
-        , efiFilings inputs
-        , efiPolicy inputs
-        , efiFundamentals inputs
-        , efiStablecoin inputs
-        , efiInstitutionalFlows inputs
-        , efiNetwork inputs
-        , efiDeveloper inputs
-        , efiGovernance inputs
-        , efiAttention inputs
-        , efiSocial inputs
-        , efiPredictionMarket inputs
-        , efiRealWorld inputs
-        , efiSecurity inputs
-        ]
+    seriesFor feature = afsV2Values <$> externalFeatureSeriesV2 feature inputs
 
 fetchCsvObservations :: Maybe String -> FilePath -> IO [ExternalObservation]
 fetchCsvObservations mSymbol path = do
