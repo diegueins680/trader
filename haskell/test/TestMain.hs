@@ -61,7 +61,19 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
-import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCellDouble, externalCellTime, externalCsvFeatureForColumn, externalSymbolMatches, parseExternalJsonSpec)
+import Trader.ExternalData (
+    ExternalFeature (..),
+    ExternalJsonSpec (..),
+    ExternalObservationV2 (..),
+    alignedExternalFeatureInputs,
+    alignedExternalFeatureInputsV2,
+    externalCellDouble,
+    externalCellTime,
+    externalCsvFeatureForColumn,
+    externalFeatureSeriesV2,
+    externalSymbolMatches,
+    parseExternalJsonSpec,
+ )
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -934,6 +946,51 @@ testExternalDataFeatureInputs = do
                         "default-off external data keeps the base feature prefix unchanged"
                         (take (length featsBase) featsExternal == featsBase)
                 _ -> assert "external feature vectors should be computable at t" False
+
+    let observationsV2 =
+            [ ExternalObservationV2 ExternalMacro 0 0 1
+            , ExternalObservationV2 ExternalMacro 0 90000 2
+            , ExternalObservationV2 ExternalMacro 120000 120000 3
+            , ExternalObservationV2 ExternalMacro 0 180000 9
+            , ExternalObservationV2 ExternalNews 120000 120000 0
+            , ExternalObservationV2 ExternalMicrostructure 0 0 1
+            , ExternalObservationV2 ExternalMicrostructure 0 0 3
+            , ExternalObservationV2 ExternalSecurity 300000 300000 5
+            , ExternalObservationV2 ExternalPolicy 0 0 (0 / 0)
+            ]
+    case alignedExternalFeatureInputsV2 openTimes intervalMs observationsV2 of
+        Nothing -> assert "availability-aware external observations should align" False
+        Just externalV2 -> do
+            case externalFeatureSeriesV2 ExternalMacro externalV2 of
+                Nothing -> assert "the v2 macro family should be present" False
+                Just macro -> do
+                    assert
+                        "v2 external revisions appear only after availability and older events do not displace newer events"
+                        (afsV2Values macro == V.fromList [1, 2, 3, 3])
+                    assert
+                        "v2 external alignment preserves the selected event timestamps"
+                        (afsV2EventTimesMs macro == V.fromList [Just 0, Just 0, Just 120000, Just 120000])
+                    assert
+                        "v2 external alignment preserves the selected availability timestamps"
+                        (afsV2AvailabilityTimesMs macro == V.fromList [Just 0, Just 90000, Just 120000, Just 120000])
+            case externalFeatureSeriesV2 ExternalNews externalV2 of
+                Nothing -> assert "the v2 news family should be present" False
+                Just news -> do
+                    assert
+                        "v2 external masks distinguish observed zero from pre-coverage missingness"
+                        ( afsV2Values news == V.replicate 4 0
+                            && afsV2Available news == V.fromList [False, False, True, True]
+                        )
+            assert
+                "exact duplicate v2 releases retain the legacy averaging rule"
+                ( (afsV2Values <$> externalFeatureSeriesV2 ExternalMicrostructure externalV2)
+                    == Just (V.replicate 4 2)
+                )
+            assert
+                "future-only and non-finite v2 families remain absent"
+                ( isNothing (externalFeatureSeriesV2 ExternalSecurity externalV2)
+                    && isNothing (externalFeatureSeriesV2 ExternalPolicy externalV2)
+                )
 
     assert
         "future-only external observations do not synthesize an all-zero feature bundle"
