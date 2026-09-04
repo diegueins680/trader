@@ -1,0 +1,104 @@
+{
+  "registryVersion": 1,
+  "asOfUtc": "2026-09-04T00:00:00Z",
+  "accountingRule": "Every planned configuration and adaptive successor is counted. Deterministic reruns of identical frozen bytes validate evidence but do not create a new model configuration. An unevaluated planned trial remains recorded as unevaluated, never silently dropped.",
+  "relatedResidualFundingFamily": {
+    "executedOrPlannedLifetimeCountBeforeProspectiveCarry": 45,
+    "campaigns": [
+      {
+        "campaign": "residual_momentum_derivatives_ablation_v1",
+        "lifetimeTrialNumbers": [1, 15],
+        "count": 15,
+        "trialIds": ["resmom_24h_base", "resmom_24h_funding_basis", "resmom_24h_open_interest", "resmom_24h_taker_flow", "resmom_24h_all", "resmom_72h_base", "resmom_72h_funding_basis", "resmom_72h_open_interest", "resmom_72h_taker_flow", "resmom_72h_all", "resmom_168h_base", "resmom_168h_funding_basis", "resmom_168h_open_interest", "resmom_168h_taker_flow", "resmom_168h_all"],
+        "status": "insufficient_evidence",
+        "disposition": "reject",
+        "holdout": "reserved and unopened",
+        "failureSummary": "Joint derivatives coverage, OOS observation, OOS confidence, doubled-cost, added-delay, DSR, and PBO gates failed."
+      },
+      {
+        "campaign": "residual_momentum_funding_only_v1",
+        "lifetimeTrialNumbers": [16, 21],
+        "count": 6,
+        "trialIds": ["resmom_24h_base", "resmom_24h_funding_only", "resmom_72h_base", "resmom_72h_funding_only", "resmom_168h_base", "resmom_168h_funding_only"],
+        "status": "insufficient_evidence",
+        "disposition": "reject",
+        "holdout": "1227 returns reserved and unopened",
+        "failureSummary": "Nested outer-OOS Sharpe -1.296; 95% block-bootstrap interval [-2.674, 0.035]; total return -76.69%; max drawdown 81.53%; 2x-cost and added-delay paths negative."
+      },
+      {
+        "campaign": "residual_reversal_turnover_v1",
+        "lifetimeTrialNumbers": [22, 33],
+        "count": 12,
+        "primaryTrialIds": ["resrev_24h_rebalance_1bar", "resrev_24h_rebalance_3bar", "resrev_72h_rebalance_1bar", "resrev_72h_rebalance_3bar", "resrev_168h_rebalance_1bar", "resrev_168h_rebalance_3bar"],
+        "derivedRegisteredPhaseVariants": 6,
+        "status": "mechanically_invalid",
+        "disposition": "reject",
+        "holdout": "1227 returns reserved and unopened",
+        "failureSummary": "The required resrev_24h_rebalance_3bar development path exhausted portfolio equity; later statistical tests were correctly not run."
+      },
+      {
+        "campaign": "residual_reversal_rank_hysteresis_risk_v1",
+        "lifetimeTrialNumbers": [34, 39],
+        "count": 6,
+        "trialIds": ["resrev_24h_exit1_control", "resrev_24h_exit3_hysteresis", "resrev_72h_exit1_control", "resrev_72h_exit3_hysteresis", "resrev_168h_exit1_control", "resrev_168h_exit3_hysteresis"],
+        "status": "risk_invalid",
+        "disposition": "reject",
+        "holdout": "1227 returns reserved and unopened",
+        "failureSummary": "The first required 0.50-gross control breached the frozen 20% maximum drawdown at 21.1756%; remaining planned trials stayed recorded but unevaluated."
+      },
+      {
+        "campaign": "residual_reversal_rank_hysteresis_risk_v2",
+        "lifetimeTrialNumbers": [40, 45],
+        "count": 6,
+        "trialIds": ["resrev_24h_exit1_control", "resrev_24h_exit3_hysteresis", "resrev_72h_exit1_control", "resrev_72h_exit3_hysteresis", "resrev_168h_exit1_control", "resrev_168h_exit3_hysteresis"],
+        "status": "risk_invalid",
+        "disposition": "reject",
+        "holdout": "1227 returns reserved and unopened",
+        "failureSummary": "The sole registered 0.25-gross intervention still breached the unchanged drawdown gate at 20.4847%; no lower exposure was tried."
+      },
+      {
+        "campaign": "cross_sectional_funding_carry_v1",
+        "lifetimeTrialNumbers": [46, 46],
+        "count": 1,
+        "trialIds": ["funding_carry_daily"],
+        "status": "prospective_collection_only",
+        "disposition": "continue_research",
+        "performanceAvailable": false,
+        "earliestEvaluationUtc": "2027-01-20T13:00:00Z",
+        "failureSummary": null
+      }
+    ]
+  },
+  "newIndependentProspectiveFamilies": [
+    {
+      "campaign": "har_rv_risk_gate_v1",
+      "registeredCandidateConfigurations": 9,
+      "registeredBaselineConfigurations": 27,
+      "totalBudget": 36,
+      "executedConfigurations": 0,
+      "status": "waiting_for_future_data"
+    },
+    {
+      "campaign": "depth_normalized_ofi_v1",
+      "registeredCandidateConfigurations": 36,
+      "registeredBaselineConfigurations": 90,
+      "totalBudget": 126,
+      "executedConfigurations": 0,
+      "status": "blocked_on_causal_l2_data_and_replay"
+    },
+    {
+      "campaign": "missingness_aware_calibrated_shallow_v1",
+      "registeredCandidateConfigurations": 36,
+      "registeredBaselineConfigurations": 81,
+      "totalBudget": 117,
+      "executedConfigurations": 0,
+      "status": "blocked_on_feature_schema_v2_and_future_data"
+    }
+  ],
+  "auditRun": {
+    "performanceTrials": 0,
+    "holdoutsOpened": 0,
+    "ordersPlaced": 0,
+    "reason": "No causally independent confirmation data were eligible."
+  }
+}

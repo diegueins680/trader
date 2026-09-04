@@ -1,0 +1,93 @@
+{
+  "manifestVersion": 1,
+  "campaign": "market_prediction_evidence_audit_2026_09_04",
+  "createdAtUtc": "2026-09-04T00:00:00Z",
+  "sourceBaselineCommit": "1563f63d6a0a29f22456bd53aa81cabc648fd740",
+  "preregistrationCommit": "6f92d792",
+  "scope": "literature review, repository fidelity audit, existing negative-result synthesis, future candidate preregistration, and compatibility-safe predictor identity metadata",
+  "performanceEvaluation": {
+    "newReturnsCalculated": false,
+    "newBacktestRun": false,
+    "finalHoldoutOpened": false,
+    "activeProspectiveCampaignPerformanceRead": false,
+    "reason": "Available development evidence is contaminated or already exhausted, the historical final holdout remains sealed, and the active prospective carry campaign prohibits performance calculation before 2027-01-20T13:00:00Z."
+  },
+  "existingEvidenceReviewed": [
+    {
+      "campaign": "residual_momentum_derivatives_ablation_v1",
+      "committedDescription": "README.md research section",
+      "localEvidence": ".tmp/research/edge-campaign-paged-10-v2-20260714",
+      "trialCount": 15,
+      "status": "insufficient_evidence"
+    },
+    {
+      "campaign": "residual_momentum_funding_only_v1",
+      "committedDescription": "research-notes/2026-07-15-historical-funding-development-result.md",
+      "localEvidence": ".tmp/research/historical-funding-campaign-v1",
+      "trialCount": 6,
+      "status": "insufficient_evidence"
+    },
+    {
+      "campaign": "residual_reversal_turnover_v1",
+      "committedDescription": "research-notes/2026-07-15-residual-reversal-development-result.md",
+      "localEvidence": ".tmp/research/historical-reversal-campaign-v1",
+      "trialCount": 12,
+      "status": "mechanically_invalid"
+    },
+    {
+      "campaign": "residual_reversal_rank_hysteresis_risk_v1",
+      "committedDescription": "research-notes/2026-07-15-risk-controlled-residual-reversal-development-result.md",
+      "localEvidence": ".tmp/research/historical-risk-controlled-reversal-campaign-v1",
+      "trialCount": 6,
+      "status": "risk_invalid"
+    },
+    {
+      "campaign": "residual_reversal_rank_hysteresis_risk_v2",
+      "committedDescription": "research-notes/2026-07-15-risk-controlled-residual-reversal-v2-development-result.md",
+      "localEvidence": ".tmp/research/historical-risk-controlled-reversal-campaign-v2",
+      "trialCount": 6,
+      "status": "risk_invalid"
+    }
+  ],
+  "sealedEvidence": {
+    "historicalFinalHoldout": {
+      "returnRows": 1227,
+      "status": "reserved_unopened",
+      "readByThisAudit": false
+    },
+    "prospectiveCarry": {
+      "campaign": "cross_sectional_funding_carry_v1",
+      "lifetimeAttempt": 46,
+      "minimumEvaluationTimeUtc": "2027-01-20T13:00:00Z",
+      "performanceReadByThisAudit": false
+    }
+  },
+  "newRegistrations": [
+    "research-notes/registrations/har-rv-risk-gate-v1.json",
+    "research-notes/registrations/depth-normalized-ofi-v1.json",
+    "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json"
+  ],
+  "researchOutputs": [
+    "literature-review.md",
+    "paper-matrix.csv",
+    "model-fidelity-audit.md",
+    "paper-to-repository-gap-matrix.md",
+    "candidate-selection-scorecard.md",
+    "experiment-registry.json",
+    "data-source-license-manifest.json",
+    "cost-execution-assumptions.md",
+    "ablation-robustness-results.md",
+    "final-decision-memo.md",
+    "reproduction.md"
+  ],
+  "implementationBoundary": {
+    "validatedWinnerCodeAdded": false,
+    "predictorBehaviorChanged": false,
+    "legacyConfigurationChanged": false,
+    "accurateAliasesAdded": ["dilated_lag_ridge_v1", "patch_summary_ridge_v1", "similarity_attention_v1"],
+    "currentChampionChanged": false,
+    "automaticPromotionAdded": false,
+    "liveAuthorizationChanged": false,
+    "ordersPlaced": false
+  }
+}

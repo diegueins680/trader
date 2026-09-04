@@ -1,0 +1,89 @@
+{
+  "manifestVersion": 1,
+  "asOfUtc": "2026-09-04T17:00:00Z",
+  "policy": "Public access is not a transfer of copyright or database rights. Each source remains subject to its provider terms. No paper PDF, credential, paid feed, proprietary dataset, raw L2 archive, or trained artifact is committed by this audit.",
+  "sources": [
+    {
+      "id": "binance-usdm-public-market-data",
+      "status": "existing_authorized_public_read_only_source",
+      "families": ["OHLCV", "funding", "open interest", "basis", "taker buy/sell ratio", "mark price"],
+      "canonicalDocumentation": "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api",
+      "terms": "https://www.binance.com/en/terms",
+      "licenseAssessment": "Use and redistribution remain subject to Binance terms; no claim of an open-data license is made.",
+      "knownCoverage": "OHLCV and funding can be paged historically; the repository acquisition spec records approximately 30-day limits for several futures-data statistics endpoints.",
+      "researchUse": "Existing campaign evidence and prospective acquisition. This audit performed metadata/hash inspection only."
+    },
+    {
+      "id": "coinbase-public-market-data",
+      "status": "existing_optional_public_read_only_source",
+      "families": ["spot OHLCV", "spot context", "potential future public book robustness"],
+      "canonicalDocumentation": "https://docs.cdp.coinbase.com/exchange/docs/welcome",
+      "terms": "https://www.coinbase.com/legal/user_agreement",
+      "licenseAssessment": "Provider terms apply; no open redistribution license is assumed.",
+      "researchUse": "Cross-market context only when exact symbol/time mapping is causal. No new data downloaded."
+    },
+    {
+      "id": "fred",
+      "status": "disabled_example_requires_operator_key",
+      "families": ["macro", "rates", "dollar index"],
+      "canonicalDocumentation": "https://fred.stlouisfed.org/docs/api/fred/",
+      "terms": "https://fred.stlouisfed.org/docs/api/terms_of_use.html",
+      "licenseAssessment": "Series-specific source notes and FRED API terms apply; revisions/vintages must be retained for point-in-time research.",
+      "researchUse": "Not used by this audit."
+    },
+    {
+      "id": "github-public-api",
+      "status": "disabled_example",
+      "families": ["developer activity"],
+      "canonicalDocumentation": "https://docs.github.com/en/rest",
+      "terms": "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service",
+      "licenseAssessment": "Repository content retains its own license; API metadata access does not license downstream source code.",
+      "researchUse": "Not used by this audit."
+    },
+    {
+      "id": "operator-supplied-external-data",
+      "status": "disabled_until_source_specific_approval",
+      "families": ["news", "filings", "on-chain", "stablecoin", "institutional flows", "network", "governance", "search", "social", "prediction markets", "security incidents", "CFTC positioning", "options volatility", "liquidations", "non-exchange microstructure"],
+      "canonicalDocumentation": "scripts/research/alternative-data.example.json",
+      "terms": "source-specific and unresolved",
+      "licenseAssessment": "Every configured feed requires documented source, permitted use, redistribution rule, event/availability timestamp, revision policy, and retention policy before research use.",
+      "researchUse": "No source in this group was activated or used by this audit."
+    },
+    {
+      "id": "paid-archival-and-proprietary-data",
+      "status": "not_approved_not_acquired",
+      "families": ["historical L2", "liquidations", "archival derivatives", "on-chain", "option surfaces"],
+      "canonicalDocumentation": "research-notes/data-acquisition-spec.md",
+      "terms": "vendor-specific",
+      "licenseAssessment": "Outside default scope and requires explicit approval.",
+      "researchUse": "Prohibited for the current audit."
+    },
+    {
+      "id": "academic-publications",
+      "status": "citation_only",
+      "families": ["papers", "official appendices", "official replication links"],
+      "canonicalDocumentation": "research-notes/market-prediction-2026-09-04/paper-matrix.csv",
+      "terms": "publisher and author specific",
+      "licenseAssessment": "Only bibliographic facts and original summaries are committed. No publication PDF or copied abstract is stored.",
+      "researchUse": "Literature review."
+    }
+  ],
+  "trackedCacheSnapshot": {
+    "usedForPerformanceByThisAudit": false,
+    "schema": "openTime,open,high,low,close,volume,funding,oi,basis,taker",
+    "retrievalInstructions": "Use the bounded public collector documented in research-notes/data-acquisition-spec.md and scripts/research/collect_datafeed.py; never overwrite earlier point-in-time values with later revised history.",
+    "files": [
+      {"path": "data/research/ADAUSDT_1h.csv", "sha256": "84d1c639557ad582408344856c372b656c9b92b45bdbd43140f0d8230b0ae173", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/AVAXUSDT_1h.csv", "sha256": "268544ac7a4d4918a6d45a27fe6af8835f3046609f959665621cedd5f40e3d7a", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/BNBUSDT_1h.csv", "sha256": "ec8588502cdb7e8f8eaa50508a022e1e315739d793096d02757a1792b344ea41", "dataRows": 3563, "firstOpenTime": 1775718000000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/BTCUSDT_1h.csv", "sha256": "a47ec8c0d360bd7b8ccc99b58ad4709bc27eba65438ef0d53edc5abbe0d4b219", "dataRows": 3563, "firstOpenTime": 1775718000000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/DOGEUSDT_1h.csv", "sha256": "dda363db0fddeb62ede07d1b0844d00672344544419d679481d9eed880ebf18f", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/ETHUSDT_1h.csv", "sha256": "02484891f1b085559c06912ff9c61a602ac1820ff16dfcf62a0073c6f82a68ac", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/LINKUSDT_1h.csv", "sha256": "35510c5b4d6b2f90938862e77bbb40da104789cabc99afbe132b710a87bd67dc", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/LTCUSDT_1h.csv", "sha256": "1f0f3b072a3e656717053a57d79499d21284ca0ac0ee29de21eab49bb95d7366", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/SOLUSDT_1h.csv", "sha256": "380ca81e48d54c4da696a7eb66316e157aaf00b10e71d7926a27c237e8217576", "dataRows": 3563, "firstOpenTime": 1775718000000, "lastOpenTime": 1788541200000},
+      {"path": "data/research/XRPUSDT_1h.csv", "sha256": "c806f13e2b2d9dc6aebe8ce8f2307143941d9ad7b6f0db2a03594d28a67e502a", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000}
+    ],
+    "deterministicExpectedOutputHashes": "Not declared because the public append-only cache is expected to grow. Each decisive campaign must freeze and hash its own immutable snapshot before returns are produced."
+  }
+}
