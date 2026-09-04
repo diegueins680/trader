@@ -127,31 +127,56 @@
       "title": "External, exogenous, cross-sectional, and prediction-market evidence",
       "features": ["external JSON/CSV features", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
+      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-NO-LOOKAHEAD", "G-FAIL-CLOSED"],
       "dependsOn": ["H-MARKET-DATA"],
-      "requires": [{ "id": "H-EXTERNAL-R1", "statement": "An observation is admissible only when its value and publication time are finite/representable and publicationTime <= decisionTime." }],
-      "ensures": [{ "id": "H-EXTERNAL-E1", "statement": "Each bar receives only the latest admissible observation at or before its close; cross-sectional membership is selected from the contemporaneous universe." }],
-      "invariants": [{ "id": "H-EXTERNAL-I1", "statement": "Adding a future observation cannot change any earlier aligned feature or decision." }],
+      "requires": [
+        { "id": "H-EXTERNAL-R1", "statement": "An observation is admissible only when its value and publication time are finite/representable and publicationTime <= decisionTime." },
+        { "id": "H-EXTERNAL-R2", "statement": "Availability-aware observations preserve distinct event and availability timestamps with 0 <= eventTime <= availabilityTime <= decisionTime." }
+      ],
+      "ensures": [
+        { "id": "H-EXTERNAL-E1", "statement": "Each bar receives only the latest admissible observation at or before its close; cross-sectional membership is selected from the contemporaneous universe." },
+        { "id": "H-EXTERNAL-E2", "statement": "Availability-aware alignment preserves value, observed mask, event time, and availability time; a revision cannot affect a bar that closed before the revision became available." }
+      ],
+      "invariants": [
+        { "id": "H-EXTERNAL-I1", "statement": "Adding a future observation cannot change any earlier aligned feature or decision." },
+        { "id": "H-EXTERNAL-I2", "statement": "The legacy one-timestamp alignment is the compatibility projection of availability-aware alignment with eventTime equal to availabilityTime." }
+      ],
       "failures": [{ "id": "H-EXTERNAL-F1", "statement": "Missing/malformed optional evidence remains absent or neutral as documented and cannot synthesize confidence." }],
       "evidence": [
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testAlignToBarsPointInTime" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPointInTimeUniverseSelectsHistoricalSnapshot" }
       ]
     },
     {
       "id": "H-FEATURES",
       "title": "Predictor feature schema and ensemble evidence",
-      "features": ["feature construction", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
+      "features": ["feature construction", "availability-aware feature schema v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/SensorVariance.hs"],
+      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/SensorVariance.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-DETERMINISTIC"],
       "dependsOn": ["H-MARKET-DATA", "H-EXTERNAL"],
-      "requires": [{ "id": "H-FEATURES-R1", "statement": "A feature vector declares one stable ordered schema and is computed only from bars and attached observations available at its index." }],
-      "ensures": [{ "id": "H-FEATURES-E1", "statement": "Feature dimension and ordering match the selected model; probability vectors are finite, non-negative, and normalized within tolerance." }],
-      "invariants": [{ "id": "H-FEATURES-I1", "statement": "Prefix extension cannot alter an earlier feature row, and optional channels never shift the meaning of existing indices." }],
-      "failures": [{ "id": "H-FEATURES-F1", "statement": "Dimension, finiteness, or probability-mass failure marks predictor evidence unavailable." }],
-      "evidence": [{ "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" }]
+      "requires": [
+        { "id": "H-FEATURES-R1", "statement": "A feature vector declares one stable ordered schema and is computed only from bars and attached observations available at its index." },
+        { "id": "H-FEATURES-R2", "statement": "A feature_availability_v2 row has non-empty unique ordered field names, explicit required flags, finite dense values, and a parallel availability mask bound by its schema signature." }
+      ],
+      "ensures": [
+        { "id": "H-FEATURES-E1", "statement": "Feature dimension and ordering match the selected model; probability vectors are finite, non-negative, and normalized within tolerance." },
+        { "id": "H-FEATURES-E2", "statement": "An optional unavailable value has dense value zero and mask false, an observed zero has mask true, and unavailable required evidence yields no row." }
+      ],
+      "invariants": [
+        { "id": "H-FEATURES-I1", "statement": "Prefix extension cannot alter an earlier feature row, and optional channels never shift the meaning of existing indices." },
+        { "id": "H-FEATURES-I2", "statement": "The availability-aware schema is opt-in; legacy feature construction, ordering, dimensions, identifiers, saved configurations, and predictions remain unchanged." }
+      ],
+      "failures": [
+        { "id": "H-FEATURES-F1", "statement": "Dimension, finiteness, or probability-mass failure marks predictor evidence unavailable." },
+        { "id": "H-FEATURES-F2", "statement": "Negative or incoherent timestamps, future availability, non-finite required values, empty or duplicate fields, and ambiguous field names fail closed before model input construction." }
+      ],
+      "evidence": [
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" }
+      ]
     },
     {
       "id": "H-PREDICTORS-TABULAR",

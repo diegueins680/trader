@@ -187,7 +187,7 @@ riskRegister =
         OPEN
         "Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value"
         "trader-firm-research"
-        "Introduce a versioned feature schema with explicit availability and coverage before any affected learned predictor is promotion-eligible"
+        "Migrate production feature builders and artifacts to the tested feature_availability_v2 timestamp and mask contract before any affected learned predictor is promotion-eligible"
     , riskEntry
         GITHUB_502_001
         MEDIUM
