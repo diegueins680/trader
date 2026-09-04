@@ -64,7 +64,10 @@ test("renewal arguments bound offer validity, cycles, dates, and output", () => 
   assert.match(config.outputDir, /renewals\/engagement-1-2026-09-01$/);
 
   assert.throws(() => parseArgs(["--id", "x", "--start", "2026-08-14"], Date.UTC(2026, 7, 15)), /must not precede/);
-  assert.throws(() => parseArgs(["--id", "x", "--start", "2026-09-01", "--months", "0"]), /whole number/);
+  assert.throws(
+    () => parseArgs(["--id", "x", "--start", "2026-09-01", "--months", "0"], Date.UTC(2026, 7, 15)),
+    /whole number/,
+  );
   assert.throws(() => parseArgs(["--start", "2026-09-01"]), /--id is required/);
 });
 
