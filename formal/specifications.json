@@ -125,28 +125,35 @@
     {
       "id": "H-EXTERNAL",
       "title": "External, exogenous, cross-sectional, and prediction-market evidence",
-      "features": ["external JSON/CSV features", "availability-aware external feature bundle v2", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
+      "features": ["external JSON/CSV features", "availability-aware external feature bundle v2", "external panel schema v2 decoder", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
+      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalPanelSchema.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-NO-LOOKAHEAD", "G-FAIL-CLOSED"],
       "dependsOn": ["H-MARKET-DATA"],
       "requires": [
         { "id": "H-EXTERNAL-R1", "statement": "An observation is admissible only when its value and publication time are finite/representable and publicationTime <= decisionTime." },
-        { "id": "H-EXTERNAL-R2", "statement": "Availability-aware observations preserve distinct event and availability timestamps with 0 <= eventTime <= availabilityTime <= decisionTime." }
+        { "id": "H-EXTERNAL-R2", "statement": "Availability-aware observations preserve distinct event and availability timestamps with 0 <= eventTime <= availabilityTime <= decisionTime." },
+        { "id": "H-EXTERNAL-R3", "statement": "An external_feature_panel_v2 decoder accepts only the exact ordered family/value/coverage schema and canonical single-scope decision-time rows; separate manifest verification must precede research admission." }
       ],
       "ensures": [
         { "id": "H-EXTERNAL-E1", "statement": "Each bar receives only the latest admissible observation at or before its close; cross-sectional membership is selected from the contemporaneous universe." },
-        { "id": "H-EXTERNAL-E2", "statement": "Availability-aware alignment preserves per-family value, observed mask, selected event time, and selected availability time; a revision cannot affect a bar that closed before the revision became available." }
+        { "id": "H-EXTERNAL-E2", "statement": "Availability-aware alignment preserves per-family value, observed mask, selected event time, and selected availability time; a revision cannot affect a bar that closed before the revision became available." },
+        { "id": "H-EXTERNAL-E3", "statement": "The opt-in panel decoder retains every finite family value and fractional coverage cell, including the distinction between observed zero and unavailable zero." }
       ],
       "invariants": [
         { "id": "H-EXTERNAL-I1", "statement": "Adding a future observation cannot change any earlier aligned feature or decision." },
-        { "id": "H-EXTERNAL-I2", "statement": "Legacy one-timestamp exogenous and external-family alignment is the compatibility projection of availability-aware alignment with eventTime equal to availabilityTime." }
+        { "id": "H-EXTERNAL-I2", "statement": "Legacy one-timestamp exogenous and external-family alignment is the compatibility projection of availability-aware alignment with eventTime equal to availabilityTime." },
+        { "id": "H-EXTERNAL-I3", "statement": "The external panel decoder is not connected to legacy feature construction or production orchestration, so disabled v2 decoding cannot change an existing model input, prediction, or signal." }
       ],
-      "failures": [{ "id": "H-EXTERNAL-F1", "statement": "Missing/malformed optional evidence remains absent or neutral as documented and cannot synthesize confidence." }],
+      "failures": [
+        { "id": "H-EXTERNAL-F1", "statement": "Missing/malformed optional evidence remains absent or neutral as documented and cannot synthesize confidence." },
+        { "id": "H-EXTERNAL-F2", "statement": "Empty, reordered, malformed, non-finite, non-canonical, mixed-scope, duplicate-time, out-of-order, or coverage-incoherent v2 panels fail as a whole before feature construction." }
+      ],
       "evidence": [
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testAlignToBarsPointInTime" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalPanelSchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPointInTimeUniverseSelectsHistoricalSnapshot" }
       ]
     },
