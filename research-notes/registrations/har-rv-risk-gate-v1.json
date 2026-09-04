@@ -1,0 +1,111 @@
+{
+  "registrationVersion": 1,
+  "campaign": "har_rv_risk_gate_v1",
+  "registeredOn": "2026-09-04",
+  "status": "preregistered_waiting_for_future_data",
+  "hypothesis": "A causal HAR-style volatility forecast can improve the current champion's net out-of-sample risk-adjusted performance solely by scaling down or abstaining during forecast high-risk states, without supplying trade direction.",
+  "academicOrigin": [
+    "https://doi.org/10.1111/1468-0262.00418",
+    "https://doi.org/10.1093/jjfinec/nbp001",
+    "https://doi.org/10.1016/0304-4076(86)90063-1"
+  ],
+  "implementationInterpretation": {
+    "target": "log of the sum of squared causally completed bar returns over the registered forward horizon",
+    "features": "intercept plus log realized-variance proxies over the trailing 1, 6, and 24 same-interval completed-bar blocks; unavailable blocks make the forecast absent",
+    "fit": "per-symbol expanding-window ridge regression with lambda fixed at 0.000001 after training-only standardization",
+    "tradingUse": "direction is copied unchanged from the frozen current champion; the candidate may only reduce absolute target exposure or abstain",
+    "riskScale": "min(1, training-only median forecast volatility / current forecast volatility), clipped to [0,1]; a missing, stale, invalid, or non-finite forecast yields scale 0"
+  },
+  "deviationsFromPapers": [
+    "Completed bar squared returns proxy high-frequency realized variance.",
+    "The registered blocks are expressed in bars so 1h, 4h, and 8h horizons remain separate.",
+    "The model is evaluated as a risk gate around an existing direction, not as a standalone volatility trade."
+  ],
+  "universe": {
+    "assets": ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX", "UNI", "SUI", "ETC", "ADA"],
+    "instruments": "Binance USD-M perpetual futures; same-symbol spot bars may be explanatory only",
+    "primaryBenchmarks": ["BTCUSDT", "ETHUSDT"],
+    "reviewedFleet": ["AVAXUSDT", "UNIUSDT", "SUIUSDT", "ETCUSDT", "ADAUSDT"],
+    "survivorshipRule": "Every contract eligible at the dataset start remains in the panel through delisting; a later listing enters only after its first causally complete training minimum. Results are reported both fixed-panel and point-in-time top-liquidity where history permits.",
+    "longShortRule": "The risk scale is evaluated separately on champion long and short intervals. It cannot flip direction."
+  },
+  "timeframes": ["1h", "4h", "8h"],
+  "horizonBars": [1, 3, 6],
+  "decisionTimestamp": "close time of the last completed input bar",
+  "assumedExecutionTimestamp": "next bar open after all candidate and champion inputs are available",
+  "featureAvailabilityRules": [
+    "Each bar must be final and available by decision time.",
+    "Spot explanatory bars require the identical completed open-time grid and are never forward-filled.",
+    "Every fit, scaler, median, and risk threshold uses the current training prefix only.",
+    "Missing, stale, non-finite, revised-without-vintage, or schema-incompatible evidence produces abstention."
+  ],
+  "dataset": {
+    "startInclusiveUtc": "2027-01-21T00:00:00Z",
+    "endInclusiveUtc": "2028-01-20T23:00:00Z",
+    "developmentEndInclusiveUtc": "2027-09-20T23:00:00Z",
+    "finalHoldoutStartInclusiveUtc": "2027-09-21T00:00:00Z",
+    "finalHoldoutEndInclusiveUtc": "2028-01-20T23:00:00Z",
+    "reason": "Begins after the currently registered prospective funding campaign and creates genuinely new evidence. Dates cannot be moved earlier."
+  },
+  "validation": {
+    "design": "nested expanding walk-forward within development; one untouched chronological final holdout",
+    "outerFolds": 6,
+    "innerFolds": 4,
+    "purgeBars": "maximum registered label horizon for the interval",
+    "embargoBars": 6,
+    "crossSymbolRule": "A pooled summary is secondary; every symbol and BTC/ETH benchmark result is reported independently.",
+    "crossExchangeRobustness": "Repeat volatility forecast metrics on causally aligned Coinbase spot bars where instrument identity is exact; no exchange substitution in PnL.",
+    "finalHoldoutPolicy": "Open once only after code, features, costs, gates, and champion snapshot are frozen and committed. Any opening or interrupted opening consumes the holdout."
+  },
+  "baselines": [
+    "trailing historical variance",
+    "EWMA lambda 0.94",
+    "GARCH(1,1)",
+    "ungated frozen current champion",
+    "constant 0.25 gross exposure where economically applicable",
+    "current repository volatility-target and volatility-confidence gates"
+  ],
+  "hyperparameterSearch": {
+    "candidateGrid": "none; one fixed HAR interpretation for each interval/horizon",
+    "registeredCandidateConfigurations": 9,
+    "registeredBaselineConfigurations": 27,
+    "totalExperimentBudget": 36,
+    "adaptiveSuccessors": "prohibited in this campaign; any successor is a new registration and increases lifetime count"
+  },
+  "randomSeeds": [20270904],
+  "transactionCostModel": {
+    "baseline": "Freeze the repository's causally calibrated maker/taker mix, spread, slippage, funding, precision, minimum-notional, missed-fill, and latency assumptions before development execution.",
+    "normalizedResearchGrossExposure": 0.25,
+    "stressMultipliers": [1.0, 1.5, 2.0],
+    "extremeCost": "25 basis points per unit turnover plus adverse funding and one missed entry for each ten attempted entries",
+    "delayStress": "one additional full bar",
+    "marketImpact": "report zero-impact and a square-root adverse-impact sensitivity; zero-impact cannot authorize promotion"
+  },
+  "forecastMetrics": ["MAE", "RMSE", "QLIKE", "interval coverage", "interval width", "stability by horizon symbol and regime"],
+  "economicMetrics": ["gross return", "net return", "annualized return when meaningful", "Sharpe", "probabilistic Sharpe", "deflated Sharpe probability", "Sortino", "Calmar", "maximum drawdown", "drawdown duration", "expected shortfall", "turnover", "trades", "exposure", "win rate", "average win and loss", "profit factor", "fee/funding contribution", "cost and delay stress"],
+  "statisticalTests": ["stationary or circular block-bootstrap 95% intervals", "paired block bootstrap versus ungated champion", "family-wise correction across 36 registered configurations", "formal DSR", "CSCV PBO when any selection occurs", "Hansen SPA where the complete aligned loss matrix permits"],
+  "robustnessTests": ["bull bear sideways", "high low volatility", "high low liquidity", "per symbol", "BTC/ETH separately", "adjacent timeframe", "coefficient perturbation", "missing and stale bars", "data gaps", "non-finite values", "training failure", "inference timeout", "distribution shift", "cost stress", "delay stress"],
+  "ablations": ["remove 1-bar component", "remove 6-bar component", "remove 24-bar component", "remove spot cross-market input", "risk scaling without abstention", "abstention without scaling"],
+  "promotionGates": {
+    "netImprovementOverFrozenChampion": true,
+    "minimumDeflatedSharpeProbability": 0.95,
+    "maximumPbo": 0.2,
+    "positivePairedPrincipalMetricLowerBound": true,
+    "maximumDrawdownRegression": 0.0,
+    "noSingleSymbolFoldRegimeOrTradeDependence": true,
+    "passesCostAndDelayStress": true,
+    "allCausalityAndFailureTestsPass": true,
+    "disabledChallengerOnly": true,
+    "automaticPromotion": false,
+    "liveAuthorization": false
+  },
+  "failureConditions": ["any holdout or active prospective-campaign overlap", "incomplete point-in-time bars", "feature backfill without vintage", "non-finite output", "risk scale above one or below zero", "any direction change", "insufficient independent observations", "cost model not frozen", "drawdown regression", "failed statistical gate"],
+  "computeBudget": {
+    "trainingCpuSecondsPerSymbolIntervalFold": 2,
+    "inferenceP99MillisecondsPerSymbol": 2,
+    "residentMemoryMiBPerConcurrentSymbol": 1,
+    "artifactSizeKiBPerSymbolIntervalHorizon": 16,
+    "startupReloadMillisecondsPerArtifact": 10,
+    "noGpu": true
+  }
+}

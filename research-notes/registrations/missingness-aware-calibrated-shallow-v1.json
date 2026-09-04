@@ -1,0 +1,97 @@
+{
+  "registrationVersion": 1,
+  "campaign": "missingness_aware_calibrated_shallow_v1",
+  "registeredOn": "2026-09-04",
+  "status": "preregistered_blocked_on_feature_schema_v2_and_future_data",
+  "hypothesis": "An explicitly missingness-aware shallow model of price and derivatives features can improve net out-of-sample performance by producing calibrated return distributions and abstaining when edge does not exceed costs or evidence is unavailable.",
+  "academicOrigin": ["https://doi.org/10.1093/rfs/hhaa009", "https://doi.org/10.1214/aos/1013203451", "https://proceedings.neurips.cc/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html"],
+  "implementationInterpretation": {
+    "target": "separate 1 3 and 6 bar future net returns; horizons are never pooled",
+    "features": "causal OHLCV returns volatility and trend plus funding basis open interest and taker-flow values; every optional value has a separate observed/fresh coverage bit",
+    "models": ["ridge conditional mean with residual empirical quantiles", "linear q10/q50/q90 pinball models", "current depth-one GBDT with split-conformal interval", "current decision tree with split-conformal interval"],
+    "decision": "take normalized 0.25 gross directional exposure only when the entire calibrated interval clears the frozen all-in cost floor; otherwise abstain",
+    "failure": "a required feature unavailable/stale, malformed shape, non-finite value/output, calibration failure, incompatible artifact, or timeout yields abstention"
+  },
+  "deviationsFromPapers": ["Uses shallow deterministic CPU models rather than broad equity neural networks.", "Targets crypto-perpetual net return and explicitly evaluates abstention.", "Adaptive calibration is not used unless separately implemented under a faithful versioned algorithm identifier."],
+  "universe": {
+    "assets": ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX", "UNI", "SUI", "ETC", "ADA"],
+    "instruments": "Binance USD-M perpetual futures with same-symbol spot explanatory ablation",
+    "primaryBenchmarks": ["BTCUSDT", "ETHUSDT"],
+    "reviewedFleet": ["AVAXUSDT", "UNIUSDT", "SUIUSDT", "ETCUSDT", "ADAUSDT"],
+    "universeRule": "time-series models are per instrument; pooled reports do not substitute for per-symbol evidence; any cross-sectional diagnostic uses trailing point-in-time liquidity and retains delisted members",
+    "longShortRule": "report probability calibration and economics separately for positive and negative positions"
+  },
+  "timeframes": ["1h", "4h", "8h"],
+  "horizonBars": [1, 3, 6],
+  "decisionTimestamp": "close of the final completed feature bar after every source-specific publication and processing lag",
+  "assumedExecutionTimestamp": "next bar open; plus one additional bar in delay stress",
+  "featureAvailabilityRules": ["event time and availability time are separate", "first-seen-only sources begin at first observation", "revisions never backdate", "training-only imputation uses an explicit indicator and never manufactures an observed zero", "required missing or stale families force abstention", "normalization selection and calibration fit only on training/calibration prefixes", "cross-symbol values require exact time and universe alignment"],
+  "dataset": {
+    "startInclusiveUtc": "2027-01-21T00:00:00Z",
+    "endInclusiveUtc": "2028-01-20T23:00:00Z",
+    "developmentEndInclusiveUtc": "2027-09-20T23:00:00Z",
+    "finalHoldoutStartInclusiveUtc": "2027-09-21T00:00:00Z",
+    "finalHoldoutEndInclusiveUtc": "2028-01-20T23:00:00Z",
+    "reason": "Uses genuinely new data after the active prospective campaign; current April-September 2026 cache is insufficient and overlaps controlled evidence."
+  },
+  "validation": {
+    "design": "nested expanding walk-forward development with train-only preprocessing and separate calibration suffix; one untouched chronological final holdout",
+    "outerFolds": 6,
+    "innerFolds": 4,
+    "calibrationFractionWithinTraining": 0.2,
+    "purgeBars": "registered label horizon",
+    "embargoBars": 6,
+    "crossSymbolRule": "per-symbol model and leave-one-symbol-out pooled robustness are separate hypotheses",
+    "crossExchangeRobustness": "repeat price-only feature metrics on causally aligned Coinbase spot observations where exact mapping exists",
+    "finalHoldoutPolicy": "one irreversible read after committed freeze; no adaptive successor reuses it"
+  },
+  "baselines": ["zero return", "historical mean", "last return", "simple momentum", "simple reversal", "regularized price-only linear model", "buy-and-hold or constant exposure", "current champion", "current adopted combo", "current GBDT", "current decision tree", "current KNN", "current HMM/regime", "current Kalman", "current LSTM/online neural", "legacy TCN/PatchTST/Transformer proxies", "current quantile/conformal", "current ensemble"],
+  "hyperparameterSearch": {
+    "modelConfigurationsPerIntervalHorizon": 4,
+    "intervals": 3,
+    "horizons": 3,
+    "registeredCandidateConfigurations": 36,
+    "registeredBaselineConfigurations": 81,
+    "totalExperimentBudget": 117,
+    "ridgeLambda": [0.001],
+    "quantiles": [0.1, 0.5, 0.9],
+    "gbdtAndTree": "current frozen repository defaults",
+    "adaptiveSuccessors": "prohibited without new registration and lifetime-count increase"
+  },
+  "randomSeeds": [20270904],
+  "transactionCostModel": {
+    "baseline": "frozen causal maker/taker fees, observed spread, slippage, funding, quantity/notional precision, latency and missed-fill rule shared with champion",
+    "normalizedGrossExposure": 0.25,
+    "stressMultipliers": [1.0, 1.5, 2.0],
+    "extremeScenario": "25 basis points per unit turnover, adverse funding, 50 percent missed entries, and one-bar delay",
+    "impact": "adverse square-root sensitivity reported separately; zero impact cannot authorize promotion"
+  },
+  "forecastMetrics": ["MAE", "RMSE", "directional accuracy", "actionable precision and recall", "log loss", "Brier", "calibration error", "reliability curve", "pinball loss", "CRPS approximation", "quantile coverage", "conformal coverage", "interval width", "stability by horizon symbol and regime"],
+  "economicMetrics": ["gross and net return", "annualized return when meaningful", "Sharpe", "probabilistic Sharpe", "deflated Sharpe probability", "Sortino", "Calmar", "maximum drawdown and duration", "expected shortfall", "turnover", "trades", "exposure", "win rate", "average win/loss", "profit factor", "funding and fee contribution", "symbol/regime/exchange reports", "cost and delay stress"],
+  "statisticalTests": ["paired circular or stationary block-bootstrap confidence intervals", "formal DSR", "CSCV PBO", "Hansen SPA", "family-wise correction across all 117 configurations"],
+  "robustnessTests": ["bull bear sideways", "high low volatility", "high low liquidity", "per symbol", "adjacent timeframe", "small parameter perturbation", "missing features", "stale features", "gaps", "revisions", "non-finite values", "artifact corruption", "training failure", "inference timeout", "distribution shift", "cost and delay stress"],
+  "ablations": ["price-only", "remove funding", "remove basis", "remove open interest", "remove taker flow", "remove missingness indicators", "remove spot context", "remove calibration", "remove abstention", "each model family"],
+  "promotionGates": {
+    "featureSchemaV2Required": true,
+    "netImprovementOverFrozenChampion": true,
+    "minimumDeflatedSharpeProbability": 0.95,
+    "maximumPbo": 0.2,
+    "positivePrincipalMetricLowerBound": true,
+    "noDrawdownOrTailRegression": true,
+    "noSingleSymbolFoldRegimeOrTradeDependence": true,
+    "costAndDelayStressPass": true,
+    "allAblationsAndFailureTestsComplete": true,
+    "disabledChallengerOnly": true,
+    "automaticPromotion": false,
+    "liveAuthorization": false
+  },
+  "failureConditions": ["feature schema lacks separate availability", "any future or revised value is backdated", "required data missing or stale", "non-finite output", "calibration undercoverage or unbounded width", "negative net economics", "drawdown/tail regression", "failed multiplicity or robustness gate", "holdout protocol violation"],
+  "computeBudget": {
+    "trainingCpuSecondsPerSymbolIntervalFold": 15,
+    "inferenceP99MillisecondsPerSymbol": 5,
+    "residentMemoryMiBPerConcurrentSymbol": 8,
+    "artifactSizeKiBPerSymbolIntervalHorizon": 256,
+    "startupReloadMillisecondsPerArtifact": 25,
+    "noGpu": true
+  }
+}
