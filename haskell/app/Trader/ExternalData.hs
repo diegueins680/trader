@@ -7,6 +7,8 @@ module Trader.ExternalData (
     ExternalFeature (..),
     ExternalJsonSpec (..),
     alignedExternalFeatureInputs,
+    externalCellDouble,
+    externalCellTime,
     externalCsvFeatureForColumn,
     externalSymbolMatches,
     externalDataConfigFromEnv,
@@ -27,7 +29,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Scientific (toRealFloat)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
@@ -208,9 +210,10 @@ alignedExternalFeatureInputs barOpenTimes intervalMs observations =
                             | (ts, (total, count)) <- Map.toAscList byTs
                             , count > 0
                             ]
-                     in if null series
+                        aligned = alignToBars barOpenTimes intervalMs series
+                     in if null series || not (V.any isJust aligned)
                             then Nothing
-                            else Just (neutralFill (alignToBars barOpenTimes intervalMs series))
+                            else Just (neutralFill aligned)
         bundle =
             ExternalFeatureInputs
                 { efiMicrostructure = seriesFor ExternalMicrostructure
@@ -233,9 +236,30 @@ alignedExternalFeatureInputs barOpenTimes intervalMs observations =
                 , efiRealWorld = seriesFor ExternalRealWorld
                 , efiSecurity = seriesFor ExternalSecurity
                 }
-     in if Map.null grouped then Nothing else Just bundle
+     in if any isJust (featureSeries bundle) then Just bundle else Nothing
   where
     mergeBuckets (aSum, aCount) (bSum, bCount) = (aSum + bSum, aCount + bCount)
+    featureSeries inputs =
+        [ efiMicrostructure inputs
+        , efiOptionsVol inputs
+        , efiOnChain inputs
+        , efiMacro inputs
+        , efiCot inputs
+        , efiNews inputs
+        , efiFilings inputs
+        , efiPolicy inputs
+        , efiFundamentals inputs
+        , efiStablecoin inputs
+        , efiInstitutionalFlows inputs
+        , efiNetwork inputs
+        , efiDeveloper inputs
+        , efiGovernance inputs
+        , efiAttention inputs
+        , efiSocial inputs
+        , efiPredictionMarket inputs
+        , efiRealWorld inputs
+        , efiSecurity inputs
+        ]
 
 fetchCsvObservations :: Maybe String -> FilePath -> IO [ExternalObservation]
 fetchCsvObservations mSymbol path = do
@@ -565,6 +589,12 @@ averageObjectNumbers o =
     case mapMaybe jsonMetric (KM.elems o) of
         [] -> Nothing
         xs -> Just (sum xs / fromIntegral (length xs))
+
+externalCellTime :: BS.ByteString -> Maybe Int64
+externalCellTime = parseCellTime
+
+externalCellDouble :: BS.ByteString -> Maybe Double
+externalCellDouble = parseCellDouble
 
 parseCellTime :: BS.ByteString -> Maybe Int64
 parseCellTime = parseTimestampMs . trim . BS.unpack

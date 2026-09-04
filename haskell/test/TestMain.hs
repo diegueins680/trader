@@ -61,7 +61,7 @@ import Trader.CostCalibration (
     venueSpreadFloor,
     venueTakerFeeFloor,
  )
-import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCsvFeatureForColumn, externalSymbolMatches, parseExternalJsonSpec)
+import Trader.ExternalData (ExternalFeature (..), ExternalJsonSpec (..), alignedExternalFeatureInputs, externalCellDouble, externalCellTime, externalCsvFeatureForColumn, externalSymbolMatches, parseExternalJsonSpec)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     liveMaxPnlCloseTimingEvidenceHoldBars,
@@ -868,6 +868,23 @@ testExternalDataFeatureInputs = do
             , (ExternalMacro, 120000, 10.0)
             ]
         mExternal = alignedExternalFeatureInputs openTimes intervalMs observations
+    assert
+        "blank and malformed external numeric cells fail closed"
+        ( and
+            [ isNothing (externalCellDouble "")
+            , isNothing (externalCellDouble " ")
+            , isNothing (externalCellDouble "garbage")
+            , isNothing (externalCellDouble "NaN")
+            , isNothing (externalCellDouble "+Infinity")
+            , isNothing (externalCellDouble "-Infinity")
+            ]
+        )
+    assert
+        "blank and malformed external timestamp cells fail closed"
+        ( isNothing (externalCellTime "")
+            && isNothing (externalCellTime " ")
+            && isNothing (externalCellTime "not-a-time")
+        )
     case mExternal of
         Nothing -> assert "external observations should align to a feature bundle" False
         Just external -> do
@@ -915,6 +932,33 @@ testExternalDataFeatureInputs = do
                         "default-off external data keeps the base feature prefix unchanged"
                         (take (length featsBase) featsExternal == featsBase)
                 _ -> assert "external feature vectors should be computable at t" False
+
+    assert
+        "future-only external observations do not synthesize an all-zero feature bundle"
+        ( isNothing
+            ( alignedExternalFeatureInputs
+                openTimes
+                intervalMs
+                [ (ExternalNews, 240000, 4.2)
+                , (ExternalNews, 120000, 0 / 0)
+                ]
+            )
+        )
+    case alignedExternalFeatureInputs
+        openTimes
+        intervalMs
+        [ (ExternalMacro, 0, 1.0)
+        , (ExternalMacro, 60000, 0 / 0)
+        , (ExternalMacro, 240000, 9.0)
+        ] of
+        Nothing ->
+            assert
+                "one admissible global external observation should survive malformed and future rows"
+                False
+        Just external ->
+            assert
+                "valid global external observations survive while malformed and future rows stay unavailable"
+                (efiMacro external == Just (V.fromList [1.0, 1.0, 1.0, 1.0]))
 
     assert
         "generic external JSON specs parse provider family, URL, timestamp key, and value key"

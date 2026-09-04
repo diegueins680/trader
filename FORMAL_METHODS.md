@@ -75,6 +75,30 @@ Proof sketch:
 - Strictly ascending bar opens and a positive interval are checked before scanning; if they fail, the function returns an all-`Nothing` vector with the same length as the requested grid.
 - The close-time overflow guard rejects any bar whose computed close precedes its open, preserving the same fail-closed absence semantics for arithmetic corruption.
 
+## Formal external-data admissibility contract
+
+`externalCellDouble`, `externalCellTime`, `externalSymbolMatches`, and `alignedExternalFeatureInputs` in `haskell/app/Trader/ExternalData.hs` are treated as the fail-closed admission boundary for external CSV or panel data before those values become predictor inputs.
+
+Clauses:
+
+1. An external numeric cell is admissible only when it parses to a finite `Double`. Blank, malformed, `NaN`, `+Infinity`, and `-Infinity` cells are unavailable and must not become numeric feature evidence.
+2. An external time cell is admissible only when it parses to a timestamp, and a symbol-scoped row is admissible only when `externalSymbolMatches` resolves that scope against the target full/base asset. When the target symbol is unresolved, only global rows are admissible.
+3. A feature family becomes admissible only when at least one finite observation survives symbol/timestamp parsing and is causally available on or before some requested bar close. Future-only or otherwise no-overlap rows must remain unavailable rather than synthesizing an all-zero aligned feature family.
+4. Once at least one admissible observation overlaps the requested bar grid, missing leading bars may still neutral-fill to `0`; that neutralization is evidence-preserving only after admissibility has been proven.
+5. Valid global rows remain admissible even when the same input batch also contains malformed, non-finite, future-dated, or unresolved symbol-scoped rows.
+
+Bounded executable obligations:
+
+- `testExternalDataFeatureInputs` covers blank and malformed numeric/time cells, rejection of non-finite cells, rejection of future-only aligned evidence, unresolved symbol-scoped exclusion when the target symbol is unknown or mismatched, and preservation of valid global rows.
+
+Proof sketch:
+
+- `externalCellDouble` and `externalCellTime` are the first parse boundary: they reject blank or malformed CSV/panel cells before the row can contribute any numeric or temporal evidence.
+- `externalSymbolMatches` is the scope boundary: non-empty symbol-scoped rows require a resolved full/base asset match, so unresolved or mismatched scoped rows cannot leak into another asset's signal vector.
+- `alignedExternalFeatureInputs` groups only finite observations, aligns them point-in-time, and now emits a feature family only when the aligned series contains at least one admissible observation witness. Therefore future-only rows cannot opt the model into a synthetic all-zero exogenous family.
+- Neutral fill is applied only after that admissibility witness exists, so it preserves the meaning of "missing before first admissible observation" without manufacturing evidence from malformed or causally unavailable rows.
+- Because admissibility is checked per family before bundling, valid global observations are preserved even when other rows in the batch are rejected fail closed.
+
 ## Formal Coinbase candle range contract
 
 `buildRanges` in `haskell/app/Trader/Coinbase.hs` constructs paged historical candle windows before HTTP requests are issued.
