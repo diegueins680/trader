@@ -111,7 +111,185 @@ with tempfile.TemporaryDirectory() as directory:
     assert manifest["pointInTime"] is True
     assert manifest["barsCount"] == 4
     assert manifest["symbol"] == "BTCUSDT"
-    assert json.loads(manifest_path.read_text(encoding="utf-8"))["intervalMs"] == 60000
+    persisted_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert persisted_manifest["intervalMs"] == 60000
+    assert persisted_manifest["panelSchema"] == {
+        "id": alt.PANEL_SCHEMA_ID,
+        "version": alt.PANEL_SCHEMA_VERSION,
+        "featureAvailabilitySchemaId": alt.FEATURE_AVAILABILITY_SCHEMA_ID,
+        "columns": alt._panel_fields(),
+        "coverage": {
+            "suffix": "_coverage",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "zeroMeansUnavailable": True,
+            "unavailableValue": 0.0,
+        },
+    }
+    assert set(persisted_manifest["artifacts"]) == {"cache", "bars", "panel"}
+    for name, path in {
+        "cache": cache_path,
+        "bars": bars_path,
+        "panel": panel_path,
+    }.items():
+        artifact = persisted_manifest["artifacts"][name]
+        assert artifact["path"] == str(path.resolve())
+        assert artifact["sha256"] == alt._file_sha256(path)
+    verified = alt.verify_panel_artifact(manifest_path)
+    assert verified["state"] == "verified"
+    assert verified["barsCount"] == 4
+    assert verified["panelSha256"] == alt._file_sha256(panel_path)
+    assert verified["reproduced"] is True
+    assert alt.main(["verify-panel", "--manifest", str(manifest_path)]) == 0
+
+    # Panel bytes are deterministic even though manifests have a generatedAt
+    # timestamp and absolute output path.
+    second_panel_path = root / "panel-second.csv"
+    second_manifest_path = root / "panel-second.json"
+    second_manifest = alt.build_panel(
+        cache_path,
+        bars_path,
+        second_panel_path,
+        interval_ms=60000,
+        manifest_path=second_manifest_path,
+        symbol="BTCUSDT",
+    )
+    assert second_panel_path.read_bytes() == panel_path.read_bytes()
+    assert second_manifest["artifacts"]["panel"]["sha256"] == verified["panelSha256"]
+
+    # A byte mutation fails the digest. Rehashing semantically invalid bytes
+    # still cannot bypass coverage validation.
+    original_panel = panel_path.read_bytes()
+    original_manifest = manifest_path.read_text(encoding="utf-8")
+    corrupt_rows = panel.copy()
+    corrupt_rows[0][f"{delayed_family}_coverage"] = "2"
+    with panel_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=alt._panel_fields())
+        writer.writeheader()
+        writer.writerows(corrupt_rows)
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "panel artifact sha256 mismatch" in str(error)
+    else:
+        raise AssertionError("a panel byte mutation must fail its artifact digest")
+    rehashed_manifest = json.loads(original_manifest)
+    rehashed_manifest["artifacts"]["panel"]["sha256"] = alt._file_sha256(panel_path)
+    manifest_path.write_text(json.dumps(rehashed_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "coverage is outside [0, 1]" in str(error)
+    else:
+        raise AssertionError("rehashing cannot authorize invalid panel semantics")
+    corrupt_rows[0][f"{delayed_family}_coverage"] = "0"
+    corrupt_rows[0][delayed_family] = "1"
+    with panel_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=alt._panel_fields())
+        writer.writeheader()
+        writer.writerows(corrupt_rows)
+    rehashed_manifest["artifacts"]["panel"]["sha256"] = alt._file_sha256(panel_path)
+    manifest_path.write_text(json.dumps(rehashed_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "actionable value without coverage" in str(error)
+    else:
+        raise AssertionError("zero coverage cannot authorize a non-zero feature")
+    panel_path.write_bytes(original_panel)
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+
+    with panel_path.open(newline="", encoding="utf-8") as handle:
+        valid_but_changed_rows = list(csv.DictReader(handle))
+    valid_but_changed_rows[0][flow_family] = str(
+        float(valid_but_changed_rows[0][flow_family]) + 0.125
+    )
+    with panel_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=alt._panel_fields())
+        writer.writeheader()
+        writer.writerows(valid_but_changed_rows)
+    rehashed_manifest = json.loads(original_manifest)
+    rehashed_manifest["artifacts"]["panel"]["sha256"] = alt._file_sha256(panel_path)
+    manifest_path.write_text(json.dumps(rehashed_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "do not reproduce from the bound inputs" in str(error)
+    else:
+        raise AssertionError("a rehashed finite value must fail deterministic reconstruction")
+    panel_path.write_bytes(original_panel)
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+
+    incompatible_manifest = json.loads(original_manifest)
+    incompatible_manifest["panelSchema"]["id"] = "unknown_panel_schema"
+    manifest_path.write_text(json.dumps(incompatible_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "unsupported alternative-data panel schema id" in str(error)
+    else:
+        raise AssertionError("an unsupported panel schema must fail closed")
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+
+    inaccurate_manifest = json.loads(original_manifest)
+    inaccurate_manifest["observationsCount"] += 1
+    manifest_path.write_text(json.dumps(inaccurate_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "observationsCount disagrees with bound cache" in str(error)
+    else:
+        raise AssertionError("manifest observation counts must be recomputed")
+    inaccurate_manifest = json.loads(original_manifest)
+    inaccurate_manifest["metricsByFamily"][flow_family] += 1
+    manifest_path.write_text(json.dumps(inaccurate_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "metricsByFamily disagrees with bound cache" in str(error)
+    else:
+        raise AssertionError("manifest family counts must be recomputed")
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+
+    original_bars = bars_path.read_bytes()
+    with bars_path.open(newline="", encoding="utf-8") as handle:
+        corrupt_bars = list(csv.DictReader(handle))
+    corrupt_bars[0]["openTime"] = "1"
+    with bars_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["openTime", "close"])
+        writer.writeheader()
+        writer.writerows(corrupt_bars)
+    rehashed_manifest = json.loads(original_manifest)
+    rehashed_manifest["artifacts"]["bars"]["sha256"] = alt._file_sha256(bars_path)
+    manifest_path.write_text(json.dumps(rehashed_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "panel timestamps do not match the bound bar grid" in str(error)
+    else:
+        raise AssertionError("rehashing a mismatched bar grid must fail closed")
+    bars_path.write_bytes(original_bars)
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+
+    original_cache = cache_path.read_bytes()
+    with cache_path.open(newline="", encoding="utf-8") as handle:
+        corrupt_cache = list(csv.DictReader(handle))
+    corrupt_cache[0]["eventTime"] = str(int(corrupt_cache[0]["timestamp"]) + 1)
+    with cache_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=alt.CANONICAL_FIELDS)
+        writer.writeheader()
+        writer.writerows(corrupt_cache)
+    rehashed_manifest = json.loads(original_manifest)
+    rehashed_manifest["artifacts"]["cache"]["sha256"] = alt._file_sha256(cache_path)
+    manifest_path.write_text(json.dumps(rehashed_manifest), encoding="utf-8")
+    try:
+        alt.verify_panel_artifact(manifest_path)
+    except ValueError as error:
+        assert "incoherent observation timestamps" in str(error)
+    else:
+        raise AssertionError("rehashing a time-incoherent cache must fail closed")
+    cache_path.write_bytes(original_cache)
+    manifest_path.write_text(original_manifest, encoding="utf-8")
 
     # A changed payload cannot reuse an explicit provider release identity:
     # preserving the original row prevents the correction from being backdated.

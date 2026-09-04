@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import email.utils
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -45,6 +46,9 @@ import xml.etree.ElementTree as ET
 
 
 SCHEMA_VERSION = 1
+PANEL_SCHEMA_ID = "external_feature_panel_v2"
+PANEL_SCHEMA_VERSION = 2
+FEATURE_AVAILABILITY_SCHEMA_ID = "feature_availability_v2"
 FAMILIES = (
     "microstructure",
     "options_vol",
@@ -707,6 +711,253 @@ def _atomic_write_csv(path: Path, fields: Sequence[str], rows: Iterable[Mapping[
         temporary_path.unlink(missing_ok=True)
 
 
+def _file_sha256(path: str | os.PathLike[str]) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _panel_fields() -> list[str]:
+    return ["timestamp", "symbol"] + [
+        item for family in FAMILIES for item in (family, f"{family}_coverage")
+    ]
+
+
+def _artifact_record(path: str | os.PathLike[str]) -> dict[str, str]:
+    resolved = Path(path).resolve()
+    return {"path": str(resolved), "sha256": _file_sha256(resolved)}
+
+
+def _valid_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _panel_symbol_scope(symbol: str | None) -> tuple[str, str]:
+    symbol_clean = "" if symbol is None else symbol.strip().upper()
+    if symbol is not None and not symbol_clean:
+        raise ValueError("symbol must be non-empty when supplied")
+    base_symbol = symbol_clean
+    for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
+        if base_symbol.endswith(quote) and len(base_symbol) > len(quote):
+            base_symbol = base_symbol[: -len(quote)]
+            break
+    return symbol_clean, base_symbol
+
+
+def _eligible_panel_observations(
+    cache_rows: Iterable[Observation],
+    *,
+    last_close: int,
+    symbol: str,
+    base_symbol: str,
+) -> list[Observation]:
+    return [
+        row
+        for row in cache_rows
+        if row.timestamp <= last_close
+        and (
+            not symbol
+            or not row.entity
+            or row.entity.upper() in {symbol, base_symbol}
+        )
+    ]
+
+
+def verify_panel_artifact(
+    manifest_path: str | os.PathLike[str],
+    *,
+    cache_path: str | os.PathLike[str] | None = None,
+    bars_path: str | os.PathLike[str] | None = None,
+    panel_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Verify one materialized panel and its exact source artifacts.
+
+    Verification is deliberately strict and versioned. A caller cannot make a
+    corrupted panel acceptable merely by replacing its digest: the CSV schema,
+    row count, timestamp order, symbol scope, finite values, coverage bounds,
+    and unavailable-value convention are checked independently.
+    """
+
+    manifest_file = Path(manifest_path)
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("panel manifest must contain a JSON object")
+    if manifest.get("schemaVersion") != SCHEMA_VERSION:
+        raise ValueError("unsupported alternative-data manifest schemaVersion")
+    schema = manifest.get("panelSchema")
+    if not isinstance(schema, dict):
+        raise ValueError("panel manifest has no panelSchema object")
+    expected_fields = _panel_fields()
+    expected_coverage = {
+        "suffix": "_coverage",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "zeroMeansUnavailable": True,
+        "unavailableValue": 0.0,
+    }
+    if schema.get("id") != PANEL_SCHEMA_ID:
+        raise ValueError("unsupported alternative-data panel schema id")
+    if schema.get("version") != PANEL_SCHEMA_VERSION:
+        raise ValueError("unsupported alternative-data panel schema version")
+    if schema.get("featureAvailabilitySchemaId") != FEATURE_AVAILABILITY_SCHEMA_ID:
+        raise ValueError("panel feature-availability schema is incompatible")
+    if schema.get("columns") != expected_fields:
+        raise ValueError("panel manifest column schema changed")
+    if schema.get("coverage") != expected_coverage:
+        raise ValueError("panel manifest coverage semantics changed")
+    if manifest.get("pointInTime") is not True:
+        raise ValueError("panel manifest does not assert point-in-time construction")
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != {"cache", "bars", "panel"}:
+        raise ValueError("panel manifest artifact set is incomplete or ambiguous")
+    overrides = {"cache": cache_path, "bars": bars_path, "panel": panel_path}
+    legacy_names = {"cache": "cache", "bars": "bars", "panel": "output"}
+    resolved_paths: dict[str, Path] = {}
+    for name in ("cache", "bars", "panel"):
+        record = artifacts.get(name)
+        if not isinstance(record, dict) or set(record) != {"path", "sha256"}:
+            raise ValueError(f"panel manifest {name} artifact is malformed")
+        recorded_path = record.get("path")
+        recorded_sha = record.get("sha256")
+        if not isinstance(recorded_path, str) or not recorded_path:
+            raise ValueError(f"panel manifest {name} path is invalid")
+        if manifest.get(legacy_names[name]) != recorded_path:
+            raise ValueError(f"panel manifest {name} paths disagree")
+        if not _valid_sha256(recorded_sha):
+            raise ValueError(f"panel manifest {name} sha256 is invalid")
+        resolved_path = Path(overrides[name] or recorded_path).resolve()
+        if not resolved_path.is_file():
+            raise ValueError(f"panel {name} artifact is unavailable")
+        if _file_sha256(resolved_path) != recorded_sha:
+            raise ValueError(f"panel {name} artifact sha256 mismatch")
+        resolved_paths[name] = resolved_path
+
+    bars_count = manifest.get("barsCount")
+    if isinstance(bars_count, bool) or not isinstance(bars_count, int) or bars_count <= 0:
+        raise ValueError("panel manifest barsCount is invalid")
+    interval_ms = manifest.get("intervalMs")
+    if isinstance(interval_ms, bool) or not isinstance(interval_ms, int) or interval_ms <= 0:
+        raise ValueError("panel manifest intervalMs is invalid")
+    observations_count = manifest.get("observationsCount")
+    if (
+        isinstance(observations_count, bool)
+        or not isinstance(observations_count, int)
+        or observations_count < 0
+    ):
+        raise ValueError("panel manifest observationsCount is invalid")
+    metrics_by_family = manifest.get("metricsByFamily")
+    if not isinstance(metrics_by_family, dict) or set(metrics_by_family) != set(FAMILIES):
+        raise ValueError("panel manifest metricsByFamily is incomplete")
+    if any(
+        isinstance(count, bool) or not isinstance(count, int) or count < 0
+        for count in metrics_by_family.values()
+    ):
+        raise ValueError("panel manifest family metric count is invalid")
+
+    cache_rows = read_cache(resolved_paths["cache"])
+    seen_cache_keys: set[tuple[Any, ...]] = set()
+    for observation in cache_rows:
+        if (
+            observation.eventTime < 0
+            or observation.timestamp < observation.eventTime
+            or observation.ingestedAt < 0
+        ):
+            raise ValueError("panel cache contains incoherent observation timestamps")
+        if observation.key() in seen_cache_keys:
+            raise ValueError("panel cache contains duplicate observation identity")
+        seen_cache_keys.add(observation.key())
+
+    bar_open_times = _bar_open_times(resolved_paths["bars"])
+    if len(bar_open_times) != bars_count:
+        raise ValueError("bar-grid row count disagrees with manifest barsCount")
+    expected_timestamps = [open_time + interval_ms - 1 for open_time in bar_open_times]
+
+    declared_symbol = manifest.get("symbol")
+    if declared_symbol is not None and not isinstance(declared_symbol, str):
+        raise ValueError("panel manifest symbol is invalid")
+    expected_symbol, base_symbol = _panel_symbol_scope(declared_symbol)
+    if declared_symbol is not None and declared_symbol != expected_symbol:
+        raise ValueError("panel manifest symbol is not canonical")
+    eligible_observations = _eligible_panel_observations(
+        cache_rows,
+        last_close=expected_timestamps[-1],
+        symbol=expected_symbol,
+        base_symbol=base_symbol,
+    )
+    if len(eligible_observations) != observations_count:
+        raise ValueError("panel manifest observationsCount disagrees with bound cache")
+    grouped_metrics = {
+        (row.source, row.family, row.metric, row.entity)
+        for row in eligible_observations
+    }
+    expected_family_counts = {
+        family: sum(key[1] == family for key in grouped_metrics) for family in FAMILIES
+    }
+    if metrics_by_family != expected_family_counts:
+        raise ValueError("panel manifest metricsByFamily disagrees with bound cache")
+    row_count = 0
+    previous_timestamp: int | None = None
+    with resolved_paths["panel"].open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != expected_fields:
+            raise ValueError("panel CSV columns do not match the versioned schema")
+        for row in reader:
+            row_count += 1
+            if None in row:
+                raise ValueError("panel CSV row width does not match the versioned schema")
+            try:
+                timestamp = int(row["timestamp"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError("panel timestamp is invalid") from error
+            if timestamp < 0 or (
+                previous_timestamp is not None and timestamp <= previous_timestamp
+            ):
+                raise ValueError("panel timestamps must be strictly increasing")
+            if row_count > len(expected_timestamps) or timestamp != expected_timestamps[row_count - 1]:
+                raise ValueError("panel timestamps do not match the bound bar grid")
+            previous_timestamp = timestamp
+            if row.get("symbol") != expected_symbol:
+                raise ValueError("panel row symbol disagrees with manifest scope")
+            for family in FAMILIES:
+                value = _number(row.get(family))
+                coverage = _number(row.get(f"{family}_coverage"))
+                if coverage < 0 or coverage > 1:
+                    raise ValueError(f"panel {family} coverage is outside [0, 1]")
+                if coverage == 0 and value != 0:
+                    raise ValueError(
+                        f"panel {family} has an actionable value without coverage"
+                    )
+    if row_count != bars_count:
+        raise ValueError("panel CSV row count disagrees with manifest barsCount")
+    with tempfile.TemporaryDirectory(prefix="alternative-panel-verify-") as directory:
+        reproduced_panel = Path(directory) / "panel.csv"
+        build_panel(
+            resolved_paths["cache"],
+            resolved_paths["bars"],
+            reproduced_panel,
+            interval_ms=interval_ms,
+            symbol=declared_symbol,
+        )
+        if reproduced_panel.read_bytes() != resolved_paths["panel"].read_bytes():
+            raise ValueError("panel bytes do not reproduce from the bound inputs")
+    return {
+        "state": "verified",
+        "panelSchemaId": PANEL_SCHEMA_ID,
+        "panelSchemaVersion": PANEL_SCHEMA_VERSION,
+        "featureAvailabilitySchemaId": FEATURE_AVAILABILITY_SCHEMA_ID,
+        "barsCount": row_count,
+        "panelSha256": artifacts["panel"]["sha256"],
+        "reproduced": True,
+    }
+
+
 @contextmanager
 def _cache_lock(cache_path: Path) -> Iterator[None]:
     lock_path = cache_path.with_suffix(cache_path.suffix + ".lock")
@@ -956,24 +1207,13 @@ def build_panel(
     if interval <= 0:
         raise ValueError("interval-ms must be positive")
     bar_closes = [value + interval - 1 for value in open_times]
-    symbol_clean = "" if symbol is None else symbol.strip().upper()
-    if symbol is not None and not symbol_clean:
-        raise ValueError("symbol must be non-empty when supplied")
-    base_symbol = symbol_clean
-    for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
-        if base_symbol.endswith(quote) and len(base_symbol) > len(quote):
-            base_symbol = base_symbol[: -len(quote)]
-            break
-    observations = [
-        row
-        for row in read_cache(cache_path)
-        if row.timestamp <= bar_closes[-1]
-        and (
-            not symbol_clean
-            or not row.entity
-            or row.entity.upper() in {symbol_clean, base_symbol}
-        )
-    ]
+    symbol_clean, base_symbol = _panel_symbol_scope(symbol)
+    observations = _eligible_panel_observations(
+        read_cache(cache_path),
+        last_close=bar_closes[-1],
+        symbol=symbol_clean,
+        base_symbol=base_symbol,
+    )
     grouped: dict[tuple[str, str, str, str], list[Observation]] = defaultdict(list)
     for row in observations:
         grouped[(row.source, row.family, row.metric, row.entity)].append(row)
@@ -1001,17 +1241,34 @@ def build_panel(
                 sum(series[index] for series in presence) / len(presence) if presence else 0.0
             )
         panel_rows.append(row)
-    fields = ["timestamp", "symbol"] + [
-        item for family in FAMILIES for item in (family, f"{family}_coverage")
-    ]
+    fields = _panel_fields()
     output = Path(output_path)
     _atomic_write_csv(output, fields, panel_rows)
+    artifacts = {
+        "cache": _artifact_record(cache_path),
+        "bars": _artifact_record(bars_path),
+        "panel": _artifact_record(output),
+    }
     manifest = {
         "schemaVersion": SCHEMA_VERSION,
+        "panelSchema": {
+            "id": PANEL_SCHEMA_ID,
+            "version": PANEL_SCHEMA_VERSION,
+            "featureAvailabilitySchemaId": FEATURE_AVAILABILITY_SCHEMA_ID,
+            "columns": fields,
+            "coverage": {
+                "suffix": "_coverage",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "zeroMeansUnavailable": True,
+                "unavailableValue": 0.0,
+            },
+        },
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "cache": str(Path(cache_path).resolve()),
-        "bars": str(Path(bars_path).resolve()),
-        "output": str(output.resolve()),
+        "cache": artifacts["cache"]["path"],
+        "bars": artifacts["bars"]["path"],
+        "output": artifacts["panel"]["path"],
+        "artifacts": artifacts,
         "intervalMs": interval,
         "barsCount": len(open_times),
         "observationsCount": len(observations),
@@ -1081,12 +1338,28 @@ def _parser() -> argparse.ArgumentParser:
     run_scope.add_argument("--symbol")
     run_scope.add_argument("--global", dest="global_panel", action="store_true")
     run_parser.add_argument("--allow-partial", action="store_true")
+    verify_parser = subparsers.add_parser(
+        "verify-panel", help="fail closed unless a panel and its source artifacts match its manifest"
+    )
+    verify_parser.add_argument("--manifest", required=True)
+    verify_parser.add_argument("--cache")
+    verify_parser.add_argument("--bars")
+    verify_parser.add_argument("--panel")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "verify-panel":
+            verification = verify_panel_artifact(
+                args.manifest,
+                cache_path=args.cache,
+                bars_path=args.bars,
+                panel_path=args.panel,
+            )
+            print(json.dumps(verification, sort_keys=True))
+            return 0
         if args.command == "panel":
             manifest = build_panel(
                 args.cache,
