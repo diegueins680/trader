@@ -216,7 +216,7 @@ testGraduationEquitySessionBoundary = do
         reviewedFleet = stableWorker ++ restartedWorker
     assertBool
         "single-session fleet evidence remains admissible"
-        (maybe False (\value -> value `approxEq` 0.05) (sessionBoundedFleetReturn stableWorker))
+        (maybe False (`approxEq` 0.05) (sessionBoundedFleetReturn stableWorker))
     assertBool
         "mid-window session changes fail closed for graduation"
         (isNothing (sessionBoundedFleetReturn reviewedFleet))
@@ -409,9 +409,10 @@ sessionBoundedFleetReturn =
         . evidenceByWorker
 
 evidenceByWorker :: [GraduationEvidence] -> Map.Map String [GraduationEvidence]
-evidenceByWorker [] = Map.empty
-evidenceByWorker (sample : samples) =
-    Map.insertWith (++) (geWorker sample) [sample] (evidenceByWorker samples)
+evidenceByWorker =
+    foldr
+        (\sample -> Map.insertWith (++) (geWorker sample) [sample])
+        Map.empty
 
 sessionBoundedWorkerReturn :: [GraduationEvidence] -> Maybe Double
 sessionBoundedWorkerReturn [] = Nothing
