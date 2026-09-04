@@ -1,0 +1,3 @@
+timestamp,symbol,microstructure,microstructure_coverage,options_vol,options_vol_coverage,onchain,onchain_coverage,macro,macro_coverage,cot,cot_coverage,news,news_coverage,filings,filings_coverage,policy,policy_coverage,fundamentals,fundamentals_coverage,stablecoin,stablecoin_coverage,institutional_flows,institutional_flows_coverage,network,network_coverage,developer,developer_coverage,governance,governance_coverage,attention,attention_coverage,social,social_coverage,prediction_market,prediction_market_coverage,real_world,real_world_coverage,security,security_coverage
+59999,BTCUSDT,0,0,0,1,1.5,0.5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+119999,BTCUSDT,-0.25,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

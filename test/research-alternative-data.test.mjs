@@ -1,9 +1,27 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const RESEARCH_DIR = fileURLToPath(new URL("../scripts/research/", import.meta.url));
+const PANEL_V2_GOLDEN = fileURLToPath(
+  new URL("../haskell/test/fixtures/external_feature_panel_v2.csv", import.meta.url),
+);
+const HASKELL_EXTERNAL_DATA = fileURLToPath(
+  new URL("../haskell/app/Trader/ExternalData.hs", import.meta.url),
+);
+const HASKELL_EXTERNAL_PANEL_V2 = fileURLToPath(
+  new URL("../haskell/app/Trader/Predictors/ExternalPanelSchema.hs", import.meta.url),
+);
+
+test("external panel v2 decoder remains isolated from production inputs", () => {
+  const productionExternalData = readFileSync(HASKELL_EXTERNAL_DATA, "utf8");
+  const panelDecoder = readFileSync(HASKELL_EXTERNAL_PANEL_V2, "utf8");
+  assert.doesNotMatch(productionExternalData, /ExternalPanelSchema|decodeExternalPanelV2/);
+  assert.doesNotMatch(panelDecoder, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(panelDecoder, /externalPanelFeatureAvailabilitySchemaIdV2/);
+});
 
 test("alternative data is cached, PIT aligned, normalized, and failure isolated", () => {
   const program = String.raw`
@@ -16,6 +34,16 @@ import urllib.error
 
 sys.path.insert(0, sys.argv[1])
 import alternative_data as alt
+
+with Path(sys.argv[2]).open(newline="", encoding="utf-8") as handle:
+    golden_rows = list(csv.DictReader(handle))
+assert golden_rows
+assert list(golden_rows[0]) == alt._panel_fields()
+assert golden_rows[0]["symbol"] == "BTCUSDT"
+assert float(golden_rows[0]["microstructure_coverage"]) == 0
+assert float(golden_rows[0]["options_vol"]) == 0
+assert float(golden_rows[0]["options_vol_coverage"]) == 1
+assert float(golden_rows[0]["onchain_coverage"]) == 0.5
 
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
@@ -458,7 +486,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert mean_present == [True, False, True]
 `;
 
-  const result = spawnSync("python3", ["-c", program, RESEARCH_DIR], {
+  const result = spawnSync("python3", ["-c", program, RESEARCH_DIR, PANEL_V2_GOLDEN], {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
