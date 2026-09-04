@@ -257,6 +257,7 @@ import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
 import Trader.Predictors.PatchTST (PatchTSTModel (..), patchTstFeaturesAt, predictPatchTST, trainPatchTST)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
+import Trader.Predictors.Types (SensorId (..), predictorCode, predictorImplementationId, predictorSetFromString, predictorSetToList)
 import Trader.RoiScore (RoiScoreConfig (..), defaultFormalRoiScoreConfig)
 import Trader.SensitivityAnalysis (
     ParameterSpec (..),
@@ -703,6 +704,7 @@ main = do
     testQuantileSanitizesMalformedInputs
     testTCNSanitizesMalformedInputs
     testPatchTSTSanitizesMalformedInputs
+    testPredictorImplementationIdentityCompatibility
     testHMMSanitizesMalformedInputs
     runOnlineNeuralTests
     runTechnicalAnalysisTests
@@ -1263,6 +1265,22 @@ testPatchTSTSanitizesMalformedInputs = do
                 , pmSigma = Just inf
                 }
     assert "PatchTST malformed model weights fail closed" (isNothing (predictPatchTST malformedModel prices 8))
+
+testPredictorImplementationIdentityCompatibility :: IO ()
+testPredictorImplementationIdentityCompatibility = do
+    let parsesAs raw expected =
+            case predictorSetFromString raw of
+                Right parsed -> predictorSetToList parsed == [expected]
+                Left _ -> False
+    assert "legacy TCN code remains stable" (predictorCode SensorTCN == "tcn")
+    assert "legacy PatchTST code remains stable" (predictorCode SensorPatchTST == "patch_tst")
+    assert "legacy Transformer code remains stable" (predictorCode SensorTransformer == "transformer")
+    assert "TCN implementation identity is explicit" (predictorImplementationId SensorTCN == "dilated_lag_ridge_v1")
+    assert "PatchTST implementation identity is explicit" (predictorImplementationId SensorPatchTST == "patch_summary_ridge_v1")
+    assert "Transformer implementation identity is explicit" (predictorImplementationId SensorTransformer == "similarity_attention_v1")
+    assert "accurate TCN alias preserves semantics" (parsesAs "dilated_lag_ridge_v1" SensorTCN)
+    assert "accurate PatchTST alias preserves semantics" (parsesAs "patch-summary-ridge-v1" SensorPatchTST)
+    assert "accurate Transformer alias preserves semantics" (parsesAs "similarity_attention_v1" SensorTransformer)
 
 testHMMSanitizesMalformedInputs :: IO ()
 testHMMSanitizesMalformedInputs = do

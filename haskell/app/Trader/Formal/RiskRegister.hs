@@ -31,6 +31,7 @@ data RiskID
     | EXECUTION_DATASET_001
     | EXECUTION_MISSING_001
     | EXPECTANCY_INVALID_001
+    | FEATURE_MISSINGNESS_001
     | GITHUB_502_001
     | KALMAN_NUMSTAB_001
     | LEVERAGE_INVALID_001
@@ -38,6 +39,7 @@ data RiskID
     | LOSS_STREAK_LIMIT_INVALID_001
     | MARKET_DATA_TIMESTAMP_OVERFLOW_001
     | MAX_POSITION_GUARDRAIL_001
+    | PREDICTOR_IDENTITY_001
     | RISK_LIMIT_001
     | RISK_LIMIT_NON_FINITE_001
     | RISK_METRIC_INVALID_001
@@ -89,6 +91,7 @@ riskIdText = \case
     EXECUTION_DATASET_001 -> "EXECUTION-DATASET-001"
     EXECUTION_MISSING_001 -> "EXECUTION-MISSING-001"
     EXPECTANCY_INVALID_001 -> "EXPECTANCY-INVALID-001"
+    FEATURE_MISSINGNESS_001 -> "FEATURE-MISSINGNESS-001"
     GITHUB_502_001 -> "GITHUB-502-001"
     KALMAN_NUMSTAB_001 -> "KALMAN-NUMSTAB-001"
     LEVERAGE_INVALID_001 -> "LEVERAGE-INVALID-001"
@@ -96,6 +99,7 @@ riskIdText = \case
     LOSS_STREAK_LIMIT_INVALID_001 -> "LOSS-STREAK-LIMIT-INVALID-001"
     MARKET_DATA_TIMESTAMP_OVERFLOW_001 -> "MARKET-DATA-TIMESTAMP-OVERFLOW-001"
     MAX_POSITION_GUARDRAIL_001 -> "MAX-POSITION-GUARDRAIL-001"
+    PREDICTOR_IDENTITY_001 -> "PREDICTOR-IDENTITY-001"
     RISK_LIMIT_001 -> "RISK-LIMIT-001"
     RISK_LIMIT_NON_FINITE_001 -> "RISK-LIMIT-NON-FINITE-001"
     RISK_METRIC_INVALID_001 -> "RISK-METRIC-INVALID-001"
@@ -178,6 +182,13 @@ riskRegister =
         "trader-firm-risk"
         "specRiskHalt emits EXPECTANCY_INVALID and bounded verification covers the invariant"
     , riskEntry
+        FEATURE_MISSINGNESS_001
+        HIGH
+        OPEN
+        "Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value"
+        "trader-firm-research"
+        "Introduce a versioned feature schema with explicit availability and coverage before any affected learned predictor is promotion-eligible"
+    , riskEntry
         GITHUB_502_001
         MEDIUM
         OPEN
@@ -226,6 +237,13 @@ riskRegister =
         "Malformed maximum-position configuration could silently disable every trade"
         "trader-firm-risk"
         "Checked simulation rejects non-positive or non-finite maximum-position configuration"
+    , riskEntry
+        PREDICTOR_IDENTITY_001
+        HIGH
+        MITIGATED
+        "Legacy TCN, PatchTST, and Transformer identifiers can overstate the fidelity of lightweight proxy implementations"
+        "trader-firm-research"
+        "Preserve legacy semantics, expose accurate versioned implementation identities, and require a new model ID for any faithful architecture"
     , riskEntry
         RISK_LIMIT_001
         HIGH

@@ -27,10 +27,12 @@ The clauses are formal contracts, but evidence levels differ. Bounded enumeratio
 | Evaluation/lifecycle | `H-METRICS` through `H-FORMAL` | metrics/ROI/sensitivity, optimizer, top combos, persistence, telemetry/calibration, executable reference models |
 | Haskell programs | `H-EXECUTABLES` | all six tracked entrypoints and their Cabal build membership |
 | Web | `W-FORM` through `W-BOOTSTRAP` | form and request domains, transport/security, trading orchestration, truthful presentation, runtime proxy/container |
-| Automation/research | `A-AUTOLOOP` through `A-VERIFICATION` | branch/recovery state machine, PIT research, calibration/risk scripts, operations, canonical verification |
+| Automation/research | `A-AUTOLOOP` through `A-VERIFICATION` | branch/recovery state machine, PIT research, market-prediction registrations, calibration/risk scripts, operations, canonical verification |
 | Deployment/CI | `D-FLY-AWS-RENDER`, `D-HETZNER`, `C-CI` | exact-revision promotion, live-trading safety, secrets, role isolation, CI gates |
 
 The registry names every inventoried feature inside coherent feature-family specifications. Its coverage roots enumerate implementation files dynamically, so a new production file fails verification until it is assigned to a contract; the verifier prints the current counts on each run.
+
+`H-PREDICTORS-SEQUENCE` preserves the historical `tcn`, `patch_tst`, and `transformer` configuration semantics while giving their lightweight proxy implementations explicit versioned identities. `A-MARKET-PREDICTION-RESEARCH` binds preregistered future-data boundaries, complete experiment budgets, model/artifact provenance, unavailable-input abstention, disabled-by-default challenger isolation, and the prohibition on automatic promotion or live authorization. A namesake neural successor is a new semantic model version; it cannot inherit a legacy identifier.
 
 ## Verification
 

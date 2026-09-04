@@ -20,6 +20,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | EXECUTION-DATASET-001 | Backtest dataset generation is not fully reproducible | MEDIUM | trader-firm-data | OPEN | Seed randomness and record the source dataset hash in test output |
 | EXECUTION-MISSING-001 | The execution reporting lane missed recorded trade-log deadlines | CRITICAL | trader-firm-execution | OPEN | Obtain a current execution report and explicitly close or reassign the obligation |
 | EXPECTANCY-INVALID-001 | Missing or non-finite expectancy could bypass a configured minimum | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed expectancy and bounded verification covers it |
+| FEATURE-MISSINGNESS-001 | Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value | HIGH | trader-firm-research | OPEN | Introduce a versioned feature schema with explicit availability/coverage before any affected learned predictor is promotion-eligible |
 | GITHUB-502-001 | Transient GitHub API failures can interrupt automation | MEDIUM | trader-firm-cto | OPEN | Replace stale outage evidence with current bounded-retry operational validation |
 | KALMAN-NUMSTAB-001 | Kalman numerical instability could produce zero trades or hangs | MEDIUM | trader-firm-cto | OPEN | Obtain current operational validation of the implemented numerical guards |
 | LEVERAGE-INVALID-001 | Malformed leverage configuration could bypass position-size protection | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed leverage and live futures leverage is capped |
@@ -27,6 +28,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | LOSS-STREAK-LIMIT-INVALID-001 | A negative loss-streak limit could silently disable protection | CRITICAL | trader-firm-risk | CLOSED | Negative limits fail closed while zero remains the documented disabled boundary |
 | MARKET-DATA-TIMESTAMP-OVERFLOW-001 | Timestamp overflow could make stale or discontinuous evidence appear valid | CRITICAL | trader-firm-data | CLOSED | Checked arithmetic fails closed across market-data time validation |
 | MAX-POSITION-GUARDRAIL-001 | Malformed maximum-position configuration could silently disable every trade | HIGH | trader-firm-risk | CLOSED | Checked simulation rejects non-positive or non-finite configuration |
+| PREDICTOR-IDENTITY-001 | Legacy TCN, PatchTST, and Transformer identifiers can overstate the fidelity of lightweight proxy implementations | HIGH | trader-firm-research | MITIGATED | Preserve legacy semantics, expose accurate versioned implementation identities, and require a new model ID for any faithful architecture |
 | RISK-LIMIT-001 | Daily, weekly, and drawdown limits were not enforced in the live loop | HIGH | trader-firm-risk | CLOSED | Runtime invariant checks and guardrail regressions are implemented |
 | RISK-LIMIT-NON-FINITE-001 | Non-finite risk limits could silently disable halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects non-finite limits and bounded verification covers it |
 | RISK-METRIC-INVALID-001 | Malformed loss or drawdown evidence could bypass live halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` validates risk evidence before threshold comparisons |
@@ -45,4 +47,4 @@ Change `formal/risk-register.json` first, then update both projections in the
 same commit. IDs are permanent. Reopening a risk changes its status rather than
 creating a duplicate row; a materially different risk receives a new ID.
 
-Last reconciled: 2026-07-12.
+Last reconciled: 2026-09-04.

@@ -3,6 +3,7 @@ module Trader.Predictors.Types (
     PredictorSet,
     allPredictors,
     predictorCode,
+    predictorImplementationId,
     predictorEnabled,
     predictorSetFromString,
     predictorSetToCsv,
@@ -48,6 +49,26 @@ predictorCode sid =
         SensorQuantile -> "quantile"
         SensorConformal -> "conformal"
 
+{- | Versioned implementation identity for diagnostics and model provenance.
+
+'predictorCode' remains the backward-compatible configuration identifier.
+In particular, the legacy sequence-model codes predate their lightweight
+proxy implementations and must not silently acquire namesake neural
+semantics.
+-}
+predictorImplementationId :: SensorId -> String
+predictorImplementationId sid =
+    case sid of
+        SensorGBT -> "gradient_boosted_stumps_v1"
+        SensorKNN -> "inverse_distance_knn_v1"
+        SensorDecisionTree -> "regression_tree_v1"
+        SensorTCN -> "dilated_lag_ridge_v1"
+        SensorPatchTST -> "patch_summary_ridge_v1"
+        SensorTransformer -> "similarity_attention_v1"
+        SensorHMM -> "gaussian_hmm3_v1"
+        SensorQuantile -> "linear_quantiles_v1"
+        SensorConformal -> "gbdt_split_conformal_v1"
+
 predictorEnabled :: PredictorSet -> SensorId -> Bool
 predictorEnabled preds sid = Set.member sid preds
 
@@ -80,11 +101,14 @@ predictorSetFromString raw =
                 "trees" -> Right SensorDecisionTree
                 "dt" -> Right SensorDecisionTree
                 "tcn" -> Right SensorTCN
+                "dilatedlagridgev1" -> Right SensorTCN
                 "patchtst" -> Right SensorPatchTST
                 "patchsequence" -> Right SensorPatchTST
                 "patchseq" -> Right SensorPatchTST
                 "patch" -> Right SensorPatchTST
+                "patchsummaryridgev1" -> Right SensorPatchTST
                 "transformer" -> Right SensorTransformer
+                "similarityattentionv1" -> Right SensorTransformer
                 "hmm" -> Right SensorHMM
                 "quantile" -> Right SensorQuantile
                 "quantiles" -> Right SensorQuantile
