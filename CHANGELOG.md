@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research/Market Prediction: add a 50-paper primary-source review, structured evidence and paper-to-code matrices, model-fidelity and cost/data audits, complete negative-trial registry, three future-data preregistrations, and a no-adoption decision; preserve the sealed historical holdout and prospective carry boundary. Document the existing TCN, PatchTST, and Transformer implementations as lightweight proxies, add compatible versioned implementation aliases without changing legacy serialization or predictions, and formalize missingness, provenance, disabled-challenger, and no-automatic-promotion risks.
 - Trading/Alternative Data: fail closed when a `--data` backtest cannot resolve its target symbol by ignoring symbol-scoped external CSV rows and admitting only global observations, preventing cross-asset feature leakage from alternative-data panels.
 - Automation: persist an operator-review block after a failed cycle is saved to a recovery branch, preventing the autoloop from repeatedly recreating the same failed patch.
 - Automation: limit automatic branch reconciliation to non-recovery `autoloop/` branches so third-party dependency updates and operator-owned branches cannot block the runner or be promoted implicitly.

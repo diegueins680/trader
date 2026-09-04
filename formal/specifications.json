@@ -27,6 +27,7 @@
       { "root": "scripts", "include": ["scripts/**/*.mjs", "scripts/**/*.sh", "scripts/**/*.py", "scripts/**/*.jq", "scripts/*.mjs", "scripts/*.sh", "scripts/*.py"] },
       { "root": "haskell/scripts", "include": ["haskell/scripts/*.sh", "haskell/scripts/*.py"], "exclude": ["haskell/scripts/test_*.py"] },
       { "root": "deploy", "include": ["deploy/*.sh", "deploy/**/*.sh", "deploy/**/*.py", "deploy/**/*.yml", "deploy/**/Caddyfile.*", "deploy/**/*.env.example", "deploy/**/*.env.managed"] },
+      { "root": "research-notes/market-prediction-2026-09-04", "include": ["research-notes/market-prediction-2026-09-04/**"] },
       { "root": "haskell/web/nginx", "include": ["haskell/web/nginx/**"] },
       { "root": "haskell/web/docker-entrypoint.d", "include": ["haskell/web/docker-entrypoint.d/**"] },
       { "root": ".github/workflows", "include": [".github/workflows/*.yml", ".github/workflows/*.yaml"] }
@@ -43,7 +44,10 @@
       "haskell/web/Dockerfile",
       "haskell/web/fly.frontend.toml",
       "haskell/web/vite.config.ts",
-      "haskell/web/public/trader-config.js"
+      "haskell/web/public/trader-config.js",
+      "research-notes/registrations/har-rv-risk-gate-v1.json",
+      "research-notes/registrations/depth-normalized-ofi-v1.json",
+      "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json"
     ]
   },
   "specifications": [
@@ -169,16 +173,28 @@
     {
       "id": "H-PREDICTORS-SEQUENCE",
       "title": "Sequence and transformer predictors",
-      "features": ["TCN", "PatchTST", "Transformer"],
+      "features": ["legacy TCN proxy", "legacy PatchTST proxy", "legacy Transformer proxy", "versioned implementation identity"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/Predictors/TCN.hs", "haskell/app/Trader/Predictors/PatchTST.hs", "haskell/app/Trader/Predictors/Transformer.hs"],
+      "implementation": ["haskell/app/Trader/Predictors/TCN.hs", "haskell/app/Trader/Predictors/PatchTST.hs", "haskell/app/Trader/Predictors/Transformer.hs", "haskell/app/Trader/Predictors/Types.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-CAUSAL", "G-DETERMINISTIC"],
       "dependsOn": ["H-FEATURES"],
-      "requires": [{ "id": "H-PREDICTORS-SEQUENCE-R1", "statement": "Window/patch lengths and weights are positive, shape-consistent, finite, and use only the prefix ending at the prediction index." }],
-      "ensures": [{ "id": "H-PREDICTORS-SEQUENCE-E1", "statement": "Every admitted forecast is finite and corresponds to the declared next-step target and feature ordering." }],
-      "invariants": [{ "id": "H-PREDICTORS-SEQUENCE-I1", "statement": "Appending future rows cannot change a previously emitted forecast for the same prefix." }],
+      "requires": [
+        { "id": "H-PREDICTORS-SEQUENCE-R1", "statement": "Window/patch lengths and weights are positive, shape-consistent, finite, and use only the prefix ending at the prediction index." },
+        { "id": "H-PREDICTORS-SEQUENCE-R2", "statement": "A serialized predictor code identifies its historical behavior; faithful neural successors require a distinct semantic identifier and compatibility version." }
+      ],
+      "ensures": [
+        { "id": "H-PREDICTORS-SEQUENCE-E1", "statement": "Every admitted forecast is finite and corresponds to the declared next-step target and feature ordering." },
+        { "id": "H-PREDICTORS-SEQUENCE-E2", "statement": "Diagnostics can distinguish the dilated-lag ridge, patch-summary ridge, and similarity-attention implementations from their stable legacy configuration codes." }
+      ],
+      "invariants": [
+        { "id": "H-PREDICTORS-SEQUENCE-I1", "statement": "Appending future rows cannot change a previously emitted forecast for the same prefix." },
+        { "id": "H-PREDICTORS-SEQUENCE-I2", "statement": "The tcn, patch_tst, and transformer codes retain their existing proxy semantics; accurate versioned aliases resolve to those same implementations and never opt into a future neural architecture." }
+      ],
       "failures": [{ "id": "H-PREDICTORS-SEQUENCE-F1", "statement": "Malformed model/window evidence returns unavailable rather than a partial or dimension-truncated forecast." }],
-      "evidence": [{ "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testTCNSanitizesMalformedInputs" }]
+      "evidence": [
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testTCNSanitizesMalformedInputs" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPredictorImplementationIdentityCompatibility" }
+      ]
     },
     {
       "id": "H-LSTM",
@@ -601,6 +617,35 @@
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "formal DSR matches a fixed cross-trial benchmark" },
         { "level": "regression", "path": "test/research-statistics.test.mjs", "contains": "CSCV PBO separates a stable winner" },
         { "level": "regression", "path": "test/research-validation.test.mjs", "contains": "nested validation selects on inner rows" }
+      ]
+    },
+    {
+      "id": "A-MARKET-PREDICTION-RESEARCH",
+      "title": "Market-prediction research registrations and challenger isolation",
+      "features": ["academic evidence review", "paper matrix", "model-fidelity audit", "candidate preregistration", "future-data boundary", "disabled challenger lifecycle"],
+      "criticality": "safety",
+      "implementation": ["research-notes/market-prediction-2026-09-04/**", "research-notes/registrations/har-rv-risk-gate-v1.json", "research-notes/registrations/depth-normalized-ofi-v1.json", "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json", "haskell/app/Trader/Predictors/Types.hs"],
+      "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-PROMOTION"],
+      "dependsOn": ["A-RESEARCH", "H-PREDICTORS-SEQUENCE", "H-FEATURES"],
+      "requires": [
+        { "id": "A-MARKET-PREDICTION-RESEARCH-R1", "statement": "Every candidate freezes its semantic model version, feature and availability schema, target/horizon, universe, train/calibration/validation/holdout ranges, purge/embargo, baselines, complete trial budget, seeds, costs, tests, gates, and compute budget before outcome evaluation." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-R2", "statement": "A persisted candidate artifact is admissible only when its versioned provenance binds source papers, code revision, data and source hashes, schema, target, universe, splits, hyperparameters, seed, runtime versions, metrics, cost model, creation time, promotion state, and compatibility version." }
+      ],
+      "ensures": [
+        { "id": "A-MARKET-PREDICTION-RESEARCH-E1", "statement": "A missing, stale, invalid, non-finite, corrupted, incompatible, unsupported, unprovenanced, or timed-out candidate returns unavailable and cannot create an actionable signal." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-E2", "statement": "Any validated winner enters only as a disabled challenger with independent metrics, rollback control, and no authority to change the champion, deployment, paper/live mode, or order authorization." }
+      ],
+      "invariants": [
+        { "id": "A-MARKET-PREDICTION-RESEARCH-I1", "statement": "Legacy saved model identifiers retain their historical semantics; a materially different implementation requires a new explicit semantic identifier and compatibility tests." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-I2", "statement": "Offline retraining may create offline or shadow evidence only; drift, bias, residual, calibration, latency, failure-rate, or cost-divergence monitoring cannot automatically promote or authorize a model." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-I3", "statement": "The registered future-data windows cannot move earlier, existing sealed holdouts cannot be opened by this work, and unavailable feature evidence cannot be reinterpreted as bullish or bearish." }
+      ],
+      "failures": [
+        { "id": "A-MARKET-PREDICTION-RESEARCH-F1", "statement": "Incomplete data/licensing/provenance, reused or contaminated confirmation data, failed causality/statistical/cost/risk/compute evidence, or any automatic-promotion path leaves the candidate rejected or research-only and the current champion unchanged." }
+      ],
+      "evidence": [
+        { "level": "regression", "path": "test/market-prediction-research.test.mjs", "contains": "market-prediction registrations remain future-only disabled challengers" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPredictorImplementationIdentityCompatibility" }
       ]
     },
     {

@@ -1,0 +1,104 @@
+{
+  "registrationVersion": 1,
+  "campaign": "depth_normalized_ofi_v1",
+  "registeredOn": "2026-09-04",
+  "status": "preregistered_blocked_on_causal_l2_data_and_replay",
+  "hypothesis": "A regularized linear model of event-time best-quote order-flow imbalance divided by causal displayed depth provides incremental net short-horizon information after spread, fees, slippage, impact, latency, missed fills, and adverse selection.",
+  "academicOrigin": [
+    "https://doi.org/10.1093/jjfinec/nbt003",
+    "https://doi.org/10.1111/mafi.12413",
+    "https://doi.org/10.2307/1913210"
+  ],
+  "implementationInterpretation": {
+    "feature": "signed size changes at best bid and ask aggregated strictly in event order, divided by the trailing training-only median displayed best-level depth",
+    "model": "ridge linear return forecast with fixed lambda 0.001; separate per-symbol and pooled-symbol fits",
+    "abstention": "trade only when predicted adverse-selection-adjusted return exceeds the complete round-trip cost upper bound and required book data are fresh",
+    "failure": "gap, sequence reset, crossed book, missing depth, non-finite value, stale event, clock uncertainty, or inference timeout returns no forecast"
+  },
+  "deviationsFromPapers": [
+    "The primary candidate is linear rather than deep because Cont et al. support the mechanism and CPU/interpretability are preferred.",
+    "Binance crypto books and perpetual fills replace US equities.",
+    "A faithful event replay and explicit latency clock are required; hourly taker volume is prohibited as an OFI substitute."
+  ],
+  "universe": {
+    "assets": ["BTC", "ETH", "AVAX", "UNI", "SUI", "ETC", "ADA"],
+    "instruments": "Binance USD-M perpetual futures; same-symbol Binance spot book as an explanatory ablation",
+    "primaryBenchmarks": ["BTCUSDT", "ETHUSDT"],
+    "reviewedFleet": ["AVAXUSDT", "UNIUSDT", "SUIUSDT", "ETCUSDT", "ADAUSDT"],
+    "pointInTimeLiquidity": "Every symbol must exceed a frozen trailing notional and depth floor computed only from prior events; delisted contracts remain in historical results.",
+    "longShortRule": "long and short forecasts and fills are evaluated separately"
+  },
+  "timeframes": ["1m", "5m"],
+  "horizonBars": [1, 3, 6],
+  "decisionTimestamp": "end of a registered event-time aggregation bucket after exchange sequence continuity is verified",
+  "assumedExecutionTimestamp": "first eligible book event at least 250 milliseconds after decision publication, with a separate 1000 millisecond stress",
+  "featureAvailabilityRules": ["exchange event time and local first-seen time stored separately", "sequence gaps invalidate the bucket", "book normalization fit on training prefix", "only pre-decision events used", "no future midpoint or realized fill enters the feature"],
+  "dataset": {
+    "startInclusiveUtc": "2027-01-21T00:00:00Z",
+    "endInclusiveUtc": "2028-01-20T23:59:59Z",
+    "developmentEndInclusiveUtc": "2027-09-20T23:59:59Z",
+    "finalHoldoutStartInclusiveUtc": "2027-09-21T00:00:00Z",
+    "finalHoldoutEndInclusiveUtc": "2028-01-20T23:59:59Z",
+    "minimumCoverage": "99.99 percent event-sequence continuity in every admitted symbol-day; gaps are excluded prospectively and reported, never patched"
+  },
+  "validation": {
+    "design": "nested expanding event-time walk-forward with chronological folds and one untouched final holdout",
+    "outerFolds": 6,
+    "innerFolds": 4,
+    "purgeBars": 6,
+    "embargoBars": 6,
+    "crossSymbolRule": "leave-one-symbol-out pooled-model robustness plus per-symbol reports",
+    "crossExchangeRobustness": "feature-only validation against same-symbol public Coinbase spot L2 where timestamp and sequence semantics are documented; no synthetic cross-venue fills",
+    "finalHoldoutPolicy": "single irreversible opening after committed freeze; no partial or repeated opening"
+  },
+  "baselines": ["zero forecast", "historical mean", "last return", "simple momentum", "simple reversal", "raw trade imbalance", "unscaled OFI", "regularized return-only linear model", "current champion", "current GBDT", "current KNN", "current HMM", "current Kalman", "current LSTM", "legacy TCN/PatchTST/Transformer proxies", "current ensemble"],
+  "hyperparameterSearch": {
+    "depthLevels": [1, 5, 10],
+    "ridgeLambda": [0.001],
+    "intervals": 2,
+    "horizons": 3,
+    "perSymbolAndPooledVariants": 2,
+    "registeredCandidateConfigurations": 36,
+    "registeredBaselineConfigurations": 90,
+    "totalExperimentBudget": 126,
+    "adaptiveSuccessors": "prohibited without a new registration and lifetime-count increase"
+  },
+  "randomSeeds": [20270904],
+  "transactionCostModel": {
+    "fees": "causal venue maker/taker schedule with taker as default",
+    "spread": "walk the recorded book at the assumed execution timestamp",
+    "slippageAndImpact": "recorded depth walk plus adverse square-root residual-impact sensitivity",
+    "funding": "every crossed settlement charged by signed position and point-in-time mark",
+    "partialMissedFills": "queue-unavailable orders receive conservative partial or missed fills from a rule frozen before development",
+    "latency": "250 ms baseline; 1000 ms and one full bar stresses",
+    "stressMultipliers": [1.0, 1.5, 2.0],
+    "extremeScenario": "taker fee plus twice observed spread and slippage, 50 percent fill probability, 1000 ms latency, and adverse funding"
+  },
+  "forecastMetrics": ["MAE", "RMSE", "directional accuracy", "actionable precision and recall", "log loss", "Brier", "calibration error", "reliability curve", "stability by horizon symbol and regime"],
+  "economicMetrics": ["gross and net return", "Sharpe", "probabilistic Sharpe", "deflated Sharpe probability", "Sortino", "Calmar", "maximum drawdown and duration", "expected shortfall", "turnover", "trades", "exposure", "win/loss", "profit factor", "fee spread slippage impact and funding attribution", "fill rate", "adverse selection", "cost and delay stress"],
+  "statisticalTests": ["paired stationary bootstrap versus every applicable baseline", "formal DSR", "CSCV PBO", "Hansen SPA", "family-wise correction across all 126 registered configurations"],
+  "robustnessTests": ["bull bear sideways", "high low volatility", "high low liquidity", "multiple symbols", "feature transfer across spot/perp", "adjacent aggregation", "parameter perturbation", "book gaps", "stale/non-finite/corrupt events", "sequence resets", "artifact corruption", "training/inference failure", "distribution shift", "cost and latency stress"],
+  "ablations": ["remove depth normalization", "remove quote cancellations", "remove spot OFI", "remove pooled training", "remove cost-based abstention", "each depth level"],
+  "promotionGates": {
+    "blockedUntilDataAndReplayExist": true,
+    "minimumDeflatedSharpeProbability": 0.95,
+    "maximumPbo": 0.2,
+    "positiveNetPairedLowerBound": true,
+    "noDrawdownOrTailRegression": true,
+    "costAndLatencyStressPass": true,
+    "noSingleSymbolFoldRegimeOrTradeDependence": true,
+    "disabledChallengerOnly": true,
+    "automaticPromotion": false,
+    "liveAuthorization": false
+  },
+  "failureConditions": ["unlicensed or incomplete L2 data", "sequence gap", "unavailable queue/fill replay", "timestamp uncertainty", "crossed/invalid book", "non-finite forecast", "insufficient sample or fills", "negative net economics", "failed multiplicity/risk/stress gate"],
+  "computeBudget": {
+    "trainingCpuSecondsPerSymbolFold": 10,
+    "inferenceP99MillisecondsPerSymbol": 5,
+    "residentMemoryMiBPerConcurrentSymbol": 16,
+    "artifactSizeKiBPerSymbolModel": 64,
+    "startupReloadMillisecondsPerArtifact": 20,
+    "replayThroughputMinimumEventsPerSecond": 100000,
+    "noGpu": true
+  }
+}
