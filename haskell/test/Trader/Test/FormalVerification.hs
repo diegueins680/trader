@@ -41,17 +41,15 @@ import Trader.PortfolioSelection (
  )
 import Trader.Trading (ExitReason (..), HaltInputs (..), specRiskHalt)
 
-
 formalVerificationSuite :: [(String, IO ())]
 formalVerificationSuite =
     [ ("market timestamps fail closed on Int64 overflow", testMarketTimestampOverflow)
     , ("risk metrics and loss-streak limits fail closed", testRiskMalformedInputs)
     , ("gate telemetry bounds history and unknown cardinality", testGateTelemetryBounds)
     , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
-        , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
+    , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
     , ("portfolio graduation equity boundaries fail closed", testGraduationPortfolioBoundaryContract)
     , ("every formal execution obligation holds", testFormalExecutionReport)
-
     , ("every formal risk obligation holds", testFormalRiskReport)
     , ("every formal optimization obligation holds", testFormalOptimizationReport)
     ]
@@ -222,7 +220,7 @@ testGraduationEquitySessionBoundary = do
     assertBool
         "mid-window session changes fail closed for graduation"
         (isNothing (sessionBoundedFleetReturn reviewedFleet))
-        assertBool
+    assertBool
         "naive raw-level stitching would have manufactured positive fleet return"
         (naiveFleetReturn reviewedFleet > 0.07)
 
@@ -318,7 +316,6 @@ testGraduationPortfolioBoundaryContract = do
                 (pgrDecision passingReview == PortfolioGraduated && null (pgrReasons passingReview))
 
 testFormalExecutionReport :: IO ()
-
 testFormalExecutionReport =
     assertChecks
         [ ("implementation matches position-fill spec", Execution.fvrExecImplMatchesSpec report)
