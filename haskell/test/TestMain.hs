@@ -248,8 +248,9 @@ import Trader.PredictionMarkets (
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel (..), fitConformal, initAdaptiveConformal, predictInterval, updateAdaptiveConformal)
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
-import Trader.Predictors.Exogenous (alignToBars, alignedFeatureSeries)
+import Trader.Predictors.Exogenous (afsV2AvailabilityTimesMs, afsV2Available, afsV2EventTimesMs, afsV2Values, alignTimedToBars, alignToBars, alignedFeatureSeries, alignedFeatureSeriesV2)
 import Trader.Predictors.ExogenousFetch (binanceStatsPeriodForInterval)
+import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2Available, frv2SchemaId, frv2Values, mkFeatureRowV2)
 import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
@@ -622,6 +623,7 @@ main = do
     testLiveGapFeedback
     testAlignToBarsPointInTime
     testAlignToBarsFailClosedOnMalformedInputs
+    testFeatureAvailabilitySchemaV2
     testExogenousDerivativesBacktestWiring
     testPointInTimeUniverseSelectsHistoricalSnapshot
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
@@ -6553,6 +6555,108 @@ testAlignToBarsFailClosedOnMalformedInputs = do
     assert
         "alignToBars fails closed when a bar close time would overflow"
         (alignToBars (V.fromList [maxBound :: Int64]) (2 :: Int64) [(maxBound, 7.0)] == V.fromList [Nothing])
+
+testFeatureAvailabilitySchemaV2 :: IO ()
+testFeatureAvailabilitySchemaV2 = do
+    let decisionTime = 2000 :: Int64
+        observedZero = TimedFeatureValue{tfvEventTimeMs = 1000, tfvAvailabilityTimeMs = 1500, tfvValue = 0}
+        futureValue = TimedFeatureValue{tfvEventTimeMs = 1000, tfvAvailabilityTimeMs = 2500, tfvValue = 9}
+        observedRow = mkFeatureRowV2 decisionTime [FeatureField "funding" OptionalFeature (Just observedZero)]
+        missingRow = mkFeatureRowV2 decisionTime [FeatureField "funding" OptionalFeature Nothing]
+    case (observedRow, missingRow) of
+        (Just observed, Just missing) -> do
+            assert "feature schema v2 has a stable semantic identifier" (frv2SchemaId observed == featureAvailabilitySchemaIdV2)
+            assert "observed zero retains availability" (frv2Values observed == [0] && frv2Available observed == [True])
+            assert "missing optional value is neutral with an explicit false mask" (frv2Values missing == [0] && frv2Available missing == [False])
+            assert "observed zero and missing evidence produce distinct model inputs" (featureRowModelInputs observed /= featureRowModelInputs missing)
+            assert
+                "availability does not change the ordered schema signature"
+                ( featureRowSchemaSignature observed
+                    == featureRowSchemaSignature missing
+                    && featureRowSchemaSignature observed == "feature_availability_v2|funding:optional"
+                )
+        _ -> assert "valid optional v2 rows should be constructible" False
+
+    assert
+        "required missing evidence abstains"
+        (isNothing (mkFeatureRowV2 decisionTime [FeatureField "funding" RequiredFeature Nothing]))
+    assert
+        "required not-yet-available evidence abstains"
+        (isNothing (mkFeatureRowV2 decisionTime [FeatureField "funding" RequiredFeature (Just futureValue)]))
+    assert
+        "required non-finite evidence abstains"
+        ( isNothing
+            ( mkFeatureRowV2
+                decisionTime
+                [FeatureField "funding" RequiredFeature (Just observedZero{tfvValue = 0 / 0})]
+            )
+        )
+    assert
+        "optional non-finite evidence remains explicitly unavailable"
+        ( case mkFeatureRowV2 decisionTime [FeatureField "funding" OptionalFeature (Just observedZero{tfvValue = 1 / 0})] of
+            Just row -> frv2Values row == [0] && frv2Available row == [False]
+            Nothing -> False
+        )
+    assert
+        "availability cannot precede event time"
+        ( isNothing
+            ( mkFeatureRowV2
+                decisionTime
+                [ FeatureField
+                    "funding"
+                    RequiredFeature
+                    (Just observedZero{tfvEventTimeMs = 1600, tfvAvailabilityTimeMs = 1500})
+                ]
+            )
+        )
+    assert
+        "empty, duplicate, or ambiguous feature names fail closed"
+        ( isNothing (mkFeatureRowV2 decisionTime [])
+            && isNothing (mkFeatureRowV2 decisionTime [FeatureField "" OptionalFeature Nothing])
+            && isNothing
+                ( mkFeatureRowV2
+                    decisionTime
+                    [ FeatureField "funding" OptionalFeature Nothing
+                    , FeatureField "funding" OptionalFeature (Just observedZero)
+                    ]
+                )
+            && isNothing (mkFeatureRowV2 decisionTime [FeatureField "funding:rate" OptionalFeature Nothing])
+        )
+
+    let bars = V.fromList [1000, 2000, 3000 :: Int64]
+        intervalMs = 1000 :: Int64
+        original = TimedFeatureValue{tfvEventTimeMs = 500, tfvAvailabilityTimeMs = 500, tfvValue = 1}
+        revision = TimedFeatureValue{tfvEventTimeMs = 500, tfvAvailabilityTimeMs = 2500, tfvValue = 2}
+        future = TimedFeatureValue{tfvEventTimeMs = 3500, tfvAvailabilityTimeMs = 3500, tfvValue = 3}
+        aligned = alignTimedToBars bars intervalMs [future, revision, original]
+    assert
+        "revisions appear only from their availability time"
+        (V.map (fmap tfvValue) aligned == V.fromList [Just 1, Just 2, Just 3])
+    let newerEvent = TimedFeatureValue{tfvEventTimeMs = 1500, tfvAvailabilityTimeMs = 1500, tfvValue = 4}
+    assert
+        "a late revision to an older event does not replace a newer current event"
+        ( V.map (fmap tfvValue) (alignTimedToBars bars intervalMs [future, revision, newerEvent, original])
+            == V.fromList [Just 4, Just 4, Just 3]
+        )
+    assert
+        "changing a future observation cannot change earlier aligned rows"
+        ( take 2 (V.toList aligned)
+            == take
+                2
+                ( V.toList
+                    (alignTimedToBars bars intervalMs [future{tfvValue = -999}, revision, original])
+                )
+        )
+
+    case alignedFeatureSeriesV2 bars intervalMs [TimedFeatureValue 2500 2500 0] of
+        Nothing -> assert "one admissible timed value should create a v2 series" False
+        Just series -> do
+            assert "v2 alignment keeps a pre-coverage mask" (afsV2Available series == V.fromList [False, True, True])
+            assert "v2 alignment distinguishes missing from an observed zero" (afsV2Values series == V.fromList [0, 0, 0])
+            assert "v2 alignment preserves event timestamps" (afsV2EventTimesMs series == V.fromList [Nothing, Just 2500, Just 2500])
+            assert
+                "v2 alignment preserves availability timestamps"
+                (afsV2AvailabilityTimesMs series == V.fromList [Nothing, Just 2500, Just 2500])
 
 testExogenousDerivativesBacktestWiring :: IO ()
 testExogenousDerivativesBacktestWiring = do
