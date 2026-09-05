@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "binance_rate_limit_circuit_2026-09-05T061022Z",
+  "receiptType": "metadata_only_operational_circuit_receipt",
+  "collection": {
+    "statusSchemaVersion": 3,
+    "interval": "1h",
+    "startedAt": "2026-09-05T06:10:22.106590Z",
+    "finishedAt": "2026-09-05T06:10:43.867674Z",
+    "durationSeconds": 21.761,
+    "codeCommit": "fb29dacbe65acff0a90d01ac3c8b41b20af2ef5b",
+    "mergedPullRequest": 218,
+    "mergedHeadCommit": "b57f5c13f32f51a60d8f2b3a3f0e77b0a1bae787",
+    "mergeCommit": "272d91c5bf32110ac0154931ec8f18cc1ab147d3",
+    "state": "partial_failure",
+    "provenanceIssues": [],
+    "provenanceTrackedClean": true
+  },
+  "source": {
+    "provider": "Binance USD-M Futures",
+    "access": "public_read_only",
+    "licenseManifest": "research-notes/market-prediction-2026-09-04/data-source-license-manifest.json"
+  },
+  "status": {
+    "logicalPath": ".collector/last-run.json",
+    "sha256": "6901b51ecb80fb087637427f577e5b93f17f85569f4393806af2aec8806ed552",
+    "bytes": 7743,
+    "retention": "Mutable operational status observed and hash-bound before its next scheduled replacement; raw status remains outside Git."
+  },
+  "universe": {
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "LTCUSDT"
+    ],
+    "stableOrder": "exact_fixed_collector_order"
+  },
+  "circuitObservation": {
+    "successfulBeforeThrottle": ["BTCUSDT"],
+    "throttleSymbol": "ETHUSDT",
+    "throttleStatus": "error",
+    "failureKind": "provider_rate_limit",
+    "httpStatus": 429,
+    "bannedUntilMs": null,
+    "retryAfterSeconds": null,
+    "remainingSymbols": [
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "LTCUSDT"
+    ],
+    "remainingStatus": "skipped",
+    "remainingFailureKind": "provider_rate_limit_circuit_open",
+    "providerErrorMessageRetained": false,
+    "providerReturnedIpRetained": false,
+    "result": "circuit_observed"
+  },
+  "evidenceBoundary": {
+    "rawStatusCommitted": false,
+    "artifactAdmission": false,
+    "outcomeAdmission": "acquisition_metadata_only",
+    "returnsComputed": false,
+    "ranksComputed": false,
+    "weightsComputed": false,
+    "pnlComputed": false,
+    "riskMetricsComputed": false,
+    "forecastMetricsComputed": false,
+    "economicMetricsComputed": false,
+    "holdoutsOpened": 0,
+    "ordersPlaced": 0,
+    "modelInputsChanged": false,
+    "liveAuthorizationChanged": false
+  }
+}

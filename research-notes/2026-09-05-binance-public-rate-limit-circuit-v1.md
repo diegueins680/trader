@@ -65,6 +65,25 @@ scheduler attempts, and explicit remaining-symbol skips. The existing
 historical downloader tests still pass unchanged. The previously frozen
 10-symbol receipt also reconstructs successfully after this change.
 
+The first installed scheduler run with the circuit implementation, from
+`2026-09-05T06:10:22.106590Z` through `2026-09-05T06:10:43.867674Z`, provided
+direct operational confirmation. It ran from clean commit
+`fb29dacbe65acff0a90d01ac3c8b41b20af2ef5b`, completed BTC, received HTTP 429
+on ETH, marked the remaining eight symbols
+`provider_rate_limit_circuit_open`, and stopped `partial_failure` in 21.761
+seconds. The circuit paths at that commit were unchanged by the conflict-free
+rebase to merged PR #218 head
+`b57f5c13f32f51a60d8f2b3a3f0e77b0a1bae787`.
+
+The mutable status file was observed at 7,743 bytes with SHA-256
+`6901b51ecb80fb087637427f577e5b93f17f85569f4393806af2aec8806ed552`
+before its next scheduled replacement. A sanitized metadata-only record is
+committed as
+[`binance-rate-limit-circuit-2026-09-05T061022Z.json`](market-prediction-2026-09-04/receipts/binance-rate-limit-circuit-2026-09-05T061022Z.json).
+The raw mutable status remains outside Git. This observation confirms circuit
+operation only; it is neither a successful artifact receipt nor permission to
+use partial data in an experiment.
+
 The process-local limiter cannot coordinate unrelated programs or machines on
 the same egress IP. An hourly run may still fail before receiving a usable
 weight header, and any resulting acquisition gap is irrecoverable for
