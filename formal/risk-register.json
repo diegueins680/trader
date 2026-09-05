@@ -22,6 +22,7 @@
     { "id": "MARKET-DATA-TIMESTAMP-OVERFLOW-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "MAX-POSITION-GUARDRAIL-001", "severity": "HIGH", "status": "CLOSED" },
     { "id": "PREDICTOR-IDENTITY-001", "severity": "HIGH", "status": "MITIGATED" },
+    { "id": "RESEARCH-RATE-LIMIT-001", "severity": "HIGH", "status": "MITIGATED" },
     { "id": "RESEARCH-RECEIPT-001", "severity": "HIGH", "status": "CLOSED" },
     { "id": "RISK-LIMIT-001", "severity": "HIGH", "status": "CLOSED" },
     { "id": "RISK-LIMIT-NON-FINITE-001", "severity": "CRITICAL", "status": "CLOSED" },

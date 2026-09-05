@@ -20,14 +20,19 @@ from __future__ import annotations
 from contextlib import contextmanager
 import fcntl
 import json
+import math
 import os
+import re
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import numpy as np
 import pandas as pd
+
+from historical_datafeed import RequestWeightLimiter
 
 BASE = "https://fapi.binance.com"
 # Cache location: override with TRADER_RESEARCH_CACHE (e.g. for a standalone
@@ -51,6 +56,12 @@ STATS_RETENTION_MS = 30 * 86_400_000
 STATS_RETENTION_SAFETY_MS = 300_000
 STATS_PAGE_LIMIT = 500
 FUNDING_FRESHNESS_MS = 9 * 3_600_000
+REQUEST_WEIGHT_BUDGET = 1200
+REQUEST_WEIGHT_WINDOW_SECONDS = 60.0
+FUNDING_REQUEST_BUDGET = 450
+FUNDING_REQUEST_WINDOW_SECONDS = 5 * 60.0
+STATS_REQUEST_BUDGET = 450
+STATS_REQUEST_WINDOW_SECONDS = 5 * 60.0
 COLLECTOR_STATE_DIR = ".collector"
 COLLECTOR_LOCK_FILE = "collector.lock"
 DERIVATIVE_OBSERVATION_DIR = ".observations"
@@ -85,6 +96,41 @@ class CacheWriterBusy(RuntimeError):
     """Raised when a non-blocking cache writer cannot acquire the shared lock."""
 
 
+class BinanceRateLimitError(RuntimeError):
+    """Sanitized provider throttling evidence that must open the run circuit."""
+
+    def __init__(
+        self,
+        *,
+        http_status: int | None = None,
+        banned_until_ms: int | None = None,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        self.http_status = http_status
+        self.banned_until_ms = banned_until_ms
+        self.retry_after_seconds = retry_after_seconds
+        detail = []
+        if http_status is not None:
+            detail.append(f"HTTP {http_status}")
+        if banned_until_ms is not None:
+            detail.append(f"bannedUntilMs={banned_until_ms}")
+        if retry_after_seconds is not None:
+            detail.append(f"retryAfterSeconds={retry_after_seconds}")
+        suffix = f" ({', '.join(detail)})" if detail else ""
+        super().__init__(f"Binance public API rate limited{suffix}")
+
+
+RATE_LIMITER = RequestWeightLimiter(
+    REQUEST_WEIGHT_BUDGET, REQUEST_WEIGHT_WINDOW_SECONDS
+)
+FUNDING_RATE_LIMITER = RequestWeightLimiter(
+    FUNDING_REQUEST_BUDGET, FUNDING_REQUEST_WINDOW_SECONDS
+)
+STATS_RATE_LIMITER = RequestWeightLimiter(
+    STATS_REQUEST_BUDGET, STATS_REQUEST_WINDOW_SECONDS
+)
+
+
 @contextmanager
 def cache_writer_lock(*, blocking: bool = True):
     """Serialize every read/merge/replace transaction against the cache."""
@@ -109,17 +155,116 @@ def cache_writer_lock(*, blocking: bool = True):
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
-def _get(path: str, tries: int = 4, **params):
-    url = f"{BASE}{path}?" + "&".join(f"{k}={v}" for k, v in params.items())
-    for i in range(tries):
+def _request_weight(path: str, params: dict[str, object]) -> int:
+    if path != "/fapi/v1/klines":
+        return 1
+    try:
+        limit = int(params.get("limit", 500))
+    except (TypeError, ValueError) as error:
+        raise ValueError("kline request limit must be an integer") from error
+    if limit < 100:
+        return 1
+    if limit < 500:
+        return 2
+    if limit <= 1000:
+        return 5
+    return 10
+
+
+def _observe_response_weight(headers: object) -> None:
+    getter = getattr(headers, "get", None)
+    if getter is None:
+        return
+    raw_weight = getter("X-MBX-USED-WEIGHT-1M")
+    if raw_weight is None:
+        return
+    try:
+        used_weight = int(raw_weight)
+    except (TypeError, ValueError):
+        return
+    if used_weight >= 0:
+        RATE_LIMITER.observe_used_weight(used_weight)
+
+
+def _retry_after_seconds(headers: object) -> int | None:
+    getter = getattr(headers, "get", None)
+    if getter is None:
+        return None
+    raw = getter("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return math.ceil(seconds)
+
+
+def _rate_limit_error(
+    *,
+    payload: object = None,
+    headers: object = None,
+    http_status: int | None = None,
+) -> BinanceRateLimitError:
+    banned_until_ms = None
+    if isinstance(payload, dict):
+        message = payload.get("msg")
+        if isinstance(message, str):
+            match = re.search(r"\bbanned until (\d{10,})\b", message)
+            if match is not None:
+                banned_until_ms = int(match.group(1))
+    retry_after = _retry_after_seconds(headers)
+    now_ms = int(time.time() * 1000)
+    if banned_until_ms is None and retry_after is not None:
+        banned_until_ms = now_ms + retry_after * 1000
+    elif banned_until_ms is not None and retry_after is None:
+        retry_after = max(0, math.ceil((banned_until_ms - now_ms) / 1000))
+    return BinanceRateLimitError(
+        http_status=http_status,
+        banned_until_ms=banned_until_ms,
+        retry_after_seconds=retry_after,
+    )
+
+
+def _get(path: str, tries: int = 4, **params: object) -> object:
+    url = f"{BASE}{path}?{urllib.parse.urlencode(params)}"
+    for attempt in range(tries):
+        if path == "/fapi/v1/fundingRate":
+            FUNDING_RATE_LIMITER.wait(1)
+        if path.startswith("/futures/data/"):
+            STATS_RATE_LIMITER.wait(1)
+        RATE_LIMITER.wait(_request_weight(path, params))
         try:
-            with urllib.request.urlopen(url, timeout=30) as r:
-                return json.load(r)
-        except (urllib.error.URLError, TimeoutError) as e:  # transient — back off
-            if i == tries - 1:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                _observe_response_weight(response.headers)
+                payload = json.load(response)
+                if isinstance(payload, dict) and str(payload.get("code")) == "-1003":
+                    raise _rate_limit_error(payload=payload, headers=response.headers)
+                return payload
+        except BinanceRateLimitError:
+            raise
+        except urllib.error.HTTPError as error:
+            _observe_response_weight(error.headers)
+            if error.code in {418, 429}:
+                try:
+                    payload = json.loads(error.read().decode("utf-8"))
+                except (AttributeError, UnicodeError, ValueError):
+                    payload = None
+                raise _rate_limit_error(
+                    payload=payload,
+                    headers=error.headers,
+                    http_status=error.code,
+                ) from error
+            if attempt == tries - 1 or error.code not in {500, 502, 503, 504}:
                 raise
-            time.sleep(1.5 * (i + 1))
-    return []
+            time.sleep(1.5 * (attempt + 1))
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == tries - 1:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    raise AssertionError("unreachable retry state")
 
 
 def fetch_klines(sym: str, interval: str, limit: int = 1500) -> pd.DataFrame:
@@ -896,6 +1041,8 @@ def _update_cache_unlocked(symbols, interval="1h", kline_limit=1500):
                     series, snapshot_end, max_lag_ms
                 )
                 k[column] = align_pit(bclose, series, max_age_ms=max_lag_ms)
+            except BinanceRateLimitError:
+                raise
             except Exception as e:  # each best-effort series is atomic
                 print(f"  {sym}: {column} unavailable ({str(e)[:50]})")
                 series_results[column] = {

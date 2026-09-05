@@ -137,6 +137,7 @@ def _provenance_tracked_clean() -> bool:
                 "--",
                 "scripts/research/collect_datafeed.py",
                 "scripts/research/datafeed.py",
+                "scripts/research/historical_datafeed.py",
                 SOURCE_LICENSE_MANIFEST,
             ],
             cwd=repository_root,
@@ -726,7 +727,7 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
             }
         )
         _write_json_atomic(status_path, status)
-        for symbol in symbols:
+        for symbol_index, symbol in enumerate(symbols):
             try:
                 refreshes = feed.update_cache(
                     [symbol], INTERVAL, acquire_lock=False
@@ -739,6 +740,32 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
                         f"({', '.join(results[symbol]['issues'])})",
                         file=sys.stderr,
                     )
+            except feed.BinanceRateLimitError as error:
+                failures += 1
+                results[symbol] = {
+                    "status": "error",
+                    "failureKind": "provider_rate_limit",
+                    "error": str(error),
+                    "httpStatus": error.http_status,
+                    "bannedUntilMs": error.banned_until_ms,
+                    "retryAfterSeconds": error.retry_after_seconds,
+                }
+                for skipped_symbol in symbols[symbol_index + 1 :]:
+                    failures += 1
+                    results[skipped_symbol] = {
+                        "status": "skipped",
+                        "failureKind": "provider_rate_limit_circuit_open",
+                        "error": "not attempted after Binance public API rate limit",
+                    }
+                print(
+                    f"{symbol}: refresh stopped ({results[symbol]['error']}); "
+                    f"skipped {len(symbols) - symbol_index - 1} remaining symbols",
+                    file=sys.stderr,
+                )
+                status["results"] = results
+                status["updatedAt"] = _utc_now()
+                _write_json_atomic(status_path, status)
+                break
             except Exception as error:
                 failures += 1
                 results[symbol] = {

@@ -12,6 +12,7 @@
       "licenseAssessment": "Use and redistribution remain subject to Binance terms; no claim of an open-data license is made.",
       "knownCoverage": "OHLCV and funding can be paged historically; the repository acquisition spec records approximately 30-day limits for several futures-data statistics endpoints.",
       "availabilityPolicy": "Provider timestamps are retained as event times. Where a derivatives history response supplies no independent publication or revision timestamp, prospective collection records fetch completion as first-seen availability under binance_derivatives_first_seen_v2; legacy aligned cells are not relabeled.",
+      "rateLimitPolicy": "The scheduled public client uses conservative process-local request budgets, reconciles X-MBX-USED-WEIGHT-1M, and stops the remaining run on HTTP 418/429 or Binance -1003. Provider limits remain authoritative and may change.",
       "researchUse": "Existing historical campaign evidence and prospective acquisition. The availability-schema change downloaded no data and did not inspect outcomes."
     },
     {
