@@ -93,6 +93,13 @@
       "featureAvailabilitySchema": "feature_availability_v2",
       "verificationCommand": "python3 scripts/research/collect_datafeed.py verify-artifacts --status data/research/.collector/last-run.json",
       "admissionPolicy": "Freeze the complete-pass status bytes or record the verifier-returned statusSha256 before fitting. Every bar cache and first-seen ledger must retain its recorded hash; versioned bar cells must reconstruct from the bound ledgers."
+    },
+    "firstVerifiedMainReceipt": {
+      "path": "research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json",
+      "statusSha256": "83e22c3dd453ab5ee4730b5c05734c318e31a8d0cf48fd198f253c35ffe2b278",
+      "artifactCount": 50,
+      "archiveCommitted": false,
+      "outcomeUse": false
     }
   }
 }
