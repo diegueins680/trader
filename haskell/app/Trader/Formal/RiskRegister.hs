@@ -40,6 +40,7 @@ data RiskID
     | MARKET_DATA_TIMESTAMP_OVERFLOW_001
     | MAX_POSITION_GUARDRAIL_001
     | PREDICTOR_IDENTITY_001
+    | RESEARCH_RECEIPT_001
     | RISK_LIMIT_001
     | RISK_LIMIT_NON_FINITE_001
     | RISK_METRIC_INVALID_001
@@ -100,6 +101,7 @@ riskIdText = \case
     MARKET_DATA_TIMESTAMP_OVERFLOW_001 -> "MARKET-DATA-TIMESTAMP-OVERFLOW-001"
     MAX_POSITION_GUARDRAIL_001 -> "MAX-POSITION-GUARDRAIL-001"
     PREDICTOR_IDENTITY_001 -> "PREDICTOR-IDENTITY-001"
+    RESEARCH_RECEIPT_001 -> "RESEARCH-RECEIPT-001"
     RISK_LIMIT_001 -> "RISK-LIMIT-001"
     RISK_LIMIT_NON_FINITE_001 -> "RISK-LIMIT-NON-FINITE-001"
     RISK_METRIC_INVALID_001 -> "RISK-METRIC-INVALID-001"
@@ -244,6 +246,13 @@ riskRegister =
         "Legacy TCN, PatchTST, and Transformer identifiers can overstate the fidelity of lightweight proxy implementations"
         "trader-firm-research"
         "Preserve legacy semantics, expose accurate versioned implementation identities, and require a new model ID for any faithful architecture"
+    , riskEntry
+        RESEARCH_RECEIPT_001
+        HIGH
+        CLOSED
+        "A metadata-only derivatives receipt could diverge from its frozen external archive or imply unauthorized outcome access"
+        "trader-firm-research"
+        "The schema-1 verifier binds the exact status and complete archive inventory while enforcing acquisition-only authority"
     , riskEntry
         RISK_LIMIT_001
         HIGH

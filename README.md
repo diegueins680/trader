@@ -365,6 +365,16 @@ python3 scripts/research/collect_datafeed.py verify-artifacts \
 
 The first verified post-merge main receipt is stored as metadata at [`research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json`](research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json). It binds status SHA-256 `83e22c3dd453ab5ee4730b5c05734c318e31a8d0cf48fd198f253c35ffe2b278` plus 50 bar/ledger artifact hashes and row counts from merged commit `b24f321bf6b45cc09053e41e315cebb8da5a66cf`; the 5.8 MiB archive remains outside Git. This is acquisition evidence only, not permission to compute the registered prospective campaign before its frozen evaluation time.
 
+Verify that committed receipt against a lawful byte-identical external archive without manually comparing metadata:
+
+```bash
+python3 scripts/research/verify_derivatives_receipt.py \
+  --receipt research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json \
+  --archive /absolute/path/to/2026-09-05T040706Z
+```
+
+The receipt verifier requires the exact schema-3 status digest, collection metadata, fixed symbol order, row counts, hashes, and complete 51-file inventory; calls the causal bar-from-ledger verifier; confines every resolved file to the archive; and requires the acquisition-only outcome boundary with no model, holdout, order, or live-authorization use. The human-readable archive size is informational and may differ by at most 0.1 MiB from exact content-byte rounding; file identity remains governed by the complete SHA-256 inventory. Success reports the exact content bytes checked and grants no evaluation authority.
+
 Each derivatives series refresh is isolated on an API/page error. Missing intervals in otherwise successful pages remain null. A source is healthy across a bounded publication delay only when its latest finite observation is still inside the unchanged freshness limit; the schema-3 verifier recomputes the lag equation and trailing-unavailable count. In every case the merge preserves previously cached point-in-time values instead of forward-filling incomplete fresh evidence over them. SIGINT/SIGTERM records `interrupted`; the deadline records `timeout` and exits `124`; a manual `restart` starts a new bounded run. A loaded service must stop successfully before uninstall removes its plist. The local LaunchAgent is an interim accumulator because laptop sleep/offline periods still lose collection opportunities; archival ingestion or an always-on persistent collector remains necessary before sparse-history, PBO, OOS-count, and confidence gates can pass.
 
 The Haskell backtester can opt into the same point-in-time Binance derivatives inputs:

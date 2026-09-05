@@ -51,7 +51,15 @@ python3 scripts/research/collect_datafeed.py verify-artifacts \
 
 The command requires collector status schema 3, a complete-pass run, a valid code commit with both collector files and the source-license manifest matching it, recorded Python/numpy/pandas versions, fixed schema identities, unchanged artifact hashes, canonical columns and scopes, recomputed coverage, and exact causal reconstruction of every versioned cell from the four first-seen ledgers. A byte-identical relocated cache may be supplied with `--cache-dir`. Freeze the status file or record the returned `statusSha256` before fitting because the scheduled collector replaces `last-run.json` on its next run. Schema-2 statuses predate artifact binding and intentionally fail this verifier.
 
-For the first post-merge receipt, compare the verifier's returned `statusSha256` with `status.sha256` in `receipts/binance-derivatives-main-2026-09-05T040706Z.json`. That committed metadata manifest also records all 50 logical artifact paths, row counts, and hashes. The corresponding market-data archive is intentionally outside Git; verification requires a lawful byte-identical copy supplied through `--cache-dir`. A matching receipt authorizes acquisition-integrity inspection only and does not authorize returns, ranks, positions, PnL, model fitting, or a holdout opening.
+For the first post-merge receipt, verify the complete committed metadata-to-archive binding directly:
+
+```bash
+python3 scripts/research/verify_derivatives_receipt.py \
+  --receipt research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json \
+  --archive /absolute/path/to/2026-09-05T040706Z
+```
+
+The corresponding market-data archive is intentionally outside Git and must be a lawful byte-identical copy. The command verifies the exact status plus all 50 logical artifacts, rejects incomplete or extra archive files, and invokes the causal ledger reconstruction. Its approximate-size field tolerates only 0.1 MiB of filesystem-reporting variance; exact file identity remains hash-bound. A matching receipt authorizes acquisition-integrity inspection only and does not authorize returns, ranks, positions, PnL, model fitting, or a holdout opening.
 
 ## Reproduce existing negative results safely
 
