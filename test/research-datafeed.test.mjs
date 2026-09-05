@@ -269,6 +269,20 @@ assert golden_coverage == {
     "basis": {"versioned": 3, "observed": 3, "fresh": 2},
     "taker": {"versioned": 3, "observed": 1, "fresh": 1},
 }
+assert list(datafeed.DERIVATIVE_PANEL_COLUMNS_V2) == list(golden_panel.columns)
+reordered_columns = list(golden_panel.columns)
+reordered_columns[1], reordered_columns[2] = (
+    reordered_columns[2],
+    reordered_columns[1],
+)
+try:
+    datafeed.validate_derivative_v2_panel(
+        golden_panel.loc[:, reordered_columns], "1h"
+    )
+except ValueError as error:
+    assert "canonical order" in str(error)
+else:
+    raise AssertionError("reordered derivatives v2 columns must fail")
 malformed_panel = panel_v2.copy()
 malformed_panel.loc[0, "fundingV2Value"] = 1.0
 try:

@@ -25,6 +25,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,20 @@ with tempfile.TemporaryDirectory() as cache_name:
             frame[f"{field}V2Fresh"] = 1
             frame[f"{field}V2EventTime"] = frame["openTime"]
             frame[f"{field}V2AvailabilityTime"] = frame["openTime"]
+            ledger = pd.DataFrame({
+                "schemaId": collector.feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
+                "symbol": symbol,
+                "interval": interval,
+                "feature": field,
+                "eventTime": frame["openTime"],
+                "availabilityTime": frame["openTime"],
+                "observed": 1,
+                "value": frame[field],
+            })
+            collector.feed.write_cache_atomic(
+                ledger,
+                collector.feed._observation_path(symbol, interval, field),
+            )
         collector.feed.write_cache_atomic(
             frame, collector.feed._cache_path(symbol, interval)
         )
@@ -84,6 +99,7 @@ with tempfile.TemporaryDirectory() as cache_name:
                 "latestTimestamp": latest,
                 "observationSchema": collector.feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
                 "v2Status": "ok",
+                "v2Observations": 3,
             }
             for field in ("funding", "oi", "basis", "taker")
         }
@@ -106,19 +122,28 @@ with tempfile.TemporaryDirectory() as cache_name:
         }
 
     collector.feed.update_cache = fake_update
-    collector._repository_commit = lambda: "abc123"
+    collector._repository_commit = lambda: "a" * 40
+    collector._provenance_tracked_clean = lambda: True
     result = collector.main()
     assert result == 1
     assert calls == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
     status_path = cache / ".collector" / "last-run.json"
     status = json.loads(status_path.read_text())
-    assert status["schemaVersion"] == 2
+    assert status["schemaVersion"] == 3
     assert status["state"] == "partial_failure"
-    assert status["commit"] == "abc123"
+    assert status["commit"] == "a" * 40
+    assert status["artifactSchema"] == collector.ARTIFACT_SCHEMA_ID
+    assert status["dataSourceLicenseManifest"] == collector.SOURCE_LICENSE_MANIFEST
+    assert status["provenanceTrackedClean"] is True
+    assert set(status["runtime"]) == {"python", "numpy", "pandas"}
     assert status["failedSymbols"] == ["ETHUSDT", "SOLUSDT"]
     assert status["results"]["BTCUSDT"]["status"] == "ok"
     assert status["results"]["BTCUSDT"]["rows"] == 3
+    assert (
+        status["results"]["BTCUSDT"]["artifactSchema"]
+        == collector.ARTIFACT_SCHEMA_ID
+    )
     assert (
         status["results"]["BTCUSDT"]["derivativesObservationSchema"]
         == collector.feed.DERIVATIVE_OBSERVATION_SCHEMA_ID
@@ -128,10 +153,128 @@ with tempfile.TemporaryDirectory() as cache_name:
         "observed": 3,
         "fresh": 3,
     }
+    assert set(status["results"]["BTCUSDT"]["artifacts"]) == {
+        "cache",
+        "observations",
+    }
+    assert len(status["results"]["BTCUSDT"]["artifacts"]["cache"]["sha256"]) == 64
     assert status["results"]["SOLUSDT"]["status"] == "degraded"
     assert status["results"]["SOLUSDT"]["issues"] == ["basis"]
     assert "simulated public endpoint failure" in status["results"]["ETHUSDT"]["error"]
     assert not list((cache / ".collector").glob("*.tmp"))
+
+    verified_status = dict(status)
+    verified_status["state"] = "pass"
+    verified_status["symbols"] = ["BTCUSDT"]
+    verified_status["results"] = {"BTCUSDT": status["results"]["BTCUSDT"]}
+    verified_status["failedSymbols"] = []
+    verified_path = cache / ".collector" / "verified-run.json"
+    collector._write_json_atomic(verified_path, verified_status)
+    verification = collector.verify_collection_artifacts(verified_path)
+    assert verification["status"] == "verified"
+    assert verification["statusSha256"] == collector._file_sha256(verified_path)
+    assert verification["symbols"]["BTCUSDT"]["rows"] == 3
+    assert verification["symbols"]["BTCUSDT"]["observations"] == {
+        "funding": 3,
+        "oi": 3,
+        "basis": 3,
+        "taker": 3,
+    }
+
+    cli_verification = subprocess.run(
+        [
+            sys.executable,
+            sys.argv[2],
+            "verify-artifacts",
+            "--status",
+            str(verified_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert cli_verification.returncode == 0, cli_verification.stderr
+    assert json.loads(cli_verification.stdout)["status"] == "verified"
+
+    artifact_lock_path = cache / ".collector" / "collector.lock"
+    with artifact_lock_path.open("a+") as artifact_lock:
+        fcntl.flock(artifact_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            collector.verify_collection_artifacts(verified_path)
+        except ValueError as error:
+            assert "writer is active" in str(error)
+        else:
+            raise AssertionError("artifact verification must not race a writer")
+
+    with tempfile.TemporaryDirectory() as relocated_name:
+        relocated = Path(relocated_name)
+        shutil.copytree(cache, relocated, dirs_exist_ok=True)
+        relocated_lock = relocated / ".collector" / "collector.lock"
+        relocated_lock.unlink()
+        relocated_verification = collector.verify_collection_artifacts(
+            verified_path, cache_dir=relocated
+        )
+        assert relocated_verification["status"] == "verified"
+        assert not relocated_lock.exists()
+
+    cache_path = cache / "BTCUSDT_1h.csv"
+    original_cache = cache_path.read_bytes()
+    mutated = pd.read_csv(cache_path)
+    mutated.loc[0, "fundingV2Value"] = 999.0
+    mutated.to_csv(cache_path, index=False)
+    try:
+        collector.verify_collection_artifacts(verified_path)
+    except ValueError as error:
+        assert "sha256 mismatch" in str(error)
+    else:
+        raise AssertionError("changed cache bytes must fail artifact verification")
+
+    verified_status["results"]["BTCUSDT"]["artifacts"]["cache"]["sha256"] = (
+        collector._file_sha256(cache_path)
+    )
+    collector._write_json_atomic(verified_path, verified_status)
+    try:
+        collector.verify_collection_artifacts(verified_path)
+    except ValueError as error:
+        assert "disagrees with its ledger" in str(error)
+    else:
+        raise AssertionError("rehashing a changed cache must not bypass reconstruction")
+    cache_path.write_bytes(original_cache)
+
+    verified_status["results"]["BTCUSDT"]["artifacts"]["cache"]["sha256"] = (
+        collector._file_sha256(cache_path)
+    )
+    collector._write_json_atomic(verified_path, verified_status)
+    non_pass = dict(verified_status)
+    non_pass["state"] = "partial_failure"
+    rejected_path = cache / ".collector" / "rejected-run.json"
+    collector._write_json_atomic(rejected_path, non_pass)
+    try:
+        collector.verify_collection_artifacts(rejected_path)
+    except ValueError as error:
+        assert "not a complete pass" in str(error)
+    else:
+        raise AssertionError("a degraded collector status must not verify")
+
+    duplicate_status_path = cache / ".collector" / "duplicate-status.json"
+    duplicate_status_path.write_text('{"schemaVersion":3,"schemaVersion":3}\n')
+    try:
+        collector.verify_collection_artifacts(duplicate_status_path)
+    except ValueError as error:
+        assert "duplicate JSON key" in str(error)
+    else:
+        raise AssertionError("duplicate manifest keys must fail verification")
+
+    os.environ["TRADER_RESEARCH_SYMBOLS"] = "BTCUSDT"
+    collector._provenance_tracked_clean = lambda: False
+    assert collector.main() == 1
+    dirty_implementation_status = json.loads(status_path.read_text())
+    assert dirty_implementation_status["state"] == "partial_failure"
+    assert dirty_implementation_status["failedSymbols"] == []
+    assert dirty_implementation_status["provenanceIssues"] == [
+        "provenance_files_differ_from_commit"
+    ]
+    collector._provenance_tracked_clean = lambda: True
 
     before = status_path.read_bytes()
     lock_path = cache / ".collector" / "collector.lock"
