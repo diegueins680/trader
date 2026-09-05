@@ -125,35 +125,40 @@
     {
       "id": "H-EXTERNAL",
       "title": "External, exogenous, cross-sectional, and prediction-market evidence",
-      "features": ["external JSON/CSV features", "availability-aware external feature bundle v2", "external panel schema v2 decoder", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
+      "features": ["external JSON/CSV features", "availability-aware external feature bundle v2", "external panel schema v2 decoder", "derivatives panel schema v2 decoder", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalPanelSchema.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
+      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalPanelSchema.hs", "haskell/app/Trader/Predictors/DerivativesPanelSchema.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-NO-LOOKAHEAD", "G-FAIL-CLOSED"],
       "dependsOn": ["H-MARKET-DATA"],
       "requires": [
         { "id": "H-EXTERNAL-R1", "statement": "An observation is admissible only when its value and publication time are finite/representable and publicationTime <= decisionTime." },
         { "id": "H-EXTERNAL-R2", "statement": "Availability-aware observations preserve distinct event and availability timestamps with 0 <= eventTime <= availabilityTime <= decisionTime." },
-        { "id": "H-EXTERNAL-R3", "statement": "An external_feature_panel_v2 decoder accepts only the exact ordered family/value/coverage schema and canonical single-scope decision-time rows; separate manifest verification must precede research admission." }
+        { "id": "H-EXTERNAL-R3", "statement": "An external_feature_panel_v2 decoder accepts only the exact ordered family/value/coverage schema and canonical single-scope decision-time rows; separate manifest verification must precede research admission." },
+        { "id": "H-EXTERNAL-R4", "statement": "A binance_derivatives_first_seen_v2 bar decoder requires the complete canonical ordered v2 field groups, a canonical caller-supplied symbol, a positive representable interval, and strictly increasing non-overflowing bar times." }
       ],
       "ensures": [
         { "id": "H-EXTERNAL-E1", "statement": "Each bar receives only the latest admissible observation at or before its close; cross-sectional membership is selected from the contemporaneous universe." },
         { "id": "H-EXTERNAL-E2", "statement": "Availability-aware alignment preserves per-family value, observed mask, selected event time, and selected availability time; a revision cannot affect a bar that closed before the revision became available." },
-        { "id": "H-EXTERNAL-E3", "statement": "The opt-in panel decoder retains every finite family value and fractional coverage cell, including the distinction between observed zero and unavailable zero." }
+        { "id": "H-EXTERNAL-E3", "statement": "The opt-in panel decoder retains every finite family value and fractional coverage cell, including the distinction between observed zero and unavailable zero." },
+        { "id": "H-EXTERNAL-E4", "statement": "The opt-in derivatives decoder retains explicit observed, fresh, event-time, and availability-time witnesses; unavailable or stale cells are non-actionable and have zero dense value." }
       ],
       "invariants": [
         { "id": "H-EXTERNAL-I1", "statement": "Adding a future observation cannot change any earlier aligned feature or decision." },
         { "id": "H-EXTERNAL-I2", "statement": "Legacy one-timestamp exogenous and external-family alignment is the compatibility projection of availability-aware alignment with eventTime equal to availabilityTime." },
-        { "id": "H-EXTERNAL-I3", "statement": "The external panel decoder is not connected to legacy feature construction or production orchestration, so disabled v2 decoding cannot change an existing model input, prediction, or signal." }
+        { "id": "H-EXTERNAL-I3", "statement": "The external panel decoder is not connected to legacy feature construction or production orchestration, so disabled v2 decoding cannot change an existing model input, prediction, or signal." },
+        { "id": "H-EXTERNAL-I4", "statement": "The derivatives decoder derives freshness only from causal timestamp age under the collector's fixed family limits and remains isolated from existing feature, artifact, predictor, and execution paths." }
       ],
       "failures": [
         { "id": "H-EXTERNAL-F1", "statement": "Missing/malformed optional evidence remains absent or neutral as documented and cannot synthesize confidence." },
-        { "id": "H-EXTERNAL-F2", "statement": "Empty, reordered, malformed, non-finite, non-canonical, mixed-scope, duplicate-time, out-of-order, or coverage-incoherent v2 panels fail as a whole before feature construction." }
+        { "id": "H-EXTERNAL-F2", "statement": "Empty, reordered, malformed, non-finite, non-canonical, mixed-scope, duplicate-time, out-of-order, or coverage-incoherent v2 panels fail as a whole before feature construction." },
+        { "id": "H-EXTERNAL-F3", "statement": "Partial, non-finite, non-binary, non-causal, future-available, freshness-incoherent, stale-nonzero, duplicate-header, unordered, or overflowed derivatives v2 evidence fails decoding before it can become a feature." }
       ],
       "evidence": [
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testAlignToBarsPointInTime" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalPanelSchemaV2" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testDerivativesPanelSchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPointInTimeUniverseSelectsHistoricalSnapshot" }
       ]
     },
@@ -625,7 +630,7 @@
         { "id": "A-RESEARCH-E3", "statement": "Perpetual returns attribute price, signed funding cashflow, turnover, and costs on exact close-to-close intervals; lifetime trial counts receive an explicit family-wise correction separate from current-campaign DSR/PBO." },
         { "id": "A-RESEARCH-E4", "statement": "Successful risk-controlled paths reconcile charged entry and terminal turnover with cost, while confidence promotion requires every registered circular block length rather than selecting the favorable dependence assumption." },
         { "id": "A-RESEARCH-E5", "statement": "Panel verification checks artifact hashes, recomputes observation and metric populations, independently validates columns, row count, timestamp order, symbol scope, finite values, coverage bounds and unavailable-value semantics, and exactly reconstructs panel bytes from the bound inputs." },
-        { "id": "A-RESEARCH-E6", "statement": "The derivatives v2 cache exposes finite dense values with observed/fresh masks and selected event/availability witnesses; stale or unavailable evidence has zero dense value and cannot produce false collector success." }
+        { "id": "A-RESEARCH-E6", "statement": "The derivatives v2 cache exposes finite dense values with observed/fresh masks and selected event/availability witnesses in stable canonical field order across overlap merges; stale or unavailable evidence has zero dense value and cannot produce false collector success." }
       ],
       "invariants": [
         { "id": "A-RESEARCH-I1", "statement": "A future row cannot change earlier standardized features or signals; transaction costs are applied only after a causal decision." },
