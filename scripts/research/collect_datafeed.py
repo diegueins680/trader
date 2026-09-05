@@ -3,10 +3,16 @@
 
 from __future__ import annotations
 
+import argparse
+from contextlib import contextmanager
+import csv
 from datetime import datetime, timezone
+import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import signal
 import subprocess
@@ -38,6 +44,14 @@ STATE_DIR_NAME = ".collector"
 FRESHNESS_GRACE_MS = 300_000
 DEFAULT_MAX_RUN_SECONDS = 3000
 MAX_RUN_SECONDS_LIMIT = 3500
+STATUS_SCHEMA_VERSION = 3
+ARTIFACT_SCHEMA_ID = "binance_derivatives_collection_artifacts_v3"
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+SOURCE_LICENSE_MANIFEST = (
+    "research-notes/market-prediction-2026-09-04/"
+    "data-source-license-manifest.json"
+)
 
 
 class CollectorStopped(BaseException):
@@ -111,6 +125,31 @@ def _repository_commit() -> str | None:
     return commit or None
 
 
+def _provenance_tracked_clean() -> bool:
+    repository_root = Path(__file__).resolve().parents[2]
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--quiet",
+                "HEAD",
+                "--",
+                "scripts/research/collect_datafeed.py",
+                "scripts/research/datafeed.py",
+                SOURCE_LICENSE_MANIFEST,
+            ],
+            cwd=repository_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def _write_json_atomic(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -130,6 +169,368 @@ def _write_json_atomic(path: Path, value: object) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _artifact_record(path: Path, rows: int) -> dict[str, object]:
+    resolved = path.resolve(strict=True)
+    return {
+        "path": str(resolved),
+        "sha256": _file_sha256(resolved),
+        "rows": rows,
+    }
+
+
+def _read_json_object(path: Path) -> tuple[dict[str, object], bytes]:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    payload = path.read_bytes()
+    value = json.loads(
+        payload.decode("utf-8"), object_pairs_hook=reject_duplicate_keys
+    )
+    if not isinstance(value, dict):
+        raise ValueError("collector status must contain a JSON object")
+    return value, payload
+
+
+@contextmanager
+def _artifact_read_lock(cache_dir: Path):
+    """Share an existing collector lock without mutating a relocated archive."""
+    lock_path = cache_dir / STATE_DIR_NAME / feed.COLLECTOR_LOCK_FILE
+    if not lock_path.is_file():
+        yield
+        return
+    with lock_path.open("rb") as lock_handle:
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError("collector writer is active for the artifact cache") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _read_csv_header(path: Path) -> list[str]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        try:
+            header = next(csv.reader(handle))
+        except StopIteration as error:
+            raise ValueError(f"artifact CSV is empty: {path}") from error
+    if not header or any(not column for column in header):
+        raise ValueError(f"artifact CSV header is malformed: {path}")
+    if len(header) != len(set(header)):
+        raise ValueError(f"artifact CSV header contains duplicates: {path}")
+    return header
+
+
+def _verify_artifact_record(
+    record: object,
+    recorded_path: Path,
+    actual_path: Path,
+) -> tuple[Path, int]:
+    if not isinstance(record, dict) or set(record) != {"path", "sha256", "rows"}:
+        raise ValueError("collector artifact record is malformed")
+    path_value = record.get("path")
+    sha256 = record.get("sha256")
+    rows = record.get("rows")
+    if not isinstance(path_value, str) or not Path(path_value).is_absolute():
+        raise ValueError("collector artifact path is not absolute")
+    if Path(path_value) != recorded_path:
+        raise ValueError("collector artifact path disagrees with its scope")
+    if not isinstance(sha256, str) or not SHA256_PATTERN.fullmatch(sha256):
+        raise ValueError("collector artifact sha256 is malformed")
+    if type(rows) is not int or rows < 0:
+        raise ValueError("collector artifact row count is malformed")
+    resolved = actual_path.resolve(strict=True)
+    if not resolved.is_file():
+        raise ValueError(f"collector artifact is not a file: {resolved}")
+    if _file_sha256(resolved) != sha256:
+        raise ValueError(f"collector artifact sha256 mismatch: {resolved}")
+    return resolved, rows
+
+
+def verify_collection_artifacts(
+    status_path: str | os.PathLike[str],
+    *,
+    cache_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, object]:
+    """Verify one green collector status and every artifact it binds."""
+    status_file = Path(status_path).expanduser().resolve(strict=True)
+    status, status_payload = _read_json_object(status_file)
+    if status.get("schemaVersion") != STATUS_SCHEMA_VERSION:
+        raise ValueError("unsupported collector status schemaVersion")
+    if status.get("state") != "pass":
+        raise ValueError("collector status is not a complete pass")
+    if status.get("failedSymbols") != []:
+        raise ValueError("collector status has failed symbols")
+    if status.get("provenanceIssues") != []:
+        raise ValueError("collector status has provenance issues")
+    if status.get("artifactSchema") != ARTIFACT_SCHEMA_ID:
+        raise ValueError("collector artifact schema is unsupported")
+    if (
+        status.get("derivativesObservationSchema")
+        != feed.DERIVATIVE_OBSERVATION_SCHEMA_ID
+        or status.get("featureAvailabilitySchema")
+        != feed.FEATURE_AVAILABILITY_SCHEMA_ID
+        or status.get("dataSourceLicenseManifest") != SOURCE_LICENSE_MANIFEST
+    ):
+        raise ValueError("collector provenance schema is unsupported")
+    commit = status.get("commit")
+    if not isinstance(commit, str) or not COMMIT_PATTERN.fullmatch(commit):
+        raise ValueError("collector code commit is missing or malformed")
+    if status.get("provenanceTrackedClean") is not True:
+        raise ValueError("collector provenance files did not match the code commit")
+    runtime = status.get("runtime")
+    if (
+        not isinstance(runtime, dict)
+        or set(runtime) != {"python", "numpy", "pandas"}
+        or any(not isinstance(value, str) or not value for value in runtime.values())
+    ):
+        raise ValueError("collector runtime provenance is malformed")
+    interval = status.get("interval")
+    if interval != INTERVAL or interval not in feed.INTERVAL_MS:
+        raise ValueError("collector status interval is unsupported")
+    symbols = status.get("symbols")
+    if (
+        not isinstance(symbols, list)
+        or not symbols
+        or any(
+            not isinstance(symbol, str) or not SYMBOL_PATTERN.fullmatch(symbol)
+            for symbol in symbols
+        )
+        or len(symbols) != len(set(symbols))
+    ):
+        raise ValueError("collector status symbols are malformed")
+    results = status.get("results")
+    if not isinstance(results, dict) or set(results) != set(symbols):
+        raise ValueError("collector status results disagree with its symbols")
+    recorded_cache_value = status.get("cache")
+    if not isinstance(recorded_cache_value, str):
+        raise ValueError("collector status cache path is malformed")
+    recorded_cache = Path(recorded_cache_value)
+    if not recorded_cache.is_absolute():
+        raise ValueError("collector status cache path is not absolute")
+    actual_cache = (
+        Path(cache_dir).expanduser().resolve(strict=True)
+        if cache_dir is not None
+        else recorded_cache
+    )
+    if not actual_cache.is_dir():
+        raise ValueError("collector artifact cache directory is unavailable")
+
+    verified: dict[str, dict[str, object]] = {}
+    with _artifact_read_lock(actual_cache):
+        for symbol in symbols:
+            verified[symbol] = _verify_collection_symbol(
+                symbol,
+                results[symbol],
+                interval,
+                recorded_cache,
+                actual_cache,
+            )
+    return {
+        "status": "verified",
+        "schemaVersion": STATUS_SCHEMA_VERSION,
+        "artifactSchema": ARTIFACT_SCHEMA_ID,
+        "statusSha256": hashlib.sha256(status_payload).hexdigest(),
+        "symbols": verified,
+    }
+
+
+def _verify_collection_symbol(
+    symbol: str,
+    result: object,
+    interval: str,
+    recorded_cache: Path,
+    actual_cache: Path,
+) -> dict[str, object]:
+    if not isinstance(result, dict):
+        raise ValueError(f"{symbol} collector result is malformed")
+    if result.get("status") != "ok" or result.get("issues") != []:
+        raise ValueError(f"{symbol} collector result is not admissible")
+    if result.get("artifactSchema") != ARTIFACT_SCHEMA_ID:
+        raise ValueError(f"{symbol} artifact schema is unsupported")
+    if (
+        result.get("derivativesObservationSchema")
+        != feed.DERIVATIVE_OBSERVATION_SCHEMA_ID
+        or result.get("featureAvailabilitySchema")
+        != feed.FEATURE_AVAILABILITY_SCHEMA_ID
+    ):
+        raise ValueError(f"{symbol} availability schema is unsupported")
+    columns = result.get("columns")
+    if (
+        not isinstance(columns, list)
+        or not columns
+        or any(not isinstance(column, str) for column in columns)
+        or len(columns) != len(set(columns))
+    ):
+        raise ValueError(f"{symbol} column manifest is malformed")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != {
+        "cache",
+        "observations",
+    }:
+        raise ValueError(f"{symbol} artifact set is incomplete")
+    observations = artifacts.get("observations")
+    if not isinstance(observations, dict) or set(observations) != set(
+        feed.DERIVATIVE_FIELDS
+    ):
+        raise ValueError(f"{symbol} observation artifact set is incomplete")
+
+    cache_name = f"{symbol}_{interval}.csv"
+    cache_path, cache_rows = _verify_artifact_record(
+        artifacts.get("cache"),
+        recorded_cache / cache_name,
+        actual_cache / cache_name,
+    )
+    if _read_csv_header(cache_path) != columns:
+        raise ValueError(f"{symbol} cache columns disagree with its manifest")
+    frame = pd.read_csv(cache_path)
+    if len(frame) != cache_rows or result.get("rows") != cache_rows:
+        raise ValueError(f"{symbol} cache row count disagrees with its manifest")
+    coverage = feed.validate_derivative_v2_panel(frame, interval)
+    if coverage != result.get("derivativesV2Coverage"):
+        raise ValueError(f"{symbol} v2 coverage disagrees with its manifest")
+    fields = feed.DERIVATIVE_FIELDS
+    if any(field not in columns for field in fields):
+        raise ValueError(f"{symbol} cache is missing legacy derivative columns")
+    finite = {
+        field: int(
+            np.isfinite(
+                pd.to_numeric(frame[field], errors="coerce").to_numpy(
+                    dtype=float
+                )
+            ).sum()
+        )
+        for field in fields
+    }
+    joint_finite = int(
+        np.isfinite(
+            frame.loc[:, fields]
+            .apply(pd.to_numeric, errors="coerce")
+            .to_numpy(dtype=float)
+        )
+        .all(axis=1)
+        .sum()
+    )
+    if finite != result.get("finite") or joint_finite != result.get(
+        "jointFinite"
+    ):
+        raise ValueError(f"{symbol} legacy coverage disagrees with its manifest")
+    timestamps = pd.to_numeric(frame["openTime"], errors="raise")
+    if (
+        timestamps.empty
+        or timestamps.duplicated().any()
+        or not timestamps.is_monotonic_increasing
+    ):
+        raise ValueError(f"{symbol} cache timestamps are not sorted and unique")
+    if (
+        result.get("latestOpenTime") != int(timestamps.iloc[-1])
+        or result.get("freshLatestOpenTime") != int(timestamps.iloc[-1])
+    ):
+        raise ValueError(f"{symbol} cache tail disagrees with its manifest")
+
+    refresh_series = result.get("refreshSeries")
+    if not isinstance(refresh_series, dict) or set(refresh_series) != set(fields):
+        raise ValueError(f"{symbol} refresh series is malformed")
+    observation_rows: dict[str, int] = {}
+    ledgers: dict[str, pd.DataFrame] = {}
+    for feature in fields:
+        observation_name = f"{symbol}_{interval}_{feature}_v2.csv"
+        observation_path, row_count = _verify_artifact_record(
+            observations.get(feature),
+            recorded_cache / feed.DERIVATIVE_OBSERVATION_DIR / observation_name,
+            actual_cache / feed.DERIVATIVE_OBSERVATION_DIR / observation_name,
+        )
+        if _read_csv_header(observation_path) != list(
+            feed.DERIVATIVE_OBSERVATION_COLUMNS
+        ):
+            raise ValueError(f"{symbol} {feature} ledger columns changed")
+        ledger = feed._validated_observation_frame(
+            pd.read_csv(observation_path), symbol, interval, feature
+        )
+        series = refresh_series.get(feature)
+        if (
+            len(ledger) != row_count
+            or not isinstance(series, dict)
+            or series.get("status") != "ok"
+            or series.get("v2Status") != "ok"
+            or series.get("v2Observations") != row_count
+        ):
+            raise ValueError(f"{symbol} {feature} ledger evidence changed")
+        observation_rows[feature] = row_count
+        ledgers[feature] = ledger
+
+    interval_ms = feed.INTERVAL_MS[interval]
+    closes = timestamps.to_numpy(dtype=np.int64) + interval_ms - 1
+    fresh_rows = result.get("freshRows")
+    if type(fresh_rows) is not int or not 1 <= fresh_rows <= cache_rows:
+        raise ValueError(f"{symbol} fresh row count is malformed")
+    for feature in fields:
+        max_age_ms = (
+            feed.FUNDING_FRESHNESS_MS
+            if feature == "funding"
+            else 2 * interval_ms
+        )
+        aligned = feed.align_derivative_observations_v2(
+            closes,
+            ledgers[feature],
+            max_age_ms=max_age_ms,
+        )
+        prefix = f"{feature}V2"
+        source_columns = (
+            ("value", "Value"),
+            ("observed", "Observed"),
+            ("fresh", "Fresh"),
+            ("eventTime", "EventTime"),
+            ("availabilityTime", "AvailabilityTime"),
+        )
+        versioned = frame[prefix + "Value"].notna().to_numpy()
+        if not versioned[-fresh_rows:].all():
+            raise ValueError(f"{symbol} {feature} fresh tail is unversioned")
+        for source, suffix in source_columns:
+            actual = pd.to_numeric(
+                frame[prefix + suffix], errors="raise"
+            ).to_numpy(dtype=float)
+            expected = aligned[source].to_numpy(dtype=float)
+            if not np.array_equal(
+                actual[versioned], expected[versioned], equal_nan=True
+            ):
+                raise ValueError(
+                    f"{symbol} {feature} {suffix} disagrees with its ledger"
+                )
+    _verify_artifact_record(
+        artifacts.get("cache"),
+        recorded_cache / cache_name,
+        actual_cache / cache_name,
+    )
+    for feature in fields:
+        observation_name = f"{symbol}_{interval}_{feature}_v2.csv"
+        _verify_artifact_record(
+            observations.get(feature),
+            recorded_cache / feed.DERIVATIVE_OBSERVATION_DIR / observation_name,
+            actual_cache / feed.DERIVATIVE_OBSERVATION_DIR / observation_name,
+        )
+    return {
+        "cacheSha256": artifacts["cache"]["sha256"],
+        "rows": cache_rows,
+        "observations": observation_rows,
+        "coverage": coverage,
+    }
+
+
 def _cache_result(
     symbol: str, refresh: dict[str, object] | None
 ) -> dict[str, object]:
@@ -138,7 +539,7 @@ def _cache_result(
         raise RuntimeError(f"{symbol} refresh did not update klines ({state})")
     fresh_rows = refresh.get("freshRows")
     fresh_latest = refresh.get("freshLatestOpenTime")
-    if not isinstance(fresh_rows, int) or fresh_rows <= 0 or not isinstance(fresh_latest, int):
+    if type(fresh_rows) is not int or fresh_rows <= 0 or type(fresh_latest) is not int:
         raise RuntimeError(f"{symbol} refresh evidence is malformed")
     now_ms = int(time.time() * 1000)
     interval_ms = feed.INTERVAL_MS[INTERVAL]
@@ -151,12 +552,15 @@ def _cache_result(
     frame = pd.read_csv(path)
     if frame.empty:
         raise ValueError(f"{symbol} cache is empty after refresh")
+    if _read_csv_header(path) != list(frame.columns):
+        raise ValueError(f"{symbol} cache header is ambiguous")
+    v2_coverage = feed.validate_derivative_v2_panel(frame, INTERVAL)
     timestamps = pd.to_numeric(frame["openTime"], errors="raise").astype(np.int64)
     if timestamps.duplicated().any() or not timestamps.is_monotonic_increasing:
         raise ValueError(f"{symbol} cache timestamps are not sorted and unique")
     if int(timestamps.iloc[-1]) != fresh_latest:
         raise ValueError(f"{symbol} cache tail does not match the fetched kline")
-    fields = ("funding", "oi", "basis", "taker")
+    fields = feed.DERIVATIVE_FIELDS
     finite = {
         field: int(
             np.isfinite(
@@ -168,7 +572,6 @@ def _cache_result(
     joint = np.isfinite(
         frame.loc[:, fields].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
     ).all(axis=1)
-    v2_coverage = feed.validate_derivative_v2_panel(frame, INTERVAL)
     series = refresh.get("series")
     if not isinstance(series, dict):
         raise RuntimeError(f"{symbol} refresh has no derivative-series evidence")
@@ -188,6 +591,20 @@ def _cache_result(
         if tail[[prefix + "Value", prefix + "Observed", prefix + "Fresh"]].isna().any().any():
             if field not in issues:
                 issues.append(field)
+    observation_artifacts: dict[str, dict[str, object] | None] = {}
+    for field in fields:
+        observation_path = Path(feed._observation_path(symbol, INTERVAL, field))
+        if not observation_path.is_file():
+            observation_artifacts[field] = None
+            if field not in issues:
+                issues.append(field)
+            continue
+        observations = feed._validated_observation_frame(
+            pd.read_csv(observation_path), symbol, INTERVAL, field
+        )
+        observation_artifacts[field] = _artifact_record(
+            observation_path, len(observations)
+        )
     return {
         "status": "ok" if not issues else "degraded",
         "rows": len(frame),
@@ -200,7 +617,14 @@ def _cache_result(
         "finite": finite,
         "jointFinite": int(joint.sum()),
         "derivativesObservationSchema": feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
+        "featureAvailabilitySchema": feed.FEATURE_AVAILABILITY_SCHEMA_ID,
         "derivativesV2Coverage": v2_coverage,
+        "artifactSchema": ARTIFACT_SCHEMA_ID,
+        "columns": list(frame.columns),
+        "artifacts": {
+            "cache": _artifact_record(path, len(frame)),
+            "observations": observation_artifacts,
+        },
     }
 
 
@@ -208,7 +632,11 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
     started_monotonic = time.monotonic()
     results: dict[str, dict[str, object]] = {}
     status: dict[str, object] = {
-        "schemaVersion": 2,
+        "schemaVersion": STATUS_SCHEMA_VERSION,
+        "artifactSchema": ARTIFACT_SCHEMA_ID,
+        "derivativesObservationSchema": feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
+        "featureAvailabilitySchema": feed.FEATURE_AVAILABILITY_SCHEMA_ID,
+        "dataSourceLicenseManifest": SOURCE_LICENSE_MANIFEST,
         "state": "starting",
         "cache": str(cache_dir),
         "interval": INTERVAL,
@@ -218,12 +646,26 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
     failures = 0
     try:
         started_at = _utc_now()
+        commit = _repository_commit()
+        provenance_tracked_clean = _provenance_tracked_clean()
+        provenance_issues = []
+        if not isinstance(commit, str) or not COMMIT_PATTERN.fullmatch(commit):
+            provenance_issues.append("code_commit_unavailable")
+        if not provenance_tracked_clean:
+            provenance_issues.append("provenance_files_differ_from_commit")
         status.update(
             {
                 "state": "running",
                 "startedAt": started_at,
                 "updatedAt": started_at,
-                "commit": _repository_commit(),
+                "commit": commit,
+                "provenanceTrackedClean": provenance_tracked_clean,
+                "runtime": {
+                    "python": platform.python_version(),
+                    "numpy": np.__version__,
+                    "pandas": pd.__version__,
+                },
+                "provenanceIssues": provenance_issues,
             }
         )
         _write_json_atomic(status_path, status)
@@ -252,9 +694,10 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
             _write_json_atomic(status_path, status)
 
         finished_at = _utc_now()
+        complete = failures == 0 and not provenance_issues
         status.update(
             {
-                "state": "pass" if failures == 0 else "partial_failure",
+                "state": "pass" if complete else "partial_failure",
                 "finishedAt": finished_at,
                 "updatedAt": finished_at,
                 "durationSeconds": round(time.monotonic() - started_monotonic, 3),
@@ -271,7 +714,7 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
             f"research data collector {status['state']}: "
             f"{len(symbols) - failures}/{len(symbols)} symbols refreshed"
         )
-        return 0 if failures == 0 else 1
+        return 0 if complete else 1
     except CollectorStopped as stopped:
         stopped_at = _utc_now()
         status.update(
@@ -353,5 +796,36 @@ def _write_terminal_status(path: Path, status: dict[str, object]) -> None:
             signal.signal(handled_signal, previous_handler)
 
 
+def _cli(argv: list[str]) -> int:
+    if not argv:
+        return main()
+    parser = argparse.ArgumentParser(
+        description="Collect or verify the public derivatives research cache"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    verify_parser = subparsers.add_parser(
+        "verify-artifacts",
+        help="verify a green collector status and its bound cache artifacts",
+    )
+    verify_parser.add_argument("--status", required=True)
+    verify_parser.add_argument(
+        "--cache-dir",
+        help="relocated cache root containing bytes that match the recorded hashes",
+    )
+    args = parser.parse_args(argv)
+    if args.command != "verify-artifacts":
+        parser.error("unsupported command")
+    try:
+        verification = verify_collection_artifacts(
+            args.status,
+            cache_dir=args.cache_dir,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"derivatives artifact verification failed: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps(verification, allow_nan=False, sort_keys=True))
+    return 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_cli(sys.argv[1:]))

@@ -85,6 +85,14 @@
       {"path": "data/research/SOLUSDT_1h.csv", "sha256": "380ca81e48d54c4da696a7eb66316e157aaf00b10e71d7926a27c237e8217576", "dataRows": 3563, "firstOpenTime": 1775718000000, "lastOpenTime": 1788541200000},
       {"path": "data/research/XRPUSDT_1h.csv", "sha256": "c806f13e2b2d9dc6aebe8ce8f2307143941d9ad7b6f0db2a03594d28a67e502a", "dataRows": 2742, "firstOpenTime": 1778673600000, "lastOpenTime": 1788541200000}
     ],
-    "deterministicExpectedOutputHashes": "Not declared because the public append-only cache is expected to grow. Each decisive campaign must freeze and hash its own immutable snapshot before returns are produced."
+    "deterministicExpectedOutputHashes": "Not declared because the public append-only cache is expected to grow. Each decisive campaign must freeze and hash its own immutable snapshot before returns are produced.",
+    "futureCollectionArtifactContract": {
+      "statusSchemaVersion": 3,
+      "artifactSchema": "binance_derivatives_collection_artifacts_v3",
+      "observationSchema": "binance_derivatives_first_seen_v2",
+      "featureAvailabilitySchema": "feature_availability_v2",
+      "verificationCommand": "python3 scripts/research/collect_datafeed.py verify-artifacts --status data/research/.collector/last-run.json",
+      "admissionPolicy": "Freeze the complete-pass status bytes or record the verifier-returned statusSha256 before fitting. Every bar cache and first-seen ledger must retain its recorded hash; versioned bar cells must reconstruct from the bound ledgers."
+    }
   }
 }

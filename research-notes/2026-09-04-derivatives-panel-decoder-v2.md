@@ -35,11 +35,13 @@ repeated collection cannot drift the versioned schema.
 The module is compiled and tested but has no import from `Features`,
 `ExogenousFetch`, a model loader, a predictor, a bot, or an execution module.
 It does not reinterpret an old cache row, alter a saved model identifier, open
-a registered holdout, fit a candidate, or authorize trading. A later candidate
-must separately bind the cache to a verified manifest and artifact, preserve
-these masks through a versioned feature builder, preregister prospective data,
-and pass the unchanged promotion gates. `FEATURE-MISSINGNESS-001` therefore
-remains open.
+a registered holdout, fit a candidate, or authorize trading. The later
+`binance_derivatives_collection_artifacts_v3` collector status and
+`verify-artifacts` command bind and reconstruct the source files before offline
+admission, but the Haskell decoder does not run that verifier itself. A later
+candidate must consume only a frozen verified receipt, preserve these masks
+through a versioned feature builder, preregister prospective data, and pass the
+unchanged promotion gates. `FEATURE-MISSINGNESS-001` therefore remains open.
 
 ## Verification
 

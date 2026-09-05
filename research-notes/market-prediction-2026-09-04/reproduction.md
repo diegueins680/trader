@@ -40,6 +40,17 @@ python3 scripts/research/alternative_data.py verify-panel \
 
 If artifacts were lawfully moved without changing their bytes, pass their new locations with `--cache`, `--bars`, and `--panel`. Do not edit hashes to make changed inputs appear compatible. The verifier checks panel semantics, recomputes the declared populations, and reconstructs exact panel bytes after digest validation, so rehashing a changed panel still fails closed.
 
+## Verify a derivatives collection artifact
+
+After a complete public collector run, verify its mutable status record and every bound bar/ledger artifact before using it as research input:
+
+```bash
+python3 scripts/research/collect_datafeed.py verify-artifacts \
+  --status data/research/.collector/last-run.json
+```
+
+The command requires collector status schema 3, a complete-pass run, a valid code commit with both collector files and the source-license manifest matching it, recorded Python/numpy/pandas versions, fixed schema identities, unchanged artifact hashes, canonical columns and scopes, recomputed coverage, and exact causal reconstruction of every versioned cell from the four first-seen ledgers. A byte-identical relocated cache may be supplied with `--cache-dir`. Freeze the status file or record the returned `statusSha256` before fitting because the scheduled collector replaces `last-run.json` on its next run. Schema-2 statuses predate artifact binding and intentionally fail this verifier.
+
 ## Reproduce existing negative results safely
 
 The immutable result notes contain the exact registrations, implementation/data hashes, evidence paths, and outcomes:

@@ -55,6 +55,7 @@ COLLECTOR_STATE_DIR = ".collector"
 COLLECTOR_LOCK_FILE = "collector.lock"
 DERIVATIVE_OBSERVATION_DIR = ".observations"
 DERIVATIVE_OBSERVATION_SCHEMA_ID = "binance_derivatives_first_seen_v2"
+FEATURE_AVAILABILITY_SCHEMA_ID = "feature_availability_v2"
 DERIVATIVE_FIELDS = ("funding", "oi", "basis", "taker")
 DERIVATIVE_OBSERVATION_COLUMNS = (
     "schemaId",
@@ -65,6 +66,17 @@ DERIVATIVE_OBSERVATION_COLUMNS = (
     "availabilityTime",
     "observed",
     "value",
+)
+DERIVATIVE_PANEL_COLUMNS_V2 = ("openTime",) + tuple(
+    f"{feature}V2{suffix}"
+    for feature in DERIVATIVE_FIELDS
+    for suffix in (
+        "Value",
+        "Observed",
+        "Fresh",
+        "EventTime",
+        "AvailabilityTime",
+    )
 )
 TIMESTAMP_MAX = int(np.iinfo(np.int64).max)
 
@@ -623,6 +635,14 @@ def validate_derivative_v2_panel(
         raise ValueError(f"unsupported derivatives panel interval: {interval}")
     if "openTime" not in frame:
         raise ValueError("derivatives panel has no openTime column")
+    columns = list(frame.columns)
+    if len(columns) != len(set(columns)):
+        raise ValueError("derivatives panel contains duplicate columns")
+    if any(column not in columns for column in DERIVATIVE_PANEL_COLUMNS_V2):
+        raise ValueError("derivatives v2 panel is missing canonical columns")
+    v2_offsets = [columns.index(column) for column in DERIVATIVE_PANEL_COLUMNS_V2]
+    if v2_offsets != sorted(v2_offsets):
+        raise ValueError("derivatives v2 panel columns are not in canonical order")
     open_times_numeric = pd.to_numeric(frame["openTime"], errors="raise").to_numpy(
         dtype=float
     )
