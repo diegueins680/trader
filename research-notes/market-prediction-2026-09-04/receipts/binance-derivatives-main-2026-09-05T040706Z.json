@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "binance_derivatives_main_2026-09-05T040706Z",
+  "receiptType": "metadata_only_collection_artifact_receipt",
+  "collection": {
+    "statusSchemaVersion": 3,
+    "artifactSchema": "binance_derivatives_collection_artifacts_v3",
+    "derivativesObservationSchema": "binance_derivatives_first_seen_v2",
+    "featureAvailabilitySchema": "feature_availability_v2",
+    "interval": "1h",
+    "startedAt": "2026-09-05T04:06:06.975606Z",
+    "finishedAt": "2026-09-05T04:07:06.009210Z",
+    "codeCommit": "b24f321bf6b45cc09053e41e315cebb8da5a66cf",
+    "state": "pass",
+    "failedSymbols": [],
+    "provenanceIssues": [],
+    "provenanceTrackedClean": true
+  },
+  "source": {
+    "provider": "Binance USD-M Futures",
+    "access": "public_read_only",
+    "licenseManifest": "research-notes/market-prediction-2026-09-04/data-source-license-manifest.json",
+    "retrievalCommand": "python3 scripts/research/collect_datafeed.py",
+    "verificationCommand": "python3 scripts/research/collect_datafeed.py verify-artifacts --status <archive>/.collector/last-run.json --cache-dir <archive>",
+    "archivePolicy": "Artifacts remain outside Git; this manifest stores logical paths, row counts, and SHA-256 only."
+  },
+  "universe": {
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "LTCUSDT"
+    ],
+    "stableOrder": "exact_fixed_collector_order"
+  },
+  "status": {
+    "logicalPath": ".collector/last-run.json",
+    "sha256": "83e22c3dd453ab5ee4730b5c05734c318e31a8d0cf48fd198f253c35ffe2b278"
+  },
+  "artifacts": {
+    "ADAUSDT": {
+      "cache": {
+        "logicalPath": "ADAUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "ced333a0f7f54c5fd5111c62c145344983680d04d9c42bf99a934f7fb83c93a8"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "ADAUSDT_1h_basis_v2.csv",
+          "rows": 721,
+          "sha256": "9095542930ab6738afe8af0002526104f8f6c2179a91e40ff4f49790bdaa9b37"
+        },
+        "funding": {
+          "logicalPath": "ADAUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "0c1ae896cf4651df4898986c9b37761f7df97c558c57254a920a594036ddfb94"
+        },
+        "oi": {
+          "logicalPath": "ADAUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "563f995b3831d130571643f395a0d978d2021047b737624e910d0b43c477224a"
+        },
+        "taker": {
+          "logicalPath": "ADAUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "edfbc3c95b9b0225efa3a4d6228197625c129e7d1d97008be98e0678f76e57ad"
+        }
+      }
+    },
+    "AVAXUSDT": {
+      "cache": {
+        "logicalPath": "AVAXUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "157a6d9e0bef88380b74b7fdec8f2c9a6fc644d7110264e3e788c87084b12469"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "AVAXUSDT_1h_basis_v2.csv",
+          "rows": 722,
+          "sha256": "2667182b966071beba903df51ddda668fc76adc8167726a245db896a9a52f7f8"
+        },
+        "funding": {
+          "logicalPath": "AVAXUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "7044defc964b8548917991938a944d49a9d894498c2f8464839f0bc5ba32470e"
+        },
+        "oi": {
+          "logicalPath": "AVAXUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "05cc45c44a428920ece28563d2b44119ff182e83d44cb8a32106d14043afc92d"
+        },
+        "taker": {
+          "logicalPath": "AVAXUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "59fe885d16797c7d287cec46a1617141526801abcb5917046e1a033b08e555c4"
+        }
+      }
+    },
+    "BNBUSDT": {
+      "cache": {
+        "logicalPath": "BNBUSDT_1h.csv",
+        "rows": 3573,
+        "sha256": "a7f45ed93e8a2306ab558608f2ee4764a586eac408d803f6877415c4bb092d42"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "BNBUSDT_1h_basis_v2.csv",
+          "rows": 722,
+          "sha256": "569f71a83157a1efdadf5336ec9d5b3cb5424a464b3c5eea2c870a25c9e99089"
+        },
+        "funding": {
+          "logicalPath": "BNBUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "2be415ba26004cd6612f0d20d8656dd02b807c14caf4aafe46b5a391e9693da6"
+        },
+        "oi": {
+          "logicalPath": "BNBUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "1208c3ecd65b5ce9e0998f853988aae359848366ca8c937a7ff65bb564b89e7d"
+        },
+        "taker": {
+          "logicalPath": "BNBUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "75a064fda6a77e742f1318e9d28c312ab8fe26c3ca16e3db5e7af81c9c254cfa"
+        }
+      }
+    },
+    "BTCUSDT": {
+      "cache": {
+        "logicalPath": "BTCUSDT_1h.csv",
+        "rows": 3573,
+        "sha256": "3432a8e25ba55d10c92f69b1687839e8dca6175604dd94a7d629d2445eb525f8"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "BTCUSDT_1h_basis_v2.csv",
+          "rows": 722,
+          "sha256": "edcb710a033ad5605ce50f21eef1687844fae55448f94b478b6fb3e39fca7627"
+        },
+        "funding": {
+          "logicalPath": "BTCUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "923ea23522a8ea09bb59f040b7ba1290c0c05ad9a3a1446b4494aa432acdc821"
+        },
+        "oi": {
+          "logicalPath": "BTCUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "72daff2129d52940dd247b82acc479a7a43dfb8d0f928205269ed4486499a028"
+        },
+        "taker": {
+          "logicalPath": "BTCUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "11396da43ef8283bb5c70e10308217e5b22ea7dc98e2089d3c5abe7ddb50def5"
+        }
+      }
+    },
+    "DOGEUSDT": {
+      "cache": {
+        "logicalPath": "DOGEUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "bc273418c87b6d2953d2158324ed11cc15d11fdd5b21674bbe6faf2712748f0d"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "DOGEUSDT_1h_basis_v2.csv",
+          "rows": 722,
+          "sha256": "d5badcb041b4d4d5c93118a85c437304f0addf43739a9d1115198082b1c63e25"
+        },
+        "funding": {
+          "logicalPath": "DOGEUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "92e4632d38bc6f9459b6e5353429c6930dddd4a79acf15f2e766997e57779286"
+        },
+        "oi": {
+          "logicalPath": "DOGEUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "12ca5b5ca583e7d3dc2950f4efbb940b774c1a0954c13fd624a79937004692f5"
+        },
+        "taker": {
+          "logicalPath": "DOGEUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "8c4ecf3e43672c8cf9b97e698acad58074fcfde43f5a5aa0db0005c04d1bab87"
+        }
+      }
+    },
+    "ETHUSDT": {
+      "cache": {
+        "logicalPath": "ETHUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "828639aad3e51c921a4e8d54a14ade1985a6462edb2fd8cce8cf6f7121ea22ea"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "ETHUSDT_1h_basis_v2.csv",
+          "rows": 721,
+          "sha256": "772140551fc3ce3344174e108c7a851f3889649d5d5a17a563d3cd37b988ba2e"
+        },
+        "funding": {
+          "logicalPath": "ETHUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "f97c85b45e5045a2abca46345480cce9153457ef9b2a2c92c78da72f74ee0a7c"
+        },
+        "oi": {
+          "logicalPath": "ETHUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "9c3536b3ccc22403e630c01c8d060670810bd1db58ade4dda62b00684631e193"
+        },
+        "taker": {
+          "logicalPath": "ETHUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "ac0bd78395971dab5a937550a8eb62d00df313fd44e57cb268af92304cc1e9b8"
+        }
+      }
+    },
+    "LINKUSDT": {
+      "cache": {
+        "logicalPath": "LINKUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "568cf4950f39c74e9c47dbaff3d4691df1699af60a9ac7092dac856ded3c9d07"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "LINKUSDT_1h_basis_v2.csv",
+          "rows": 721,
+          "sha256": "7198cc1ba4fab4bef2f5c630aa686c088c50753c1ca0dcab00fa930518b06665"
+        },
+        "funding": {
+          "logicalPath": "LINKUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "c7425ceef61cefc977e70886a9a2bac6d186c0db178ae19c080ec2d328560351"
+        },
+        "oi": {
+          "logicalPath": "LINKUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "34d548d251ebbe3f6e397c798c5cc649dfe3282fb3d4eeafa1c538fdb2ffa921"
+        },
+        "taker": {
+          "logicalPath": "LINKUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "2da599f9ac792ca9905c420a2c47dcc73cc99307a2afa654f9915f5c096a0a48"
+        }
+      }
+    },
+    "LTCUSDT": {
+      "cache": {
+        "logicalPath": "LTCUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "06b47440867a6bbfca72f98fc5e0b6ee56fe0feac738142e3a01582d9a359e30"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "LTCUSDT_1h_basis_v2.csv",
+          "rows": 722,
+          "sha256": "10c137a368a45d62caae7333ff1078a84cace3da705fae8a760967bc397d57ed"
+        },
+        "funding": {
+          "logicalPath": "LTCUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "a060d0cce7b1f4879ecc68904f29453582c063d9aaabcef2de0034d6517ca697"
+        },
+        "oi": {
+          "logicalPath": "LTCUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "7ea72218b61c6d9780c765a9bfa68e8c21d0bd5fc92eecfb120d2c8f4f8447da"
+        },
+        "taker": {
+          "logicalPath": "LTCUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "e83da03f1ca8c60559bac54dc98b6bfdbe3c69d9887eb06237f7a895282b19be"
+        }
+      }
+    },
+    "SOLUSDT": {
+      "cache": {
+        "logicalPath": "SOLUSDT_1h.csv",
+        "rows": 3573,
+        "sha256": "9512c27658f87c529e5f927248c06daeae0c0c8c80110fd711ca6070871c8df6"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "SOLUSDT_1h_basis_v2.csv",
+          "rows": 721,
+          "sha256": "ce5aaa68096622b64c3d581142fb8be70876fd12294b12f5f569c0e50c51c51e"
+        },
+        "funding": {
+          "logicalPath": "SOLUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "87cc71e10996539fbadb13b15feb90de03ab9aaa6b5eb87a404b173921d5ec66"
+        },
+        "oi": {
+          "logicalPath": "SOLUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "5c3d56eaf1866603fa57908b4b466746fb6c3807204e630a98956ca13408192b"
+        },
+        "taker": {
+          "logicalPath": "SOLUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "5c388f0f42e4be5a9d3fc9dab7872e64fcf151fc21c60ecf344a15b117159d5a"
+        }
+      }
+    },
+    "XRPUSDT": {
+      "cache": {
+        "logicalPath": "XRPUSDT_1h.csv",
+        "rows": 2752,
+        "sha256": "a535d74773bd5e5995f90a8c932bc2abae8bf8acce9e731a21c6507761ba6970"
+      },
+      "observations": {
+        "basis": {
+          "logicalPath": "XRPUSDT_1h_basis_v2.csv",
+          "rows": 720,
+          "sha256": "88f89db59005fe740113d62639893f70fcee1ee281124f83e7fa1182c7127d48"
+        },
+        "funding": {
+          "logicalPath": "XRPUSDT_1h_funding_v2.csv",
+          "rows": 500,
+          "sha256": "53911a76576e96060990c34815dc0a2c3986edea9d37edbbd1f32e25fad7ad33"
+        },
+        "oi": {
+          "logicalPath": "XRPUSDT_1h_oi_v2.csv",
+          "rows": 722,
+          "sha256": "21b732d19880a16725851cb66b5723beaab7e7565b890fd3fabad123c05a60d2"
+        },
+        "taker": {
+          "logicalPath": "XRPUSDT_1h_taker_v2.csv",
+          "rows": 731,
+          "sha256": "45a5e6e0bc1e72013f4bbbb757a77c909aa047d7a20a805be2c2fc9bd89babad"
+        }
+      }
+    }
+  },
+  "outcomeBoundary": {
+    "admission": "acquisition_metadata_only",
+    "returnsComputed": false,
+    "ranksComputed": false,
+    "weightsComputed": false,
+    "pnlComputed": false,
+    "riskMetricsComputed": false,
+    "forecastMetricsComputed": false,
+    "economicMetricsComputed": false,
+    "holdoutsOpened": 0,
+    "ordersPlaced": 0,
+    "modelInputsChanged": false,
+    "liveAuthorizationChanged": false
+  },
+  "verification": {
+    "result": "verified_in_place_and_relocated",
+    "archiveFileCount": 51,
+    "archiveApproximateMiB": 5.8
+  }
+}
