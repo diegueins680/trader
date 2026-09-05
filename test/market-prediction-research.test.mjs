@@ -8,6 +8,11 @@ const registrationUrls = [
   new URL("../research-notes/registrations/missingness-aware-calibrated-shallow-v1.json", import.meta.url),
 ];
 
+const derivativesReceiptUrl = new URL(
+  "../research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json",
+  import.meta.url,
+);
+
 const requiredRegistrationKeys = [
   "ablations",
   "academicOrigin",
@@ -166,6 +171,76 @@ test("market-prediction audit preserves sealed evidence boundaries", async () =>
   for (const registration of registrations) {
     assert.ok(Date.parse(registration.dataset.startInclusiveUtc) > Date.parse(existingCarry.prospectiveData.minimumEvaluationTimeUtc));
   }
+});
+
+test("derivatives collection receipt binds metadata without opening outcomes", async () => {
+  const receipt = await readJson(derivativesReceiptUrl);
+  const symbols = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+  ];
+  const sha256Pattern = /^[0-9a-f]{64}$/;
+
+  assert.equal(receipt.schemaVersion, 1);
+  assert.equal(receipt.receiptType, "metadata_only_collection_artifact_receipt");
+  assert.equal(receipt.collection.statusSchemaVersion, 3);
+  assert.equal(receipt.collection.artifactSchema, "binance_derivatives_collection_artifacts_v3");
+  assert.equal(receipt.collection.derivativesObservationSchema, "binance_derivatives_first_seen_v2");
+  assert.equal(receipt.collection.featureAvailabilitySchema, "feature_availability_v2");
+  assert.equal(receipt.collection.interval, "1h");
+  assert.equal(receipt.collection.state, "pass");
+  assert.deepEqual(receipt.collection.failedSymbols, []);
+  assert.deepEqual(receipt.collection.provenanceIssues, []);
+  assert.equal(receipt.collection.provenanceTrackedClean, true);
+  assert.match(receipt.collection.codeCommit, /^[0-9a-f]{40}$/);
+  assert.ok(Date.parse(receipt.collection.startedAt) < Date.parse(receipt.collection.finishedAt));
+  assert.equal(receipt.source.access, "public_read_only");
+  assert.equal(receipt.source.licenseManifest, "research-notes/market-prediction-2026-09-04/data-source-license-manifest.json");
+  assert.match(receipt.status.sha256, sha256Pattern);
+  assert.deepEqual(receipt.universe.symbols, symbols);
+  assert.deepEqual(Object.keys(receipt.artifacts).sort(), [...symbols].sort());
+
+  const logicalPaths = new Set();
+  let artifactCount = 0;
+  for (const symbol of symbols) {
+    const artifact = receipt.artifacts[symbol];
+    assert.deepEqual(Object.keys(artifact.observations).sort(), ["basis", "funding", "oi", "taker"]);
+    assert.equal(artifact.cache.logicalPath, `${symbol}_1h.csv`);
+    for (const item of [artifact.cache, ...Object.values(artifact.observations)]) {
+      assert.ok(Number.isSafeInteger(item.rows) && item.rows > 0);
+      assert.match(item.sha256, sha256Pattern);
+      assert.equal(item.logicalPath.startsWith("/"), false);
+      assert.equal(item.logicalPath.includes(".."), false);
+      assert.equal(logicalPaths.has(item.logicalPath), false);
+      logicalPaths.add(item.logicalPath);
+      artifactCount += 1;
+    }
+  }
+  assert.equal(artifactCount, 50);
+  assert.equal(receipt.verification.archiveFileCount, artifactCount + 1);
+  assert.equal(receipt.verification.result, "verified_in_place_and_relocated");
+  assert.deepEqual(receipt.outcomeBoundary, {
+    admission: "acquisition_metadata_only",
+    returnsComputed: false,
+    ranksComputed: false,
+    weightsComputed: false,
+    pnlComputed: false,
+    riskMetricsComputed: false,
+    forecastMetricsComputed: false,
+    economicMetricsComputed: false,
+    holdoutsOpened: 0,
+    ordersPlaced: 0,
+    modelInputsChanged: false,
+    liveAuthorizationChanged: false,
+  });
 });
 
 test("experiment registry accounts for every trial and matches new budgets", async () => {

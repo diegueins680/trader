@@ -67,12 +67,21 @@ development result, or holdout result was calculated. No feature builder,
 predictor, champion, combo, bot, order path, deployment setting, or live
 authorization changed.
 
-## Remaining boundary
+## Final-main receipt
 
-After the correction is merged, the collector must produce a new complete-pass
-schema-3 status from the final main commit; the branch receipt proves the
-implementation but is not substituted for that final-main receipt. Every
-future receipt must pass `verify-artifacts` before its bytes or returned status
-digest can be frozen as acquisition evidence. Provider errors, an empty
+After merge, commit `b24f321bf6b45cc09053e41e315cebb8da5a66cf`
+produced a second complete-pass 10-symbol status from
+`2026-09-05T04:06:06.975606Z` through `2026-09-05T04:07:06.009210Z`.
+Verification passed in place and against a frozen relocated 51-file archive;
+the exact status SHA-256 is
+`83e22c3dd453ab5ee4730b5c05734c318e31a8d0cf48fd198f253c35ffe2b278`.
+The committed metadata-only receipt at
+`market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json`
+binds that status plus all 50 artifact hashes and row counts. Market-data bytes
+remain outside Git.
+
+Every future receipt must pass `verify-artifacts` before its bytes or returned
+status digest can be frozen as acquisition evidence. Provider errors, an empty
 source, an out-of-bound finite observation, malformed lag/count evidence,
-missing v2 provenance, or any artifact mismatch still fail closed.
+missing v2 provenance, or any artifact mismatch still fail closed. This first
+receipt does not authorize any outcome calculation or early prospective read.
