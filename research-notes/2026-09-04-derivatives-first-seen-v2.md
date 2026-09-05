@@ -33,9 +33,12 @@ retains its timestamp witnesses but has `V2Fresh=0` and dense `V2Value=0`.
 Pre-coverage rows have both masks at zero and no fabricated timestamps, so an
 observed zero remains distinguishable from unavailable evidence.
 
-The scheduled collector status schema advances to version 2. A fresh run is
-degraded unless every derivatives ledger and freshly written v2 tail passes
-schema, mask, finiteness, timestamp-causality, and stale-neutrality checks.
+This change advanced the scheduled collector status schema to version 2. A
+later additive artifact-provenance change advances it to version 3; schema 2
+remains historical operational evidence but is not a cryptographically bound
+artifact manifest. A fresh run is degraded unless every derivatives ledger and
+freshly written v2 tail passes schema, mask, finiteness, timestamp-causality,
+and stale-neutrality checks.
 
 ## Compatibility and migration boundary
 

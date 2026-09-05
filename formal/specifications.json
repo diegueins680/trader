@@ -611,7 +611,7 @@
     {
       "id": "A-RESEARCH",
       "title": "Research acquisition, point-in-time cache, walk-forward harness, and statistical analysis",
-      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "derivatives first-seen availability ledger", "versioned alternative-data panel provenance", "bounded historical snapshot", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "residual-reversal turnover campaign", "risk-controlled rank-hysteresis campaign", "funding settlement accounting", "cost model", "circular block bootstrap", "deflated Sharpe", "CSCV PBO", "lifetime multiple-testing correction", "strict one-shot final holdout registry", "regime experiment", "cross-sectional example"],
+      "features": ["research data feed", "scheduled data collector", "single-writer append-only cache", "derivatives first-seen availability ledger", "derivatives collection artifact manifest", "versioned alternative-data panel provenance", "bounded historical snapshot", "walk-forward harness", "nested rolling-origin validation", "edge campaign", "derivatives-feature ablations", "residual-reversal turnover campaign", "risk-controlled rank-hysteresis campaign", "funding settlement accounting", "cost model", "circular block bootstrap", "deflated Sharpe", "CSCV PBO", "lifetime multiple-testing correction", "strict one-shot final holdout registry", "regime experiment", "cross-sectional example"],
       "criticality": "correctness",
       "implementation": ["scripts/research/**", "scripts/fetch-data-pipeline.sh", "scripts/install-research-datafeed-launchagent.sh"],
       "uses": ["G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-IDEMPOTENT"],
@@ -622,7 +622,8 @@
         { "id": "A-RESEARCH-R3", "statement": "Historical funding campaigns bound every public acquisition window, preserve every endpoint-returned settlement event, causally resolve omitted marks, and hash raw plus aligned inputs before producing returns." },
         { "id": "A-RESEARCH-R4", "statement": "Risk-controlled campaigns lock exposure, equity, drawdown, turnover, deterministic shock, margin-reserve, liquidation-cost, and dependence-sensitivity rules before any campaign execution." },
         { "id": "A-RESEARCH-R5", "statement": "A materialized alternative-data panel declares a supported ordered schema and coverage contract and binds the exact source cache, bar grid, and panel bytes with SHA-256 before fitting." },
-        { "id": "A-RESEARCH-R6", "statement": "A Binance derivatives observation without provider publication metadata is available only from collector first-seen time; unchanged refetches preserve that boundary, revisions receive a later boundary, and legacy aligned cache cells never acquire inferred v2 provenance." }
+        { "id": "A-RESEARCH-R6", "statement": "A Binance derivatives observation without provider publication metadata is available only from collector first-seen time; unchanged refetches preserve that boundary, revisions receive a later boundary, and legacy aligned cache cells never acquire inferred v2 provenance." },
+        { "id": "A-RESEARCH-R7", "statement": "Derivatives artifact admission requires a complete-pass schema-3 collector status with a valid code commit, a witness that both collector files and the source-license manifest match that commit, recorded runtime versions, fixed schema identities, and exact path, row-count, and SHA-256 records for every scoped bar cache and first-seen ledger." }
       ],
       "ensures": [
         { "id": "A-RESEARCH-E1", "statement": "Walk-forward results use disjoint chronological evaluation folds; cache mutation and cross-symbol snapshots use one shared lock plus atomic replacement; acquisition is wall-clock bounded; stale or degraded evidence cannot report pass or extend new point-in-time alignment past its freshness bound; seed/config/data revision are recorded." },
@@ -630,7 +631,8 @@
         { "id": "A-RESEARCH-E3", "statement": "Perpetual returns attribute price, signed funding cashflow, turnover, and costs on exact close-to-close intervals; lifetime trial counts receive an explicit family-wise correction separate from current-campaign DSR/PBO." },
         { "id": "A-RESEARCH-E4", "statement": "Successful risk-controlled paths reconcile charged entry and terminal turnover with cost, while confidence promotion requires every registered circular block length rather than selecting the favorable dependence assumption." },
         { "id": "A-RESEARCH-E5", "statement": "Panel verification checks artifact hashes, recomputes observation and metric populations, independently validates columns, row count, timestamp order, symbol scope, finite values, coverage bounds and unavailable-value semantics, and exactly reconstructs panel bytes from the bound inputs." },
-        { "id": "A-RESEARCH-E6", "statement": "The derivatives v2 cache exposes finite dense values with observed/fresh masks and selected event/availability witnesses in stable canonical field order across overlap merges; stale or unavailable evidence has zero dense value and cannot produce false collector success." }
+        { "id": "A-RESEARCH-E6", "statement": "The derivatives v2 cache exposes finite dense values with observed/fresh masks and selected event/availability witnesses in stable canonical field order across overlap merges; stale or unavailable evidence has zero dense value and cannot produce false collector success." },
+        { "id": "A-RESEARCH-E7", "statement": "Derivatives artifact verification recomputes columns, scope, rows, time order, coverage, fresh-tail versioning, and every present v2 value/mask/timestamp from the causally aligned bound ledgers after validating all file hashes." }
       ],
       "invariants": [
         { "id": "A-RESEARCH-I1", "statement": "A future row cannot change earlier standardized features or signals; transaction costs are applied only after a causal decision." },
@@ -638,7 +640,8 @@
         { "id": "A-RESEARCH-I3", "statement": "Each funding event is charged exactly once in (left close, right close], and a missing historical event mark can use only the containing hourly mark open rather than a future close." },
         { "id": "A-RESEARCH-I4", "statement": "A risk breach cannot be clipped, restarted, substituted, or continued as synthetic cash; strict holdout markers bind campaign, panel digest, canonical overlap window, registration, manifest, filename identity, and resolved output directory under the shared registry lock." },
         { "id": "A-RESEARCH-I5", "statement": "Zero family coverage cannot coexist with a non-zero materialized feature, and changing a hash cannot authorize an unsupported or semantically invalid panel." },
-        { "id": "A-RESEARCH-I6", "statement": "Changing a later derivatives observation or revision cannot alter a bar that closed before its recorded availability time; a revision to an older event cannot displace a newer event." }
+        { "id": "A-RESEARCH-I6", "statement": "Changing a later derivatives observation or revision cannot alter a bar that closed before its recorded availability time; a revision to an older event cannot displace a newer event." },
+        { "id": "A-RESEARCH-I7", "statement": "Rehashing a changed derivatives bar cache cannot authorize cells inconsistent with the bound ledgers; verification shares the existing cache lock and relocated artifacts remain admissible only when their bytes match the original status digests." }
       ],
       "failures": [
         { "id": "A-RESEARCH-F1", "statement": "Missing publication metadata, incomplete overlap, or failed acquisition preserves prior cache and marks the experiment incomplete." },
@@ -646,7 +649,8 @@
         { "id": "A-RESEARCH-F3", "statement": "Historical page, grid, settlement, mark-resolution, schedule-gap, registration, or artifact-integrity failures produce no campaign result and consume no blocked final holdout." },
         { "id": "A-RESEARCH-F4", "statement": "Primary execution-risk breaches terminate with typed immutable evidence before registry reservation; a post-reservation holdout failure completes the one-shot registry without partial or synthetic returns." },
         { "id": "A-RESEARCH-F5", "statement": "A missing, changed, malformed, non-finite, out-of-scope, or schema-incompatible alternative-data artifact fails verification and cannot become registered model input." },
-        { "id": "A-RESEARCH-F6", "statement": "A malformed, non-finite, mixed-scope, timestamp-incoherent, ambiguous, or backdated derivatives ledger is preserved rather than overwritten and yields degraded collection evidence." }
+        { "id": "A-RESEARCH-F6", "statement": "A malformed, non-finite, mixed-scope, timestamp-incoherent, ambiguous, or backdated derivatives ledger is preserved rather than overwritten and yields degraded collection evidence." },
+        { "id": "A-RESEARCH-F7", "statement": "A schema-2, non-pass, duplicate-key, incomplete, malformed, unhashed, changed, path-incoherent, or ledger-inconsistent derivatives status/artifact fails verification and cannot become registered input." }
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/scripts/test_review_bot_day.py", "contains": "unittest" },
