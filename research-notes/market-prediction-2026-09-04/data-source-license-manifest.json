@@ -11,7 +11,8 @@
       "terms": "https://www.binance.com/en/terms",
       "licenseAssessment": "Use and redistribution remain subject to Binance terms; no claim of an open-data license is made.",
       "knownCoverage": "OHLCV and funding can be paged historically; the repository acquisition spec records approximately 30-day limits for several futures-data statistics endpoints.",
-      "researchUse": "Existing campaign evidence and prospective acquisition. This audit performed metadata/hash inspection only."
+      "availabilityPolicy": "Provider timestamps are retained as event times. Where a derivatives history response supplies no independent publication or revision timestamp, prospective collection records fetch completion as first-seen availability under binance_derivatives_first_seen_v2; legacy aligned cells are not relabeled.",
+      "researchUse": "Existing historical campaign evidence and prospective acquisition. The availability-schema change downloaded no data and did not inspect outcomes."
     },
     {
       "id": "coinbase-public-market-data",

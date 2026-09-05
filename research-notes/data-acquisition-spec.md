@@ -43,7 +43,8 @@
 
 ## Storage & point-in-time discipline
 
-- **Schema:** one CSV per `(symbol, interval)` in `data/research/` — `openTime, open, high, low, close, volume, funding, oi, basis, taker, …`. Exogenous columns are stored **already point-in-time aligned** to bar close (`datafeed.align_pit`). Drop-in archival data must follow the same schema/alignment.
+- **Legacy schema:** one CSV per `(symbol, interval)` in `data/research/` — `openTime, open, high, low, close, volume, funding, oi, basis, taker, …`. Those columns retain their historical event-time alignment for compatibility. Drop-in archival data must follow the documented schema/alignment and cannot claim v2 availability without release evidence.
+- **Derivatives v2 schema:** the public collector stores raw `binance_derivatives_first_seen_v2` ledgers under `data/research/.observations/` because Binance history responses do not provide a separate publication/revision time. Each row records event time, fetch-completion availability time, an observed flag, and a finite dense value; a known missing grid observation is a zero-valued unavailable tombstone. Additive per-family bar columns retain dense value, observed mask, fresh mask, selected event time, and selected availability time. Existing legacy rows are not relabeled; they remain ineligible wherever `feature_availability_v2` is required.
 - **Point-in-time is non-negotiable.** Every exogenous value must be lagged to when it was actually available (funding settles on a schedule; on-chain/macro publish with delay). Leakage here fabricates fake in-sample edge — which is exactly the trap this whole effort kept falling into.
 - **Survivorship:** include delisted/changed perps when buying archival, or cross-sectional tests are biased.
 

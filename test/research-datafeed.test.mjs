@@ -141,6 +141,131 @@ missing_tail = datafeed._series_refresh_result(
 )
 assert missing_tail["status"] == "missing_tail"
 
+original = datafeed._observation_frame(
+    "BTCUSDT", "1h", "funding", 900, [(500, 0.0)]
+)
+refetch = datafeed._observation_frame(
+    "BTCUSDT", "1h", "funding", 1900, [(500, 0.0)]
+)
+revision = datafeed._observation_frame(
+    "BTCUSDT", "1h", "funding", 2500, [(500, 9.0)]
+)
+newer = datafeed._observation_frame(
+    "BTCUSDT", "1h", "funding", 1500, [(1500, 4.0)]
+)
+future = datafeed._observation_frame(
+    "BTCUSDT", "1h", "funding", 3500, [(3500, 5.0)]
+)
+ledger = datafeed.merge_derivative_observations(
+    original, refetch, "BTCUSDT", "1h", "funding"
+)
+assert len(ledger) == 1
+assert ledger.iloc[0]["availabilityTime"] == 900
+revision_history = datafeed.merge_derivative_observations(
+    ledger, revision, "BTCUSDT", "1h", "funding"
+)
+reversion = datafeed._observation_frame(
+    "BTCUSDT", "1h", "funding", 3000, [(500, 0.0)]
+)
+revision_history = datafeed.merge_derivative_observations(
+    revision_history, reversion, "BTCUSDT", "1h", "funding"
+)
+assert revision_history["value"].tolist() == [0.0, 9.0, 0.0]
+for release in (revision, newer, future):
+    ledger = datafeed.merge_derivative_observations(
+        ledger, release, "BTCUSDT", "1h", "funding"
+    )
+
+aligned_v2 = datafeed.align_derivative_observations_v2(
+    np.array([1000, 2000, 3000, 4000]), ledger, max_age_ms=1000
+)
+assert aligned_v2["value"].tolist() == [0.0, 4.0, 0.0, 5.0]
+assert aligned_v2["observed"].tolist() == [1, 1, 1, 1]
+assert aligned_v2["fresh"].tolist() == [1, 1, 0, 1]
+assert aligned_v2["eventTime"].tolist() == [500.0, 1500.0, 1500.0, 3500.0]
+assert aligned_v2["availabilityTime"].tolist() == [900.0, 1500.0, 1500.0, 3500.0]
+
+changed_future = future.copy()
+changed_future["value"] = -999.0
+changed_ledger = ledger[ledger["eventTime"] != 3500]
+changed_ledger = datafeed.merge_derivative_observations(
+    changed_ledger, changed_future, "BTCUSDT", "1h", "funding"
+)
+changed_alignment = datafeed.align_derivative_observations_v2(
+    np.array([1000, 2000, 3000, 4000]), changed_ledger, max_age_ms=1000
+)
+assert changed_alignment.iloc[:3].equals(aligned_v2.iloc[:3])
+assert changed_alignment.iloc[3]["value"] == -999.0
+
+available_oi = datafeed._observation_frame(
+    "BTCUSDT", "1h", "oi", 1500, [(1500, 4.0)]
+)
+missing_oi = datafeed._observation_frame(
+    "BTCUSDT", "1h", "oi", 2500, [(2500, np.nan)]
+)
+oi_history = datafeed.merge_derivative_observations(
+    available_oi, missing_oi, "BTCUSDT", "1h", "oi"
+)
+missing_alignment = datafeed.align_derivative_observations_v2(
+    np.array([2000, 3000]), oi_history, max_age_ms=5000
+)
+assert oi_history["observed"].tolist() == [1, 0]
+assert oi_history["value"].tolist() == [4.0, 0.0]
+assert missing_alignment["value"].tolist() == [4.0, 0.0]
+assert missing_alignment["observed"].tolist() == [1, 0]
+assert missing_alignment["fresh"].tolist() == [1, 0]
+
+ambiguous = pd.concat(
+    [
+        datafeed._observation_frame(
+            "BTCUSDT", "1h", "funding", 5000, [(4500, 1.0)]
+        ),
+        datafeed._observation_frame(
+            "BTCUSDT", "1h", "funding", 5000, [(4500, 2.0)]
+        ),
+    ],
+    ignore_index=True,
+)
+try:
+    datafeed.merge_derivative_observations(
+        ledger, ambiguous, "BTCUSDT", "1h", "funding"
+    )
+except ValueError as error:
+    assert "ambiguous revision" in str(error)
+else:
+    raise AssertionError("same-time conflicting derivatives revisions must fail")
+
+try:
+    datafeed.align_derivative_observations_v2(
+        np.array([2000, 1000]), ledger, max_age_ms=1000
+    )
+except ValueError as error:
+    assert "strictly increasing" in str(error)
+else:
+    raise AssertionError("unordered v2 bar closes must fail")
+
+panel_v2 = pd.DataFrame({"openTime": [0]})
+for feature in datafeed.DERIVATIVE_FIELDS:
+    datafeed._attach_derivative_v2_columns(
+        panel_v2,
+        feature,
+        datafeed.align_derivative_observations_v2(
+            np.array([999]),
+            datafeed._empty_observation_frame(),
+            max_age_ms=1000,
+        ),
+    )
+coverage = datafeed.validate_derivative_v2_panel(panel_v2, "1h")
+assert coverage["funding"] == {"versioned": 1, "observed": 0, "fresh": 0}
+malformed_panel = panel_v2.copy()
+malformed_panel.loc[0, "fundingV2Value"] = 1.0
+try:
+    datafeed.validate_derivative_v2_panel(malformed_panel, "1h")
+except ValueError as error:
+    assert "unavailable/stale value is non-zero" in str(error)
+else:
+    raise AssertionError("non-zero unavailable v2 values must fail")
+
 def error_get(_path, **_params):
     if _params["startTime"] == 0:
         return [{"timestamp": 0, "sumOpenInterest": "1"}]
@@ -206,12 +331,23 @@ with tempfile.TemporaryDirectory() as cache_dir:
     assert refreshed["funding"].tolist() == [0.01, 0.02, 0.03]
     assert refreshed["basis"].tolist() == [0.6, 0.2, 0.3]
     assert refreshed["taker"].tolist() == [1.6, 1.1, 1.2]
+    assert refreshed["oiV2Value"].tolist() == [0.0, 0.0, 0.0]
+    assert refreshed["oiV2Observed"].tolist() == [0, 0, 0]
+    assert refreshed["oiV2Fresh"].tolist() == [0, 0, 0]
+    oi_ledger = datafeed.load_derivative_observations("BTCUSDT", "1h", "oi")
+    assert oi_ledger["availabilityTime"].tolist() == [now, now, now]
+    assert oi_ledger["eventTime"].tolist() == [0, now - 2 * hour, now - hour]
+    assert oi_ledger["observed"].tolist() == [1, 0, 1]
+    assert oi_ledger["value"].tolist() == [100.0, 0.0, 300.0]
     assert observed_ends == [snapshot_end] * 4
     assert observed_starts == [expected_start, expected_start, expected_start]
     assert outcome["BTCUSDT"]["status"] == "updated"
     assert outcome["BTCUSDT"]["series"]["funding"]["status"] == "error"
     assert outcome["BTCUSDT"]["series"]["oi"]["status"] == "ok"
     assert outcome["BTCUSDT"]["series"]["basis"]["status"] == "stale"
+    assert outcome["BTCUSDT"]["series"]["oi"]["v2Status"] == "ok"
+    assert outcome["BTCUSDT"]["series"]["oi"]["v2Observations"] == 3
+    assert outcome["BTCUSDT"]["series"]["oi"]["v2LatestAvailabilityTime"] == now
 
     datafeed.fetch_klines = lambda *_args, **_kwargs: pd.DataFrame()
     empty_outcome = datafeed.update_cache(["ETHUSDT"], "1h", 3)

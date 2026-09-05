@@ -53,6 +53,20 @@ STATS_PAGE_LIMIT = 500
 FUNDING_FRESHNESS_MS = 9 * 3_600_000
 COLLECTOR_STATE_DIR = ".collector"
 COLLECTOR_LOCK_FILE = "collector.lock"
+DERIVATIVE_OBSERVATION_DIR = ".observations"
+DERIVATIVE_OBSERVATION_SCHEMA_ID = "binance_derivatives_first_seen_v2"
+DERIVATIVE_FIELDS = ("funding", "oi", "basis", "taker")
+DERIVATIVE_OBSERVATION_COLUMNS = (
+    "schemaId",
+    "symbol",
+    "interval",
+    "feature",
+    "eventTime",
+    "availabilityTime",
+    "observed",
+    "value",
+)
+TIMESTAMP_MAX = int(np.iinfo(np.int64).max)
 
 
 class CacheWriterBusy(RuntimeError):
@@ -325,6 +339,388 @@ def align_pit(
     return out
 
 
+def _observation_path(symbol: str, interval: str, feature: str) -> str:
+    """Path for one raw, first-seen derivatives observation ledger."""
+    if feature not in DERIVATIVE_FIELDS:
+        raise ValueError(f"unsupported derivatives feature: {feature}")
+    if not symbol or not symbol.isalnum():
+        raise ValueError("derivatives observation symbol must be alphanumeric")
+    if interval not in INTERVAL_MS:
+        raise ValueError(f"unsupported derivatives observation interval: {interval}")
+    return os.path.join(
+        CACHE_DIR,
+        DERIVATIVE_OBSERVATION_DIR,
+        f"{symbol}_{interval}_{feature}_v2.csv",
+    )
+
+
+def _empty_observation_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=list(DERIVATIVE_OBSERVATION_COLUMNS))
+
+
+def _observation_frame(
+    symbol: str,
+    interval: str,
+    feature: str,
+    availability_time: int,
+    series: list[tuple[int, float]],
+) -> pd.DataFrame:
+    """Tag finite API observations with their causal first-seen time.
+
+    Binance's historical derivatives endpoints expose an event timestamp but
+    no revision/publication timestamp. Consequently, a value first acquired by
+    this collector is not usable before this fetch completed, even if the API
+    returned an older event.
+    """
+    if availability_time < 0 or availability_time > TIMESTAMP_MAX:
+        raise ValueError("derivatives availability time must be non-negative")
+    rows = []
+    for event_time, value in series:
+        event_time = int(event_time)
+        value = float(value)
+        if event_time < 0 or event_time > availability_time:
+            continue
+        observed = int(np.isfinite(value))
+        rows.append(
+            {
+                "schemaId": DERIVATIVE_OBSERVATION_SCHEMA_ID,
+                "symbol": symbol,
+                "interval": interval,
+                "feature": feature,
+                "eventTime": event_time,
+                "availabilityTime": availability_time,
+                "observed": observed,
+                "value": value if observed else 0.0,
+            }
+        )
+    return pd.DataFrame(rows, columns=list(DERIVATIVE_OBSERVATION_COLUMNS))
+
+
+def _validated_observation_frame(
+    frame: pd.DataFrame,
+    symbol: str,
+    interval: str,
+    feature: str,
+) -> pd.DataFrame:
+    if tuple(frame.columns) != DERIVATIVE_OBSERVATION_COLUMNS:
+        raise ValueError("derivatives observation ledger has incompatible columns")
+    if frame.empty:
+        return _empty_observation_frame()
+    expected_scope = {
+        "schemaId": DERIVATIVE_OBSERVATION_SCHEMA_ID,
+        "symbol": symbol,
+        "interval": interval,
+        "feature": feature,
+    }
+    for column, expected in expected_scope.items():
+        if not frame[column].map(lambda value: value == expected).all():
+            raise ValueError(f"derivatives observation ledger has mixed {column}")
+
+    validated = frame.copy()
+    for column in ("eventTime", "availabilityTime", "observed", "value"):
+        validated[column] = pd.to_numeric(validated[column], errors="raise")
+    numeric = validated.loc[
+        :, ["eventTime", "availabilityTime", "observed", "value"]
+    ].to_numpy(dtype=float)
+    if not np.isfinite(numeric).all():
+        raise ValueError("derivatives observation ledger contains non-finite values")
+    for column in ("eventTime", "availabilityTime"):
+        values = validated[column].to_numpy(dtype=float)
+        if (
+            not np.equal(values, np.floor(values)).all()
+            or np.any(values < 0)
+            or np.any(values > TIMESTAMP_MAX)
+        ):
+            raise ValueError("derivatives observation ledger timestamps must be integers")
+        validated[column] = validated[column].astype(np.int64)
+    if not validated["observed"].isin([0, 1]).all():
+        raise ValueError("derivatives observation ledger observed mask must be binary")
+    if ((validated["observed"] == 0) & (validated["value"] != 0)).any():
+        raise ValueError("unavailable derivatives observation has non-zero value")
+    if (validated["eventTime"] < 0).any() or (
+        validated["availabilityTime"] < validated["eventTime"]
+    ).any():
+        raise ValueError("derivatives observation ledger has incoherent timestamps")
+    ambiguous = validated.duplicated(
+        subset=["eventTime", "availabilityTime"], keep=False
+    )
+    if ambiguous.any():
+        groups = validated.loc[ambiguous].groupby(
+            ["eventTime", "availabilityTime"], sort=False
+        )[["observed", "value"]]
+        if any(len(states.drop_duplicates()) > 1 for _, states in groups):
+            raise ValueError("derivatives observation ledger has an ambiguous revision")
+    return validated
+
+
+def merge_derivative_observations(
+    existing: pd.DataFrame,
+    fresh: pd.DataFrame,
+    symbol: str,
+    interval: str,
+    feature: str,
+) -> pd.DataFrame:
+    """Merge a first-seen ledger without backdating refetches or revisions."""
+    old = _validated_observation_frame(existing, symbol, interval, feature)
+    new = _validated_observation_frame(fresh, symbol, interval, feature)
+    if old.empty and new.empty:
+        return _empty_observation_frame()
+    records = old.drop_duplicates().to_dict("records")
+    latest_by_event = {}
+    for record in records:
+        event_time = int(record["eventTime"])
+        incumbent = latest_by_event.get(event_time)
+        if incumbent is None or int(record["availabilityTime"]) > int(
+            incumbent["availabilityTime"]
+        ):
+            latest_by_event[event_time] = record
+    for observation in new.drop_duplicates().sort_values(
+        ["availabilityTime", "eventTime", "value"], kind="stable"
+    ).to_dict("records"):
+        event_time = int(observation["eventTime"])
+        availability_time = int(observation["availabilityTime"])
+        observed = int(observation["observed"])
+        value = float(observation["value"])
+        latest = latest_by_event.get(event_time)
+        if latest is not None:
+            latest_availability = int(latest["availabilityTime"])
+            latest_observed = int(latest["observed"])
+            latest_value = float(latest["value"])
+            if availability_time < latest_availability:
+                raise ValueError("derivatives observation would backdate a revision")
+            if availability_time == latest_availability and (
+                observed != latest_observed or value != latest_value
+            ):
+                raise ValueError("derivatives observation ledger has an ambiguous revision")
+            if observed == latest_observed and value == latest_value:
+                continue
+        records.append(observation)
+        latest_by_event[event_time] = observation
+    merged = pd.DataFrame(records, columns=list(DERIVATIVE_OBSERVATION_COLUMNS))
+    merged = _validated_observation_frame(merged, symbol, interval, feature)
+    merged = merged.sort_values(
+        ["availabilityTime", "eventTime", "value"], kind="stable"
+    ).reset_index(drop=True)
+    return merged.loc[:, list(DERIVATIVE_OBSERVATION_COLUMNS)]
+
+
+def load_derivative_observations(
+    symbol: str, interval: str, feature: str
+) -> pd.DataFrame:
+    path = _observation_path(symbol, interval, feature)
+    if not os.path.exists(path):
+        return _empty_observation_frame()
+    return _validated_observation_frame(
+        pd.read_csv(path), symbol, interval, feature
+    )
+
+
+def align_derivative_observations_v2(
+    bar_close: np.ndarray,
+    observations: pd.DataFrame,
+    *,
+    max_age_ms: int,
+) -> pd.DataFrame:
+    """Availability-time align a raw ledger and retain observed/fresh masks.
+
+    The dense value is zero unless the selected observation is fresh. Event and
+    availability witnesses remain populated for an observed-but-stale reading,
+    so stale evidence cannot silently become a directional numeric feature.
+    """
+    if max_age_ms < 0:
+        raise ValueError("derivatives freshness limit must be non-negative")
+    closes = np.asarray(bar_close)
+    if closes.ndim != 1:
+        raise ValueError("derivatives bar closes must be a finite vector")
+    numeric_closes = closes.astype(float)
+    if not np.isfinite(numeric_closes).all() or not np.equal(
+        numeric_closes, np.floor(numeric_closes)
+    ).all() or np.any(numeric_closes < 0) or np.any(numeric_closes > TIMESTAMP_MAX):
+        raise ValueError("derivatives bar closes must be a finite vector")
+    closes = closes.astype(np.int64)
+    if any(int(right) <= int(left) for left, right in zip(closes, closes[1:])):
+        raise ValueError("derivatives bar closes must be strictly increasing")
+
+    if tuple(observations.columns) != DERIVATIVE_OBSERVATION_COLUMNS:
+        raise ValueError("derivatives observations have incompatible columns")
+    if observations.empty:
+        validated = _empty_observation_frame()
+    else:
+        validated = _validated_observation_frame(
+            observations,
+            str(observations.iloc[0]["symbol"]),
+            str(observations.iloc[0]["interval"]),
+            str(observations.iloc[0]["feature"]),
+        )
+    ordered = validated.sort_values(
+        ["availabilityTime", "eventTime", "value"], kind="stable"
+    ).reset_index(drop=True)
+    values = np.zeros(len(closes), dtype=float)
+    observed = np.zeros(len(closes), dtype=np.int8)
+    fresh = np.zeros(len(closes), dtype=np.int8)
+    event_times = np.full(len(closes), np.nan)
+    availability_times = np.full(len(closes), np.nan)
+    current_by_event: dict[int, tuple[int, int, float]] = {}
+    cursor = 0
+    for index, close_time in enumerate(closes):
+        while (
+            cursor < len(ordered)
+            and int(ordered.at[cursor, "availabilityTime"]) <= int(close_time)
+        ):
+            event_time = int(ordered.at[cursor, "eventTime"])
+            current_by_event[event_time] = (
+                int(ordered.at[cursor, "availabilityTime"]),
+                int(ordered.at[cursor, "observed"]),
+                float(ordered.at[cursor, "value"]),
+            )
+            cursor += 1
+        if not current_by_event:
+            continue
+        event_time = max(current_by_event)
+        availability_time, is_observed, value = current_by_event[event_time]
+        if not is_observed:
+            continue
+        observed[index] = 1
+        event_times[index] = event_time
+        availability_times[index] = availability_time
+        if int(close_time) - event_time <= max_age_ms:
+            fresh[index] = 1
+            values[index] = value
+    return pd.DataFrame(
+        {
+            "value": values,
+            "observed": observed,
+            "fresh": fresh,
+            "eventTime": event_times,
+            "availabilityTime": availability_times,
+        }
+    )
+
+
+def _attach_derivative_v2_columns(
+    frame: pd.DataFrame,
+    feature: str,
+    aligned: pd.DataFrame,
+) -> None:
+    if len(frame) != len(aligned):
+        raise ValueError("derivatives v2 alignment length does not match bars")
+    prefix = f"{feature}V2"
+    for source, suffix in (
+        ("value", "Value"),
+        ("observed", "Observed"),
+        ("fresh", "Fresh"),
+        ("eventTime", "EventTime"),
+        ("availabilityTime", "AvailabilityTime"),
+    ):
+        frame[prefix + suffix] = aligned[source].to_numpy()
+
+
+def validate_derivative_v2_panel(
+    frame: pd.DataFrame, interval: str
+) -> dict[str, dict[str, int]]:
+    """Validate additive v2 witnesses while permitting untouched legacy rows."""
+    if interval not in INTERVAL_MS:
+        raise ValueError(f"unsupported derivatives panel interval: {interval}")
+    if "openTime" not in frame:
+        raise ValueError("derivatives panel has no openTime column")
+    open_times_numeric = pd.to_numeric(frame["openTime"], errors="raise").to_numpy(
+        dtype=float
+    )
+    if not np.isfinite(open_times_numeric).all() or not np.equal(
+        open_times_numeric, np.floor(open_times_numeric)
+    ).all() or np.any(open_times_numeric < 0) or np.any(
+        open_times_numeric > TIMESTAMP_MAX - INTERVAL_MS[interval] + 1
+    ):
+        raise ValueError("derivatives panel open times must be finite integers")
+    open_times = [int(value) for value in open_times_numeric]
+    close_times = np.asarray(
+        [value + INTERVAL_MS[interval] - 1 for value in open_times], dtype=object
+    )
+    coverage: dict[str, dict[str, int]] = {}
+    for feature in DERIVATIVE_FIELDS:
+        prefix = f"{feature}V2"
+        names = {
+            suffix: prefix + suffix
+            for suffix in (
+                "Value",
+                "Observed",
+                "Fresh",
+                "EventTime",
+                "AvailabilityTime",
+            )
+        }
+        missing = [name for name in names.values() if name not in frame]
+        if missing:
+            raise ValueError(
+                f"derivatives v2 panel is missing {feature} columns: "
+                + ", ".join(missing)
+            )
+        numeric = {}
+        for suffix, name in names.items():
+            values = pd.to_numeric(frame[name], errors="raise").to_numpy(dtype=float)
+            if np.isinf(values).any():
+                raise ValueError(f"derivatives v2 {feature} contains infinity")
+            numeric[suffix] = values
+        core_present = np.column_stack(
+            [
+                np.isfinite(numeric["Value"]),
+                np.isfinite(numeric["Observed"]),
+                np.isfinite(numeric["Fresh"]),
+            ]
+        )
+        if np.any(core_present.any(axis=1) != core_present.all(axis=1)):
+            raise ValueError(f"derivatives v2 {feature} core columns are partial")
+        versioned = core_present.all(axis=1)
+        observed = numeric["Observed"]
+        fresh = numeric["Fresh"]
+        if np.any(versioned & ~np.isin(observed, [0.0, 1.0])) or np.any(
+            versioned & ~np.isin(fresh, [0.0, 1.0])
+        ):
+            raise ValueError(f"derivatives v2 {feature} masks must be binary")
+        if np.any(versioned & (fresh > observed)):
+            raise ValueError(f"derivatives v2 {feature} fresh mask exceeds observed")
+        if np.any(versioned & (fresh == 0) & (numeric["Value"] != 0)):
+            raise ValueError(
+                f"derivatives v2 {feature} unavailable/stale value is non-zero"
+            )
+        has_event = np.isfinite(numeric["EventTime"])
+        has_availability = np.isfinite(numeric["AvailabilityTime"])
+        witnessed = versioned & (observed == 1)
+        if np.any(witnessed & ~(has_event & has_availability)):
+            raise ValueError(f"derivatives v2 {feature} observed row lacks timestamps")
+        if np.any((~witnessed) & (has_event | has_availability)):
+            raise ValueError(
+                f"derivatives v2 {feature} unavailable row has timestamp evidence"
+            )
+        invalid_time = (
+            (numeric["EventTime"] != np.floor(numeric["EventTime"]))
+            | (
+                numeric["AvailabilityTime"]
+                != np.floor(numeric["AvailabilityTime"])
+            )
+            | (numeric["EventTime"] < 0)
+            | (numeric["AvailabilityTime"] < 0)
+            | (numeric["EventTime"] > TIMESTAMP_MAX)
+            | (numeric["AvailabilityTime"] > TIMESTAMP_MAX)
+        )
+        if np.any(witnessed & invalid_time):
+            raise ValueError(f"derivatives v2 {feature} timestamps must be integers")
+        if np.any(
+            witnessed
+            & (
+                (numeric["EventTime"] > numeric["AvailabilityTime"])
+                | (numeric["AvailabilityTime"] > close_times)
+            )
+        ):
+            raise ValueError(f"derivatives v2 {feature} timestamps are not causal")
+        coverage[feature] = {
+            "versioned": int(versioned.sum()),
+            "observed": int(witnessed.sum()),
+            "fresh": int((versioned & (fresh == 1)).sum()),
+        }
+    return coverage
+
+
 def _cache_path(sym, interval):
     return os.path.join(CACHE_DIR, f"{sym}_{interval}.csv")
 
@@ -403,8 +799,10 @@ def _series_refresh_result(
 
 def _update_cache_unlocked(symbols, interval="1h", kline_limit=1500):
     """Fetch the latest window for each symbol and merge (dedup by openTime) into
-    the append-only CSV cache. Stats columns are stored already point-in-time
-    aligned to the bars present at write time."""
+    the append-only CSV cache. Legacy stats columns retain their historical
+    event-time alignment. Additive v2 columns are rebuilt from raw first-seen
+    ledgers and therefore never make a fetched value available before the
+    collector actually observed it."""
     outcomes: dict[str, dict[str, object]] = {}
     os.makedirs(CACHE_DIR, exist_ok=True)
     ms = INTERVAL_MS[interval]
@@ -446,9 +844,10 @@ def _update_cache_unlocked(symbols, interval="1h", kline_limit=1500):
         }
         series_results: dict[str, dict[str, object]] = {}
         for column, fetch in fetchers.items():
+            max_lag_ms = FUNDING_FRESHNESS_MS if column == "funding" else 2 * ms
+            series: list[tuple[int, float]] | None = None
             try:
                 series = fetch()
-                max_lag_ms = FUNDING_FRESHNESS_MS if column == "funding" else 2 * ms
                 series_results[column] = _series_refresh_result(
                     series, snapshot_end, max_lag_ms
                 )
@@ -465,6 +864,74 @@ def _update_cache_unlocked(symbols, interval="1h", kline_limit=1500):
                     "lagMs": None,
                 }
                 k[column] = np.nan
+            try:
+                observations = load_derivative_observations(sym, interval, column)
+                if series is not None:
+                    first_seen_time = int(time.time() * 1000)
+                    fresh_observations = _observation_frame(
+                        sym,
+                        interval,
+                        column,
+                        first_seen_time,
+                        series,
+                    )
+                    observations = merge_derivative_observations(
+                        observations,
+                        fresh_observations,
+                        sym,
+                        interval,
+                        column,
+                    )
+                    write_cache_atomic(
+                        observations,
+                        _observation_path(sym, interval, column),
+                    )
+                aligned_v2 = align_derivative_observations_v2(
+                    bclose,
+                    observations,
+                    max_age_ms=max_lag_ms,
+                )
+                _attach_derivative_v2_columns(k, column, aligned_v2)
+                series_results[column].update(
+                    {
+                        "observationSchema": DERIVATIVE_OBSERVATION_SCHEMA_ID,
+                        "v2Status": "ok",
+                        "v2Observations": len(observations),
+                        "v2LatestAvailabilityTime": (
+                            int(observations["availabilityTime"].max())
+                            if not observations.empty
+                            else None
+                        ),
+                    }
+                )
+            except Exception as error:
+                source_status = series_results[column]["status"]
+                print(
+                    f"  {sym}: {column} v2 provenance unavailable "
+                    f"({str(error)[:50]})"
+                )
+                unavailable = pd.DataFrame(
+                    {
+                        name: np.full(len(k), np.nan)
+                        for name in (
+                            "value",
+                            "observed",
+                            "fresh",
+                            "eventTime",
+                            "availabilityTime",
+                        )
+                    }
+                )
+                _attach_derivative_v2_columns(k, column, unavailable)
+                series_results[column].update(
+                    {
+                        "status": "error",
+                        "sourceStatus": source_status,
+                        "observationSchema": DERIVATIVE_OBSERVATION_SCHEMA_ID,
+                        "v2Status": "error",
+                        "v2Error": str(error).replace("\n", " ")[:240],
+                    }
+                )
         path = _cache_path(sym, interval)
         if os.path.exists(path):
             old = pd.read_csv(path)
