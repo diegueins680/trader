@@ -143,7 +143,17 @@ missing_tail = datafeed._series_refresh_result(
     end_time,
     2 * hour,
 )
-assert missing_tail["status"] == "missing_tail"
+assert missing_tail["status"] == "ok"
+assert missing_tail["trailingUnavailable"] == 1
+assert missing_tail["lagMs"] == 2 * hour
+
+stale_missing_tail = datafeed._series_refresh_result(
+    [(end_time - 2 * hour, 42.0), (end_time - hour, np.nan)],
+    end_time,
+    hour,
+)
+assert stale_missing_tail["status"] == "missing_tail"
+assert stale_missing_tail["trailingUnavailable"] == 1
 
 original = datafeed._observation_frame(
     "BTCUSDT", "1h", "funding", 900, [(500, 0.0)]
