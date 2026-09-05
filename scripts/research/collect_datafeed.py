@@ -168,6 +168,7 @@ def _cache_result(
     joint = np.isfinite(
         frame.loc[:, fields].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
     ).all(axis=1)
+    v2_coverage = feed.validate_derivative_v2_panel(frame, INTERVAL)
     series = refresh.get("series")
     if not isinstance(series, dict):
         raise RuntimeError(f"{symbol} refresh has no derivative-series evidence")
@@ -176,7 +177,17 @@ def _cache_result(
         for field in fields
         if not isinstance(series.get(field), dict)
         or series[field].get("status") != "ok"
+        or series[field].get("observationSchema")
+        != feed.DERIVATIVE_OBSERVATION_SCHEMA_ID
+        or series[field].get("v2Status") != "ok"
     ]
+    fresh_tail_start = max(0, len(frame) - fresh_rows)
+    for field in fields:
+        prefix = f"{field}V2"
+        tail = frame.iloc[fresh_tail_start:]
+        if tail[[prefix + "Value", prefix + "Observed", prefix + "Fresh"]].isna().any().any():
+            if field not in issues:
+                issues.append(field)
     return {
         "status": "ok" if not issues else "degraded",
         "rows": len(frame),
@@ -188,6 +199,8 @@ def _cache_result(
         "issues": issues,
         "finite": finite,
         "jointFinite": int(joint.sum()),
+        "derivativesObservationSchema": feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
+        "derivativesV2Coverage": v2_coverage,
     }
 
 
@@ -195,7 +208,7 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
     started_monotonic = time.monotonic()
     results: dict[str, dict[str, object]] = {}
     status: dict[str, object] = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "state": "starting",
         "cache": str(cache_dir),
         "interval": INTERVAL,

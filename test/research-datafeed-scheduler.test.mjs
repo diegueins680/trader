@@ -67,6 +67,12 @@ with tempfile.TemporaryDirectory() as cache_name:
             "basis": [0.01, 0.02, 0.03],
             "taker": [1.0, 1.1, 1.2],
         })
+        for field in ("funding", "oi", "basis", "taker"):
+            frame[f"{field}V2Value"] = frame[field]
+            frame[f"{field}V2Observed"] = 1
+            frame[f"{field}V2Fresh"] = 1
+            frame[f"{field}V2EventTime"] = frame["openTime"]
+            frame[f"{field}V2AvailabilityTime"] = frame["openTime"]
         collector.feed.write_cache_atomic(
             frame, collector.feed._cache_path(symbol, interval)
         )
@@ -76,6 +82,8 @@ with tempfile.TemporaryDirectory() as cache_name:
                 "observations": 3,
                 "finite": 3,
                 "latestTimestamp": latest,
+                "observationSchema": collector.feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
+                "v2Status": "ok",
             }
             for field in ("funding", "oi", "basis", "taker")
         }
@@ -105,11 +113,21 @@ with tempfile.TemporaryDirectory() as cache_name:
 
     status_path = cache / ".collector" / "last-run.json"
     status = json.loads(status_path.read_text())
+    assert status["schemaVersion"] == 2
     assert status["state"] == "partial_failure"
     assert status["commit"] == "abc123"
     assert status["failedSymbols"] == ["ETHUSDT", "SOLUSDT"]
     assert status["results"]["BTCUSDT"]["status"] == "ok"
     assert status["results"]["BTCUSDT"]["rows"] == 3
+    assert (
+        status["results"]["BTCUSDT"]["derivativesObservationSchema"]
+        == collector.feed.DERIVATIVE_OBSERVATION_SCHEMA_ID
+    )
+    assert status["results"]["BTCUSDT"]["derivativesV2Coverage"]["funding"] == {
+        "versioned": 3,
+        "observed": 3,
+        "fresh": 3,
+    }
     assert status["results"]["SOLUSDT"]["status"] == "degraded"
     assert status["results"]["SOLUSDT"]["issues"] == ["basis"]
     assert "simulated public endpoint failure" in status["results"]["ETHUSDT"]["error"]
