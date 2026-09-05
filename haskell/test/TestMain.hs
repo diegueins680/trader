@@ -12,10 +12,11 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (find, isInfixOf, isPrefixOf, nub)
+import Data.List (find, intercalate, isInfixOf, isPrefixOf, nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -262,6 +263,17 @@ import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel 
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.Exogenous (afsV2AvailabilityTimesMs, afsV2Available, afsV2EventTimesMs, afsV2Values, alignTimedToBars, alignToBars, alignedFeatureSeries, alignedFeatureSeriesV2)
 import Trader.Predictors.ExogenousFetch (binanceStatsPeriodForInterval)
+import Trader.Predictors.ExternalFeatureSchema (externalFeatureFamilies)
+import Trader.Predictors.ExternalPanelSchema (
+    ExternalPanelCellV2 (..),
+    decodeExternalPanelV2,
+    externalPanelCellAvailableV2,
+    externalPanelCellV2,
+    externalPanelColumnsV2,
+    externalPanelFeatureAvailabilitySchemaIdV2,
+    externalPanelSchemaIdV2,
+    externalPanelSchemaVersionV2,
+ )
 import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2Available, frv2SchemaId, frv2Values, mkFeatureRowV2)
 import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
@@ -711,6 +723,7 @@ main = do
     testPredictorLivenessDetectsDegenerateForecast
     testCrossExchangeCoinbaseInputs
     testExternalDataFeatureInputs
+    testExternalPanelSchemaV2
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
     testDecisionTreeSanitizesMalformedInputs
@@ -1069,6 +1082,83 @@ testExternalDataFeatureInputs = do
             , not (externalSymbolMatches (Just "ETHUSDT") (Just "BTC"))
             ]
         )
+
+testExternalPanelSchemaV2 :: IO ()
+testExternalPanelSchemaV2 = do
+    fixture <- BL.readFile "test/fixtures/external_feature_panel_v2.csv"
+    assert
+        "external panel v2 has the registered semantic identity and fixed width"
+        ( externalPanelSchemaIdV2 == "external_feature_panel_v2"
+            && externalPanelSchemaVersionV2 == 2
+            && externalPanelFeatureAvailabilitySchemaIdV2 == featureAvailabilitySchemaIdV2
+            && length externalPanelColumnsV2 == 40
+        )
+    case decodeExternalPanelV2 fixture of
+        Left err -> assert ("external panel v2 golden fixture should decode: " ++ err) False
+        Right [first, second] -> do
+            assert
+                "external panel v2 retains an observed zero separately from unavailability"
+                ( externalPanelCellV2 ExternalOptionsVol first
+                    == Just ExternalPanelCellV2{epc2Value = 0, epc2Coverage = 1}
+                    && externalPanelCellAvailableV2 ExternalOptionsVol first
+                    && not (externalPanelCellAvailableV2 ExternalMicrostructure first)
+                )
+            assert
+                "external panel v2 retains fractional coverage and finite signed values"
+                ( externalPanelCellV2 ExternalOnChain first
+                    == Just ExternalPanelCellV2{epc2Value = 1.5, epc2Coverage = 0.5}
+                    && externalPanelCellV2 ExternalMicrostructure second
+                        == Just ExternalPanelCellV2{epc2Value = -0.25, epc2Coverage = 1}
+                )
+        Right _ -> assert "external panel v2 golden fixture row count changed" False
+
+    let validRow = panelRow 59999 "BTCUSDT" [(ExternalOptionsVol, ("0", "1"))]
+        nonFiniteRow = panelRow 59999 "BTCUSDT" [(ExternalOptionsVol, ("NaN", "1"))]
+        outOfRangeRow = panelRow 59999 "BTCUSDT" [(ExternalOptionsVol, ("0", "1.1"))]
+        falseAvailabilityRow = panelRow 59999 "BTCUSDT" [(ExternalOptionsVol, ("1", "0"))]
+        lowerCaseScopeRow = panelRow 59999 "btcusdt" []
+    assert
+        "external panel v2 rejects incompatible, non-finite, and incoherent cells"
+        ( and
+            [ isLeft (decodeExternalPanelV2 (panelBytes [drop 1 validRow]))
+            , isLeft
+                ( decodeExternalPanelV2
+                    (panelBytesWithColumns (reverse externalPanelColumnsV2) [reverse validRow])
+                )
+            , isLeft (decodeExternalPanelV2 (panelBytes [nonFiniteRow]))
+            , isLeft (decodeExternalPanelV2 (panelBytes [outOfRangeRow]))
+            , isLeft (decodeExternalPanelV2 (panelBytes [falseAvailabilityRow]))
+            , isLeft (decodeExternalPanelV2 (panelBytes [lowerCaseScopeRow]))
+            , isLeft (decodeExternalPanelV2 (panelBytes [panelRow (-1) "BTCUSDT" []]))
+            ]
+        )
+    assert
+        "external panel v2 rejects empty, duplicate-time, and mixed-scope panels"
+        ( isLeft (decodeExternalPanelV2 (panelBytes []))
+            && isLeft (decodeExternalPanelV2 (panelBytes [validRow, validRow]))
+            && isLeft
+                ( decodeExternalPanelV2
+                    (panelBytes [panelRow 119999 "BTCUSDT" [], validRow])
+                )
+            && isLeft
+                ( decodeExternalPanelV2
+                    (panelBytes [validRow, panelRow 119999 "ETHUSDT" []])
+                )
+        )
+  where
+    panelBytes = panelBytesWithColumns externalPanelColumnsV2
+    panelBytesWithColumns columns rows =
+        BL8.pack
+            ( intercalate "," columns
+                ++ "\n"
+                ++ concatMap ((++ "\n") . intercalate ",") rows
+            )
+    panelRow timestamp symbol overrides =
+        [show timestamp, symbol] ++ concatMap featureCells externalFeatureFamilies
+      where
+        featureCells feature =
+            let (value, coverage) = fromMaybe ("0", "0") (lookup feature overrides)
+             in [value, coverage]
 
 {- | Multivariate LSTM: a single channel is byte-identical to the univariate
 model (so the default/live path is unchanged), input dim is recoverable from the

@@ -3,6 +3,7 @@ module Trader.Predictors.ExternalFeatureSchema (
     ExternalObservationV2 (..),
     ExternalFeatureInputsV2,
     externalFeatureFamilies,
+    externalFeatureColumnName,
     alignedExternalFeatureInputsV2,
     externalFeatureSeriesV2,
 ) where
@@ -73,6 +74,29 @@ externalFeatureFamilies =
     , ExternalRealWorld
     , ExternalSecurity
     ]
+
+externalFeatureColumnName :: ExternalFeature -> String
+externalFeatureColumnName feature =
+    case feature of
+        ExternalMicrostructure -> "microstructure"
+        ExternalOptionsVol -> "options_vol"
+        ExternalOnChain -> "onchain"
+        ExternalMacro -> "macro"
+        ExternalCot -> "cot"
+        ExternalNews -> "news"
+        ExternalFilings -> "filings"
+        ExternalPolicy -> "policy"
+        ExternalFundamentals -> "fundamentals"
+        ExternalStablecoin -> "stablecoin"
+        ExternalInstitutionalFlows -> "institutional_flows"
+        ExternalNetwork -> "network"
+        ExternalDeveloper -> "developer"
+        ExternalGovernance -> "governance"
+        ExternalAttention -> "attention"
+        ExternalSocial -> "social"
+        ExternalPredictionMarket -> "prediction_market"
+        ExternalRealWorld -> "real_world"
+        ExternalSecurity -> "security"
 
 {- | Align external observations without collapsing event time, availability
 time, or pre-coverage missingness. Exact duplicate releases are averaged to
