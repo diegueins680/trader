@@ -442,6 +442,9 @@ def _verify_collection_symbol(
     ):
         raise ValueError(f"{symbol} cache tail disagrees with its manifest")
 
+    interval_ms = feed.INTERVAL_MS[interval]
+    snapshot_end = int(timestamps.iloc[-1]) + interval_ms - 1
+
     refresh_series = result.get("refreshSeries")
     if not isinstance(refresh_series, dict) or set(refresh_series) != set(fields):
         raise ValueError(f"{symbol} refresh series is malformed")
@@ -462,6 +465,11 @@ def _verify_collection_symbol(
             pd.read_csv(observation_path), symbol, interval, feature
         )
         series = refresh_series.get(feature)
+        max_age_ms = (
+            feed.FUNDING_FRESHNESS_MS
+            if feature == "funding"
+            else 2 * interval_ms
+        )
         if (
             len(ledger) != row_count
             or not isinstance(series, dict)
@@ -470,10 +478,17 @@ def _verify_collection_symbol(
             or series.get("v2Observations") != row_count
         ):
             raise ValueError(f"{symbol} {feature} ledger evidence changed")
+        _validate_refresh_series_evidence(
+            symbol,
+            feature,
+            series,
+            snapshot_end,
+            interval_ms,
+            max_age_ms,
+        )
         observation_rows[feature] = row_count
         ledgers[feature] = ledger
 
-    interval_ms = feed.INTERVAL_MS[interval]
     closes = timestamps.to_numpy(dtype=np.int64) + interval_ms - 1
     fresh_rows = result.get("freshRows")
     if type(fresh_rows) is not int or not 1 <= fresh_rows <= cache_rows:
@@ -529,6 +544,48 @@ def _verify_collection_symbol(
         "observations": observation_rows,
         "coverage": coverage,
     }
+
+
+def _validate_refresh_series_evidence(
+    symbol: str,
+    feature: str,
+    series: dict[str, object],
+    snapshot_end: int,
+    interval_ms: int,
+    max_age_ms: int,
+) -> None:
+    integer_fields = (
+        "observations",
+        "finite",
+        "latestTimestamp",
+        "latestObservationTimestamp",
+        "lagMs",
+        "trailingUnavailable",
+    )
+    if any(type(series.get(field)) is not int for field in integer_fields):
+        raise ValueError(f"{symbol} {feature} refresh evidence is malformed")
+    observations = series["observations"]
+    finite = series["finite"]
+    latest = series["latestTimestamp"]
+    latest_observation = series["latestObservationTimestamp"]
+    lag_ms = series["lagMs"]
+    trailing_unavailable = series["trailingUnavailable"]
+    if (
+        observations <= 0
+        or finite <= 0
+        or finite > observations
+        or latest < 0
+        or latest_observation < latest
+        or latest_observation > snapshot_end
+        or lag_ms != snapshot_end - latest
+        or lag_ms < 0
+        or lag_ms > max_age_ms
+        or trailing_unavailable < 0
+        or trailing_unavailable > observations - finite
+        or latest_observation - latest
+        != trailing_unavailable * interval_ms
+    ):
+        raise ValueError(f"{symbol} {feature} refresh evidence is malformed")
 
 
 def _cache_result(

@@ -97,6 +97,9 @@ with tempfile.TemporaryDirectory() as cache_name:
                 "observations": 3,
                 "finite": 3,
                 "latestTimestamp": latest,
+                "latestObservationTimestamp": latest,
+                "lagMs": interval_ms - 1,
+                "trailingUnavailable": 0,
                 "observationSchema": collector.feed.DERIVATIVE_OBSERVATION_SCHEMA_ID,
                 "v2Status": "ok",
                 "v2Observations": 3,
@@ -180,6 +183,19 @@ with tempfile.TemporaryDirectory() as cache_name:
         "basis": 3,
         "taker": 3,
     }
+
+    malformed_refresh = json.loads(json.dumps(verified_status))
+    malformed_refresh["results"]["BTCUSDT"]["refreshSeries"]["taker"][
+        "lagMs"
+    ] = 2 * interval_ms + 1
+    collector._write_json_atomic(verified_path, malformed_refresh)
+    try:
+        collector.verify_collection_artifacts(verified_path)
+    except ValueError as error:
+        assert "refresh evidence is malformed" in str(error)
+    else:
+        raise AssertionError("out-of-bound refresh lag must fail verification")
+    collector._write_json_atomic(verified_path, verified_status)
 
     cli_verification = subprocess.run(
         [

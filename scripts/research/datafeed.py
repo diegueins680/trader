@@ -794,6 +794,13 @@ def write_cache_atomic(frame: pd.DataFrame, path: str) -> None:
 def _series_refresh_result(
     series: list[tuple[int, float]], snapshot_end: int, max_lag_ms: int
 ) -> dict[str, object]:
+    """Classify source health without converting unavailable rows into data.
+
+    Some Binance period endpoints publish the newest completed bucket after
+    the corresponding kline close. A padded trailing NaN is therefore healthy
+    only while the latest finite observation remains inside the source's
+    existing freshness bound; the unavailable row and its count stay explicit.
+    """
     bounded = [(timestamp, value) for timestamp, value in series if timestamp <= snapshot_end]
     finite = [
         (timestamp, value)
@@ -803,12 +810,22 @@ def _series_refresh_result(
     latest_observation = max(bounded, default=None, key=lambda item: item[0])
     latest_timestamp = max((timestamp for timestamp, _ in finite), default=None)
     lag_ms = snapshot_end - latest_timestamp if latest_timestamp is not None else None
+    trailing_unavailable = sum(
+        1
+        for timestamp, value in bounded
+        if latest_timestamp is not None
+        and timestamp > latest_timestamp
+        and not np.isfinite(value)
+    )
     if latest_timestamp is None:
         status = "empty"
-    elif latest_observation is not None and not np.isfinite(latest_observation[1]):
-        status = "missing_tail"
     elif lag_ms > max_lag_ms:
-        status = "stale"
+        status = (
+            "missing_tail"
+            if latest_observation is not None
+            and not np.isfinite(latest_observation[1])
+            else "stale"
+        )
     else:
         status = "ok"
     return {
@@ -820,6 +837,7 @@ def _series_refresh_result(
             int(latest_observation[0]) if latest_observation is not None else None
         ),
         "lagMs": int(lag_ms) if lag_ms is not None else None,
+        "trailingUnavailable": trailing_unavailable,
     }
 
 
