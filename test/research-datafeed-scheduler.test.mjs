@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const RESEARCH_DIR = path.join(ROOT, "scripts", "research");
 const COLLECTOR = path.join(RESEARCH_DIR, "collect_datafeed.py");
+const RECEIPT_VERIFIER = path.join(RESEARCH_DIR, "verify_derivatives_receipt.py");
 const INSTALLER = path.join(ROOT, "scripts", "install-research-datafeed-launchagent.sh");
 const pythonProbe = spawnSync("python3", ["-c", "import sys, numpy, pandas; print(sys.executable)"], {
   encoding: "utf8",
@@ -35,6 +36,7 @@ import pandas as pd
 
 sys.path.insert(0, sys.argv[1])
 import collect_datafeed as collector
+import verify_derivatives_receipt as receipt_verifier
 
 try:
     os.environ["TRADER_RESEARCH_SYMBOLS"] = "btcusdt"
@@ -183,6 +185,165 @@ with tempfile.TemporaryDirectory() as cache_name:
         "basis": 3,
         "taker": 3,
     }
+
+    with tempfile.TemporaryDirectory() as receipt_root_name:
+        receipt_root = Path(receipt_root_name)
+        archive = receipt_root / "archive"
+        (archive / ".collector").mkdir(parents=True)
+        (archive / ".observations").mkdir()
+        archived_status_path = archive / ".collector" / "last-run.json"
+        collector._write_json_atomic(archived_status_path, verified_status)
+
+        status_artifacts = verified_status["results"]["BTCUSDT"]["artifacts"]
+        shutil.copy2(status_artifacts["cache"]["path"], archive / "BTCUSDT_1h.csv")
+        receipt_observations = {}
+        for feature in collector.feed.DERIVATIVE_FIELDS:
+            status_record = status_artifacts["observations"][feature]
+            logical_path = f"BTCUSDT_1h_{feature}_v2.csv"
+            shutil.copy2(
+                status_record["path"], archive / ".observations" / logical_path
+            )
+            receipt_observations[feature] = {
+                "logicalPath": logical_path,
+                "rows": status_record["rows"],
+                "sha256": status_record["sha256"],
+            }
+        archive_files = [path for path in archive.rglob("*") if path.is_file()]
+        receipt = {
+            "schemaVersion": 1,
+            "receiptId": "test_derivatives_receipt",
+            "receiptType": "metadata_only_collection_artifact_receipt",
+            "collection": {
+                "statusSchemaVersion": verified_status["schemaVersion"],
+                "artifactSchema": verified_status["artifactSchema"],
+                "derivativesObservationSchema": verified_status[
+                    "derivativesObservationSchema"
+                ],
+                "featureAvailabilitySchema": verified_status[
+                    "featureAvailabilitySchema"
+                ],
+                "interval": verified_status["interval"],
+                "startedAt": verified_status["startedAt"],
+                "finishedAt": verified_status["finishedAt"],
+                "codeCommit": verified_status["commit"],
+                "state": verified_status["state"],
+                "failedSymbols": verified_status["failedSymbols"],
+                "provenanceIssues": verified_status["provenanceIssues"],
+                "provenanceTrackedClean": verified_status[
+                    "provenanceTrackedClean"
+                ],
+            },
+            "source": {
+                "provider": "Binance USD-M Futures",
+                "access": "public_read_only",
+                "licenseManifest": collector.SOURCE_LICENSE_MANIFEST,
+                "retrievalCommand": "python3 scripts/research/collect_datafeed.py",
+                "verificationCommand": "collector verify-artifacts",
+                "archivePolicy": "test archive remains outside Git",
+            },
+            "universe": {
+                "symbols": ["BTCUSDT"],
+                "stableOrder": "exact_fixed_collector_order",
+            },
+            "status": {
+                "logicalPath": ".collector/last-run.json",
+                "sha256": collector._file_sha256(archived_status_path),
+            },
+            "artifacts": {
+                "BTCUSDT": {
+                    "cache": {
+                        "logicalPath": "BTCUSDT_1h.csv",
+                        "rows": status_artifacts["cache"]["rows"],
+                        "sha256": status_artifacts["cache"]["sha256"],
+                    },
+                    "observations": receipt_observations,
+                }
+            },
+            "verification": {
+                "result": "verified_in_place_and_relocated",
+                "archiveFileCount": len(archive_files),
+                "archiveApproximateMiB": round(
+                    sum(path.stat().st_size for path in archive_files)
+                    / (1024 * 1024),
+                    1,
+                ),
+            },
+            "outcomeBoundary": receipt_verifier.OUTCOME_BOUNDARY,
+        }
+        receipt_path = receipt_root / "receipt.json"
+        collector._write_json_atomic(receipt_path, receipt)
+        receipt_verification = receipt_verifier.verify_receipt(receipt_path, archive)
+        assert receipt_verification["status"] == "verified"
+        assert receipt_verification["artifactsVerified"] == 5
+        assert receipt_verification["archiveFilesVerified"] == 6
+        assert receipt_verification["outcomeAdmission"] == "acquisition_metadata_only"
+
+        receipt_cli = subprocess.run(
+            [
+                sys.executable,
+                sys.argv[3],
+                "--receipt",
+                str(receipt_path),
+                "--archive",
+                str(archive),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert receipt_cli.returncode == 0, receipt_cli.stderr
+        assert json.loads(receipt_cli.stdout)["receiptId"] == receipt["receiptId"]
+
+        wrong_boundary = json.loads(json.dumps(receipt))
+        wrong_boundary["outcomeBoundary"]["returnsComputed"] = 0
+        collector._write_json_atomic(receipt_path, wrong_boundary)
+        try:
+            receipt_verifier.verify_receipt(receipt_path, archive)
+        except ValueError as error:
+            assert "not acquisition-only" in str(error)
+        else:
+            raise AssertionError("a non-boolean outcome boundary must fail closed")
+
+        wrong_hash = json.loads(json.dumps(receipt))
+        wrong_hash["artifacts"]["BTCUSDT"]["cache"]["sha256"] = "0" * 64
+        collector._write_json_atomic(receipt_path, wrong_hash)
+        try:
+            receipt_verifier.verify_receipt(receipt_path, archive)
+        except ValueError as error:
+            assert "disagrees with the collector status" in str(error)
+        else:
+            raise AssertionError("a changed receipt hash must fail verification")
+
+        wrong_path = json.loads(json.dumps(receipt))
+        wrong_path["artifacts"]["BTCUSDT"]["cache"]["logicalPath"] = (
+            "../BTCUSDT_1h.csv"
+        )
+        collector._write_json_atomic(receipt_path, wrong_path)
+        try:
+            receipt_verifier.verify_receipt(receipt_path, archive)
+        except ValueError as error:
+            assert "normalized relative POSIX path" in str(error)
+        else:
+            raise AssertionError("a traversal path must invalidate a receipt")
+
+        collector._write_json_atomic(receipt_path, receipt)
+        extra_path = archive / "unbound.txt"
+        extra_path.write_text("unbound")
+        try:
+            receipt_verifier.verify_receipt(receipt_path, archive)
+        except ValueError as error:
+            assert "archive inventory" in str(error)
+        else:
+            raise AssertionError("unbound archive bytes must invalidate a receipt")
+        extra_path.unlink()
+
+        receipt_path.write_text('{"schemaVersion":1,"schemaVersion":1}\n')
+        try:
+            receipt_verifier.verify_receipt(receipt_path, archive)
+        except ValueError as error:
+            assert "duplicate JSON key" in str(error)
+        else:
+            raise AssertionError("duplicate receipt keys must fail verification")
 
     malformed_refresh = json.loads(json.dumps(verified_status))
     malformed_refresh["results"]["BTCUSDT"]["refreshSeries"]["taker"][
@@ -423,10 +584,14 @@ print("snapshot reader completed")
     assert timeout_status["state"] == "timeout"
     assert timeout_status["stopReason"] == "wall_clock_deadline"
 `;
-    const run = spawnSync(pythonPath, ["-c", program, RESEARCH_DIR, COLLECTOR], {
+    const run = spawnSync(
+      pythonPath,
+      ["-c", program, RESEARCH_DIR, COLLECTOR, RECEIPT_VERIFIER],
+      {
       encoding: "utf8",
       timeout: 30_000,
-    });
+      },
+    );
     assert.equal(run.status, 0, run.stderr || run.stdout);
   },
 );
