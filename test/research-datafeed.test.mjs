@@ -16,6 +16,8 @@ test(
   { skip: !hasResearchPython },
   () => {
     const program = String.raw`
+from io import BytesIO
+import json
 import os
 import sys
 import tempfile
@@ -25,6 +27,102 @@ import pandas as pd
 
 sys.path.insert(0, sys.argv[1])
 import datafeed
+
+assert datafeed._request_weight("/fapi/v1/klines", {"limit": 99}) == 1
+assert datafeed._request_weight("/fapi/v1/klines", {"limit": 499}) == 2
+assert datafeed._request_weight("/fapi/v1/klines", {"limit": 1000}) == 5
+assert datafeed._request_weight("/fapi/v1/klines", {"limit": 1500}) == 10
+assert datafeed._request_weight("/futures/data/basis", {"limit": 500}) == 1
+
+class RecordingLimiter:
+    def __init__(self):
+        self.waits = []
+        self.observed = []
+
+    def wait(self, weight):
+        self.waits.append(weight)
+
+    def observe_used_weight(self, weight):
+        self.observed.append(weight)
+
+class Response:
+    def __init__(self, payload, headers=None):
+        self.payload = payload
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+original_get = datafeed._get
+original_urlopen = datafeed.urllib.request.urlopen
+original_rate_limiter = datafeed.RATE_LIMITER
+original_stats_limiter = datafeed.STATS_RATE_LIMITER
+rate_limiter = RecordingLimiter()
+stats_limiter = RecordingLimiter()
+try:
+    datafeed.RATE_LIMITER = rate_limiter
+    datafeed.STATS_RATE_LIMITER = stats_limiter
+    datafeed.urllib.request.urlopen = lambda *_args, **_kwargs: Response(
+        [], {"X-MBX-USED-WEIGHT-1M": "23"}
+    )
+    assert original_get(
+        "/futures/data/basis", tries=1, pair="BTCUSDT", limit=500
+    ) == []
+    assert rate_limiter.waits == [1]
+    assert rate_limiter.observed == [23]
+    assert stats_limiter.waits == [1]
+
+    attempts = []
+    def http_rate_limited(*_args, **_kwargs):
+        attempts.append(1)
+        body = json.dumps({
+            "code": -1003,
+            "msg": (
+                "Way too many requests; IP(10.0.0.1) banned until "
+                "1234567890123."
+            ),
+        }).encode("utf-8")
+        raise datafeed.urllib.error.HTTPError(
+            "https://example.invalid",
+            429,
+            "rate limited",
+            {"Retry-After": "17", "X-MBX-USED-WEIGHT-1M": "29"},
+            BytesIO(body),
+        )
+    datafeed.urllib.request.urlopen = http_rate_limited
+    try:
+        original_get("/futures/data/basis", tries=4, pair="BTCUSDT", limit=500)
+    except datafeed.BinanceRateLimitError as error:
+        assert error.http_status == 429
+        assert error.banned_until_ms == 1234567890123
+        assert error.retry_after_seconds == 17
+        assert "10.0.0.1" not in str(error)
+    else:
+        raise AssertionError("HTTP 429 must open the provider-rate circuit")
+    assert attempts == [1]
+
+    datafeed.urllib.request.urlopen = lambda *_args, **_kwargs: Response({
+        "code": -1003,
+        "msg": "Way too many requests; IP(10.0.0.2) banned until 1234567890456.",
+    })
+    try:
+        original_get("/futures/data/basis", tries=4, pair="BTCUSDT", limit=500)
+    except datafeed.BinanceRateLimitError as error:
+        assert error.http_status is None
+        assert error.banned_until_ms == 1234567890456
+        assert "10.0.0.2" not in str(error)
+    else:
+        raise AssertionError("Binance -1003 must open the provider-rate circuit")
+finally:
+    datafeed.RATE_LIMITER = original_rate_limiter
+    datafeed.STATS_RATE_LIMITER = original_stats_limiter
+    datafeed.urllib.request.urlopen = original_urlopen
 
 hour = datafeed.INTERVAL_MS["1h"]
 timestamps = [index * hour for index in range(700)]

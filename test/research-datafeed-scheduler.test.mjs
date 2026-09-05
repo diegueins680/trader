@@ -345,6 +345,45 @@ with tempfile.TemporaryDirectory() as cache_name:
         else:
             raise AssertionError("duplicate receipt keys must fail verification")
 
+    rate_limit_calls = []
+    def rate_limited_update(symbols, interval, *, acquire_lock):
+        rate_limit_calls.append(symbols[0])
+        assert interval == "1h"
+        assert acquire_lock is False
+        raise collector.feed.BinanceRateLimitError(
+            http_status=429,
+            banned_until_ms=1234567890123,
+            retry_after_seconds=17,
+        )
+    collector.feed.update_cache = rate_limited_update
+    assert collector.main() == 1
+    rate_limited_status = json.loads(status_path.read_text())
+    assert rate_limit_calls == ["BTCUSDT"]
+    assert rate_limited_status["state"] == "partial_failure"
+    assert rate_limited_status["failedSymbols"] == [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+    ]
+    assert rate_limited_status["results"]["BTCUSDT"] == {
+        "status": "error",
+        "failureKind": "provider_rate_limit",
+        "error": (
+            "Binance public API rate limited (HTTP 429, "
+            "bannedUntilMs=1234567890123, retryAfterSeconds=17)"
+        ),
+        "httpStatus": 429,
+        "bannedUntilMs": 1234567890123,
+        "retryAfterSeconds": 17,
+    }
+    for symbol in ("ETHUSDT", "SOLUSDT"):
+        assert rate_limited_status["results"][symbol] == {
+            "status": "skipped",
+            "failureKind": "provider_rate_limit_circuit_open",
+            "error": "not attempted after Binance public API rate limit",
+        }
+    collector.feed.update_cache = fake_update
+
     malformed_refresh = json.loads(json.dumps(verified_status))
     malformed_refresh["results"]["BTCUSDT"]["refreshSeries"]["taker"][
         "lagMs"
