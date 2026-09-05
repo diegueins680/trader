@@ -558,6 +558,7 @@ fresh = pd.DataFrame([
 ])
 merged = datafeed.merge_cache_frames(old, fresh)
 overlap = merged.loc[merged["openTime"] == 1].iloc[0]
+assert merged.columns.tolist() == ["openTime", "close", "funding", "oi"]
 
 prefix = np.arange(1.0, 31.0)
 prefix_score = run_example.expanding_past_zscore(prefix)

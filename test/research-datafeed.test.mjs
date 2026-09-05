@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const RESEARCH_DIR = fileURLToPath(new URL("../scripts/research/", import.meta.url));
+const DERIVATIVES_V2_FIXTURE = fileURLToPath(
+  new URL("../haskell/test/fixtures/binance_derivatives_first_seen_v2.csv", import.meta.url),
+);
 const hasResearchPython =
   spawnSync("python3", ["-c", "import numpy, pandas"], { encoding: "utf8" }).status === 0;
 
@@ -257,6 +261,14 @@ for feature in datafeed.DERIVATIVE_FIELDS:
     )
 coverage = datafeed.validate_derivative_v2_panel(panel_v2, "1h")
 assert coverage["funding"] == {"versioned": 1, "observed": 0, "fresh": 0}
+golden_panel = pd.read_csv(sys.argv[2])
+golden_coverage = datafeed.validate_derivative_v2_panel(golden_panel, "1h")
+assert golden_coverage == {
+    "funding": {"versioned": 3, "observed": 3, "fresh": 3},
+    "oi": {"versioned": 2, "observed": 2, "fresh": 2},
+    "basis": {"versioned": 3, "observed": 3, "fresh": 2},
+    "taker": {"versioned": 3, "observed": 1, "fresh": 1},
+}
 malformed_panel = panel_v2.copy()
 malformed_panel.loc[0, "fundingV2Value"] = 1.0
 try:
@@ -326,6 +338,22 @@ with tempfile.TemporaryDirectory() as cache_dir:
     outcome = datafeed.update_cache(["BTCUSDT"], "1h", 3)
 
     refreshed = pd.read_csv(datafeed._cache_path("BTCUSDT", "1h"))
+    expected_v2_columns = ["openTime"] + [
+        f"{feature}V2{suffix}"
+        for feature in datafeed.DERIVATIVE_FIELDS
+        for suffix in (
+            "Value",
+            "Observed",
+            "Fresh",
+            "EventTime",
+            "AvailabilityTime",
+        )
+    ]
+    assert [
+        column
+        for column in refreshed.columns
+        if column == "openTime" or "V2" in column
+    ] == expected_v2_columns
     assert refreshed["openTime"].tolist() == [0, now - 2 * hour, now - hour]
     assert refreshed["oi"].tolist() == [100.0, 20.0, 300.0]
     assert refreshed["funding"].tolist() == [0.01, 0.02, 0.03]
@@ -409,10 +437,23 @@ with tempfile.TemporaryDirectory() as read_only_cache:
     finally:
         os.chmod(read_only_cache, 0o755)
 `;
-    const run = spawnSync("python3", ["-c", program, RESEARCH_DIR], {
+    const run = spawnSync("python3", ["-c", program, RESEARCH_DIR, DERIVATIVES_V2_FIXTURE], {
       encoding: "utf8",
       timeout: 30_000,
     });
     assert.equal(run.status, 0, run.stderr || run.stdout);
   },
 );
+
+test("derivatives panel v2 decoder remains isolated from production features", () => {
+  const features = readFileSync(
+    new URL("../haskell/app/Trader/Predictors/Features.hs", import.meta.url),
+    "utf8",
+  );
+  const fetchBridge = readFileSync(
+    new URL("../haskell/app/Trader/Predictors/ExogenousFetch.hs", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(features, /DerivativesPanelSchema|decodeDerivativesPanelV2/);
+  assert.doesNotMatch(fetchBridge, /DerivativesPanelSchema|decodeDerivativesPanelV2/);
+});
