@@ -13,6 +13,11 @@ const derivativesReceiptUrl = new URL(
   import.meta.url,
 );
 
+const rateLimitCircuitReceiptUrl = new URL(
+  "../research-notes/market-prediction-2026-09-04/receipts/binance-rate-limit-circuit-2026-09-05T061022Z.json",
+  import.meta.url,
+);
+
 const requiredRegistrationKeys = [
   "ablations",
   "academicOrigin",
@@ -229,6 +234,70 @@ test("derivatives collection receipt binds metadata without opening outcomes", a
   assert.equal(receipt.verification.result, "verified_in_place_and_relocated");
   assert.deepEqual(receipt.outcomeBoundary, {
     admission: "acquisition_metadata_only",
+    returnsComputed: false,
+    ranksComputed: false,
+    weightsComputed: false,
+    pnlComputed: false,
+    riskMetricsComputed: false,
+    forecastMetricsComputed: false,
+    economicMetricsComputed: false,
+    holdoutsOpened: 0,
+    ordersPlaced: 0,
+    modelInputsChanged: false,
+    liveAuthorizationChanged: false,
+  });
+});
+
+test("rate-limit circuit receipt preserves sanitized operational evidence only", async () => {
+  const receiptText = await readFile(rateLimitCircuitReceiptUrl, "utf8");
+  const receipt = await readJson(rateLimitCircuitReceiptUrl);
+  const symbols = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+  ];
+
+  assert.equal(receipt.schemaVersion, 1);
+  assert.equal(receipt.receiptType, "metadata_only_operational_circuit_receipt");
+  assert.equal(receipt.collection.statusSchemaVersion, 3);
+  assert.equal(receipt.collection.state, "partial_failure");
+  assert.equal(receipt.collection.provenanceTrackedClean, true);
+  assert.deepEqual(receipt.collection.provenanceIssues, []);
+  assert.ok(Date.parse(receipt.collection.startedAt) < Date.parse(receipt.collection.finishedAt));
+  assert.equal(receipt.collection.durationSeconds, 21.761);
+  for (const field of ["codeCommit", "mergedHeadCommit", "mergeCommit"]) {
+    assert.match(receipt.collection[field], /^[0-9a-f]{40}$/);
+  }
+  assert.equal(receipt.collection.mergedPullRequest, 218);
+  assert.equal(receipt.source.access, "public_read_only");
+  assert.match(receipt.status.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(receipt.status.bytes, 7743);
+  assert.deepEqual(receipt.universe.symbols, symbols);
+  assert.deepEqual(receipt.circuitObservation.successfulBeforeThrottle, ["BTCUSDT"]);
+  assert.equal(receipt.circuitObservation.throttleSymbol, "ETHUSDT");
+  assert.equal(receipt.circuitObservation.failureKind, "provider_rate_limit");
+  assert.equal(receipt.circuitObservation.httpStatus, 429);
+  assert.equal(receipt.circuitObservation.bannedUntilMs, null);
+  assert.equal(receipt.circuitObservation.retryAfterSeconds, null);
+  assert.deepEqual(receipt.circuitObservation.remainingSymbols, symbols.slice(2));
+  assert.equal(receipt.circuitObservation.remainingStatus, "skipped");
+  assert.equal(receipt.circuitObservation.remainingFailureKind, "provider_rate_limit_circuit_open");
+  assert.equal(receipt.circuitObservation.providerErrorMessageRetained, false);
+  assert.equal(receipt.circuitObservation.providerReturnedIpRetained, false);
+  assert.equal(receipt.circuitObservation.result, "circuit_observed");
+  assert.doesNotMatch(receiptText, /\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  assert.doesNotMatch(receiptText, /"(?:errorMessage|rawError|providerMessage)"/);
+  assert.deepEqual(receipt.evidenceBoundary, {
+    rawStatusCommitted: false,
+    artifactAdmission: false,
+    outcomeAdmission: "acquisition_metadata_only",
     returnsComputed: false,
     ranksComputed: false,
     weightsComputed: false,
