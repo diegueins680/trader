@@ -254,7 +254,7 @@ riskRegister =
         MITIGATED
         "Shared-IP Binance throttling can interrupt prospective derivatives collection and create irrecoverable acquisition gaps"
         "trader-firm-research"
-        "Use conservative local budgets and stop all later requests on throttling; monitor gaps and move collection to stable persistent egress"
+        "Use conservative local budgets, stop all later requests on throttling, and rotate the request leader by UTC hour; monitor gaps and move collection to stable persistent egress"
     , riskEntry
         RESEARCH_RECEIPT_001
         HIGH
