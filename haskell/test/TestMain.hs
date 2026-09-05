@@ -261,6 +261,17 @@ import Trader.PredictionMarkets (
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel (..), fitConformal, initAdaptiveConformal, predictInterval, updateAdaptiveConformal)
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
+import Trader.Predictors.DerivativesPanelSchema (
+    DerivativesFeatureV2 (..),
+    DerivativesPanelCellV2 (..),
+    decodeDerivativesPanelV2,
+    derivativesFeatureAvailabilitySchemaIdV2,
+    derivativesObservationSchemaIdV2,
+    derivativesPanelCellUsableV2,
+    derivativesPanelCellV2,
+    derivativesPanelCellVersionedV2,
+    derivativesPanelColumnsV2,
+ )
 import Trader.Predictors.Exogenous (afsV2AvailabilityTimesMs, afsV2Available, afsV2EventTimesMs, afsV2Values, alignTimedToBars, alignToBars, alignedFeatureSeries, alignedFeatureSeriesV2)
 import Trader.Predictors.ExogenousFetch (binanceStatsPeriodForInterval)
 import Trader.Predictors.ExternalFeatureSchema (externalFeatureFamilies)
@@ -724,6 +735,7 @@ main = do
     testCrossExchangeCoinbaseInputs
     testExternalDataFeatureInputs
     testExternalPanelSchemaV2
+    testDerivativesPanelSchemaV2
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
     testDecisionTreeSanitizesMalformedInputs
@@ -1159,6 +1171,130 @@ testExternalPanelSchemaV2 = do
         featureCells feature =
             let (value, coverage) = fromMaybe ("0", "0") (lookup feature overrides)
              in [value, coverage]
+
+testDerivativesPanelSchemaV2 :: IO ()
+testDerivativesPanelSchemaV2 = do
+    let hourMs = 3600000 :: Int64
+    fixture <- BL.readFile "test/fixtures/binance_derivatives_first_seen_v2.csv"
+    assert
+        "derivatives panel v2 binds the collector and availability schema identities"
+        ( derivativesObservationSchemaIdV2 == "binance_derivatives_first_seen_v2"
+            && derivativesFeatureAvailabilitySchemaIdV2 == featureAvailabilitySchemaIdV2
+            && length derivativesPanelColumnsV2 == 21
+        )
+    case decodeDerivativesPanelV2 "BTCUSDT" hourMs fixture of
+        Left err -> assert ("derivatives panel v2 golden fixture should decode: " ++ err) False
+        Right [first, _, third] -> do
+            assert
+                "derivatives panel v2 distinguishes observed zero, explicit missingness, and legacy absence"
+                ( derivativesPanelCellV2 DerivativesFundingV2 first
+                    == Just
+                        DerivativesPanelCellV2
+                            { dpc2Value = 0
+                            , dpc2Observed = True
+                            , dpc2Fresh = True
+                            , dpc2EventTimeMs = Just 0
+                            , dpc2AvailabilityTimeMs = Just 1000
+                            }
+                    && derivativesPanelCellUsableV2 DerivativesFundingV2 first
+                    && not (derivativesPanelCellVersionedV2 DerivativesOpenInterestV2 first)
+                    && derivativesPanelCellVersionedV2 DerivativesTakerFlowV2 first
+                    && not (derivativesPanelCellUsableV2 DerivativesTakerFlowV2 first)
+                )
+            assert
+                "derivatives panel v2 preserves stale witnesses while neutralizing their value"
+                ( case derivativesPanelCellV2 DerivativesBasisV2 third of
+                    Just cell ->
+                        dpc2Value cell == 0
+                            && dpc2Observed cell
+                            && not (dpc2Fresh cell)
+                            && dpc2EventTimeMs cell == Just 0
+                            && dpc2AvailabilityTimeMs cell == Just 1000
+                    Nothing -> False
+                )
+        Right _ -> assert "derivatives panel v2 golden fixture row count changed" False
+
+    let validRow = derivativesRow 0 []
+        laterRow = derivativesRow hourMs []
+        nonFiniteRow = derivativesRow 0 [(DerivativesFundingV2, ["NaN", "1", "1", "0", "1000"])]
+        partialRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "", "", "", ""])]
+        unavailableNonZeroRow = derivativesRow 0 [(DerivativesFundingV2, ["1", "0", "0", "", ""])]
+        freshWithoutObservedRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "0", "1", "", ""])]
+        observedWithoutTimesRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "", ""])]
+        nonCausalRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "2000", "1000"])]
+        futureAvailabilityRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0", "4000000"])]
+        staleMarkedFreshRow = derivativesRow (2 * hourMs) [(DerivativesOpenInterestV2, ["1", "1", "1", "0", "1000"])]
+        freshMarkedStaleRow = derivativesRow 0 [(DerivativesOpenInterestV2, ["0", "1", "0", "0", "1000"])]
+        staleNonZeroRow = derivativesRow (2 * hourMs) [(DerivativesOpenInterestV2, ["1", "1", "0", "0", "1000"])]
+        decimalMaskRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "0.0", "0.0", "", ""])]
+        decodeRows rows = decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes derivativesPanelColumnsV2 rows)
+    assert
+        "derivatives panel v2 accepts pandas decimal masks and unrelated legacy columns"
+        ( not (isLeft (decodeRows [decimalMaskRow]))
+            && not
+                ( isLeft
+                    ( decodeDerivativesPanelV2
+                        "BTCUSDT"
+                        hourMs
+                        (derivativesBytes ("close" : derivativesPanelColumnsV2) ["100" : validRow])
+                    )
+                )
+        )
+    let futureRow =
+            derivativesRow
+                (2 * hourMs)
+                [(DerivativesFundingV2, ["5", "1", "1", show (2 * hourMs), show (2 * hourMs)])]
+    assert
+        "derivatives panel v2 decoding is invariant to appended future rows"
+        ( case (decodeRows [validRow, laterRow], decodeRows [validRow, laterRow, futureRow]) of
+            (Right prefix, Right extended) -> prefix == take (length prefix) extended
+            _ -> False
+        )
+    assert
+        "derivatives panel v2 rejects incompatible headers and malformed cells"
+        ( and
+            [ isLeft (decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes (drop 1 derivativesPanelColumnsV2) [drop 1 validRow]))
+            , isLeft (decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes (reverse derivativesPanelColumnsV2) [reverse validRow]))
+            , isLeft (decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes ("openTime" : derivativesPanelColumnsV2) ["0" : validRow]))
+            , isLeft (decodeRows [nonFiniteRow])
+            , isLeft (decodeRows [partialRow])
+            , isLeft (decodeRows [unavailableNonZeroRow])
+            , isLeft (decodeRows [freshWithoutObservedRow])
+            , isLeft (decodeRows [observedWithoutTimesRow])
+            , isLeft (decodeRows [nonCausalRow])
+            , isLeft (decodeRows [futureAvailabilityRow])
+            , isLeft (decodeRows [staleMarkedFreshRow])
+            , isLeft (decodeRows [freshMarkedStaleRow])
+            , isLeft (decodeRows [staleNonZeroRow])
+            ]
+        )
+    assert
+        "derivatives panel v2 rejects invalid scope, intervals, grids, and timestamp overflow"
+        ( and
+            [ isLeft (decodeDerivativesPanelV2 "btcusdt" hourMs (derivativesBytes derivativesPanelColumnsV2 [validRow]))
+            , isLeft (decodeDerivativesPanelV2 "ΒTCUSDT" hourMs (derivativesBytes derivativesPanelColumnsV2 [validRow]))
+            , isLeft (decodeDerivativesPanelV2 "BTCUSDT" 0 (derivativesBytes derivativesPanelColumnsV2 [validRow]))
+            , isLeft (decodeDerivativesPanelV2 "BTCUSDT" (maxBound :: Int64) (derivativesBytes derivativesPanelColumnsV2 [validRow]))
+            , isLeft (decodeRows [])
+            , isLeft (decodeRows [validRow, validRow])
+            , isLeft (decodeRows [laterRow, validRow])
+            , isLeft (decodeRows [derivativesRow (maxBound :: Int64) []])
+            ]
+        )
+  where
+    derivativesBytes :: [String] -> [[String]] -> BL.ByteString
+    derivativesBytes columns rows =
+        BL8.pack
+            ( intercalate "," columns
+                ++ "\n"
+                ++ concatMap ((++ "\n") . intercalate ",") rows
+            )
+    derivativesRow :: Int64 -> [(DerivativesFeatureV2, [String])] -> [String]
+    derivativesRow openTime overrides =
+        show openTime : concatMap featureCells [minBound .. maxBound]
+      where
+        featureCells feature =
+            fromMaybe ["0", "0", "0", "", ""] (lookup feature overrides)
 
 {- | Multivariate LSTM: a single channel is byte-identical to the univariate
 model (so the default/live path is unchanged), input dim is recoverable from the

@@ -732,7 +732,9 @@ def merge_cache_frames(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFr
     unavailable value in the latest API window falls back to the previously
     accumulated value. This matters because Binance kline history is deeper
     than several derivatives-stat endpoints: a refresh must not turn an older
-    funding/OI/basis/taker observation back into NaN.
+    funding/OI/basis/taker observation back into NaN. Preserve the fresh
+    frame's canonical column order and append legacy-only columns; pandas
+    ``combine_first`` otherwise sorts columns alphabetically.
     """
     if existing.empty:
         return fresh.drop_duplicates("openTime", keep="last").sort_values("openTime").reset_index(drop=True)
@@ -741,8 +743,12 @@ def merge_cache_frames(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFr
 
     old_by_time = existing.drop_duplicates("openTime", keep="last").set_index("openTime")
     fresh_by_time = fresh.drop_duplicates("openTime", keep="last").set_index("openTime")
+    merged_columns = list(fresh_by_time.columns)
+    merged_columns.extend(
+        column for column in old_by_time.columns if column not in fresh_by_time.columns
+    )
     merged = fresh_by_time.combine_first(old_by_time)
-    return merged.sort_index().reset_index()
+    return merged.reindex(columns=merged_columns).sort_index().reset_index()
 
 
 def write_cache_atomic(frame: pd.DataFrame, path: str) -> None:
