@@ -81,7 +81,13 @@ binds that status plus all 50 artifact hashes and row counts. Market-data bytes
 remain outside Git.
 
 Every future receipt must pass `verify-artifacts` before its bytes or returned
-status digest can be frozen as acquisition evidence. Provider errors, an empty
-source, an out-of-bound finite observation, malformed lag/count evidence,
-missing v2 provenance, or any artifact mismatch still fail closed. This first
+status digest can be frozen as acquisition evidence. The committed receipt and
+external archive can then be checked together with
+`verify_derivatives_receipt.py --receipt <receipt> --archive <archive>`. The
+schema-1 verifier requires the exact status metadata and digest, all artifact
+rows and hashes, the complete no-extra-file inventory, safe archive-contained
+paths, a public read-only source, causal ledger reconstruction, and the closed
+outcome/model/order/live boundary. Provider errors, an empty source, an
+out-of-bound finite observation, malformed lag/count evidence, missing v2
+provenance, or any receipt/artifact mismatch still fail closed. This first
 receipt does not authorize any outcome calculation or early prospective read.

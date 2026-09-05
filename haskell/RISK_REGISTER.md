@@ -29,6 +29,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | MARKET-DATA-TIMESTAMP-OVERFLOW-001 | Timestamp overflow could make stale or discontinuous evidence appear valid | CRITICAL | trader-firm-data | CLOSED | Checked arithmetic fails closed across market-data time validation |
 | MAX-POSITION-GUARDRAIL-001 | Malformed maximum-position configuration could silently disable every trade | HIGH | trader-firm-risk | CLOSED | Checked simulation rejects non-positive or non-finite configuration |
 | PREDICTOR-IDENTITY-001 | Legacy TCN, PatchTST, and Transformer identifiers can overstate the fidelity of lightweight proxy implementations | HIGH | trader-firm-research | MITIGATED | Preserve legacy semantics, expose accurate versioned implementation identities, and require a new model ID for any faithful architecture |
+| RESEARCH-RECEIPT-001 | A metadata-only derivatives receipt could diverge from its frozen external archive or imply unauthorized outcome access | HIGH | trader-firm-research | CLOSED | The schema-1 verifier binds the exact status and complete archive inventory while enforcing acquisition-only authority |
 | RISK-LIMIT-001 | Daily, weekly, and drawdown limits were not enforced in the live loop | HIGH | trader-firm-risk | CLOSED | Runtime invariant checks and guardrail regressions are implemented |
 | RISK-LIMIT-NON-FINITE-001 | Non-finite risk limits could silently disable halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects non-finite limits and bounded verification covers it |
 | RISK-METRIC-INVALID-001 | Malformed loss or drawdown evidence could bypass live halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` validates risk evidence before threshold comparisons |
@@ -47,4 +48,4 @@ Change `formal/risk-register.json` first, then update both projections in the
 same commit. IDs are permanent. Reopening a risk changes its status rather than
 creating a duplicate row; a materially different risk receives a new ID.
 
-Last reconciled: 2026-09-04.
+Last reconciled: 2026-09-05.

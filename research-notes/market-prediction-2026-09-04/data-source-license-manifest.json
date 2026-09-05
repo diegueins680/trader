@@ -96,6 +96,7 @@
     },
     "firstVerifiedMainReceipt": {
       "path": "research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json",
+      "verificationCommand": "python3 scripts/research/verify_derivatives_receipt.py --receipt research-notes/market-prediction-2026-09-04/receipts/binance-derivatives-main-2026-09-05T040706Z.json --archive <external-archive>",
       "statusSha256": "83e22c3dd453ab5ee4730b5c05734c318e31a8d0cf48fd198f253c35ffe2b278",
       "artifactCount": 50,
       "archiveCommitted": false,
