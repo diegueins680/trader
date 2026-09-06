@@ -40,7 +40,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | TRADE-LOG-GAP-001 | Trade-log records lacked required exit and halt evidence | HIGH | trader-firm-cio | CLOSED | The schema includes `exit_reason` and the trade-log implementation is tracked |
 | TRADE-LOG-GAP-002 | Trade logs lack a native snapshot of derived risk-state metrics | MEDIUM | trader-firm-cio | OPEN | Define whether schema or deterministic derivation owns the snapshot |
 | TRAILING-STOP-001 | A trailing-stop exit may re-enter on the same bar | MEDIUM | trader-firm-execution | OPEN | Add and verify a bar-level re-entry lock after trailing-stop exits |
-| VOL-TARGET-001 | A stateful volatility-target regression was reported in the Haskell tests | CRITICAL | trader-firm-cto | OPEN | Reproduce against the current canonical Haskell wrapper and close or update the stale report |
+| VOL-TARGET-001 | A stale report claimed the volatility-confidence stateful-close regression broke the Haskell suite | CRITICAL | trader-firm-cto | CLOSED | The fix predates the imported report; helper, live/backtest parity, and canonical Haskell verification witnesses pass |
 | VOL-TARGET-INVALID-001 | Malformed volatility-target configuration could bypass scaling limits | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed targets and bounded verification covers it |
 | ZERO-VIABLE-SIGNAL-001 | No strategy signal had met the recorded long-sample viability threshold | CRITICAL | trader-firm-research | OPEN | Run and record a current long-dataset viability evaluation |
 

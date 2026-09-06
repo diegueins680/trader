@@ -291,6 +291,7 @@
       "evidence": [
         { "level": "bounded-exhaustive", "path": "haskell/test/TestMain.hs", "contains": "testSignalGatesFailClosedExhaustive" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testTradingEntryGateFailClosedMonotone" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testVolConfHoldPreservesLivePosition" },
         { "level": "regression", "path": "haskell/test/Trader/Test/MarketRisk.hs", "contains": "blocks requested-size impact" }
       ]
     },
