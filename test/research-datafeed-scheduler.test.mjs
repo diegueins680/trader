@@ -46,6 +46,65 @@ except ValueError as error:
 else:
     raise AssertionError("invalid scheduled symbols must fail closed")
 
+rotation_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+assert collector._request_order(
+    rotation_symbols, "1970-01-01T00:00:00.000000Z"
+) == rotation_symbols
+assert collector._request_order(
+    rotation_symbols, "1970-01-01T01:00:00.000000Z"
+) == ["ETHUSDT", "SOLUSDT", "BTCUSDT"]
+assert collector._request_order(
+    rotation_symbols, "1970-01-01T02:00:00.000000Z"
+) == ["SOLUSDT", "BTCUSDT", "ETHUSDT"]
+assert collector._request_order(
+    rotation_symbols, "1970-01-01T03:00:00.000000Z"
+) == rotation_symbols
+full_rotation_symbols = list(collector.DEFAULT_SYMBOLS)
+assert [
+    collector._request_order(
+        full_rotation_symbols, f"1970-01-01T{hour:02d}:00:00.000000Z"
+    )[0]
+    for hour in range(len(full_rotation_symbols))
+] == full_rotation_symbols
+request_order_status = {
+    "requestOrderPolicy": collector.REQUEST_ORDER_POLICY,
+    "requestOrder": ["ETHUSDT", "SOLUSDT", "BTCUSDT"],
+    "startedAt": "1970-01-01T01:00:00.000000Z",
+}
+assert collector._validate_status_request_order(
+    request_order_status, rotation_symbols
+) == request_order_status["requestOrder"]
+wrong_time_order = dict(request_order_status)
+wrong_time_order["startedAt"] = "1970-01-01T02:00:00.000000Z"
+try:
+    collector._validate_status_request_order(wrong_time_order, rotation_symbols)
+except ValueError as error:
+    assert "disagrees with its UTC start time" in str(error)
+else:
+    raise AssertionError("time-incoherent request order must fail verification")
+duplicate_order = dict(request_order_status)
+duplicate_order["requestOrder"] = ["ETHUSDT", "ETHUSDT", "BTCUSDT"]
+try:
+    collector._validate_status_request_order(duplicate_order, rotation_symbols)
+except ValueError as error:
+    assert "not a symbol permutation" in str(error)
+else:
+    raise AssertionError("duplicate request-order members must fail verification")
+unknown_policy = dict(request_order_status)
+unknown_policy["requestOrderPolicy"] = "unknown_rotation"
+try:
+    collector._validate_status_request_order(unknown_policy, rotation_symbols)
+except ValueError as error:
+    assert "policy is unsupported" in str(error)
+else:
+    raise AssertionError("unknown request-order policy must fail verification")
+try:
+    collector._request_order(rotation_symbols, "1970-01-01T00:00:00+00:00")
+except ValueError as error:
+    assert "canonical UTC" in str(error)
+else:
+    raise AssertionError("non-canonical request-order time must fail closed")
+
 with tempfile.TemporaryDirectory() as cache_name:
     cache = Path(cache_name)
     os.environ["TRADER_RESEARCH_CACHE"] = str(cache)
@@ -131,7 +190,6 @@ with tempfile.TemporaryDirectory() as cache_name:
     collector._provenance_tracked_clean = lambda: True
     result = collector.main()
     assert result == 1
-    assert calls == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
     status_path = cache / ".collector" / "last-run.json"
     status = json.loads(status_path.read_text())
@@ -142,7 +200,16 @@ with tempfile.TemporaryDirectory() as cache_name:
     assert status["dataSourceLicenseManifest"] == collector.SOURCE_LICENSE_MANIFEST
     assert status["provenanceTrackedClean"] is True
     assert set(status["runtime"]) == {"python", "numpy", "pandas"}
-    assert status["failedSymbols"] == ["ETHUSDT", "SOLUSDT"]
+    assert status["requestOrderPolicy"] == collector.REQUEST_ORDER_POLICY
+    assert status["requestOrder"] == collector._request_order(
+        status["symbols"], status["startedAt"]
+    )
+    assert calls == status["requestOrder"]
+    assert status["failedSymbols"] == [
+        symbol
+        for symbol in status["requestOrder"]
+        if symbol in {"ETHUSDT", "SOLUSDT"}
+    ]
     assert status["results"]["BTCUSDT"]["status"] == "ok"
     assert status["results"]["BTCUSDT"]["rows"] == 3
     assert (
@@ -171,6 +238,7 @@ with tempfile.TemporaryDirectory() as cache_name:
     verified_status = dict(status)
     verified_status["state"] = "pass"
     verified_status["symbols"] = ["BTCUSDT"]
+    verified_status["requestOrder"] = ["BTCUSDT"]
     verified_status["results"] = {"BTCUSDT": status["results"]["BTCUSDT"]}
     verified_status["failedSymbols"] = []
     verified_path = cache / ".collector" / "verified-run.json"
@@ -185,6 +253,39 @@ with tempfile.TemporaryDirectory() as cache_name:
         "basis": 3,
         "taker": 3,
     }
+
+    legacy_status = dict(verified_status)
+    legacy_status.pop("requestOrder")
+    legacy_status.pop("requestOrderPolicy")
+    legacy_path = cache / ".collector" / "legacy-schema-3-run.json"
+    collector._write_json_atomic(legacy_path, legacy_status)
+    assert collector.verify_collection_artifacts(legacy_path)["status"] == "verified"
+
+    wrong_request_order = dict(verified_status)
+    wrong_request_order["requestOrder"] = ["ETHUSDT"]
+    wrong_request_order_path = cache / ".collector" / "wrong-request-order.json"
+    collector._write_json_atomic(wrong_request_order_path, wrong_request_order)
+    try:
+        collector.verify_collection_artifacts(wrong_request_order_path)
+    except ValueError as error:
+        assert "not a symbol permutation" in str(error)
+    else:
+        raise AssertionError("a non-permutation request order must fail verification")
+
+    incomplete_request_order = dict(verified_status)
+    incomplete_request_order.pop("requestOrderPolicy")
+    incomplete_request_order_path = (
+        cache / ".collector" / "incomplete-request-order.json"
+    )
+    collector._write_json_atomic(
+        incomplete_request_order_path, incomplete_request_order
+    )
+    try:
+        collector.verify_collection_artifacts(incomplete_request_order_path)
+    except ValueError as error:
+        assert "metadata is incomplete" in str(error)
+    else:
+        raise AssertionError("partial request-order metadata must fail verification")
 
     with tempfile.TemporaryDirectory() as receipt_root_name:
         receipt_root = Path(receipt_root_name)
@@ -358,14 +459,11 @@ with tempfile.TemporaryDirectory() as cache_name:
     collector.feed.update_cache = rate_limited_update
     assert collector.main() == 1
     rate_limited_status = json.loads(status_path.read_text())
-    assert rate_limit_calls == ["BTCUSDT"]
+    throttle_symbol = rate_limited_status["requestOrder"][0]
+    assert rate_limit_calls == [throttle_symbol]
     assert rate_limited_status["state"] == "partial_failure"
-    assert rate_limited_status["failedSymbols"] == [
-        "BTCUSDT",
-        "ETHUSDT",
-        "SOLUSDT",
-    ]
-    assert rate_limited_status["results"]["BTCUSDT"] == {
+    assert rate_limited_status["failedSymbols"] == rate_limited_status["requestOrder"]
+    assert rate_limited_status["results"][throttle_symbol] == {
         "status": "error",
         "failureKind": "provider_rate_limit",
         "error": (
@@ -376,7 +474,7 @@ with tempfile.TemporaryDirectory() as cache_name:
         "bannedUntilMs": 1234567890123,
         "retryAfterSeconds": 17,
     }
-    for symbol in ("ETHUSDT", "SOLUSDT"):
+    for symbol in rate_limited_status["requestOrder"][1:]:
         assert rate_limited_status["results"][symbol] == {
             "status": "skipped",
             "failureKind": "provider_rate_limit_circuit_open",

@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import json
@@ -46,6 +46,7 @@ DEFAULT_MAX_RUN_SECONDS = 3000
 MAX_RUN_SECONDS_LIMIT = 3500
 STATUS_SCHEMA_VERSION = 3
 ARTIFACT_SCHEMA_ID = "binance_derivatives_collection_artifacts_v3"
+REQUEST_ORDER_POLICY = "utc_epoch_hour_rotation_v1"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 SOURCE_LICENSE_MANIFEST = (
@@ -74,6 +75,54 @@ class CollectorTimedOut(CollectorStopped):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _request_order(symbols: list[str], started_at: str) -> list[str]:
+    """Rotate a fixed universe by UTC epoch hour without changing membership."""
+    if not symbols:
+        raise ValueError("request order requires at least one symbol")
+    if not isinstance(started_at, str) or not started_at.endswith("Z"):
+        raise ValueError("request order requires a canonical UTC start time")
+    try:
+        started = datetime.fromisoformat(started_at[:-1] + "+00:00")
+    except ValueError as error:
+        raise ValueError("request order requires a canonical UTC start time") from error
+    if started.utcoffset() != timedelta(0):
+        raise ValueError("request order requires a canonical UTC start time")
+    epoch_seconds = int(started.timestamp())
+    if epoch_seconds < 0:
+        raise ValueError("request order start time predates the Unix epoch")
+    offset = (epoch_seconds // 3600) % len(symbols)
+    return symbols[offset:] + symbols[:offset]
+
+
+def _validate_status_request_order(
+    status: dict[str, object], symbols: list[str]
+) -> list[str]:
+    """Validate new rotated statuses while admitting legacy schema-3 statuses."""
+    has_order = "requestOrder" in status
+    has_policy = "requestOrderPolicy" in status
+    if not has_order and not has_policy:
+        return list(symbols)
+    if not has_order or not has_policy:
+        raise ValueError("collector request order metadata is incomplete")
+    if status.get("requestOrderPolicy") != REQUEST_ORDER_POLICY:
+        raise ValueError("collector request order policy is unsupported")
+    request_order = status.get("requestOrder")
+    if (
+        not isinstance(request_order, list)
+        or len(request_order) != len(symbols)
+        or any(not isinstance(symbol, str) for symbol in request_order)
+        or len(set(request_order)) != len(request_order)
+        or set(request_order) != set(symbols)
+    ):
+        raise ValueError("collector request order is not a symbol permutation")
+    started_at = status.get("startedAt")
+    if not isinstance(started_at, str):
+        raise ValueError("collector request order start time is missing")
+    if request_order != _request_order(symbols, started_at):
+        raise ValueError("collector request order disagrees with its UTC start time")
+    return request_order
 
 
 def _symbols_from_environment() -> list[str]:
@@ -314,6 +363,7 @@ def verify_collection_artifacts(
         or len(symbols) != len(set(symbols))
     ):
         raise ValueError("collector status symbols are malformed")
+    _validate_status_request_order(status, symbols)
     results = status.get("results")
     if not isinstance(results, dict) or set(results) != set(symbols):
         raise ValueError("collector status results disagree with its symbols")
@@ -704,6 +754,7 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
     failures = 0
     try:
         started_at = _utc_now()
+        request_order = _request_order(symbols, started_at)
         commit = _repository_commit()
         provenance_tracked_clean = _provenance_tracked_clean()
         provenance_issues = []
@@ -723,11 +774,13 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
                     "numpy": np.__version__,
                     "pandas": pd.__version__,
                 },
+                "requestOrder": request_order,
+                "requestOrderPolicy": REQUEST_ORDER_POLICY,
                 "provenanceIssues": provenance_issues,
             }
         )
         _write_json_atomic(status_path, status)
-        for symbol_index, symbol in enumerate(symbols):
+        for symbol_index, symbol in enumerate(request_order):
             try:
                 refreshes = feed.update_cache(
                     [symbol], INTERVAL, acquire_lock=False
@@ -750,7 +803,7 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
                     "bannedUntilMs": error.banned_until_ms,
                     "retryAfterSeconds": error.retry_after_seconds,
                 }
-                for skipped_symbol in symbols[symbol_index + 1 :]:
+                for skipped_symbol in request_order[symbol_index + 1 :]:
                     failures += 1
                     results[skipped_symbol] = {
                         "status": "skipped",
@@ -759,7 +812,7 @@ def _run_locked(cache_dir: Path, symbols: list[str], status_path: Path) -> int:
                     }
                 print(
                     f"{symbol}: refresh stopped ({results[symbol]['error']}); "
-                    f"skipped {len(symbols) - symbol_index - 1} remaining symbols",
+                    f"skipped {len(request_order) - symbol_index - 1} remaining symbols",
                     file=sys.stderr,
                 )
                 status["results"] = results
