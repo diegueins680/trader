@@ -33,7 +33,7 @@
     { "id": "TRADE-LOG-GAP-001", "severity": "HIGH", "status": "CLOSED" },
     { "id": "TRADE-LOG-GAP-002", "severity": "MEDIUM", "status": "OPEN" },
     { "id": "TRAILING-STOP-001", "severity": "MEDIUM", "status": "OPEN" },
-    { "id": "VOL-TARGET-001", "severity": "CRITICAL", "status": "OPEN" },
+    { "id": "VOL-TARGET-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "VOL-TARGET-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "ZERO-VIABLE-SIGNAL-001", "severity": "CRITICAL", "status": "OPEN" }
   ],

@@ -330,10 +330,10 @@ riskRegister =
     , riskEntry
         VOL_TARGET_001
         CRITICAL
-        OPEN
-        "A stateful volatility-target regression was reported in the Haskell test suite"
+        CLOSED
+        "A stale report claimed the volatility-confidence stateful-close regression broke the Haskell suite"
         "trader-firm-cto"
-        "Reproduce against the current canonical Haskell wrapper and close or update this stale report"
+        "The fix predates the imported report; helper, live/backtest parity, and canonical Haskell verification witnesses pass"
     , riskEntry
         VOL_TARGET_INVALID_001
         CRITICAL

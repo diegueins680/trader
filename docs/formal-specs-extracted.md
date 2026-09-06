@@ -210,10 +210,12 @@ Formal clauses:
 8. Low/medium volatility plus weak confidence holds flat; high volatility plus weak confidence blocks; high volatility plus medium confidence is exit-only; strong confidence can allow entry with the configured multiplier.
 9. `applyVolConfGateBehavior` preserves reduce-only semantics for `Block` and `AllowExitOnly`; those states cannot open or flip exposure.
 10. Tightening confidence or high-volatility requirements cannot reopen malformed or weak evidence on the same bounded witness.
+11. Stateful `Hold` suppresses the stateless close-direction projection and preserves an existing live or simulated position without opening, flipping, or increasing it; ordinary neutral-signal exit behavior resumes when `Hold` is absent.
 
 Bounded obligations:
 
 - `testVolConfGateMalformedInputsFailClosed`
+- `testVolConfHoldPreservesLivePosition`
 - `Trader.Formal.Optimization.verifyFormalOptimization` asserts the VolConf canonicalization, malformed-volatility, malformed-confidence, conservative-input, and bounded-output report fields against the same production semantics.
 
 ## S4. Conformal Prediction Intervals
