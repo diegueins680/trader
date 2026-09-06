@@ -1231,8 +1231,16 @@ testDerivativesPanelSchemaV2 = do
         staleMarkedFreshRow = derivativesRow (2 * hourMs) [(DerivativesOpenInterestV2, ["1", "1", "1", "0", "1000"])]
         freshMarkedStaleRow = derivativesRow 0 [(DerivativesOpenInterestV2, ["0", "1", "0", "0", "1000"])]
         staleNonZeroRow = derivativesRow (2 * hourMs) [(DerivativesOpenInterestV2, ["1", "1", "0", "0", "1000"])]
-        decimalMaskRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "0.0", "0.0", "", ""])]
+                decimalMaskRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "0.0", "0.0", "", ""])]
+        decimalTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0.0", "1000.0"])]
+        fractionalTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0.5", "1000.0"])]
+        nonFiniteTimestampRows =
+            [ derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", timestamp, "1000.0"])]
+            | timestamp <- ["NaN", "Infinity", "-Infinity"]
+            ]
+        overflowedTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0.0", "9223372036854775808.0"])]
         decodeRows rows = decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes derivativesPanelColumnsV2 rows)
+
     assert
         "derivatives panel v2 accepts pandas decimal masks and unrelated legacy columns"
         ( not (isLeft (decodeRows [decimalMaskRow]))
@@ -1245,7 +1253,15 @@ testDerivativesPanelSchemaV2 = do
                     )
                 )
         )
+        assert
+        "derivatives panel v2 accepts integral decimal timestamp witnesses and rejects fractional, non-finite, and overflowed decimals"
+        ( not (isLeft (decodeRows [decimalTimestampRow]))
+            && isLeft (decodeRows [fractionalTimestampRow])
+            && all (isLeft . decodeRows . (: [])) nonFiniteTimestampRows
+            && isLeft (decodeRows [overflowedTimestampRow])
+        )
     let futureRow =
+
             derivativesRow
                 (2 * hourMs)
                 [(DerivativesFundingV2, ["5", "1", "1", show (2 * hourMs), show (2 * hourMs)])]

@@ -190,9 +190,28 @@ requiredCell name record =
 
 parseTimestamp :: String -> BS.ByteString -> Either String Int64
 parseTimestamp name raw =
-    case readMaybe (trim (BS.unpack raw)) of
+    case readMaybe timestampText :: Maybe Int64 of
         Just timestamp | timestamp >= 0 -> Right timestamp
-        _ -> Left (name ++ " is not a valid timestamp")
+        _ ->
+            maybe
+                (Left (name ++ " is not a valid timestamp"))
+                Right
+                (parseIntegralDecimalTimestamp timestampText)
+  where
+    timestampText = trim (BS.unpack raw)
+
+parseIntegralDecimalTimestamp :: String -> Maybe Int64
+parseIntegralDecimalTimestamp raw =
+    case readMaybe raw :: Maybe Double of
+        Just timestamp
+            | finite timestamp
+            , timestamp >= 0
+            , timestamp == fromInteger integral ->
+                either (const Nothing) Just (integerToInt64 integral)
+          where
+            integral = truncate timestamp
+        _ -> Nothing
+
 
 parseOptionalTimestamp :: String -> BS.ByteString -> Either String (Maybe Int64)
 parseOptionalTimestamp name raw
