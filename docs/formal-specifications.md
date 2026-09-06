@@ -42,6 +42,13 @@ meaning. A partial field pair, duplicate or missing member, unknown policy, or
 time-incoherent order fails closed. Rotation neither increases request volume
 nor makes a throttled or incomplete run admissible.
 
+`H-EXECUTION` also binds restart recovery to a narrow closed-trade-memory
+contract. A status snapshot must match symbol, interval, market, and method;
+only its bounded `trades` history is decoded. Persisted `positions` and
+`openTrade` evidence is intentionally excluded from that recovery type because
+`Main.initBotState` derives startup exposure from the venue when trading is
+enabled and otherwise starts flat.
+
 ## Verification
 
 Run:

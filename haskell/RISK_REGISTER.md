@@ -19,6 +19,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | CIO-DEAFNESS-001 | The CIO reporting lane missed recorded deadlines | CRITICAL | trader-firm-ceo | OPEN | Obtain a current owner report and explicitly close or reassign the obligation |
 | EXECUTION-DATASET-001 | Backtest dataset generation is not fully reproducible | MEDIUM | trader-firm-data | OPEN | Seed randomness and record the source dataset hash in test output |
 | EXECUTION-MISSING-001 | The execution reporting lane missed recorded trade-log deadlines | CRITICAL | trader-firm-execution | OPEN | Obtain a current execution report and explicitly close or reassign the obligation |
+| EXECUTION-RESTART-001 | Persisted bot exposure could create a phantom position during restart | CRITICAL | trader-firm-risk | CLOSED | Startup exposure is venue-authoritative; snapshot recovery admits only identity-matched closed-trade memory and deterministic scenario coverage proves exposure fields are ignored |
 | EXPECTANCY-INVALID-001 | Missing or non-finite expectancy could bypass a configured minimum | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed expectancy and bounded verification covers it |
 | FEATURE-MISSINGNESS-001 | Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value | HIGH | trader-firm-research | OPEN | Preserve the hashed derivatives first-seen artifact chain, define equivalent policies for remaining sources, and migrate production feature builders and artifacts under explicit compatibility versioning before promotion eligibility |
 | GITHUB-502-001 | Transient GitHub API failures can interrupt automation | MEDIUM | trader-firm-cto | OPEN | Replace stale outage evidence with current bounded-retry operational validation |
@@ -49,4 +50,4 @@ Change `formal/risk-register.json` first, then update both projections in the
 same commit. IDs are permanent. Reopening a risk changes its status rather than
 creating a duplicate row; a materially different risk receives a new ID.
 
-Last reconciled: 2026-09-05.
+Last reconciled: 2026-09-06.

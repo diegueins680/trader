@@ -12,6 +12,7 @@
     { "id": "CIO-DEAFNESS-001", "severity": "CRITICAL", "status": "OPEN" },
     { "id": "EXECUTION-DATASET-001", "severity": "MEDIUM", "status": "OPEN" },
     { "id": "EXECUTION-MISSING-001", "severity": "CRITICAL", "status": "OPEN" },
+    { "id": "EXECUTION-RESTART-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "EXPECTANCY-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "FEATURE-MISSINGNESS-001", "severity": "HIGH", "status": "OPEN" },
     { "id": "GITHUB-502-001", "severity": "MEDIUM", "status": "OPEN" },
