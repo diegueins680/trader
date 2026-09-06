@@ -134,7 +134,7 @@
         { "id": "H-EXTERNAL-R1", "statement": "An observation is admissible only when its value and publication time are finite/representable and publicationTime <= decisionTime." },
         { "id": "H-EXTERNAL-R2", "statement": "Availability-aware observations preserve distinct event and availability timestamps with 0 <= eventTime <= availabilityTime <= decisionTime." },
         { "id": "H-EXTERNAL-R3", "statement": "An external_feature_panel_v2 decoder accepts only the exact ordered family/value/coverage schema and canonical single-scope decision-time rows; separate manifest verification must precede research admission." },
-        { "id": "H-EXTERNAL-R4", "statement": "A binance_derivatives_first_seen_v2 bar decoder requires the complete canonical ordered v2 field groups, a canonical caller-supplied symbol, a positive representable interval, and strictly increasing non-overflowing bar times." }
+        { "id": "H-EXTERNAL-R4", "statement": "A binance_derivatives_first_seen_v2 bar decoder requires the complete canonical ordered v2 field groups, exact non-negative Int64 timestamp text in integer or zero-fraction decimal form, a canonical caller-supplied symbol, a positive representable interval, and strictly increasing non-overflowing bar times." }
       ],
       "ensures": [
         { "id": "H-EXTERNAL-E1", "statement": "Each bar receives only the latest admissible observation at or before its close; cross-sectional membership is selected from the contemporaneous universe." },
