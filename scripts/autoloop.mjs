@@ -27,7 +27,7 @@ import {
 
 const ROOT = process.cwd();
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-const OPENAI_MODEL = process.env.AUTOLOOP_MODEL || process.env.OPENAI_MODEL || "gpt-5.4";
+const OPENAI_MODEL = process.env.AUTOLOOP_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-terra";
 const ANTHROPIC_BASE_URL = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
 const ANTHROPIC_MODEL = process.env.AUTOLOOP_MODEL || process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
 const ANTHROPIC_VERSION = process.env.ANTHROPIC_VERSION || "2023-06-01";

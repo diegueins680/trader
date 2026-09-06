@@ -1273,6 +1273,7 @@ test("autoloop script prefers the stored gh auth token over a stale GH_TOKEN env
 
 test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const OPENAI_MODEL = process\.env\.AUTOLOOP_MODEL \|\| process\.env\.OPENAI_MODEL \|\| "gpt-5\.6-terra";/);
   assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 420000, 10000, 1800000\);/);
   assert.match(script, /const CODEX_PATCH_TIMEOUT_MS = clampInt\(\s*process\.env\.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,\s*1800000,\s*CODEX_EXEC_TIMEOUT_MS,\s*3600000,\s*\);/);
   assert.match(script, /const CODEX_RETRY_MAX_ATTEMPTS = clampInt\(process\.env\.AUTOLOOP_CODEX_RETRY_MAX_ATTEMPTS, 2, 1, 5\);/);

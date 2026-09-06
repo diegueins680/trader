@@ -59,7 +59,7 @@ Optional local `.env` settings:
 - `OPENAI_API_KEY`
 - `AUTOLOOP_BACKEND`
 - `AUTOLOOP_MODEL` (overrides the active backend's model; defaults to
-  `claude-opus-4-8` for Anthropic, `gpt-5.4` for OpenAI/Codex)
+  `claude-opus-4-8` for Anthropic, `gpt-5.6-terra` for OpenAI/Codex)
 - `ANTHROPIC_MODEL`
 - `AUTOLOOP_MAX_ITERATIONS`
 - `AUTOLOOP_FOREVER_INTERVAL_SECONDS`

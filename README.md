@@ -501,6 +501,8 @@ Before replacing Caddy, the deploy preserves the running container's effective c
 
 Autoloop never auto-resolves merge conflicts. It promotes only non-recovery branches under the `autoloop/` namespace; Dependabot and operator-owned branches remain for explicit review. Promoted branches must pass the matching canonical verification wrapper before push.
 
+For ChatGPT-authenticated Codex automation, the default model is `gpt-5.6-terra`; override it with `AUTOLOOP_MODEL` or `CODEX_LOOP_MODEL` only when the selected model is available to the active account.
+
 ## Project layout
 
 ```text
