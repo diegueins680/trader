@@ -35,7 +35,7 @@ import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, mapAccumL, sortOn, stripPrefix, zip6)
+import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix, zip6)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybe, maybeToList)
 import qualified Data.Ord
@@ -230,6 +230,7 @@ import Trader.Binance (
  )
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
+import Trader.BotSnapshotRecovery (TradeMemorySnapshotContext (..), restoreTradeMemoryFromStatus, snapshotMatchesTradeMemoryContext)
 import Trader.BotStartSemantics (
     AdoptionEvidenceConfig (..),
     BacktestVerdict (..),
@@ -8454,54 +8455,6 @@ mergeBotSnapshots snaps =
             Aeson.Object o -> KM.lookup "symbol" o >>= AT.parseMaybe parseJSON
             _ -> Nothing
 
-parseTradeEntrySourceCode :: String -> Maybe TradeEntrySource
-parseTradeEntrySourceCode raw =
-    case map toLower (trim raw) of
-        "signal" -> Just TradeEntrySignal
-        "adopted" -> Just TradeEntryAdopted
-        "post_direction_gates" -> Just TradeEntryPostDirectionGates
-        "post-direction-gates" -> Just TradeEntryPostDirectionGates
-        "postdirectiongates" -> Just TradeEntryPostDirectionGates
-        _ -> Nothing
-
-tradeFromSnapshotValue :: Aeson.Value -> Maybe Trade
-tradeFromSnapshotValue =
-    AT.parseMaybe $
-        Aeson.withObject "Trade" $ \o -> do
-            entryEquity <- o Aeson..: "entryEquity"
-            exitEquity <- o Aeson..: "exitEquity"
-            mReturn <- o Aeson..:? "return"
-            holdingPeriods <- fromMaybe 0 <$> (o Aeson..:? "holdingPeriods")
-            entryHighVolProb <- o Aeson..:? "entryHighVolProb"
-            entrySourceRaw <- o Aeson..:? "entrySource"
-            exitReasonRaw <- o Aeson..:? "exitReason"
-            entryIp <- o Aeson..:? "entryIp"
-            exitIp <- o Aeson..:? "exitIp"
-            let entrySource = fromMaybe TradeEntrySignal (entrySourceRaw >>= parseTradeEntrySourceCode)
-                tradeReturn =
-                    case mReturn of
-                        Just r | isFiniteDouble r -> r
-                        _ ->
-                            if isFiniteDouble entryEquity && isFiniteDouble exitEquity && entryEquity > 0
-                                then exitEquity / entryEquity - 1
-                                else 0
-                exitReason = exitReasonRaw >>= exitReasonFromCode
-            pure
-                Trade
-                    { trEntryIndex = 0
-                    , trExitIndex = max 1 holdingPeriods
-                    , trEntryEquity = entryEquity
-                    , trExitEquity = exitEquity
-                    , trReturn = tradeReturn
-                    , trHoldingPeriods = holdingPeriods
-                    , trEntryHighVolProb = entryHighVolProb
-                    , trEntrySource = entrySource
-                    , trExitReason = exitReason
-                    , trEntryIp = entryIp
-                    , trExitIp = exitIp
-                    , trFeeCost = 0.0
-                    }
-
 closeTimingSampleFromSnapshotValue :: Aeson.Value -> Maybe BotCloseTimingSample
 closeTimingSampleFromSnapshotValue =
     AT.parseMaybe $
@@ -8533,16 +8486,6 @@ closeTimingSampleFromSnapshotValue =
                             , bctsMaxPnlReturn = maxPnlReturn
                             }
 
-reindexRestoredTrades :: [Trade] -> [Trade]
-reindexRestoredTrades trades =
-    snd (mapAccumL reindex 0 trades)
-  where
-    reindex idx tr =
-        let hold = max 1 (trHoldingPeriods tr)
-            entryIdx = idx
-            exitIdx = idx + hold
-         in (exitIdx + 1, tr{trEntryIndex = entryIdx, trExitIndex = exitIdx})
-
 restoredTradeMemoryLimit :: Args -> Int
 restoredTradeMemoryLimit args =
     let perfLookback = max 0 (argPerfLookback args)
@@ -8552,20 +8495,19 @@ restoredTradeMemoryLimit args =
         rawLimit = maximum [50, 4 * max 1 adaptiveBudget, 4 * max 1 lossStreakMax]
      in clampInt 50 1000 rawLimit
 
+botTradeMemorySnapshotContext :: Args -> String -> TradeMemorySnapshotContext
+botTradeMemorySnapshotContext args sym =
+    TradeMemorySnapshotContext
+        { tmscSymbol = normalizeSymbol sym
+        , tmscInterval = argInterval args
+        , tmscMarket = marketCode (argBinanceMarket args)
+        , tmscMethod = methodCode (argMethod args)
+        , tmscTradeLimit = restoredTradeMemoryLimit args
+        }
+
 botSnapshotMatchesTradeMemoryContext :: Args -> String -> Aeson.Value -> Bool
-botSnapshotMatchesTradeMemoryContext args sym statusValue =
-    case statusValue of
-        Aeson.Object o ->
-            let getText key = KM.lookup key o >>= AT.parseMaybe parseJSON
-                expectedSymbol = normalizeSymbol sym
-                expectedInterval = argInterval args
-                expectedMarket = marketCode (argBinanceMarket args)
-                expectedMethod = methodCode (argMethod args)
-             in getText "symbol" == Just expectedSymbol
-                    && getText "interval" == Just expectedInterval
-                    && getText "market" == Just expectedMarket
-                    && getText "method" == Just expectedMethod
-        _ -> False
+botSnapshotMatchesTradeMemoryContext args sym =
+    snapshotMatchesTradeMemoryContext (botTradeMemorySnapshotContext args sym)
 
 restoreTradeMemoryFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> IO [Trade]
 restoreTradeMemoryFromSnapshotMaybe mDir tenantKey args sym = do
@@ -8573,17 +8515,7 @@ restoreTradeMemoryFromSnapshotMaybe mDir tenantKey args sym = do
     let restored =
             case mSnap of
                 Nothing -> []
-                Just snap ->
-                    if not (botSnapshotMatchesTradeMemoryContext args sym (bssStatus snap))
-                        then []
-                        else case bssStatus snap of
-                            Aeson.Object o ->
-                                case KM.lookup "trades" o of
-                                    Just (Aeson.Array tradesV) ->
-                                        let parsed = mapMaybe tradeFromSnapshotValue (V.toList tradesV)
-                                         in reindexRestoredTrades (takeLast (restoredTradeMemoryLimit args) parsed)
-                                    _ -> []
-                            _ -> []
+                Just snap -> restoreTradeMemoryFromStatus (botTradeMemorySnapshotContext args sym) (bssStatus snap)
     pure restored
 
 restoreNeuralGovernorStateFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> NeuralGovernorConfig -> IO NeuralGovernorState

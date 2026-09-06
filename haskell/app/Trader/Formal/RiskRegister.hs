@@ -30,6 +30,7 @@ data RiskID
     | CIO_DEAFNESS_001
     | EXECUTION_DATASET_001
     | EXECUTION_MISSING_001
+    | EXECUTION_RESTART_001
     | EXPECTANCY_INVALID_001
     | FEATURE_MISSINGNESS_001
     | GITHUB_502_001
@@ -92,6 +93,7 @@ riskIdText = \case
     CIO_DEAFNESS_001 -> "CIO-DEAFNESS-001"
     EXECUTION_DATASET_001 -> "EXECUTION-DATASET-001"
     EXECUTION_MISSING_001 -> "EXECUTION-MISSING-001"
+    EXECUTION_RESTART_001 -> "EXECUTION-RESTART-001"
     EXPECTANCY_INVALID_001 -> "EXPECTANCY-INVALID-001"
     FEATURE_MISSINGNESS_001 -> "FEATURE-MISSINGNESS-001"
     GITHUB_502_001 -> "GITHUB-502-001"
@@ -178,6 +180,13 @@ riskRegister =
         "The execution reporting lane missed recorded trade-log deadlines"
         "trader-firm-execution"
         "Obtain a current execution report and explicitly close or reassign the operational obligation"
+    , riskEntry
+        EXECUTION_RESTART_001
+        CRITICAL
+        CLOSED
+        "Persisted bot exposure could create a phantom position during restart"
+        "trader-firm-risk"
+        "Startup exposure is venue-authoritative; snapshot recovery admits only identity-matched closed-trade memory and deterministic scenario coverage proves exposure fields are ignored"
     , riskEntry
         EXPECTANCY_INVALID_001
         CRITICAL

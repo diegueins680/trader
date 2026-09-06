@@ -331,16 +331,25 @@
     {
       "id": "H-EXECUTION",
       "title": "Live order intent and fill reconciliation",
-      "features": ["desired position", "order direction", "fill evidence", "applied fraction", "position reconciliation", "reduce-only reconciliation"],
+      "features": ["desired position", "order direction", "fill evidence", "applied fraction", "position reconciliation", "reduce-only reconciliation", "closed-trade snapshot recovery"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/OrderExecution.hs", "haskell/app/Trader/LiveOrderIntent.hs"],
+      "implementation": ["haskell/app/Trader/OrderExecution.hs", "haskell/app/Trader/LiveOrderIntent.hs", "haskell/app/Trader/BotSnapshotRecovery.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-REDUCE-ONLY", "G-ACCOUNT"],
       "dependsOn": ["H-TYPES"],
       "requires": [{ "id": "H-EXECUTION-R1", "statement": "A fill transition requires sent/live/status evidence plus a positive finite executed or defensible fallback quantity in one declared unit." }],
       "ensures": [{ "id": "H-EXECUTION-E1", "statement": "closeQty + openQty = sanitized executedQty; applied exposure fraction <= intended fraction; reduce-only never increases or flips exposure." }],
-      "invariants": [{ "id": "H-EXECUTION-I1", "statement": "Canceled/failed status with no executed quantity applies nothing; explicit partial fill evidence dominates terminal status text." }],
+      "invariants": [
+        { "id": "H-EXECUTION-I1", "statement": "Canceled/failed status with no executed quantity applies nothing; explicit partial fill evidence dominates terminal status text." },
+        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory from status; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." }
+      ],
       "failures": [{ "id": "H-EXECUTION-F1", "statement": "Unsent, ambiguous, non-positive, non-finite, or unitless live evidence applies no quantity." }],
-      "evidence": [{ "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Execution.hs", "contains": "verifyFormalExecution" }]
+      "evidence": [
+        { "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Execution.hs", "contains": "verifyFormalExecution" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testStartupCanceledAfterPartialExecutionScenario" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testLiveReversalPartialEntryScenario" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testReduceOnlyPartialTakeProfitTerminalCancelScenario" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testSnapshotRestartRestoresMemoryWithoutExposureScenario" }
+      ]
     },
     {
       "id": "H-RISK",

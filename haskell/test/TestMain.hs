@@ -30,6 +30,7 @@ import Trader.App.Env (canonicalizeUuidEnvValues)
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
+import Trader.BotSnapshotRecovery (TradeMemorySnapshotContext (..), restoreTradeMemoryFromStatus)
 import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
@@ -214,7 +215,7 @@ import Trader.Optimizer.Optimize (
     qualityPresetWeightFloor,
  )
 import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
-import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
 import Trader.Platform (Platform (..))
 import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
 import Trader.PortfolioSelection (
@@ -672,6 +673,10 @@ main = do
     testBacktestCostAttributionNonFiniteComponentsRegression
     testOrderExecutionFillSanitizationInvariant
     testSplitReversalExecutionInvariant
+    testStartupCanceledAfterPartialExecutionScenario
+    testLiveReversalPartialEntryScenario
+    testReduceOnlyPartialTakeProfitTerminalCancelScenario
+    testSnapshotRestartRestoresMemoryWithoutExposureScenario
     testOrderExecutionCorruptedInputInvariant
     testCoinbaseBuildRangesOverflowRegression
     testCoinbaseOrderInfoDecodeInvariant
@@ -7826,6 +7831,156 @@ testSplitReversalExecutionInvariant = do
         (partialPos == -1 && partialOpen == 0)
     assertNear "partial split reversal retains the remaining original position" 0.15 partialSize 1e-12
     assertNear "partial split reversal accounts both close contributions" 0.85 partialClose 1e-12
+
+testStartupCanceledAfterPartialExecutionScenario :: IO ()
+testStartupCanceledAfterPartialExecutionScenario = do
+    let terminalEvidence =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "CANCELED"
+                , oeeExecutedQty = Just 0.8
+                }
+        appliedFraction = orderAppliedFraction terminalEvidence (Just 2) 0.5
+        result = applyExecutedQuantity 0 0 True (fromMaybe 0 appliedFraction)
+        halt = maxDrawdownHaltForPosition (first4 result) (second4 result)
+    assertNear
+        "startup preserves the equity fraction implied by an explicit partial fill on a canceled order"
+        0.2
+        (fromMaybe 0 appliedFraction)
+        1e-12
+    assert
+        "startup canceled-after-partial opens only the causally observed filled exposure"
+        (result == (1, 0.2, 0, 0.2))
+    assert
+        "the canonical halt path can flatten the startup partial-fill exposure"
+        (lrhaExitReason halt == Just ExitMaxDrawdown && lrhaDesiredPosition halt == 0 && lrhaOrderDirection halt == Just (-1))
+
+testLiveReversalPartialEntryScenario :: IO ()
+testLiveReversalPartialEntryScenario = do
+    let confirmedCloseEvidence =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "FILLED"
+                , oeeExecutedQty = Just 0.6
+                }
+        terminalEntryEvidence =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "CANCELED"
+                , oeeExecutedQty = Just 0.1
+                }
+        closeApplied = orderAppliedFraction confirmedCloseEvidence (Just 0.6) 0.6
+        entryApplied = orderAppliedFraction terminalEntryEvidence (Just 0.4) 0.4
+        result =
+            applySplitReversalExecutedQuantities
+                1
+                0.6
+                False
+                (fromMaybe 0 closeApplied)
+                (fromMaybe 0 entryApplied)
+        halt = maxDrawdownHaltForPosition (first4 result) (second4 result)
+    assert
+        "live reversal accounts the confirmed close and terminal partial entry as independent legs"
+        (result == (-1, 0.1, 0.6, 0.1))
+    assert
+        "the canonical halt path buys only to flatten the partial short reversal"
+        (lrhaExitReason halt == Just ExitMaxDrawdown && lrhaDesiredPosition halt == 0 && lrhaOrderDirection halt == Just 1)
+
+testReduceOnlyPartialTakeProfitTerminalCancelScenario :: IO ()
+testReduceOnlyPartialTakeProfitTerminalCancelScenario = do
+    let terminalEvidence =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "CANCELED"
+                , oeeExecutedQty = Just 0.2
+                }
+        appliedFraction = orderAppliedFraction terminalEvidence (Just 0.5) 0.5
+        result = applyReduceOnlyExecutedQuantity 1 1 (fromMaybe 0 appliedFraction)
+        halt = maxDrawdownHaltForPosition (first4 result) (second4 result)
+    assert
+        "reduce-only partial take-profit preserves the terminal fill and cannot open opposite exposure"
+        (result == (1, 0.8, 0.2, 0))
+    assert
+        "the canonical halt path still flattens the remaining long after a terminal partial take-profit"
+        (lrhaExitReason halt == Just ExitMaxDrawdown && lrhaDesiredPosition halt == 0 && lrhaOrderDirection halt == Just (-1))
+
+testSnapshotRestartRestoresMemoryWithoutExposureScenario :: IO ()
+testSnapshotRestartRestoresMemoryWithoutExposureScenario = do
+    let context =
+            TradeMemorySnapshotContext
+                { tmscSymbol = "BTCUSDT"
+                , tmscInterval = "5m"
+                , tmscMarket = "futures"
+                , tmscMethod = "both"
+                , tmscTradeLimit = 50
+                }
+        tradeValue =
+            Aeson.object
+                [ "entryEquity" .= (1 :: Double)
+                , "exitEquity" .= (1.1 :: Double)
+                , "return" .= (0.1 :: Double)
+                , "holdingPeriods" .= (3 :: Int)
+                , "entrySource" .= ("signal" :: String)
+                ]
+        statusWithPosition positions openTrade =
+            Aeson.object
+                [ "symbol" .= ("BTCUSDT" :: String)
+                , "interval" .= ("5m" :: String)
+                , "market" .= ("futures" :: String)
+                , "method" .= ("both" :: String)
+                , "positions" .= (positions :: [Int])
+                , "openTrade" .= openTrade
+                , "trades" .= [tradeValue]
+                ]
+        statusClaimingExposure = statusWithPosition [0, 1] (Aeson.object ["side" .= ("long" :: String), "size" .= (1 :: Double)])
+        statusClaimingFlat = statusWithPosition [0, 0] Aeson.Null
+        restoredFromExposureSnapshot = restoreTradeMemoryFromStatus context statusClaimingExposure
+        restoredFromFlatSnapshot = restoreTradeMemoryFromStatus context statusClaimingFlat
+        flatHalt = maxDrawdownHaltForPosition 0 0
+    assert
+        "restart restores the same bounded closed-trade memory regardless of persisted position/open-trade claims"
+        ( restoredFromExposureSnapshot == restoredFromFlatSnapshot
+            && case restoredFromExposureSnapshot of
+                [tr] -> trEntryIndex tr == 0 && trExitIndex tr == 3 && trReturn tr == 0.1
+                _ -> False
+        )
+    assert
+        "a venue-flat restart has no phantom halt order even when its historical snapshot claimed exposure"
+        (lrhaExitReason flatHalt == Just ExitMaxDrawdown && lrhaDesiredPosition flatHalt == 0 && isNothing (lrhaOrderDirection flatHalt))
+
+maxDrawdownHaltForPosition :: Int -> Double -> LiveRiskHaltAction
+maxDrawdownHaltForPosition position positionSize =
+    liveRiskHaltAction
+        position
+        HaltInputs
+            { hiPrevHaltReason = Nothing
+            , hiDayChanged = False
+            , hiWeekChanged = False
+            , hiDailyLoss = 0
+            , hiWeeklyLoss = 0
+            , hiDrawdown = 0.06
+            , hiExpectancy = Nothing
+            , hiMaxDailyLossLim = Nothing
+            , hiMaxWeeklyLossLim = Nothing
+            , hiMaxDrawdownLim = Just 0.05
+            , hiMinExpectancy = Nothing
+            , hiPositionSize = positionSize
+            , hiMaxPositionSizeLim = Just 1
+            , hiConsecutiveLosses = 0
+            , hiMaxLossStreakLim = Nothing
+            , hiVolTarget = 0
+            , hiLeverage = 0
+            }
+
+first4 :: (a, b, c, d) -> a
+first4 (a, _, _, _) = a
+
+second4 :: (a, b, c, d) -> b
+second4 (_, b, _, _) = b
 
 testOrderExecutionCorruptedInputInvariant :: IO ()
 testOrderExecutionCorruptedInputInvariant = do

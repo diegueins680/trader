@@ -30,6 +30,7 @@ executable trader-hs
                      , Trader.Dex
                      , Trader.App.Args
                      , Trader.BinanceIntervals
+                     , Trader.BotSnapshotRecovery
                      , Trader.BotStartSemantics
                      , Trader.Duration
                      , Trader.ExternalData
@@ -287,6 +288,7 @@ test-suite trader-tests
                      , Trader.App.GracefulShutdown
                      , Trader.App.Runtime
                      , Trader.BinanceIntervals
+                     , Trader.BotSnapshotRecovery
                      , Trader.BotStartSemantics
                      , Trader.Duration
                      , Trader.ExternalData
