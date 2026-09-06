@@ -10,6 +10,10 @@ Update note, 2026-06-22:
 - Live exchange price-loading paths now route through one enforced post-load/pre-strategy market-series QA gate. Binance, Coinbase, Kraken, and Poloniex inputs reject non-finite OHLCV, invalid OHLC relationships, negative volume, duplicate/non-increasing timestamps, missing-bar continuity, still-open candles, and stale last-closed bars before strategy execution.
 - CSV/offline input is structurally validated but intentionally does not enforce interval continuity or wall-clock freshness by default, because CSV can be historical or time-agnostic input rather than a live venue feed.
 
+Update note, 2026-09-06:
+- The shared gate regression now exercises out-of-order normalization and non-finite open, high, low, close, and volume values explicitly, alongside the existing stale, gap, duplicate, open-candle, invalid-OHLC, and negative-volume cases.
+- This closes the remaining deterministic acceptance-evidence gap in GitHub issue #103 without changing gate semantics or the intentionally softer CSV/offline policy.
+
 Scope reviewed:
 - `haskell/app/Trader/App/Csv.hs`
 - `haskell/app/Trader/Binance.hs`
@@ -348,6 +352,7 @@ The bot polling path continues to apply stale/gap checks before processing new m
 - Hard-fail vs soft-fail recommendations: **DONE**
 - Leakage risks: **DONE**
 - Stale-data threshold assumptions: **DONE**
+- Deterministic stale, gap, duplicate, out-of-order, open-candle, non-finite OHLCV, invalid-OHLC, and volume-policy regression cases: **DONE**
 - “Malformed or stale data blocks trading where appropriate”: **DONE FOR LIVE EXCHANGE PRICE-LOADING PATHS** after the shared post-load/pre-strategy QA gate; **SOFT FOR CSV/OFFLINE INPUT** by design.
 
 ### P0 disposition

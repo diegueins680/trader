@@ -4541,6 +4541,9 @@ testMarketDataFreshnessAndContinuationInvariant = do
         "shared market-series QA drops the still-open candle and preserves contiguous closed bars"
         (normalizeClosedMarketSeries "test candle" hourMs (lastOpen + 2 * hourMs + 1) closedBars == Right (take 2 closedBars))
     assert
+        "shared market-series QA normalizes out-of-order input before enforcing strict monotonicity"
+        (normalizeClosedMarketSeries "test candle" hourMs (lastOpen + 2 * hourMs + 1) (reverse (take 2 closedBars)) == Right (take 2 closedBars))
+    assert
         "shared market-series QA rejects missing bars"
         ( case normalizeClosedMarketSeries "test candle" hourMs (lastOpen + 3 * hourMs) [head closedBars, closedBars !! 2] of
             Left err -> "test candle gap expectedOpenTimeMs=" `isPrefixOf` err
@@ -4552,6 +4555,23 @@ testMarketDataFreshnessAndContinuationInvariant = do
             Left err -> "test candle duplicate/non-increasing openTimeMs=" `isPrefixOf` err
             Right _ -> False
         )
+    let notANumber = 0 / 0
+        positiveInfinity = 1 / 0
+        negativeInfinity = negate positiveInfinity
+        nonFiniteBars =
+            [ (mkBar lastOpen 100){msbOpen = Just notANumber}
+            , (mkBar lastOpen 100){msbHigh = Just positiveInfinity}
+            , (mkBar lastOpen 100){msbLow = Just negativeInfinity}
+            , (mkBar lastOpen 100){msbClose = notANumber}
+            , (mkBar lastOpen 100){msbVolume = Just positiveInfinity}
+            ]
+        rejectsNonFinite bar =
+            case validateMarketSeriesBars "test candle" [bar] of
+                Left err -> "test candle invalid numeric payload" `isPrefixOf` err
+                Right () -> False
+    assert
+        "shared market-series QA rejects non-finite open, high, low, close, and volume values"
+        (all rejectsNonFinite nonFiniteBars)
     assert
         "shared market-series QA rejects malformed OHLC and volume"
         ( case ( validateMarketSeriesBars "test candle" [(mkBar lastOpen 100){msbHigh = Just 99}]
