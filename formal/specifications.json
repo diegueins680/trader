@@ -315,18 +315,22 @@
     {
       "id": "H-TRADING",
       "title": "Backtest and live decision state machine",
-      "features": ["ensemble simulation", "position state", "long-short flips", "stop loss", "take profit", "partial take profit", "trailing stop", "max hold", "funding", "Kelly sizing", "cost attribution"],
+      "features": ["ensemble simulation", "position state", "long-short flips", "stop loss", "take profit", "partial take profit", "trailing stop", "max hold", "funding", "Kelly sizing", "adaptive threshold factor", "cost attribution"],
       "criticality": "safety",
       "implementation": ["haskell/app/Trader/Trading.hs", "haskell/app/Trader/ComboTracking.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-REDUCE-ONLY", "G-ACCOUNT", "G-CAUSAL"],
       "dependsOn": ["H-SIGNAL-GATES", "H-GOVERNORS", "H-EXECUTION", "H-RISK"],
       "requires": [{ "id": "H-TRADING-R1", "statement": "Input vectors align, prices/OHLC are finite and valid, configuration is validated, and each event has one prior position/equity state." }],
-      "ensures": [{ "id": "H-TRADING-E1", "statement": "Each bar produces one deterministic next state; exposure is bounded; exits/partial exits reconcile trades and costs; emitted curves align by index." }],
+      "ensures": [
+        { "id": "H-TRADING-E1", "statement": "Each bar produces one deterministic next state; exposure is bounded; exits/partial exits reconcile trades and costs; emitted curves align by index." },
+        { "id": "H-TRADING-E2", "statement": "Threshold-factor configuration is neutral when disabled and, when enabled, causally scales simulation entry, exit, edge, and signal-to-noise thresholds within validated bounds." }
+      ],
       "invariants": [{ "id": "H-TRADING-I1", "statement": "gross - cumulative realized costs = net within tolerance; no same-event re-entry occurs unless explicitly specified; live and backtest share entry/exit admission predicates." }],
       "failures": [{ "id": "H-TRADING-F1", "statement": "Misaligned/malformed simulation evidence returns Left/flat and cannot emit NaN equity or exposure." }],
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testBacktestCostAttributionGrossNetConsistency" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPartialTakeProfitTradeFeesMatchAttribution" }
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPartialTakeProfitTradeFeesMatchAttribution" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testThresholdFactorChangesSimulatorAdmission" }
       ]
     },
     {

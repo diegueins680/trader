@@ -667,6 +667,7 @@ main = do
     testConformalCalibrationResidualsFailClosed
     testAdaptiveConformalRadiusRespondsToMisses
     testBacktestEntryGateUsesRoundTripFeeBuffer
+    testThresholdFactorChangesSimulatorAdmission
     testBacktestFreshEntrySizingBoundsFailClosed
     testBacktestPositionSizeFloorCapValidation
     testBacktestCostAttributionGrossNetConsistency
@@ -7466,6 +7467,63 @@ testBacktestEntryGateUsesRoundTripFeeBuffer = do
         (Left err, _, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
         (_, Left err, _) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
         (_, _, Left err) -> ioError (userError ("scaled fixed-fee fee-buffer regression failed to simulate: " ++ err))
+
+-- Simulation-level wiring witness: the disabled contract must remain neutral,
+-- while the same factor bounds must change entry admission when enabled. This
+-- guards the simulator endpoint of the separately audited Args -> EnsembleConfig
+-- path without claiming that a stricter threshold is economically superior.
+testThresholdFactorChangesSimulatorAdmission :: IO ()
+testThresholdFactorChangesSimulatorAdmission = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        predictions :: V.Vector Double
+        predictions = V.fromList [102.0, 102.0]
+        noMeta :: Maybe (V.Vector StepMeta)
+        noMeta = Nothing
+        configured =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                , ecThresholdFactorAlpha = 0
+                , ecThresholdFactorMin = 3
+                , ecThresholdFactorMax = 3
+                }
+        disabledResult =
+            simulateEnsembleWithHLChecked
+                configured{ecThresholdFactorEnabled = False}
+                1
+                prices
+                prices
+                prices
+                predictions
+                predictions
+                noMeta
+        enabledResult =
+            simulateEnsembleWithHLChecked
+                configured{ecThresholdFactorEnabled = True}
+                1
+                prices
+                prices
+                prices
+                predictions
+                predictions
+                noMeta
+        maxAbsPosition result = maximum (0 : map abs (brPositions result))
+    case (disabledResult, enabledResult) of
+        (Right disabled, Right enabled) -> do
+            assert
+                "disabled threshold factor leaves a two-percent signal above the one-percent entry threshold"
+                (maxAbsPosition disabled > 0.99)
+            assert
+                "enabled three-times threshold factor blocks the identical two-percent signal in simulation"
+                (maxAbsPosition enabled == 0 && null (brTrades enabled))
+        (Left err, _) -> ioError (userError ("disabled threshold-factor regression failed to simulate: " ++ err))
+        (_, Left err) -> ioError (userError ("enabled threshold-factor regression failed to simulate: " ++ err))
 
 testSweepThresholdMinRoundTripsFallback :: IO ()
 testSweepThresholdMinRoundTripsFallback = do

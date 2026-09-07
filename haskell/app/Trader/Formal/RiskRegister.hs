@@ -302,10 +302,10 @@ riskRegister =
     , riskEntry
         THRESHOLD_FACTOR_001
         MEDIUM
-        OPEN
+        CLOSED
         "thresholdFactor may not be wired into simulation configuration"
         "trader-firm-research"
-        "Confirm the research contract and add a simulation integration witness"
+        "CLI validation, optimizer serialization, both simulation constructors, causal simulator application, and an enabled-versus-disabled admission regression are verified"
     , riskEntry
         TRADE_LOG_GAP_001
         HIGH
