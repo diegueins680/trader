@@ -14,9 +14,10 @@ trailing-stop, or take-profit exit is therefore filled and recorded at
 `t+1`. Before this change, a zero configured cooldown left the next fold step
 eligible to open immediately; that step also used `t+1` as its entry index.
 
-`testTrailingStopSameBarReentryLock` uses a deterministic long signal, a two
-percent trailing stop, and zero configured cooldown. The first test-only run
-failed with:
+The former trailing-stop-only regression was generalized as
+`testProtectiveExitSameEventReentryLock`. It exercises deterministic stop-loss,
+trailing-stop, and full take-profit fixtures with zero configured cooldown. The
+first trailing-stop test-only run failed with:
 
 ```text
 Assertion failed: trailing-stop exit and fresh entry never share an event index
