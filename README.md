@@ -259,6 +259,21 @@ The renewal command reads the delivered scope and quoted monitoring price from t
 
 Optimizer result filters remain authoritative: a filtered trial is never emitted as an eligible result. Trials rejected only by selected soft performance filters may remain internal search parents when they have final equity and present walk-forward stability evidence within the search cap; the stricter survivor activity and annual-return floors still govern exploitation parent selection. Configuration, risk, data, edge, Kelly, and missing-walk-forward failures remain hard exclusions.
 
+For a small fixed-window public spot dataset, `scripts/fetch-data-pipeline.sh`
+now requires an explicit `END_TIME_MS` cutoff; it will not fetch a moving
+“latest” window. The standard-library generator admits only exact, contiguous,
+completed, finite, OHLC-coherent rows and writes a deterministic schema-1
+manifest after the CSV files. The manifest binds request parameters, time
+bounds, public source/license metadata, source-row and CSV SHA-256 hashes, the
+generator hash, and explicit no-randomness status. Use `EXPECTED_MANIFEST` to
+reject upstream drift before replacement and `VERIFY_MANIFEST` for a
+network-free integrity check. Production fetches accept only the official
+Binance HTTPS endpoint and reject URL credentials; the endpoint override is
+retained for the loopback-only regression fixture. See
+`docs/audits/backtest-dataset-provenance-2026-09-07.md` for commands and the
+legacy-fixture boundary. This utility does not open a holdout or authorize a
+model, promotion, deployment, or order.
+
 ## Edge research campaign
 
 Run the pre-registered residual-momentum campaign from the repository root:

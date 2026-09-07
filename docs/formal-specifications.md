@@ -44,6 +44,16 @@ meaning. A partial field pair, duplicate or missing member, unknown policy, or
 time-incoherent order fails closed. Rotation neither increases request volume
 nor makes a throttled or incomplete run admissible.
 
+The small public backtest-data path is separately fixed-window and hash-bound.
+It requires an explicit end time, accepts only exact contiguous completed bars,
+records public source/license metadata plus explicit no-randomness provenance,
+and binds the generator, normalized source rows, and deterministic CSV bytes by
+SHA-256 in a schema-1 manifest. Expected-manifest drift is rejected before any
+replacement, and offline verification fails on changed code, provenance,
+request identity, metadata, or data bytes. Legacy unmanifested CSV fixtures
+remain historical Git evidence and are not retroactively promoted to this
+contract.
+
 `H-EXECUTION` also binds restart recovery to a narrow closed-trade-memory
 contract. A status snapshot must match symbol, interval, market, and method;
 only its bounded `trades` history is decoded. Persisted `positions` and
