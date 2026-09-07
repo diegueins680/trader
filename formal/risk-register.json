@@ -29,7 +29,7 @@
     { "id": "RISK-LIMIT-NON-FINITE-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "RISK-METRIC-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "SCHEMA-001", "severity": "CRITICAL", "status": "CLOSED" },
-    { "id": "THRESHOLD-FACTOR-001", "severity": "MEDIUM", "status": "OPEN" },
+    { "id": "THRESHOLD-FACTOR-001", "severity": "MEDIUM", "status": "CLOSED" },
     { "id": "TRADE-LOG-GAP-001", "severity": "HIGH", "status": "CLOSED" },
     { "id": "TRADE-LOG-GAP-002", "severity": "MEDIUM", "status": "OPEN" },
     { "id": "TRAILING-STOP-001", "severity": "MEDIUM", "status": "OPEN" },
