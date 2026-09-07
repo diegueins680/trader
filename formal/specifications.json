@@ -260,7 +260,10 @@
       "ensures": [{ "id": "H-KALMAN-E1", "statement": "Posterior state and covariance remain finite, covariance non-negative, and valid evidence cannot increase uncertainty under the declared scalar update model." }],
       "invariants": [{ "id": "H-KALMAN-I1", "statement": "Malformed observations leave the prior unchanged; OnlineStats count/mean/M2 remain finite and M2 >= 0." }],
       "failures": [{ "id": "H-KALMAN-F1", "statement": "Invalid measurements are ignored and invalid configuration is rejected before filtering." }],
-      "evidence": [{ "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Optimization.hs", "contains": "fvrKalmanFusionPosteriorFinite" }]
+      "evidence": [
+        { "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Optimization.hs", "contains": "fvrKalmanFusionPosteriorFinite" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testKalmanLongRunNumericalStability" }
+      ]
     },
     {
       "id": "H-TA",
