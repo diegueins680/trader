@@ -9,7 +9,7 @@
     { "id": "AUTOLOOP-SINGLETON-001", "severity": "HIGH", "status": "CLOSED" },
     { "id": "AUTOLOOP-STALL-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "BINARY-HANG-001", "severity": "MEDIUM", "status": "MITIGATED" },
-    { "id": "CIO-DEAFNESS-001", "severity": "CRITICAL", "status": "OPEN" },
+    { "id": "CIO-DEAFNESS-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "EXECUTION-DATASET-001", "severity": "MEDIUM", "status": "OPEN" },
     { "id": "EXECUTION-MISSING-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "EXECUTION-RESTART-001", "severity": "CRITICAL", "status": "CLOSED" },

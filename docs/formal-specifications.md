@@ -67,6 +67,12 @@ remaining exchange/network, accounting, and end-to-end IO limitations. That
 administrative disposition changes no `H-EXECUTION` guarantee and grants no
 production-readiness or live-order authority.
 
+The current CIO accountability report separately closes `CIO-DEAFNESS-001`
+with an explicit NO-GO while retaining both missed historical deadlines. It
+preserves the current champion, the sealed historical holdout, the prospective
+evaluation boundary, all three substantive open risks, and all mitigated-risk
+conditions; the report itself cannot authorize promotion or an order.
+
 ## Verification
 
 Run:

@@ -162,10 +162,10 @@ riskRegister =
     , riskEntry
         CIO_DEAFNESS_001
         CRITICAL
-        OPEN
+        CLOSED
         "The CIO reporting lane missed recorded deadlines"
         "trader-firm-ceo"
-        "Obtain a current owner report and explicitly close or reassign the operational obligation"
+        "Current CIO report retains the missed deadlines, renders NO-GO, preserves the champion and sealed holdout, and inventories every unresolved risk"
     , riskEntry
         EXECUTION_DATASET_001
         MEDIUM
@@ -347,7 +347,7 @@ riskRegister =
         OPEN
         "No strategy signal had met the recorded long-sample viability threshold"
         "trader-firm-research"
-        "Run and record a current long-dataset viability evaluation"
+        "Preserve the champion and continue only preregistered prospective protocols; require all economic, statistical, cost, delay, and drawdown gates before promotion"
     ]
 
 -- | Lookup severity by risk ID.

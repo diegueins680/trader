@@ -378,7 +378,8 @@
       "evidence": [
         { "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Risk.hs", "contains": "verifyFormalRisk" },
         { "level": "regression", "path": "test/formal-specs.test.mjs", "contains": "canonical risk register has unique ordered IDs and coherent projections" },
-        { "level": "operational", "path": "docs/audits/execution-current-report-2026-09-07.md", "contains": "Disposition of `EXECUTION-MISSING-001`" }
+        { "level": "operational", "path": "docs/audits/execution-current-report-2026-09-07.md", "contains": "Disposition of `EXECUTION-MISSING-001`" },
+        { "level": "operational", "path": "docs/audits/cio-current-accountability-report-2026-09-07.md", "contains": "Disposition of `CIO-DEAFNESS-001`" }
       ]
     },
     {
