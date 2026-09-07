@@ -4,7 +4,7 @@
   "severities": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
   "statuses": ["OPEN", "MITIGATED", "CLOSED"],
   "entries": [
-    { "id": "AUTOLOOP-DOWN-003", "severity": "CRITICAL", "status": "OPEN" },
+    { "id": "AUTOLOOP-DOWN-003", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "AUTOLOOP-RESET-2026-05-30", "severity": "CRITICAL", "status": "OPEN" },
     { "id": "AUTOLOOP-SINGLETON-001", "severity": "HIGH", "status": "OPEN" },
     { "id": "AUTOLOOP-STALL-001", "severity": "CRITICAL", "status": "CLOSED" },

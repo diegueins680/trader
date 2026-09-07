@@ -2193,13 +2193,57 @@ test("autoloop forever runner emits a heartbeat so status timestamps cannot go s
   assert.match(script, /stopStatusHeartbeat\(\);/);
 });
 
-test("autoloop forever status command marks dead runner pids as dead instead of trusting stale JSON", async () => {
+test("autoloop forever status distinguishes live and absent runner pids without trusting stale JSON", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.sh", import.meta.url), "utf8");
-  assert.match(script, /python3 - "\$\{STATUS_FILE\}" "\$\{PID_FILE\}"/);
+  assert.match(script, /except PermissionError:\s+# POSIX EPERM proves that the PID exists;/);
+  assert.match(script, /raise SystemExit\(0 if exc\.errno == errno\.EPERM else 1\)/);
+  assert.match(script, /python3 - "\$\{STATUS_FILE\}" "\$\{PID_FILE\}" "\$\{alive_flag\}"/);
   assert.match(script, /status\["pidAlive"\] = alive/);
   assert.match(script, /status\["live"\] = alive and status\.get\("state"\) not in \{"stopped", "error", "dead"\}/);
   assert.match(script, /status\["state"\] = "dead"/);
   assert.match(script, /runner pid recorded in status is not alive/);
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-status-test-"));
+  try {
+    const status = {
+      mode: "forever",
+      pid: process.pid,
+      state: "sleeping",
+      cycleCount: 2751,
+      heartbeatAt: "2026-09-07T01:10:34.789Z",
+    };
+    await fs.writeFile(path.join(dir, "status.json"), `${JSON.stringify(status)}\n`);
+    await fs.writeFile(path.join(dir, "runner.pid"), `${process.pid}\n`);
+
+    const live = spawnSync("bash", [new URL("../scripts/autoloop-forever.sh", import.meta.url).pathname, "status"], {
+      encoding: "utf8",
+      env: { ...process.env, TRADER_AUTOLOOP_STATE_DIR: dir },
+    });
+    assert.equal(live.status, 0, live.stderr);
+    assert.deepEqual(JSON.parse(live.stdout), {
+      ...status,
+      pidAlive: true,
+      live: true,
+    });
+
+    await fs.writeFile(path.join(dir, "runner.pid"), "2147483647\n");
+    const absent = spawnSync("bash", [new URL("../scripts/autoloop-forever.sh", import.meta.url).pathname, "status"], {
+      encoding: "utf8",
+      env: { ...process.env, TRADER_AUTOLOOP_STATE_DIR: dir },
+    });
+    assert.equal(absent.status, 0, absent.stderr);
+    assert.deepEqual(JSON.parse(absent.stdout), {
+      ...status,
+      pid: 2147483647,
+      pidAlive: false,
+      live: false,
+      state: "dead",
+      nextRunAt: null,
+      statusReason: "runner pid recorded in status is not alive",
+    });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("launchagent installer keeps the forever runner alive across login sessions", async () => {
