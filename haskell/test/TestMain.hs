@@ -1232,6 +1232,20 @@ testDerivativesPanelSchemaV2 = do
         freshMarkedStaleRow = derivativesRow 0 [(DerivativesOpenInterestV2, ["0", "1", "0", "0", "1000"])]
         staleNonZeroRow = derivativesRow (2 * hourMs) [(DerivativesOpenInterestV2, ["1", "1", "0", "0", "1000"])]
         decimalMaskRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "0.0", "0.0", "", ""])]
+        decimalTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0.0", "1000.000"])]
+        decimalOpenTimeRow = "0.0" : tail validRow
+        fractionalTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0.5", "1000.0"])]
+        roundedFractionalTimestampRow =
+            derivativesRow
+                9007199254740992
+                [(DerivativesFundingV2, ["0", "1", "1", "9007199254740991.5", "9007199254740992.0"])]
+        nonFiniteTimestampRows =
+            [ derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", timestamp, "1000.0"])]
+            | timestamp <- ["NaN", "Infinity", "-Infinity"]
+            ]
+        negativeTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "-1.0", "1000.0"])]
+        exponentTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0e0", "1000.0"])]
+        overflowedTimestampRow = derivativesRow 0 [(DerivativesFundingV2, ["0", "1", "1", "0.0", "9223372036854775808.0"])]
         decodeRows rows = decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes derivativesPanelColumnsV2 rows)
     assert
         "derivatives panel v2 accepts pandas decimal masks and unrelated legacy columns"
@@ -1244,6 +1258,20 @@ testDerivativesPanelSchemaV2 = do
                         (derivativesBytes ("close" : derivativesPanelColumnsV2) ["100" : validRow])
                     )
                 )
+        )
+    assert
+        "derivatives panel v2 accepts exact pandas integral-decimal timestamps"
+        ( not (isLeft (decodeRows [decimalTimestampRow]))
+            && not (isLeft (decodeRows [decimalOpenTimeRow]))
+        )
+    assert
+        "derivatives panel v2 rejects inexact, non-canonical, non-finite, and overflowed decimal timestamps"
+        ( isLeft (decodeRows [fractionalTimestampRow])
+            && isLeft (decodeRows [roundedFractionalTimestampRow])
+            && all (isLeft . decodeRows . (: [])) nonFiniteTimestampRows
+            && isLeft (decodeRows [negativeTimestampRow])
+            && isLeft (decodeRows [exponentTimestampRow])
+            && isLeft (decodeRows [overflowedTimestampRow])
         )
     let futureRow =
             derivativesRow

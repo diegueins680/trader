@@ -25,6 +25,14 @@ must be canonical ASCII alphanumeric text. File hashes and symbol-to-file scope
 remain caller/manifest responsibilities rather than properties inferred from
 CSV bytes.
 
+Pandas serializes the optional event and availability timestamp columns as
+floating-point-looking text such as `1000.0` because unavailable rows require
+`NaN` in the same column. The Haskell decoder accepts integer text and exact
+zero-fraction decimal text, parses the integer component directly as `Int64`,
+and rejects fractional, exponent, non-finite, and overflowed forms. It never
+round-trips timestamps through `Double`, including beyond the exact-integer
+range of binary64.
+
 During cross-runtime testing, pandas `combine_first` was found to alphabetize
 columns on overlap refreshes. The offline cache merge now explicitly restores
 the fresh frame's canonical order and appends only legacy-exclusive fields, so
@@ -48,7 +56,10 @@ unchanged promotion gates. `FEATURE-MISSINGNESS-001` therefore remains open.
 The shared fixture
 `haskell/test/fixtures/binance_derivatives_first_seen_v2.csv` covers observed
 zero, explicit unavailable evidence, a legacy-absent family, and an observed
-stale witness. Haskell regression tests exercise decoding and failure cases;
-the Python collector validates the same fixture and its output order; an
-isolation regression checks that production feature construction and fetch
-paths do not import the decoder.
+stale witness using pandas-compatible zero-fraction timestamps. Haskell
+regression tests also reject fractional values that a binary64 conversion
+could round to an integer, non-finite values, exponent notation, and Int64
+overflow; Python validates the same fixture and its output order. The remaining
+Haskell failure cases exercise causal and schema invariants; an isolation
+regression checks that production feature construction and fetch paths do not
+import the decoder.

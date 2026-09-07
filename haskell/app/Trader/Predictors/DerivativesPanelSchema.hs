@@ -190,9 +190,31 @@ requiredCell name record =
 
 parseTimestamp :: String -> BS.ByteString -> Either String Int64
 parseTimestamp name raw =
-    case readMaybe (trim (BS.unpack raw)) of
-        Just timestamp | timestamp >= 0 -> Right timestamp
+    case parseTimestampText (trim (BS.unpack raw)) of
+        Just timestamp -> Right timestamp
         _ -> Left (name ++ " is not a valid timestamp")
+
+-- Optional timestamp columns contain NaN while unavailable in the Python
+-- aligner, so pandas serializes later integer witnesses as e.g. @1000.0@.
+-- Accept that exact integral-decimal form without parsing through Double,
+-- which could round a fractional timestamp into an apparently integral one.
+parseTimestampText :: String -> Maybe Int64
+parseTimestampText raw =
+    case parseNonNegativeInt64 raw of
+        Just timestamp -> Just timestamp
+        Nothing ->
+            case break (== '.') raw of
+                (whole, '.' : fractional)
+                    | not (null fractional)
+                    , all (== '0') fractional ->
+                        parseNonNegativeInt64 whole
+                _ -> Nothing
+
+parseNonNegativeInt64 :: String -> Maybe Int64
+parseNonNegativeInt64 raw =
+    case readMaybe raw of
+        Just timestamp | timestamp >= 0 -> Just timestamp
+        _ -> Nothing
 
 parseOptionalTimestamp :: String -> BS.ByteString -> Either String (Maybe Int64)
 parseOptionalTimestamp name raw
