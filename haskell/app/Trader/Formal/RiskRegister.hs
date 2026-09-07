@@ -134,17 +134,17 @@ riskRegister =
     , riskEntry
         AUTOLOOP_RESET_2026_05_30
         CRITICAL
-        MITIGATED
+        CLOSED
         "Autoloop cycle counter reset and broke continuity assumptions"
         "trader-firm-cto"
-        "Restart the supervised runner onto the atomic sequence and capture a post-restart ID strictly beyond the last reserved cycle before closing"
+        "Merged runtime restart advanced from issued cycle 2761 to atomic reservation 2762 with a valid schema-1 sequence"
     , riskEntry
         AUTOLOOP_SINGLETON_001
         HIGH
-        MITIGATED
+        CLOSED
         "Multiple autoloop instances may race on the same repository"
         "trader-firm-cto"
-        "Restart onto the exclusive owner record and capture a rejected concurrent start without status mutation before closing"
+        "Merged runtime held a private schema-1 owner while a concurrent direct launch failed EALREADY without owner or status-identity mutation"
     , riskEntry
         AUTOLOOP_STALL_001
         CRITICAL

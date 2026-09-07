@@ -12,8 +12,8 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | ID | Risk | Severity | Owner | Status | Next Action |
 |---|---|---|---|---|---|
 | AUTOLOOP-DOWN-003 | Autoloop process was not alive at the prior operational review | CRITICAL | trader-firm-cto | CLOSED | Launchd ownership, bounded-cycle completion, a current heartbeat, clean merged-main sync, and permission-safe PID status are witnessed |
-| AUTOLOOP-RESET-2026-05-30 | Autoloop cycle counter reset and broke continuity assumptions | CRITICAL | trader-firm-cto | MITIGATED | Restart the supervised runner onto the atomic sequence and capture a post-restart ID strictly beyond the last reserved cycle before closing |
-| AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on the same repository | HIGH | trader-firm-cto | MITIGATED | Restart onto the exclusive owner record and capture a rejected concurrent start without status mutation before closing |
+| AUTOLOOP-RESET-2026-05-30 | Autoloop cycle counter reset and broke continuity assumptions | CRITICAL | trader-firm-cto | CLOSED | Merged runtime restart advanced from issued cycle 2761 to atomic reservation 2762 with a valid schema-1 sequence |
+| AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on the same repository | HIGH | trader-firm-cto | CLOSED | Merged runtime held a private schema-1 owner while a concurrent direct launch failed `EALREADY` without owner or status-identity mutation |
 | AUTOLOOP-STALL-001 | Autoloop stall detection depended on manual observation | CRITICAL | trader-firm-cto | CLOSED | Heartbeat telemetry and a bounded stale-heartbeat alert are implemented |
 | BINARY-HANG-001 | The trader binary could hang while draining after a termination signal | MEDIUM | trader-firm-cto | MITIGATED | Close after a serve-mode PostgreSQL subprocess termination witness |
 | CIO-DEAFNESS-001 | The CIO reporting lane missed recorded deadlines | CRITICAL | trader-firm-ceo | OPEN | Obtain a current owner report and explicitly close or reassign the obligation |
