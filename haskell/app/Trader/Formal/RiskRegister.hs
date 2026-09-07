@@ -200,7 +200,7 @@ riskRegister =
         OPEN
         "Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value"
         "trader-firm-research"
-        "Preserve the new derivatives first-seen ledgers, define equivalent policies for remaining sources, and migrate production feature builders and artifacts under explicit compatibility versioning before promotion eligibility"
+        "Keep the derivatives v2 adapter isolated behind verified receipts; define equivalent availability policies for OHLCV, market context, Coinbase, and remaining external sources, then version artifacts and production builders before promotion eligibility"
     , riskEntry
         GITHUB_502_001
         MEDIUM
