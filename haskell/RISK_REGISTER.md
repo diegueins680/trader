@@ -16,7 +16,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on the same repository | HIGH | trader-firm-cto | CLOSED | Merged runtime held a private schema-1 owner while a concurrent direct launch failed `EALREADY` without owner or status-identity mutation |
 | AUTOLOOP-STALL-001 | Autoloop stall detection depended on manual observation | CRITICAL | trader-firm-cto | CLOSED | Heartbeat telemetry and a bounded stale-heartbeat alert are implemented |
 | BINARY-HANG-001 | The trader binary could hang while draining after a termination signal | MEDIUM | trader-firm-cto | MITIGATED | Close after a serve-mode PostgreSQL subprocess termination witness |
-| CIO-DEAFNESS-001 | The CIO reporting lane missed recorded deadlines | CRITICAL | trader-firm-ceo | OPEN | Obtain a current owner report and explicitly close or reassign the obligation |
+| CIO-DEAFNESS-001 | The CIO reporting lane missed recorded deadlines | CRITICAL | trader-firm-ceo | CLOSED | Current CIO report retains the missed deadlines, renders NO-GO, preserves the champion and sealed holdout, and inventories every unresolved risk |
 | EXECUTION-DATASET-001 | Backtest dataset generation is not fully reproducible | MEDIUM | trader-firm-data | OPEN | Seed randomness and record the source dataset hash in test output |
 | EXECUTION-MISSING-001 | The execution reporting lane missed recorded trade-log deadlines | CRITICAL | trader-firm-execution | CLOSED | Current execution report records the missed deadlines, delivered controls, evidence boundary, and unresolved limitations |
 | EXECUTION-RESTART-001 | Persisted bot exposure could create a phantom position during restart | CRITICAL | trader-firm-risk | CLOSED | Startup exposure is venue-authoritative; snapshot recovery admits only identity-matched closed-trade memory and deterministic scenario coverage proves exposure fields are ignored |
@@ -42,7 +42,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | TRAILING-STOP-001 | A trailing-stop exit may re-enter on the same bar | MEDIUM | trader-firm-execution | CLOSED | Intrabar protective exits impose a one-event minimum cooldown, and a regression proves zero configured cooldown cannot reuse the trailing-stop exit index |
 | VOL-TARGET-001 | A stale report claimed the volatility-confidence stateful-close regression broke the Haskell suite | CRITICAL | trader-firm-cto | CLOSED | The fix predates the imported report; helper, live/backtest parity, and canonical Haskell verification witnesses pass |
 | VOL-TARGET-INVALID-001 | Malformed volatility-target configuration could bypass scaling limits | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed targets and bounded verification covers it |
-| ZERO-VIABLE-SIGNAL-001 | No strategy signal had met the recorded long-sample viability threshold | CRITICAL | trader-firm-research | OPEN | Run and record a current long-dataset viability evaluation |
+| ZERO-VIABLE-SIGNAL-001 | No strategy signal had met the recorded long-sample viability threshold | CRITICAL | trader-firm-research | OPEN | Preserve the champion and continue only preregistered prospective protocols; require all economic, statistical, cost, delay, and drawdown gates before promotion |
 
 ## Update rule
 
@@ -50,4 +50,4 @@ Change `formal/risk-register.json` first, then update both projections in the
 same commit. IDs are permanent. Reopening a risk changes its status rather than
 creating a duplicate row; a materially different risk receives a new ID.
 
-Last reconciled: 2026-09-06.
+Last reconciled: 2026-09-07.
