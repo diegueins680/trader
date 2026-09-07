@@ -204,10 +204,10 @@ riskRegister =
     , riskEntry
         GITHUB_502_001
         MEDIUM
-        OPEN
+        CLOSED
         "Transient GitHub API failures can interrupt automation"
         "trader-firm-cto"
-        "Bounded exponential retry is implemented; replace stale outage evidence with current operational validation"
+        "Production GitHub reads use a four-attempt 502-only policy; deterministic recovery/exhaustion regressions and a current supervised cycle witness validate the bound"
     , riskEntry
         KALMAN_NUMSTAB_001
         MEDIUM

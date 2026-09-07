@@ -45,6 +45,7 @@ import {
   releaseRunnerPidFile,
   resolveResumedCycleCount,
   resolveAutoloopBackend,
+  runGitHub502WithRetry,
   sanitizeRelativePath,
   selectMergeVerificationTarget,
   stripMarkdownFences,
@@ -87,6 +88,81 @@ async function writeScorecardJson(dir, name, payload) {
 test("stripMarkdownFences unwraps fenced JSON", () => {
   assert.equal(stripMarkdownFences("```json\n{\"ok\":true}\n```"), "{\"ok\":true}");
   assert.equal(stripMarkdownFences("{\"ok\":true}"), "{\"ok\":true}");
+});
+
+test("GitHub 502 retry policy recovers with bounded exponential backoff", () => {
+  let calls = 0;
+  const waits = [];
+  const retries = [];
+  const result = runGitHub502WithRetry(
+    () => {
+      calls += 1;
+      if (calls === 1) throw new Error("HTTP 502");
+      if (calls === 2) throw new Error("Bad Gateway");
+      return "ok";
+    },
+    {
+      wait: (delayMs) => waits.push(delayMs),
+      onRetry: (retry) => retries.push(retry),
+    },
+  );
+
+  assert.equal(result, "ok");
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [2000, 4000]);
+  assert.deepEqual(retries, [
+    { attempt: 1, maxAttempts: 4, delayMs: 2000 },
+    { attempt: 2, maxAttempts: 4, delayMs: 4000 },
+  ]);
+});
+
+test("GitHub 502 retry policy exhausts after exactly four attempts", () => {
+  const failure = new Error("502 Bad Gateway");
+  let calls = 0;
+  const waits = [];
+
+  assert.throws(
+    () =>
+      runGitHub502WithRetry(
+        () => {
+          calls += 1;
+          throw failure;
+        },
+        { wait: (delayMs) => waits.push(delayMs) },
+      ),
+    (error) => error === failure,
+  );
+  assert.equal(calls, 4);
+  assert.deepEqual(waits, [2000, 4000, 8000]);
+});
+
+test("GitHub 502 retry policy does not retry non-502 failures", () => {
+  let calls = 0;
+  const waits = [];
+
+  assert.throws(
+    () =>
+      runGitHub502WithRetry(
+        () => {
+          calls += 1;
+          throw new Error("HTTP 403 Forbidden");
+        },
+        { wait: (delayMs) => waits.push(delayMs) },
+      ),
+    /403 Forbidden/,
+  );
+  assert.equal(calls, 1);
+  assert.deepEqual(waits, []);
+});
+
+test("autoloop GitHub reads use the tested bounded 502 retry policy", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /runGitHub502WithRetry\(\(\) => runGh\(args, opts\)/);
+  assert.match(script, /JSON\.parse\(runGhWithRetry\(\["api", buildActionsRunsApiPath/);
+  assert.match(script, /JSON\.parse\(runGhWithRetry\(\["api", `repos\/:owner\/:repo\/commits\/\$\{headSha\}`\]\)\)/);
+  assert.match(script, /JSON\.parse\(runGhWithRetry\(\["repo", "view", "--json", "nameWithOwner"\]\)\)/);
+  assert.match(script, /runGhWithRetry\(\["run", "view", String\(runId\), "--log-failed"\]\)/);
+  assert.doesNotMatch(script, /return runGh\(\[/);
 });
 
 test("extractResponseText concatenates output_text parts", () => {
