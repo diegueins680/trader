@@ -11,7 +11,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 
 | ID | Risk | Severity | Owner | Status | Next Action |
 |---|---|---|---|---|---|
-| AUTOLOOP-DOWN-003 | Autoloop process was not alive at the last recorded operational review | CRITICAL | trader-firm-cto | OPEN | Restart or diagnose the supervisor and replace stale evidence with a fresh health witness |
+| AUTOLOOP-DOWN-003 | Autoloop process was not alive at the prior operational review | CRITICAL | trader-firm-cto | CLOSED | Launchd ownership, bounded-cycle completion, a current heartbeat, clean merged-main sync, and permission-safe PID status are witnessed |
 | AUTOLOOP-RESET-2026-05-30 | Autoloop cycle counter reset and broke continuity assumptions | CRITICAL | trader-firm-cto | OPEN | Establish and verify durable monotone cycle identity across supervisor restarts |
 | AUTOLOOP-SINGLETON-001 | Multiple autoloop instances may race on the same repository | HIGH | trader-firm-cto | OPEN | Enforce one process with a verified lock and stale-owner recovery |
 | AUTOLOOP-STALL-001 | Autoloop stall detection depended on manual observation | CRITICAL | trader-firm-cto | CLOSED | Heartbeat telemetry and a bounded stale-heartbeat alert are implemented |

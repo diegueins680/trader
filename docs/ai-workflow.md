@@ -91,6 +91,11 @@ scripts/autoloop-forever.sh status
 scripts/autoloop-forever.sh stop
 ```
 
+The status command validates the recorded runner PID. A permission-denied
+zero-signal probe proves that the PID exists; only a missing PID is reported as
+dead, so restricted monitoring cannot mistake a live supervised runner for an
+available launch slot.
+
 Logical-correctness loop:
 
 ```bash

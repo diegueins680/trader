@@ -24,10 +24,40 @@ runner_pid() {
   fi
 }
 
+pid_exists() {
+  local pid="$1"
+  python3 - "${pid}" <<'PY'
+import errno
+import os
+import sys
+
+try:
+    pid = int(sys.argv[1])
+except (IndexError, TypeError, ValueError):
+    raise SystemExit(1)
+
+if pid <= 0:
+    raise SystemExit(1)
+
+try:
+    os.kill(pid, 0)
+except ProcessLookupError:
+    raise SystemExit(1)
+except PermissionError:
+    # POSIX EPERM proves that the PID exists; only the signal permission is
+    # denied. Treating it as absent can report a live runner as dead and can
+    # let a second launcher race the existing process.
+    raise SystemExit(0)
+except OSError as exc:
+    raise SystemExit(0 if exc.errno == errno.EPERM else 1)
+raise SystemExit(0)
+PY
+}
+
 runner_alive() {
   local pid
   pid="$(runner_pid || true)"
-  [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
+  [[ -n "${pid}" ]] && pid_exists "${pid}"
 }
 
 start_runner() {
@@ -73,12 +103,16 @@ show_status() {
     exit 1
   fi
 
-  python3 - "${STATUS_FILE}" "${PID_FILE}" <<'PY'
+  local alive_flag=0
+  if runner_alive; then
+    alive_flag=1
+  fi
+
+  python3 - "${STATUS_FILE}" "${PID_FILE}" "${alive_flag}" <<'PY'
 import json
-import os
 import sys
 
-status_path, pid_path = sys.argv[1:3]
+status_path, pid_path, alive_raw = sys.argv[1:4]
 with open(status_path, "r", encoding="utf-8") as handle:
     status = json.load(handle)
 
@@ -91,13 +125,7 @@ try:
 except Exception:
     pass
 
-alive = False
-if isinstance(pid, int) and pid > 0:
-    try:
-        os.kill(pid, 0)
-        alive = True
-    except OSError:
-        alive = False
+alive = alive_raw == "1"
 
 status["pid"] = pid
 status["pidAlive"] = alive

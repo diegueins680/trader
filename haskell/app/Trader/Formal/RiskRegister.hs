@@ -127,10 +127,10 @@ riskRegister =
     [ riskEntry
         AUTOLOOP_DOWN_003
         CRITICAL
-        OPEN
-        "Autoloop process was not alive at the last recorded operational review"
+        CLOSED
+        "Autoloop process was not alive at the prior operational review"
         "trader-firm-cto"
-        "Restart or diagnose the supervisor and replace stale operational evidence with a fresh health witness"
+        "Launchd ownership, bounded-cycle completion, a current heartbeat, clean merged-main sync, and permission-safe PID status are witnessed"
     , riskEntry
         AUTOLOOP_RESET_2026_05_30
         CRITICAL

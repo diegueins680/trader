@@ -612,11 +612,17 @@
       "implementation": ["scripts/autoloop*.mjs", "scripts/autoloop*.sh", "scripts/codex-logical-correctness-loop.sh"],
       "uses": ["G-BOUNDED", "G-IDEMPOTENT", "G-PROMOTION", "G-SECRET"],
       "dependsOn": ["A-VERIFICATION"],
-      "requires": [{ "id": "A-AUTOLOOP-R1", "statement": "One verified process owns the workspace; mutation is limited to approved paths; recovery/checkpoint refs are prunable only after their commits are reachable from the promoted branch." }],
+      "requires": [
+        { "id": "A-AUTOLOOP-R1", "statement": "One verified process owns the workspace; mutation is limited to approved paths; recovery/checkpoint refs are prunable only after their commits are reachable from the promoted branch." },
+        { "id": "A-AUTOLOOP-R2", "statement": "PID existence probes distinguish an absent process from a permission-denied signal probe; EPERM proves existence and cannot be reported as a dead runner or used to justify a second launch." }
+      ],
       "ensures": [{ "id": "A-AUTOLOOP-E1", "statement": "Every promotion preserves recoverable failed work, runs all target checks implied by the diff, records the exact commit, and waits for required CI." }],
       "invariants": [{ "id": "A-AUTOLOOP-I1", "statement": "An unmerged recovery/checkpoint ref is never deleted; non-Haskell changes cannot bypass web/automation/deployment checks; a failed cycle cannot push main." }],
       "failures": [{ "id": "A-AUTOLOOP-F1", "statement": "Validation/check/CI/ownership failure retains recovery state, records a bounded error, and makes no promotion." }],
-      "evidence": [{ "level": "integration", "path": "test/autoloop.test.mjs", "contains": "recovery" }]
+      "evidence": [
+        { "level": "integration", "path": "test/autoloop.test.mjs", "contains": "recovery" },
+        { "level": "regression", "path": "test/autoloop.test.mjs", "contains": "distinguishes live and absent runner pids" }
+      ]
     },
     {
       "id": "A-RESEARCH",
