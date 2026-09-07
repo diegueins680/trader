@@ -106,7 +106,7 @@ import Trader.Formal.Risk (
     specRiskHalt,
     verifyFormalRisk,
  )
-import Trader.Formal.RiskRegister (RiskEntry (..), riskRegister, riskSeverityOf)
+import Trader.Formal.RiskRegister (RiskEntry (..), RiskID (TRAILING_STOP_001), riskIdText, riskRegister, riskSeverityOf)
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import qualified Trader.Kalman3 as Kalman3
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
@@ -425,6 +425,7 @@ import Trader.Trading (
     outcomeWeightLossScale,
     outcomeWeightWinScale,
     positionSizeScaleHardFailMultiplier,
+    protectiveExitReentryLockEvents,
     roundTripFeeFloor,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
@@ -474,7 +475,7 @@ main = do
     testPartialTakeProfitTradeFeesMatchAttribution
     testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
-    testTrailingStopSameBarReentryLock
+    testProtectiveExitSameEventReentryLock
     testVenueRoundTripCostFloorMatchesVenueCosts
     testVenueMinEdgeFloorClearsRoundTripCost
     testVenueMinEdgeFloorMatchesProductionRegressionEvidence
@@ -9901,9 +9902,20 @@ testRiskRegisterInvariants = do
         nonEmpty textValue = not (T.null (T.strip textValue))
         complete entry = nonEmpty (reDescription entry) && nonEmpty (reOwner entry) && nonEmpty (reMitigation entry)
         lookupConsistent entry = riskSeverityOf (reId entry) == Just (reSeverity entry)
+        trailingStopContract =
+            case find ((== TRAILING_STOP_001) . reId) riskRegister of
+                Nothing -> False
+                Just entry ->
+                    riskIdText (reId entry) == "TRAILING-STOP-001"
+                        && all
+                            (`T.isInfixOf` reMitigation entry)
+                            [ "protectiveExitReentryLockEvents"
+                            , "testProtectiveExitSameEventReentryLock"
+                            ]
     assert "formal risk-register IDs are unique" (length ids == length (nub ids))
     assert "formal risk-register entries have complete ownership and mitigation text" (all complete riskRegister)
     assert "formal risk-register severity lookup matches every canonical entry" (all lookupConsistent riskRegister)
+    assert "TRAILING-STOP-001 names the executable protective-exit lock contract" trailingStopContract
 
 testSafeNumericConstruction :: IO ()
 testSafeNumericConstruction = do
@@ -10932,40 +10944,96 @@ testTrailingStopGuardrail = do
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
 
--- A protective exit is filled at t+1. The next signal decision also uses the
--- t+1 index, so the simulator must consume one event before it may re-enter
--- even when the user-configured cooldown is zero.
-testTrailingStopSameBarReentryLock :: IO ()
-testTrailingStopSameBarReentryLock = do
-    let prices = V.fromList [100 :: Double, 100, 102, 103, 100, 100, 100]
-        highs = V.fromList [100 :: Double, 100, 102, 103, 103, 100, 100]
-        lows = V.fromList [100 :: Double, 100, 102, 103, 100, 100, 100]
-        predictions = V.fromList [100 :: Double, 102, 103, 104, 102, 102]
-        cfg =
+-- A full protective exit filled at event i must record its lock before entry
+-- evaluation for i. Zero configured cooldown may therefore reopen only at
+-- i+1, while longer configured cooldowns remain stricter.
+testProtectiveExitSameEventReentryLock :: IO ()
+testProtectiveExitSameEventReentryLock = do
+    let cfgBase =
             sampleEnsembleConfig
                 { ecOpenThreshold = 0.01
                 , ecCloseThreshold = 0.005
                 , ecVolLookback = 2
-                , ecTrailingStop = Just 0.02
                 , ecCooldownBars = 0
                 , ecMaxPositionSize = 1
                 , ecMinPositionSize = 0.001
                 }
-        result = simulateEnsemble cfg 2 prices highs lows predictions predictions (Nothing :: Maybe (V.Vector StepMeta))
-        trades = brTrades result
-        trailingExitIndexes = [trExitIndex trade | trade <- trades, trExitReason trade == Just ExitTrailingStop]
-        entriesAfter exitIndex = [trEntryIndex trade | trade <- trades, trEntryIndex trade >= exitIndex]
-    case trailingExitIndexes of
-        [] -> ioError (userError "same-bar re-entry fixture did not produce a trailing-stop exit")
-        exitIndex : _ -> do
-            let laterEntries = entriesAfter exitIndex
-            assert "trailing-stop fixture remains entry-eligible after the protective exit" (not (null laterEntries))
-            assert
-                "trailing-stop exit and fresh entry never share an event index"
-                (all (> exitIndex) laterEntries)
-            assert
-                "zero configured cooldown still consumes exactly one event after a trailing-stop exit"
-                (minimum laterEntries == exitIndex + 1)
+        closingPositionIsFlat exitIndex result =
+            exitIndex > 0
+                && case drop (exitIndex - 1) (brPositions result) of
+                    positionAtExit : _ -> positionAtExit == 0
+                    [] -> False
+        assertProtectiveExitLock
+            label
+            cfg
+            prices
+            highs
+            lows
+            predictions
+            expectedReason
+            minimumDelay =
+                let result =
+                        simulateEnsemble
+                            cfg
+                            2
+                            prices
+                            highs
+                            lows
+                            predictions
+                            predictions
+                            (Nothing :: Maybe (V.Vector StepMeta))
+                    trades = brTrades result
+                    protectiveExits =
+                        [ trade
+                        | trade <- trades
+                        , trExitReason trade == Just expectedReason
+                        ]
+                 in case protectiveExits of
+                        [] -> ioError (userError (label ++ " fixture did not produce its protective exit"))
+                        exitTrade : _ -> do
+                            let exitIndex = trExitIndex exitTrade
+                                laterEntryIndexes =
+                                    [ trEntryIndex trade
+                                    | trade <- trades
+                                    , trEntryIndex trade >= exitIndex
+                                    ]
+                            assert
+                                (label ++ " closes the position at its protective exit event")
+                                (closingPositionIsFlat exitIndex result)
+                            assert
+                                (label ++ " remains entry-eligible after its protective exit")
+                                (not (null laterEntryIndexes))
+                            assert
+                                (label ++ " never shares an event index with a fresh entry")
+                                (all (> exitIndex) laterEntryIndexes)
+                            assert
+                                (label ++ " honors the required re-entry event delay")
+                                (minimum laterEntryIndexes == exitIndex + minimumDelay)
+        stopPrices = V.fromList [100 :: Double, 100, 100, 97, 97, 97, 97]
+        stopHighs = V.fromList [100 :: Double, 100, 100, 100, 97, 97, 97]
+        stopLows = V.fromList [100 :: Double, 100, 100, 97, 97, 97, 97]
+        stopPredictions = V.fromList [100 :: Double, 102, 102, 102, 102, 102]
+        takeProfitPrices = V.fromList [100 :: Double, 100, 100, 104, 104, 104, 104]
+        takeProfitPredictions = V.fromList [100 :: Double, 102, 102, 110, 110, 110]
+        trailingPrices = V.fromList [100 :: Double, 100, 102, 103, 100, 100, 100, 100]
+        trailingHighs = V.fromList [100 :: Double, 100, 102, 103, 103, 100, 100, 100]
+        trailingLows = V.fromList [100 :: Double, 100, 102, 103, 100, 100, 100, 100]
+        trailingPredictions = V.fromList [100 :: Double, 102, 103, 104, 102, 102, 102]
+        stopCfg = cfgBase{ecStopLoss = Just 0.02}
+        takeProfitCfg = cfgBase{ecTakeProfit = Just 0.03}
+        trailingCfg = cfgBase{ecTrailingStop = Just 0.02}
+    assert
+        "all full protective exit reasons receive the same one-event lock"
+        ( all
+            ((== 1) . protectiveExitReentryLockEvents . Just)
+            [ExitStopLoss, ExitTrailingStop, ExitTakeProfit]
+            && protectiveExitReentryLockEvents Nothing == 0
+            && protectiveExitReentryLockEvents (Just ExitSignal) == 0
+        )
+    assertProtectiveExitLock "stop-loss" stopCfg stopPrices stopHighs stopLows stopPredictions ExitStopLoss 1
+    assertProtectiveExitLock "take-profit" takeProfitCfg takeProfitPrices takeProfitPrices takeProfitPrices takeProfitPredictions ExitTakeProfit 1
+    assertProtectiveExitLock "trailing-stop" trailingCfg trailingPrices trailingHighs trailingLows trailingPredictions ExitTrailingStop 1
+    assertProtectiveExitLock "trailing-stop with configured cooldown" trailingCfg{ecCooldownBars = 2} trailingPrices trailingHighs trailingLows trailingPredictions ExitTrailingStop 2
 
 -- The round-trip cost floor must reflect the actual venue model: two
 -- crossings each pay (fee + slippage) and there is one full spread on the

@@ -324,9 +324,9 @@ riskRegister =
         TRAILING_STOP_001
         MEDIUM
         CLOSED
-        "A trailing-stop exit may re-enter on the same bar"
+        "A protective stop-loss, trailing-stop, or full take-profit exit may re-enter on its exit event"
         "trader-firm-execution"
-        "Intrabar protective exits impose a one-event minimum cooldown, and a regression proves zero configured cooldown cannot reuse the trailing-stop exit index"
+        "protectiveExitReentryLockEvents applies a one-event lock to ExitStopLoss, ExitTrailingStop, and ExitTakeProfit; testProtectiveExitSameEventReentryLock proves the closing position is flat at event i, zero configured cooldown cannot re-enter at i, and an otherwise eligible signal first re-enters at i+1"
     , riskEntry
         VOL_TARGET_001
         CRITICAL

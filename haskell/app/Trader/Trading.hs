@@ -14,6 +14,7 @@ module Trader.Trading (
     simulateEnsembleWithHLChecked,
     simulateEnsembleVWithHLChecked,
     ExitReason (..),
+    protectiveExitReentryLockEvents,
     HaltInputs (..),
     anyRiskLimitNonFinite,
     drawdownLimitInvalid,
@@ -365,6 +366,21 @@ data ExitReason
     | ExitEod
     | ExitOther !String
     deriving (Eq, Show)
+
+{- | Number of future decision events denied after a completed exit.
+
+A full protective exit filled at event @i@ records a one-event lock before
+entry evaluation for that event. Therefore it cannot re-enter at @i@, while
+@i + 1@ is the earliest admissible event when ordinary gates pass and no
+longer configured cooldown applies.
+-}
+protectiveExitReentryLockEvents :: Maybe ExitReason -> Int
+protectiveExitReentryLockEvents exitReason =
+    case exitReason of
+        Just ExitStopLoss -> 1
+        Just ExitTrailingStop -> 1
+        Just ExitTakeProfit -> 1
+        _ -> 0
 
 exitReasonCode :: ExitReason -> String
 exitReasonCode exitReason =
@@ -3109,14 +3125,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             then 1
                                                             else 0
 
-                                                    protectiveExitCooldown =
-                                                        case mNewTrade >>= trExitReason of
-                                                            Just ExitStopLoss -> 1
-                                                            Just ExitTrailingStop -> 1
-                                                            Just ExitTakeProfit -> 1
-                                                            _ -> 0
+                                                    protectiveExitLockEvents =
+                                                        protectiveExitReentryLockEvents (mNewTrade >>= trExitReason)
 
-                                                    cooldownAfterExit = maximum [cooldownBars, maxHoldCooldown, protectiveExitCooldown]
+                                                    cooldownAfterExit =
+                                                        maximum [cooldownBars, maxHoldCooldown, protectiveExitLockEvents]
 
                                                     cooldownNext =
                                                         if isNothing posFinal3
