@@ -323,10 +323,10 @@ riskRegister =
     , riskEntry
         TRAILING_STOP_001
         MEDIUM
-        OPEN
+        CLOSED
         "A trailing-stop exit may re-enter on the same bar"
         "trader-firm-execution"
-        "Add and verify a bar-level re-entry lock after trailing-stop exits"
+        "Intrabar protective exits impose a one-event minimum cooldown, and a regression proves zero configured cooldown cannot reuse the trailing-stop exit index"
     , riskEntry
         VOL_TARGET_001
         CRITICAL

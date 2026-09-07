@@ -333,7 +333,8 @@
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testBacktestCostAttributionGrossNetConsistency" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPartialTakeProfitTradeFeesMatchAttribution" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testThresholdFactorChangesSimulatorAdmission" }
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testThresholdFactorChangesSimulatorAdmission" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testTrailingStopSameBarReentryLock" }
       ]
     },
     {

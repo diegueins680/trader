@@ -3096,17 +3096,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     exitedToFlat =
                                                         isNothing posFinal3 && (Data.Maybe.isJust posAfterSwitch || Data.Maybe.isJust posSide)
 
-                                                    maxHoldCooldown =
-                                                        if holdTooLong
-                                                            then 1
-                                                            else 0
-
-                                                    cooldownAfterExit = max cooldownBars maxHoldCooldown
-
-                                                    cooldownNext =
-                                                        if isNothing posFinal3
-                                                            then if exitedToFlat then cooldownAfterExit else cooldownNext0
-                                                            else 0
                                                     mNewTrade =
                                                         case tradesFinal3 of
                                                             [] -> Nothing
@@ -3114,6 +3103,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                 case tradesAcc of
                                                                     (tr0 : _) | tr == tr0 -> Nothing
                                                                     _ -> Just tr
+
+                                                    maxHoldCooldown =
+                                                        if holdTooLong
+                                                            then 1
+                                                            else 0
+
+                                                    protectiveExitCooldown =
+                                                        case mNewTrade >>= trExitReason of
+                                                            Just ExitStopLoss -> 1
+                                                            Just ExitTrailingStop -> 1
+                                                            Just ExitTakeProfit -> 1
+                                                            _ -> 0
+
+                                                    cooldownAfterExit = maximum [cooldownBars, maxHoldCooldown, protectiveExitCooldown]
+
+                                                    cooldownNext =
+                                                        if isNothing posFinal3
+                                                            then if exitedToFlat then cooldownAfterExit else cooldownNext0
+                                                            else 0
                                                     lossStreakNext =
                                                         if lossStreakMax <= 0
                                                             then 0
