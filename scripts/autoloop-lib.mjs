@@ -2,6 +2,41 @@ import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+const GITHUB_502_MAX_RETRIES = 3;
+const GITHUB_502_BASE_DELAY_MS = 2000;
+
+function blockingWait(delayMs) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
+
+export function isGitHub502Error(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /(?:\b502\b|Bad Gateway)/i.test(message);
+}
+
+export function runGitHub502WithRetry(operation, { wait = blockingWait, onRetry = () => {} } = {}) {
+  if (typeof operation !== "function") throw new TypeError("operation must be a function");
+  if (typeof wait !== "function") throw new TypeError("wait must be a function");
+  if (typeof onRetry !== "function") throw new TypeError("onRetry must be a function");
+
+  for (let attempt = 0; attempt <= GITHUB_502_MAX_RETRIES; attempt += 1) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isGitHub502Error(error) || attempt === GITHUB_502_MAX_RETRIES) throw error;
+      const delayMs = GITHUB_502_BASE_DELAY_MS * 2 ** attempt;
+      onRetry({
+        attempt: attempt + 1,
+        maxAttempts: GITHUB_502_MAX_RETRIES + 1,
+        delayMs,
+      });
+      wait(delayMs);
+    }
+  }
+
+  throw new Error("unreachable GitHub retry state");
+}
+
 export function stripMarkdownFences(raw) {
   const text = String(raw ?? "").trim();
   const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);

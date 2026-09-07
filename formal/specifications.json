@@ -615,7 +615,7 @@
     {
       "id": "A-AUTOLOOP",
       "title": "Autoloop mutation, recovery, reconciliation, CI feedback, and process ownership",
-      "features": ["autoloop cycle", "model backend", "editable path allowlist", "patch validation", "verification routing", "dirty recovery", "checkpoint refs", "branch reconciliation", "CI polling", "single process"],
+      "features": ["autoloop cycle", "model backend", "editable path allowlist", "patch validation", "verification routing", "dirty recovery", "checkpoint refs", "branch reconciliation", "CI polling", "bounded GitHub 502 retry", "single process"],
       "criticality": "operational",
       "implementation": ["scripts/autoloop*.mjs", "scripts/autoloop*.sh", "scripts/codex-logical-correctness-loop.sh"],
       "uses": ["G-BOUNDED", "G-IDEMPOTENT", "G-PROMOTION", "G-SECRET"],
@@ -623,7 +623,8 @@
       "requires": [
         { "id": "A-AUTOLOOP-R1", "statement": "One verified process atomically owns the workspace through an exclusive, token-bound PID record; mutation is limited to approved paths; recovery/checkpoint refs are prunable only after their commits are reachable from the promoted branch." },
         { "id": "A-AUTOLOOP-R2", "statement": "PID existence probes distinguish an absent process from a permission-denied signal probe; EPERM proves existence and cannot be reported as a dead runner or used to justify a second launch." },
-        { "id": "A-AUTOLOOP-R3", "statement": "Before a bounded cycle starts, its next safe-integer identifier is atomically reserved from the maximum observed metrics, prior status, incomplete current-cycle record, and persistent sequence; an invalid sequence fails closed." }
+        { "id": "A-AUTOLOOP-R3", "statement": "Before a bounded cycle starts, its next safe-integer identifier is atomically reserved from the maximum observed metrics, prior status, incomplete current-cycle record, and persistent sequence; an invalid sequence fails closed." },
+        { "id": "A-AUTOLOOP-R4", "statement": "GitHub repository, review, commit, workflow-run, failed-workflow log, and check-suite reads retry only HTTP 502 or Bad Gateway failures, with no more than four total attempts and fixed 2, 4, and 8 second backoffs." }
       ],
       "ensures": [
         { "id": "A-AUTOLOOP-E1", "statement": "Every promotion preserves recoverable failed work, runs all target checks implied by the diff, records the exact commit, and waits for required CI." },
@@ -635,13 +636,16 @@
       ],
       "failures": [
         { "id": "A-AUTOLOOP-F1", "statement": "Validation/check/CI/ownership failure retains recovery state, records a bounded error, and makes no promotion." },
-        { "id": "A-AUTOLOOP-F2", "statement": "Active-owner collision, malformed non-empty ownership, repeated ownership races, unsafe cycle overflow, or malformed persistent sequence exits non-zero without overwriting the active runner's status or starting a bounded cycle." }
+        { "id": "A-AUTOLOOP-F2", "statement": "Active-owner collision, malformed non-empty ownership, repeated ownership races, unsafe cycle overflow, or malformed persistent sequence exits non-zero without overwriting the active runner's status or starting a bounded cycle." },
+        { "id": "A-AUTOLOOP-F3", "statement": "A non-502 GitHub failure propagates after one attempt, and a persistent 502 propagates after the fourth attempt rather than retrying indefinitely." }
       ],
       "evidence": [
         { "level": "integration", "path": "test/autoloop.test.mjs", "contains": "recovery" },
         { "level": "regression", "path": "test/autoloop.test.mjs", "contains": "distinguishes live and absent runner pids" },
         { "level": "regression", "path": "test/autoloop.test.mjs", "contains": "PID ownership is atomic" },
-        { "level": "regression", "path": "test/autoloop.test.mjs", "contains": "reserves a monotone ID" }
+        { "level": "regression", "path": "test/autoloop.test.mjs", "contains": "reserves a monotone ID" },
+        { "level": "regression", "path": "test/autoloop.test.mjs", "contains": "GitHub 502 retry policy exhausts after exactly four attempts" },
+        { "level": "integration", "path": "test/autoloop.test.mjs", "contains": "autoloop GitHub reads use the tested bounded 502 retry policy" }
       ]
     },
     {

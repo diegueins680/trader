@@ -18,6 +18,7 @@ import {
   normalizePatchPlan,
   parseLsRemoteBranchHead,
   prepareShellCommand,
+  runGitHub502WithRetry,
   sanitizeRelativePath,
   parseJsonResponse,
   resolveAutoloopBackend,
@@ -578,23 +579,11 @@ function runGh(args, opts = {}) {
 }
 
 function runGhWithRetry(args, opts = {}) {
-  const maxRetries = 3;
-  const baseDelayMs = 2000;
-  let lastErr;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return runGh(args, opts);
-    } catch (err) {
-      lastErr = err;
-      const msg = String(err?.message ?? "");
-      const is502 = msg.includes("502") || msg.includes("Bad Gateway");
-      if (!is502 || attempt === maxRetries) throw err;
-      const delayMs = baseDelayMs * 2 ** attempt;
-      console.error(`[runGhWithRetry] 502 on attempt ${attempt + 1}/${maxRetries + 1}, retrying in ${delayMs}ms…`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
-    }
-  }
-  throw lastErr;
+  return runGitHub502WithRetry(() => runGh(args, opts), {
+    onRetry: ({ attempt, maxAttempts, delayMs }) => {
+      console.error(`[runGhWithRetry] 502 on attempt ${attempt}/${maxAttempts}, retrying in ${delayMs}ms…`);
+    },
+  });
 }
 
 function runBash(command, opts = {}) {
@@ -1791,9 +1780,9 @@ function listCommitChangedPaths(headSha) {
 
 function readFailedWorkflowRunLog(runId) {
   try {
-    return runGh(["run", "view", String(runId), "--log-failed"]);
+    return runGhWithRetry(["run", "view", String(runId), "--log-failed"]);
   } catch {
-    return runGh(["run", "view", String(runId), "--log"]);
+    return runGhWithRetry(["run", "view", String(runId), "--log"]);
   }
 }
 
