@@ -323,6 +323,7 @@ import Trader.SignalGates (
     signalDirectionalitySnapshotImplWithPrediction,
     signalEntryEdgeSpikeAuditWarning,
     signalEntryEdgeSpikeAuditWarningInterval,
+    signalEntryEdgeSpikeConsecutiveOk,
     signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeEntryOkInterval,
     signalEntryEdgeSpikeOk,
@@ -339,7 +340,9 @@ import Trader.SignalGates (
     signalPredictionSanityOk,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
+    signalTrendSmaConfirmed,
  )
+
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
@@ -583,7 +586,9 @@ main = do
     testSignalGateEntryThresholdFeasibilityInvariant
     testMarketDataFreshnessAndContinuationInvariant
     testSignalGateEntryEdgeSpikeCapRegression
+    testSignalGateNonFiniteEvidenceFailsClosed
     testSignalGateEntryEdgeSpikeAuditWarning
+
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
@@ -4718,6 +4723,72 @@ testSignalGateEntryEdgeSpikeCapRegression = do
             && not (signalEntryEdgeSpikeOk smallThreshold (Just (-0.001)))
             && not (signalEntryEdgeSpikeOk smallThreshold (Just (0 / 0)))
             && not (signalEntryEdgeSpikeOk smallThreshold (Just (1 / 0)))
+        )
+
+-- Non-finite evidence must not exploit audit-only or optional-cap paths to
+-- authorize an entry. This bounded grid covers NaN and both infinities at the
+-- edge, confidence, volatility, trend, and regime gate boundaries.
+testSignalGateNonFiniteEvidenceFailsClosed :: IO ()
+testSignalGateNonFiniteEvidenceFailsClosed = do
+    let nonFinite = [0 / 0, 1 / 0, negate (1 / 0)]
+        edgeRejected value =
+            not (signalEntryEdgeSpikeEntryOk True 0.01 (Just value))
+                && not (signalEntryEdgeSpikeConsecutiveOk 0 True 0.01 (Just value))
+        confidenceRejected value =
+            not (signalMetaLabelOk True 0.01 (Just value) 0.8 (Just 0.9) False False)
+                && not (signalMetaLabelOk True 0.01 (Just 0.02) 0.8 (Just value) False False)
+        volatilityRejected value =
+            signalFundingOiCheck True Nothing Nothing 1 value Nothing == (False, 0)
+                && signalFundingOiCheck True Nothing Nothing 1 0 (Just value) == (False, 0)
+        trendRejected value =
+            not (signalTrendSmaConfirmed 0.01 value 100 1)
+                && not (signalTrendSmaConfirmed 0.01 100 value 1)
+        trendPrices = pricesFromReturns (replicate 24 0.01)
+        malformedSnapshot = Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_MALFORMED"))
+        hysteresisRejected value =
+            directionalitySnapshot5Args
+                value
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                trendPrices
+                (V.length trendPrices - 1)
+                1
+                == malformedSnapshot
+        regimeRejected value =
+            directionalitySnapshot5Args
+                0.05
+                (Just (RegimeProbs value 0.2 0.2))
+                trendPrices
+                (V.length trendPrices - 1)
+                1
+                == malformedSnapshot
+    assert
+        "non-finite edge evidence cannot bypass audit-only spike gates"
+        (all edgeRejected nonFinite)
+    assert
+        "non-finite edge or confidence evidence fails the enabled meta-label gate"
+        (all confidenceRejected nonFinite)
+    assert
+        "non-finite funding or OI-volatility evidence fails the enabled funding/OI gate"
+        (all volatilityRejected nonFinite)
+    assert
+        "non-finite trend price evidence fails trend confirmation"
+        (all trendRejected nonFinite)
+    assert
+        "non-finite regime hysteresis or probabilities produce the non-directional hold snapshot"
+        (all hysteresisRejected nonFinite && all regimeRejected nonFinite)
+    assert
+        "finite evidence preserves the existing admissible gate boundaries"
+        ( signalEntryEdgeSpikeEntryOk True 0.01 (Just 6)
+            && signalMetaLabelOk True 0.01 (Just 0.02) 0.8 (Just 0.9) False False
+            && signalFundingOiCheck True Nothing Nothing 1 0 (Just 0.1) == (True, 1)
+            && signalTrendSmaConfirmed 0.01 101 100 1
+            && directionalitySnapshot5Args
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                trendPrices
+                (V.length trendPrices - 1)
+                1
+                == Just (DirectionalitySnapshot False Nothing)
         )
 
 testSignalGateEntryEdgeSpikeAuditWarning :: IO ()

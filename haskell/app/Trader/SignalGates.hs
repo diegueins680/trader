@@ -282,43 +282,45 @@ signalDirectionalitySnapshotImpl' ::
     Maybe Int ->
     (Double -> Maybe Int -> Bool) ->
     Maybe DirectionalitySnapshot
-signalDirectionalitySnapshotImpl' cfg regimeBankHysteresis mRegimes pricesV t mChosenDir weakBandCheck =
-    case directionalityWindowMetricsWithConfig cfg pricesV t of
-        Nothing -> Just malformedDirectionalitySnapshot
-        Just metrics ->
-            let eff0 = wmEfficiency metrics
-                eff
-                    | efficiencyMalformed eff0 = Nothing
-                    | otherwise = Just (clamp01 eff0)
-                chopEfficiencyMax = clamp01 (sgcDirectionalityChopEfficiencyMax cfg)
-                mrEfficiencyMax = clamp01 (max chopEfficiencyMax (sgcDirectionalityMrEfficiencyMax cfg))
-                weakBand = maybe False (<= mrEfficiencyMax) eff
-                hysteresisOk = finiteDouble regimeBankHysteresis && regimeBankHysteresis >= 0
-                weakBandRegimeContext =
-                    if weakBand
-                        then directionalityRegimeContext regimeBankHysteresis mRegimes
-                        else DirectionalityRegimeUnavailable
-                mReason =
-                    case eff of
-                        Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
-                        Just efficiency
-                            | efficiency <= chopEfficiencyMax -> Just "NON_DIRECTIONAL_CHOP"
-                            | efficiency <= mrEfficiencyMax ->
-                                if not hysteresisOk
-                                    then Just "NON_DIRECTIONAL_MALFORMED"
-                                    else case weakBandRegimeContext of
-                                        DirectionalityRegimeInvalid -> Just "NON_DIRECTIONAL_MALFORMED"
-                                        DirectionalityRegimeAvailable regimeSummary
-                                            | drsMrDominant regimeSummary -> Just "NON_DIRECTIONAL_MR"
-                                            | not (weakBandCheck (wmZScore metrics) mChosenDir) ->
-                                                Just "NON_DIRECTIONAL_WEAK_BAND"
-                                            | otherwise -> Nothing
-                                        DirectionalityRegimeUnavailable
-                                            | not (weakBandCheck (wmZScore metrics) mChosenDir) ->
-                                                Just "NON_DIRECTIONAL_WEAK_BAND"
-                                            | otherwise -> Nothing
-                            | otherwise -> Nothing
-             in Just (mkDirectionalitySnapshot mReason)
+signalDirectionalitySnapshotImpl' cfg regimeBankHysteresis mRegimes pricesV t mChosenDir weakBandCheck
+    | not (directionalityGateEvidenceValid regimeBankHysteresis mRegimes) = Just malformedDirectionalitySnapshot
+    | otherwise =
+        case directionalityWindowMetricsWithConfig cfg pricesV t of
+            Nothing -> Just malformedDirectionalitySnapshot
+            Just metrics
+                | not (finiteDouble (wmZScore metrics)) -> Just malformedDirectionalitySnapshot
+                | otherwise ->
+                    let eff0 = wmEfficiency metrics
+                        eff
+                            | efficiencyMalformed eff0 = Nothing
+                            | otherwise = Just (clamp01 eff0)
+                        chopEfficiencyMax = clamp01 (sgcDirectionalityChopEfficiencyMax cfg)
+                        mrEfficiencyMax = clamp01 (max chopEfficiencyMax (sgcDirectionalityMrEfficiencyMax cfg))
+                        weakBand = maybe False (<= mrEfficiencyMax) eff
+                        hysteresisOk = finiteDouble regimeBankHysteresis && regimeBankHysteresis >= 0
+                        weakBandRegimeContext =
+                            if weakBand
+                                then directionalityRegimeContext regimeBankHysteresis mRegimes
+                                else DirectionalityRegimeUnavailable
+                        mReason =
+                            case eff of
+                                Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
+                                Just efficiency
+                                    | efficiency <= chopEfficiencyMax -> Just "NON_DIRECTIONAL_CHOP"
+                                    | efficiency <= mrEfficiencyMax ->
+                                        if not hysteresisOk
+                                            then Just "NON_DIRECTIONAL_MALFORMED"
+                                            else case weakBandRegimeContext of
+                                                DirectionalityRegimeInvalid -> Just "NON_DIRECTIONAL_MALFORMED"
+                                                DirectionalityRegimeAvailable regimeSummary
+                                                    | drsMrDominant regimeSummary -> Just "NON_DIRECTIONAL_MR"
+                                                    | not (weakBandCheck (wmZScore metrics) mChosenDir) -> Just "NON_DIRECTIONAL_WEAK_BAND"
+                                                    | otherwise -> Nothing
+                                                DirectionalityRegimeUnavailable
+                                                    | not (weakBandCheck (wmZScore metrics) mChosenDir) -> Just "NON_DIRECTIONAL_WEAK_BAND"
+                                                    | otherwise -> Nothing
+                                    | otherwise -> Nothing
+                     in Just (mkDirectionalitySnapshot mReason)
 
 data DirectionalityWindowMetrics = DirectionalityWindowMetrics
     { wmEfficiency :: !Double
@@ -402,6 +404,16 @@ data DirectionalityRegimeContext
     = DirectionalityRegimeUnavailable
     | DirectionalityRegimeInvalid
     | DirectionalityRegimeAvailable !DirectionalityRegimeSummary
+
+directionalityGateEvidenceValid :: Double -> Maybe RegimeProbs -> Bool
+directionalityGateEvidenceValid regimeBankHysteresis mRegimes =
+    finiteDouble regimeBankHysteresis
+        && case mRegimes of
+            Nothing -> True
+            Just regimes ->
+                case validateRegimes regimes of
+                    Just _ -> True
+                    Nothing -> False
 
 directionalityRegimeContext :: Double -> Maybe RegimeProbs -> DirectionalityRegimeContext
 directionalityRegimeContext regimeBankHysteresis mRegimes =
@@ -539,7 +551,14 @@ signalEntryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOkWithConfig defaultSigna
 
 signalEntryEdgeSpikeEntryOkWithConfig :: SignalGateConfig -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeEntryOkWithConfig cfg auditOnly openThreshold edgeForMethod =
-    auditOnly || signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod
+    signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
+        && (auditOnly || signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod)
+
+signalEntryEdgeSpikeEvidenceFinite :: Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod =
+    case (normalizeSignalOpenThreshold openThreshold, edgeForMethod) of
+        (Just _, Just edge) -> finiteDouble edge
+        _ -> False
 
 signalEntryEdgeSpikeAuditWarning :: Bool -> Double -> Maybe Double -> Maybe String
 signalEntryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarningWithConfig defaultSignalGateConfig
@@ -560,7 +579,8 @@ signalEntryEdgeSpikeConsecutiveOk = signalEntryEdgeSpikeConsecutiveOkWithConfig 
 signalEntryEdgeSpikeConsecutiveOkWithConfig :: SignalGateConfig -> Int -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeConsecutiveOkWithConfig cfg consecutiveWarnings auditOnly openThreshold edgeForMethod =
     let ok = signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod
-     in ok || (auditOnly && consecutiveWarnings < signalGateSpikeConsecutiveLimit cfg)
+     in signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
+            && (ok || (auditOnly && consecutiveWarnings < signalGateSpikeConsecutiveLimit cfg))
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk = signalEntryFeeBufferOkWithConfig defaultSignalGateConfig
@@ -588,34 +608,37 @@ signalTrendSmaConfirmed = signalTrendSmaConfirmedWithConfig defaultSignalGateCon
 
 signalTrendSmaConfirmedWithConfig :: SignalGateConfig -> Double -> Double -> Double -> Int -> Bool
 signalTrendSmaConfirmedWithConfig cfg openThreshold currentPrice sma dir
-    | not (finiteDouble currentPrice && finiteDouble sma) = True
+    | not (finiteDouble currentPrice && finiteDouble sma) = False
     | otherwise =
-        let slackFrac =
-                case normalizeSignalOpenThreshold openThreshold of
-                    Just threshold -> min (signalGateTrendSlackCap cfg) (signalGateTrendSlackMultiple cfg * threshold)
-                    Nothing -> 0
-            lowerBound = sma * (1 - slackFrac)
-            upperBound = sma * (1 + slackFrac)
-         in case dir of
-                d | d > 0 -> currentPrice >= lowerBound
-                d | d < 0 -> currentPrice <= upperBound
-                _ -> True
+        case normalizeSignalOpenThreshold openThreshold of
+            Nothing -> False
+            Just threshold ->
+                let slackFrac = min (signalGateTrendSlackCap cfg) (signalGateTrendSlackMultiple cfg * threshold)
+                    lowerBound = sma * (1 - slackFrac)
+                    upperBound = sma * (1 + slackFrac)
+                 in case dir of
+                        d | d > 0 -> currentPrice >= lowerBound
+                        d | d < 0 -> currentPrice <= upperBound
+                        _ -> True
 
 signalFundingOiCheck :: Bool -> Maybe Double -> Maybe Double -> Double -> Double -> Maybe Double -> (Bool, Double)
 signalFundingOiCheck enabled fundingCap volCap sizeMult fundingPressure oiVolProxy
     | not enabled = (True, 1)
+    | not (finiteDouble sizeMult && finiteDouble fundingPressure) = (False, 0)
     | otherwise =
         let fundingOk =
                 case fundingCap of
                     Nothing -> True
-                    Just cap -> finiteDouble fundingPressure && abs fundingPressure <= max 0 cap
+                    Just cap -> finiteDouble cap && abs fundingPressure <= max 0 cap
+            oiVolEvidenceOk = maybe True finiteDouble oiVolProxy
             oiVolOk =
                 case volCap of
-                    Nothing -> True
+                    Nothing -> oiVolEvidenceOk
                     Just cap ->
-                        case oiVolProxy of
-                            Just oiVol -> finiteDouble oiVol && oiVol <= max 0 cap
-                            Nothing -> False
+                        finiteDouble cap
+                            && case oiVolProxy of
+                                Just oiVol -> finiteDouble oiVol && oiVol <= max 0 cap
+                                Nothing -> False
          in if fundingOk && oiVolOk
                 then (True, max 0 sizeMult)
                 else (False, 0)
@@ -722,13 +745,17 @@ chooseReason (Nothing : rest) = chooseReason rest
 chooseReason (reason : _) = reason
 
 signalPredictionSanityOk :: Double -> Maybe Double -> (Bool, Maybe String)
-signalPredictionSanityOk _currentPrice Nothing = (True, Nothing)
-signalPredictionSanityOk currentPrice (Just predVal)
-    | isNaN predVal = (False, Just "MODEL_ANOMALY")
-    | predVal < 0 = (False, Just "MODEL_ANOMALY")
-    | predVal < currentPrice * 0.01 = (False, Just "MODEL_ANOMALY")
-    | predVal > currentPrice * 100 = (False, Just "MODEL_ANOMALY")
-    | otherwise = (True, Nothing)
+signalPredictionSanityOk currentPrice mPrediction
+    | not (finiteDouble currentPrice) = (False, Just "MODEL_ANOMALY")
+    | otherwise =
+        case mPrediction of
+            Nothing -> (True, Nothing)
+            Just predVal
+                | not (finiteDouble predVal) -> (False, Just "MODEL_ANOMALY")
+                | predVal < 0 -> (False, Just "MODEL_ANOMALY")
+                | predVal < currentPrice * 0.01 -> (False, Just "MODEL_ANOMALY")
+                | predVal > currentPrice * 100 -> (False, Just "MODEL_ANOMALY")
+                | otherwise -> (True, Nothing)
 
 directionalityWeakBandConfirmedWithPrediction :: Double -> Maybe Int -> Maybe Double -> Double -> Bool
 directionalityWeakBandConfirmedWithPrediction = directionalityWeakBandConfirmedWithPredictionAndConfig defaultSignalGateConfig
@@ -804,7 +831,8 @@ signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod =
 
 signalEntryEdgeSpikeEntryOkInterval :: String -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeEntryOkInterval interval auditOnly openThreshold edgeForMethod =
-    auditOnly || signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod
+    signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
+        && (auditOnly || signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod)
 
 signalEntryEdgeSpikeAuditWarningInterval :: String -> Bool -> Double -> Maybe Double -> Maybe String
 signalEntryEdgeSpikeAuditWarningInterval interval auditOnly openThreshold edgeForMethod =
