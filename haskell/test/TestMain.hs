@@ -474,6 +474,7 @@ main = do
     testPartialTakeProfitTradeFeesMatchAttribution
     testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
+    testTrailingStopSameBarReentryLock
     testVenueRoundTripCostFloorMatchesVenueCosts
     testVenueMinEdgeFloorClearsRoundTripCost
     testVenueMinEdgeFloorMatchesProductionRegressionEvidence
@@ -10930,6 +10931,41 @@ testTrailingStopGuardrail = do
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
+
+-- A protective exit is filled at t+1. The next signal decision also uses the
+-- t+1 index, so the simulator must consume one event before it may re-enter
+-- even when the user-configured cooldown is zero.
+testTrailingStopSameBarReentryLock :: IO ()
+testTrailingStopSameBarReentryLock = do
+    let prices = V.fromList [100 :: Double, 100, 102, 103, 100, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 102, 103, 103, 100, 100]
+        lows = V.fromList [100 :: Double, 100, 102, 103, 100, 100, 100]
+        predictions = V.fromList [100 :: Double, 102, 103, 104, 102, 102]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecTrailingStop = Just 0.02
+                , ecCooldownBars = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0.001
+                }
+        result = simulateEnsemble cfg 2 prices highs lows predictions predictions (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        trailingExitIndexes = [trExitIndex trade | trade <- trades, trExitReason trade == Just ExitTrailingStop]
+        entriesAfter exitIndex = [trEntryIndex trade | trade <- trades, trEntryIndex trade >= exitIndex]
+    case trailingExitIndexes of
+        [] -> ioError (userError "same-bar re-entry fixture did not produce a trailing-stop exit")
+        exitIndex : _ -> do
+            let laterEntries = entriesAfter exitIndex
+            assert "trailing-stop fixture remains entry-eligible after the protective exit" (not (null laterEntries))
+            assert
+                "trailing-stop exit and fresh entry never share an event index"
+                (all (> exitIndex) laterEntries)
+            assert
+                "zero configured cooldown still consumes exactly one event after a trailing-stop exit"
+                (minimum laterEntries == exitIndex + 1)
 
 -- The round-trip cost floor must reflect the actual venue model: two
 -- crossings each pay (fee + slippage) and there is one full spread on the
