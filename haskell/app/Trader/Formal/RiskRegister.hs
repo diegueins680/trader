@@ -211,10 +211,10 @@ riskRegister =
     , riskEntry
         KALMAN_NUMSTAB_001
         MEDIUM
-        OPEN
+        CLOSED
         "Kalman numerical instability could produce zero trades or hangs"
         "trader-firm-cto"
-        "Covariance initialization and standard-deviation flooring are implemented; obtain current operational validation"
+        "Current long-run malformed-input regressions and a bounded Kalman-only CLI witness complete with finite output; flat default behavior is attributable to explicit admission gates"
     , riskEntry
         LEVERAGE_INVALID_001
         CRITICAL

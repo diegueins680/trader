@@ -530,6 +530,7 @@ main = do
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
     testKalman3RejectsMalformedMeasurements
+    testKalmanLongRunNumericalStability
     testKalmanPhysicsKnobsRejectInvalidValues
     testKalmanPhysicsMeasurementKnobsRejectInvalidValues
     testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues
@@ -2723,6 +2724,68 @@ testKalman3RejectsMalformedMeasurements = do
     assert "Kalman3 ignores infinite measurements" (kInf == k0)
     assert "Kalman3 ignores invalid measurement variance" (kBadR == k0{Kalman3.kR = 0})
     assert "Kalman3 still updates finite measurements" (kGood /= k0 && all finiteDouble [pos, vel, acc])
+
+-- Numerical/liveness witness only: this deliberately does not score returns or
+-- claim that either filter has predictive value. Periodic malformed observations
+-- must be ignored without contaminating a long finite state path.
+testKalmanLongRunNumericalStability :: IO ()
+testKalmanLongRunNumericalStability = do
+    let stepCount = 20000
+        observationAt i
+            | i `mod` 1499 == 0 = 1 / 0
+            | i `mod` 997 == 0 = 0 / 0
+            | otherwise = 100 + 0.0001 * fromIntegral i + 0.5 * sin (fromIntegral i / 37)
+        observations = V.generate stepCount (observationAt . (+ 1))
+        prices = V.cons 100 observations
+        kalman0 = Kalman3.constantAcceleration1D 1 1e-5 1e-3 100
+        kalmanStates = V.scanl' (\kalman z -> snd (Kalman3.step z kalman)) kalman0 observations
+        Kalman3.KalmanRun{Kalman3.krPredicted = predictedList, Kalman3.krFiltered = filteredList} =
+            Kalman3.runConstantAcceleration1D 1 1e-5 1e-3 (V.toList prices)
+        Kalman3.KalmanRunV{Kalman3.krPredictedV = predictedVector, Kalman3.krFilteredV = filteredVector} =
+            Kalman3.runConstantAcceleration1DVec 1 1e-5 1e-3 prices
+        finiteVec3 (Kalman3.Vec3 a b c) = all finiteDouble [a, b, c]
+        finiteMat3 (Kalman3.Mat3 r1 r2 r3) = all finiteVec3 [r1, r2, r3]
+        covarianceDiagonalNonNegative (Kalman3.Mat3 (Kalman3.Vec3 p11 _ _) (Kalman3.Vec3 _ p22 _) (Kalman3.Vec3 _ _ p33)) =
+            all (>= 0) [p11, p22, p33]
+        finiteKalman kalman =
+            finiteVec3 (Kalman3.kx kalman)
+                && finiteMat3 (Kalman3.kP kalman)
+                && covarianceDiagonalNonNegative (Kalman3.kP kalman)
+                && finiteDouble (Kalman3.predictMeasurement kalman)
+        fusionCfg =
+            defaultKalmanFusionConfig
+                { kfcSensorCorrelationInflation = 0.5
+                , kfcInnovationInflationThreshold = 9
+                , kfcInnovationInflationMax = 25
+                }
+        fusionMeasurementsAt i
+            | i `mod` 1499 == 0 = [(1 / 0, 1e-4), (0.01, -1)]
+            | i `mod` 997 == 0 = [(0 / 0, 1e-4), (0.01, 0 / 0)]
+            | otherwise =
+                let value = 0.001 * sin (fromIntegral i / 19)
+                 in [(value, 1e-4), (0.8 * value, 2e-4)]
+        fusionStates =
+            V.scanl'
+                (\kalman i -> stepMultiWithConfig fusionCfg (fusionMeasurementsAt i) kalman)
+                (initKalman1 0 1e-3 1e-6)
+                (V.enumFromN 1 stepCount)
+        finiteFusion kalman =
+            all finiteDouble [kMean kalman, kVar kalman, kProcessVar kalman]
+                && kVar kalman > 0
+        nextForecast = Kalman3.forecastNextConstantAcceleration1D 1 1e-5 1e-3 (V.toList prices)
+    assert "Kalman3 long-run state and covariance remain finite and non-negative" (V.all finiteKalman kalmanStates)
+    assert
+        "Kalman3 list and vector runners preserve aligned finite outputs through malformed observations"
+        ( length predictedList == stepCount
+            && length filteredList == stepCount + 1
+            && V.length predictedVector == stepCount
+            && V.length filteredVector == stepCount + 1
+            && all finiteDouble (predictedList ++ filteredList)
+            && V.all finiteDouble predictedVector
+            && V.all finiteDouble filteredVector
+        )
+    assert "Kalman3 long-run next forecast remains finite" (finiteDouble nextForecast)
+    assert "Kalman fusion long-run posterior remains finite with positive variance" (V.all finiteFusion fusionStates)
 
 testKalmanPhysicsKnobsRejectInvalidValues :: IO ()
 testKalmanPhysicsKnobsRejectInvalidValues = do

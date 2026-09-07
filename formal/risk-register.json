@@ -16,7 +16,7 @@
     { "id": "EXPECTANCY-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "FEATURE-MISSINGNESS-001", "severity": "HIGH", "status": "OPEN" },
     { "id": "GITHUB-502-001", "severity": "MEDIUM", "status": "OPEN" },
-    { "id": "KALMAN-NUMSTAB-001", "severity": "MEDIUM", "status": "OPEN" },
+    { "id": "KALMAN-NUMSTAB-001", "severity": "MEDIUM", "status": "CLOSED" },
     { "id": "LEVERAGE-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "LEVERAGE-SANITY-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "LOSS-STREAK-LIMIT-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },
