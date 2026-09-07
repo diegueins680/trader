@@ -18,6 +18,7 @@ import {
   parseArgs as parseRadioStationArgs,
 } from "../scripts/maintain-radio-stations.mjs";
 import {
+  acquireRunnerPidFile,
   buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
   buildActionsRunsApiPath,
@@ -34,10 +35,15 @@ import {
   normalizeGitBranchShortName,
   normalizeIdeaSelection,
   normalizePatchPlan,
+  nextCycleSequence,
+  parseCycleSequence,
   parseGitStatusPaths,
   parseLsRemoteBranchHead,
   parseJsonResponse,
+  parseRunnerPidRecord,
   prepareShellCommand,
+  releaseRunnerPidFile,
+  resolveResumedCycleCount,
   resolveAutoloopBackend,
   sanitizeRelativePath,
   selectMergeVerificationTarget,
@@ -2184,6 +2190,147 @@ test("writeJsonFileAtomic creates parent directories and writes formatted JSON",
   assert.deepEqual(JSON.parse(out), { phase: "verify", ok: true });
 });
 
+test("autoloop runner PID ownership is atomic and recovers only proven stale owners", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-owner-test-"));
+  const pidFile = path.join(dir, "runner.pid");
+  try {
+    const acquisitions = await Promise.allSettled(
+      Array.from({ length: 8 }, (_, index) =>
+        acquireRunnerPidFile({
+          filePath: pidFile,
+          pid: process.pid,
+          token: `owner-token-${index}`,
+          probePid: async () => true,
+        }),
+      ),
+    );
+    const winners = acquisitions.filter((result) => result.status === "fulfilled");
+    assert.equal(winners.length, 1);
+    assert.equal(acquisitions.filter((result) => result.status === "rejected").length, 7);
+
+    const winner = winners[0].value;
+    const stored = parseRunnerPidRecord(await fs.readFile(pidFile, "utf8"));
+    assert.deepEqual(stored, winner.owner);
+    assert.equal((await fs.stat(pidFile)).mode & 0o777, 0o600);
+    assert.equal(
+      await releaseRunnerPidFile({ filePath: pidFile, pid: process.pid, token: "wrong-owner-token" }),
+      false,
+    );
+    assert.equal(
+      await releaseRunnerPidFile({ filePath: pidFile, pid: process.pid, token: winner.owner.token }),
+      true,
+    );
+
+    await fs.writeFile(pidFile, "2147483647\n");
+    const recoveredLegacy = await acquireRunnerPidFile({
+      filePath: pidFile,
+      pid: process.pid,
+      token: "replacement-owner-token",
+      probePid: async (pid) => pid === process.pid,
+    });
+    assert.equal(recoveredLegacy.recoveredStalePaths.length, 1);
+    assert.equal((await fs.readFile(recoveredLegacy.recoveredStalePaths[0], "utf8")).trim(), "2147483647");
+    assert.equal(
+      await releaseRunnerPidFile({
+        filePath: pidFile,
+        pid: process.pid,
+        token: recoveredLegacy.owner.token,
+      }),
+      true,
+    );
+
+    await fs.writeFile(pidFile, "");
+    await assert.rejects(
+      acquireRunnerPidFile({
+        filePath: pidFile,
+        pid: process.pid,
+        token: "recent-empty-owner",
+        nowMs: Date.now(),
+        initializationGraceMs: 30_000,
+        probePid: async () => false,
+      }),
+      (error) => error?.code === "EBUSY",
+    );
+    await fs.utimes(pidFile, new Date(0), new Date(0));
+    const recoveredAbandonedInitialization = await acquireRunnerPidFile({
+      filePath: pidFile,
+      pid: process.pid,
+      token: "recovered-empty-owner",
+      nowMs: 60_000,
+      initializationGraceMs: 30_000,
+      probePid: async () => false,
+    });
+    assert.equal(recoveredAbandonedInitialization.recoveredStalePaths.length, 1);
+    assert.equal(
+      await releaseRunnerPidFile({
+        filePath: pidFile,
+        pid: process.pid,
+        token: recoveredAbandonedInitialization.owner.token,
+      }),
+      true,
+    );
+
+    await fs.writeFile(pidFile, "malformed-owner-record\n");
+    await fs.utimes(pidFile, new Date(0), new Date(0));
+    await assert.rejects(
+      acquireRunnerPidFile({
+        filePath: pidFile,
+        pid: process.pid,
+        token: "malformed-owner-test",
+        nowMs: 60_000,
+        initializationGraceMs: 30_000,
+        probePid: async () => false,
+      }),
+      (error) => error?.code === "EBADMSG",
+    );
+    assert.equal((await fs.readFile(pidFile, "utf8")).trim(), "malformed-owner-record");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("autoloop forever acquires ownership before shared mutation and non-owners cannot clobber status", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
+  const acquireIndex = script.indexOf("const ownership = await acquireRunnerPidFile({ filePath: PID_FILE });");
+  const clearIndex = script.indexOf("await clearLaunchArtifacts();");
+  const initialStatusIndex = script.indexOf("await updateRunnerStatus({");
+  assert.ok(acquireIndex >= 0 && acquireIndex < clearIndex);
+  assert.ok(acquireIndex < initialStatusIndex);
+  assert.match(script, /token: runnerOwnership\.token/);
+  assert.match(script, /if \(!released\) throw new Error\("Autoloop runner ownership changed before release\."\);/);
+  const topLevelFailure = script.slice(script.lastIndexOf("main().catch"));
+  assert.doesNotMatch(topLevelFailure, /updateRunnerStatus|logRunner/);
+});
+
+test("autoloop cycle sequence reserves a monotone ID beyond incomplete prior work", () => {
+  const sequence = parseCycleSequence(
+    JSON.stringify({ schemaVersion: 1, lastIssued: 44, issuedAt: "2026-09-07T01:30:00.000Z" }),
+  );
+  const resumed = resolveResumedCycleCount({
+    metricsRaw: [
+      JSON.stringify({ cycleCount: 41 }),
+      "not-json",
+      JSON.stringify({ cycleCount: 43.5 }),
+      JSON.stringify({ cycleCount: Number.MAX_SAFE_INTEGER + 1 }),
+    ].join("\n"),
+    status: { cycleCount: 42 },
+    currentCycle: { runId: "cycle-43" },
+    sequence,
+  });
+  assert.equal(resumed, 44);
+  assert.deepEqual(nextCycleSequence(resumed, "2026-09-07T01:31:00.000Z"), {
+    schemaVersion: 1,
+    lastIssued: 45,
+    issuedAt: "2026-09-07T01:31:00.000Z",
+  });
+  assert.throws(() => parseCycleSequence(""), /empty/);
+  assert.throws(
+    () => parseCycleSequence(JSON.stringify({ schemaVersion: 1, lastIssued: 4.5, issuedAt: "2026-09-07T01:30:00Z" })),
+    /invalid lastIssued/,
+  );
+  assert.throws(() => nextCycleSequence(Number.MAX_SAFE_INTEGER), /leave room/);
+});
+
 test("autoloop forever runner emits a heartbeat so status timestamps cannot go stale while alive", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
   assert.match(script, /const STATUS_HEARTBEAT_SECONDS = clampInt\(process\.env\.AUTOLOOP_FOREVER_STATUS_HEARTBEAT_SECONDS, 15, 5, 300\);/);
@@ -2191,13 +2338,20 @@ test("autoloop forever runner emits a heartbeat so status timestamps cannot go s
   assert.match(script, /heartbeatAt: new Date\(\)\.toISOString\(\)/);
   assert.match(script, /statusHeartbeatTimer\.unref\?\.\(\);/);
   assert.match(script, /stopStatusHeartbeat\(\);/);
+  assert.match(script, /const cycleIndex = await reserveNextCycleIndex\(\);/);
+  assert.match(script, /await writeJsonFileAtomic\(CYCLE_SEQUENCE_FILE, sequence\);/);
+  assert.match(script, /resumed cycleCount from durable state/);
+  assert.ok(
+    script.indexOf("const cycleIndex = await reserveNextCycleIndex();") <
+      script.indexOf('await fs.writeFile(CURRENT_CYCLE_STATUS_FILE, "", "utf8");'),
+  );
 });
 
 test("autoloop forever status distinguishes live and absent runner pids without trusting stale JSON", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.sh", import.meta.url), "utf8");
   assert.match(script, /except PermissionError:\s+# POSIX EPERM proves that the PID exists;/);
   assert.match(script, /raise SystemExit\(0 if exc\.errno == errno\.EPERM else 1\)/);
-  assert.match(script, /python3 - "\$\{STATUS_FILE\}" "\$\{PID_FILE\}" "\$\{alive_flag\}"/);
+  assert.match(script, /python3 - "\$\{STATUS_FILE\}" "\$\{pid\}" "\$\{alive_flag\}"/);
   assert.match(script, /status\["pidAlive"\] = alive/);
   assert.match(script, /status\["live"\] = alive and status\.get\("state"\) not in \{"stopped", "error", "dead"\}/);
   assert.match(script, /status\["state"\] = "dead"/);
@@ -2213,7 +2367,15 @@ test("autoloop forever status distinguishes live and absent runner pids without 
       heartbeatAt: "2026-09-07T01:10:34.789Z",
     };
     await fs.writeFile(path.join(dir, "status.json"), `${JSON.stringify(status)}\n`);
-    await fs.writeFile(path.join(dir, "runner.pid"), `${process.pid}\n`);
+    await fs.writeFile(
+      path.join(dir, "runner.pid"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        pid: process.pid,
+        token: "status-owner-token",
+        acquiredAt: "2026-09-07T01:10:00.000Z",
+      })}\n`,
+    );
 
     const live = spawnSync("bash", [new URL("../scripts/autoloop-forever.sh", import.meta.url).pathname, "status"], {
       encoding: "utf8",
@@ -2225,6 +2387,14 @@ test("autoloop forever status distinguishes live and absent runner pids without 
       pidAlive: true,
       live: true,
     });
+
+    await fs.writeFile(path.join(dir, "runner.pid"), `${process.pid}\n`);
+    const legacyLive = spawnSync("bash", [new URL("../scripts/autoloop-forever.sh", import.meta.url).pathname, "status"], {
+      encoding: "utf8",
+      env: { ...process.env, TRADER_AUTOLOOP_STATE_DIR: dir },
+    });
+    assert.equal(legacyLive.status, 0, legacyLive.stderr);
+    assert.equal(JSON.parse(legacyLive.stdout).live, true);
 
     await fs.writeFile(path.join(dir, "runner.pid"), "2147483647\n");
     const absent = spawnSync("bash", [new URL("../scripts/autoloop-forever.sh", import.meta.url).pathname, "status"], {

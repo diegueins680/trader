@@ -19,9 +19,26 @@ load_repo_env() {
 }
 
 runner_pid() {
-  if [[ -f "${PID_FILE}" ]]; then
-    tr -d '[:space:]' < "${PID_FILE}"
-  fi
+  [[ -f "${PID_FILE}" ]] || return 1
+  python3 - "${PID_FILE}" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as handle:
+        raw = handle.read().strip()
+    try:
+        value = json.loads(raw)
+        pid = value.get("pid") if isinstance(value, dict) else value
+    except json.JSONDecodeError:
+        pid = int(raw)
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        raise ValueError("invalid runner pid")
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+
+print(pid)
+PY
 }
 
 pid_exists() {
@@ -104,25 +121,25 @@ show_status() {
   fi
 
   local alive_flag=0
-  if runner_alive; then
+  local pid=""
+  pid="$(runner_pid || true)"
+  if [[ -n "${pid}" ]] && pid_exists "${pid}"; then
     alive_flag=1
   fi
 
-  python3 - "${STATUS_FILE}" "${PID_FILE}" "${alive_flag}" <<'PY'
+  python3 - "${STATUS_FILE}" "${pid}" "${alive_flag}" <<'PY'
 import json
 import sys
 
-status_path, pid_path, alive_raw = sys.argv[1:4]
+status_path, pid_raw, alive_raw = sys.argv[1:4]
 with open(status_path, "r", encoding="utf-8") as handle:
     status = json.load(handle)
 
 pid = status.get("pid")
 try:
-    with open(pid_path, "r", encoding="utf-8") as handle:
-        raw = handle.read().strip()
-    if raw:
-        pid = int(raw)
-except Exception:
+    if pid_raw:
+        pid = int(pid_raw)
+except (TypeError, ValueError):
     pass
 
 alive = alive_raw == "1"

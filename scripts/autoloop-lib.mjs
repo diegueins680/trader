@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 export function stripMarkdownFences(raw) {
@@ -628,6 +629,236 @@ export function buildAnthropicApiError(status, payload) {
     err.anthropicStatus === 402 || /credit balance|billing|quota|insufficient/i.test(message);
   err.skipAutoloop = authOrPermissionDenied || billingExhausted;
   return err;
+}
+
+function isNonNegativeSafeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function runnerPidError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+export function parseRunnerPidRecord(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+
+  if (/^[1-9][0-9]*$/.test(text)) {
+    const pid = Number(text);
+    return isPositiveSafeInteger(pid) ? { schemaVersion: 0, pid, token: null, acquiredAt: null } : null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  if (parsed.schemaVersion !== 1 || !isPositiveSafeInteger(parsed.pid)) return null;
+  if (typeof parsed.token !== "string" || !/^[A-Za-z0-9._-]{8,128}$/.test(parsed.token)) return null;
+  if (typeof parsed.acquiredAt !== "string" || !Number.isFinite(Date.parse(parsed.acquiredAt))) return null;
+  return {
+    schemaVersion: 1,
+    pid: parsed.pid,
+    token: parsed.token,
+    acquiredAt: parsed.acquiredAt,
+  };
+}
+
+export function runnerProcessExists(pid) {
+  if (!isPositiveSafeInteger(pid)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    if (error?.code === "EPERM") return true;
+    throw error;
+  }
+}
+
+async function quarantineStalePidFile(filePath, pid, attempt, nowMs) {
+  const stalePath = `${filePath}.stale-${nowMs}-${pid}-${attempt}-${randomUUID()}`;
+  try {
+    await fs.rename(filePath, stalePath);
+    return stalePath;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function acquireRunnerPidFile({
+  filePath,
+  pid = process.pid,
+  token = randomUUID(),
+  nowMs = Date.now(),
+  initializationGraceMs = 30_000,
+  probePid = runnerProcessExists,
+} = {}) {
+  const target = String(filePath ?? "").trim();
+  if (!target) throw new Error("filePath must not be empty.");
+  if (!isPositiveSafeInteger(pid)) throw new Error("pid must be a positive safe integer.");
+  if (typeof token !== "string" || !/^[A-Za-z0-9._-]{8,128}$/.test(token)) {
+    throw new Error("token must contain 8-128 safe identifier characters.");
+  }
+  if (!Number.isFinite(nowMs)) throw new Error("nowMs must be finite.");
+  if (!Number.isFinite(initializationGraceMs) || initializationGraceMs < 0) {
+    throw new Error("initializationGraceMs must be finite and non-negative.");
+  }
+  if (typeof probePid !== "function") throw new Error("probePid must be a function.");
+
+  const owner = {
+    schemaVersion: 1,
+    pid,
+    token,
+    acquiredAt: new Date(nowMs).toISOString(),
+  };
+  const recoveredStalePaths = [];
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let handle;
+    try {
+      handle = await fs.open(target, "wx", 0o600);
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+
+      let raw;
+      let stat;
+      try {
+        [raw, stat] = await Promise.all([fs.readFile(target, "utf8"), fs.stat(target)]);
+      } catch (readError) {
+        if (readError?.code === "ENOENT") continue;
+        throw readError;
+      }
+
+      const currentOwner = parseRunnerPidRecord(raw);
+      if (currentOwner && (await probePid(currentOwner.pid))) {
+        throw runnerPidError(`Autoloop runner is already active with PID ${currentOwner.pid}.`, "EALREADY");
+      }
+      if (!currentOwner && raw.trim()) {
+        throw runnerPidError("Autoloop runner ownership record is malformed.", "EBADMSG");
+      }
+      if (!currentOwner && Math.max(0, nowMs - stat.mtimeMs) < initializationGraceMs) {
+        throw runnerPidError("Autoloop runner ownership is still initializing.", "EBUSY");
+      }
+
+      const stalePath = await quarantineStalePidFile(target, pid, attempt, nowMs);
+      if (stalePath) recoveredStalePaths.push(stalePath);
+      continue;
+    }
+
+    try {
+      await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => {});
+      handle = null;
+      await fs.unlink(target).catch(() => {});
+      throw error;
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+
+    return { owner, recoveredStalePaths };
+  }
+
+  throw runnerPidError("Autoloop runner ownership changed repeatedly during acquisition.", "EBUSY");
+}
+
+export async function releaseRunnerPidFile({ filePath, pid = process.pid, token } = {}) {
+  const target = String(filePath ?? "").trim();
+  if (!target || !isPositiveSafeInteger(pid) || typeof token !== "string") return false;
+  const raw = await fs.readFile(target, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") return "";
+    throw error;
+  });
+  const owner = parseRunnerPidRecord(raw);
+  if (!owner || owner.schemaVersion !== 1 || owner.pid !== pid || owner.token !== token) return false;
+  await fs.unlink(target);
+  return true;
+}
+
+export function maxCycleCountFromMetrics(raw) {
+  let max = 0;
+  for (const line of String(raw ?? "").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const value = JSON.parse(line)?.cycleCount;
+      if (isNonNegativeSafeInteger(value) && value > max) max = value;
+    } catch {
+      // Malformed historical metric lines do not erase valid later witnesses.
+    }
+  }
+  return max;
+}
+
+export function parseCycleSequence(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) throw new Error("Cycle sequence file is empty.");
+  let sequence;
+  try {
+    sequence = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Cycle sequence file is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!sequence || typeof sequence !== "object" || Array.isArray(sequence)) {
+    throw new Error("Cycle sequence must be an object.");
+  }
+  if (sequence.schemaVersion !== 1 || !isNonNegativeSafeInteger(sequence.lastIssued)) {
+    throw new Error("Cycle sequence has an unsupported schema or invalid lastIssued value.");
+  }
+  if (typeof sequence.issuedAt !== "string" || !Number.isFinite(Date.parse(sequence.issuedAt))) {
+    throw new Error("Cycle sequence issuedAt must be a valid timestamp.");
+  }
+  return {
+    schemaVersion: 1,
+    lastIssued: sequence.lastIssued,
+    issuedAt: sequence.issuedAt,
+  };
+}
+
+export function resolveResumedCycleCount({ metricsRaw = "", status = null, currentCycle = null, sequence = null } = {}) {
+  const candidates = [maxCycleCountFromMetrics(metricsRaw)];
+  if (isNonNegativeSafeInteger(status?.cycleCount)) candidates.push(status.cycleCount);
+  const runIdMatch = String(currentCycle?.runId ?? "").match(/^cycle-([0-9]+)$/);
+  if (runIdMatch) {
+    const current = Number(runIdMatch[1]);
+    if (isNonNegativeSafeInteger(current)) candidates.push(current);
+  }
+  if (sequence !== null) {
+    if (
+      sequence?.schemaVersion !== 1 ||
+      !isNonNegativeSafeInteger(sequence?.lastIssued) ||
+      typeof sequence?.issuedAt !== "string" ||
+      !Number.isFinite(Date.parse(sequence.issuedAt))
+    ) {
+      throw new Error("Cycle sequence is invalid.");
+    }
+    candidates.push(sequence.lastIssued);
+  }
+  return Math.max(...candidates);
+}
+
+export function nextCycleSequence(lastIssued, issuedAt = new Date().toISOString()) {
+  if (!isNonNegativeSafeInteger(lastIssued) || lastIssued >= Number.MAX_SAFE_INTEGER) {
+    throw new Error("lastIssued must leave room for another safe cycle identifier.");
+  }
+  if (typeof issuedAt !== "string" || !Number.isFinite(Date.parse(issuedAt))) {
+    throw new Error("issuedAt must be a valid timestamp.");
+  }
+  return {
+    schemaVersion: 1,
+    lastIssued: lastIssued + 1,
+    issuedAt,
+  };
 }
 
 export async function writeJsonFileAtomic(filePath, value) {
