@@ -169,10 +169,10 @@ riskRegister =
     , riskEntry
         EXECUTION_DATASET_001
         MEDIUM
-        OPEN
+        CLOSED
         "Backtest dataset generation is not fully reproducible"
         "trader-firm-data"
-        "Seed randomness and record the source dataset hash in test output"
+        "Fixed-window acquisition records source and CSV SHA-256 values plus explicit no-randomness provenance; expected-manifest and offline verification fail closed on drift"
     , riskEntry
         EXECUTION_MISSING_001
         CRITICAL

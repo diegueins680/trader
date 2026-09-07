@@ -1,22 +1,32 @@
-#!/bin/bash
-# Repeatable data fetch pipeline for BTCUSDT/ETHUSDT/SOLUSDT 4h 1000 bars
+#!/usr/bin/env bash
+
 set -euo pipefail
-DATA_DIR="${DATA_DIR:-data}"
-mkdir -p "$DATA_DIR"
-for sym in BTCUSDT ETHUSDT SOLUSDT; do
-  out="$DATA_DIR/${sym}-4h-1000.csv"
-  tmp="$out.tmp.$$"
-  # Fetch 1000 klines from Binance spot
-  curl -s -H 'User-Agent: Mozilla/5.0' \
-    "https://api.binance.com/api/v3/klines?symbol=${sym}&interval=4h&limit=1000" \
-    | python3 -c '
-import sys, json, csv
-ks = json.load(sys.stdin)
-w = csv.writer(sys.stdout)
-w.writerow(["openTimeMs","open","high","low","close","volume","closeTimeMs","quoteAssetVolume","tradeCount","takerBuyBaseVolume","takerBuyQuoteVolume","ignore"])
-for k in ks:
-    w.writerow(k)
-' > "$tmp"
-  mv "$tmp" "$out"
-  md5 "$out"
-done
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GENERATOR="${ROOT_DIR}/scripts/fetch-backtest-data.py"
+
+if [[ -n "${VERIFY_MANIFEST:-}" ]]; then
+  exec python3 "${GENERATOR}" --verify-manifest "${VERIFY_MANIFEST}"
+fi
+
+if [[ -z "${END_TIME_MS:-}" ]]; then
+  printf 'END_TIME_MS is required; moving latest-window acquisition is not reproducible.\n' >&2
+  exit 2
+fi
+
+read -r -a SYMBOL_ARGS <<< "${SYMBOLS:-BTCUSDT ETHUSDT SOLUSDT}"
+
+ARGS=(
+  --end-time-ms "${END_TIME_MS}"
+  --data-dir "${DATA_DIR:-data}"
+  --interval "${KLINE_INTERVAL:-4h}"
+  --limit "${KLINE_LIMIT:-1000}"
+  --base-url "${BINANCE_KLINES_URL:-https://api.binance.com/api/v3/klines}"
+  --symbols "${SYMBOL_ARGS[@]}"
+)
+
+if [[ -n "${EXPECTED_MANIFEST:-}" ]]; then
+  ARGS+=(--expected-manifest "${EXPECTED_MANIFEST}")
+fi
+
+exec python3 "${GENERATOR}" "${ARGS[@]}"
