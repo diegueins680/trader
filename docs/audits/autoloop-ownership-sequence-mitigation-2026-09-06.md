@@ -4,7 +4,7 @@ Date: 2026-09-06 local / 2026-09-07 UTC
 
 Risk IDs: `AUTOLOOP-SINGLETON-001`, `AUTOLOOP-RESET-2026-05-30`
 
-Disposition: mitigated in code; post-merge operational witnesses required
+Disposition: closed after code-level and post-merge operational witnesses
 
 ## Finding
 
@@ -65,19 +65,37 @@ The deterministic regression fixes completed metric 41, status 42, incomplete
 cycle 43, and persistent reservation 44, then requires the next record to be
 45. Fractional and unsafe metric counts do not become identity evidence.
 
-## Verification and remaining gate
+## Verification and operational closure
 
 The implementation is covered by the root automation suite and the canonical
-formal registry. These code-level witnesses justify moving both risks from
-open to mitigated, not closed.
+formal registry. Pull request 228 merged the implementation as commit
+`be7b69010f8c3092396efcb9b0685b25075c6398`; its hosted Haskell, web, and
+automation checks passed before the operational exercise.
 
-Closure requires loading the merged code in the launchd-supervised runtime and
-recording both:
+The isolated launchd-supervised checkout then synced cleanly to that exact
+commit. Immediately before restart, the legacy process had PID 79272, had
+issued `cycle-2761`, and had no sequence file. Its legacy PID-file SHA-256 was
+`4d94033e6bf2613051252d0c9efe8da173e3afe993288976dfd66f7397ae9945`. The
+bounded child was allowed to finish, and the runner was observed sleeping
+before the controlled LaunchAgent kickstart.
 
-- a rejected concurrent launch that leaves the active owner/status unchanged;
-  and
-- a supervisor restart whose first reservation is strictly greater than the
-  last ID issued before restart, including a valid schema-1 sequence record.
+At `2026-09-07T02:13:48.822Z`, the replacement process acquired a schema-1
+owner as PID 5288 with mode `0600` and a valid private token. The token was
+neither printed nor recorded here. At `2026-09-07T02:13:52.374Z`, it atomically
+reserved cycle 2762, strictly beyond the pre-restart issued identity. The owner
+record SHA-256 was
+`a26632e68ce5bfb555ce6ba5497e9bf2b4c7d848ab0e168211b9844328b77bf4`.
+
+While PID 5288 remained live, a direct `node scripts/autoloop-forever.mjs`
+contender exited non-zero with `EALREADY` and identified the active PID. After
+rejection, the owner digest, owner PID/acquisition time, runner PID/start time,
+cycle count 2762, and sequence record were unchanged. The runner remained
+healthy with no error or block; only its expected heartbeat advanced.
+
+The restart therefore proves durable monotone identity across the supervised
+process boundary, and the collision proves exclusive ownership plus
+non-owner status isolation on the merged runtime. These independent
+operational witnesses satisfy the recorded closure gates for both risks.
 
 No predictor, feature, backtest, strategy, position, order, exchange,
 credential, deployment, champion, holdout, or live-authorization behavior is
