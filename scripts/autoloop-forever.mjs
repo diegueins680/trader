@@ -7,13 +7,18 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 import {
+  acquireRunnerPidFile,
   buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
   isAutoloopMergeBranch,
   isAutoloopRecoveryBranch,
+  nextCycleSequence,
   normalizeGitBranchShortName,
+  parseCycleSequence,
   parseGitStatusPaths,
   prepareShellCommand,
+  releaseRunnerPidFile,
+  resolveResumedCycleCount,
   selectMergeVerificationTarget,
   uniqueStrings,
   writeJsonFileAtomic,
@@ -24,6 +29,7 @@ const STATE_DIR = path.join(ROOT, ".tmp", "autoloop");
 const CYCLES_DIR = path.join(STATE_DIR, "cycles");
 const STATUS_FILE = path.join(STATE_DIR, "status.json");
 const CURRENT_CYCLE_STATUS_FILE = path.join(STATE_DIR, "current-cycle.json");
+const CYCLE_SEQUENCE_FILE = path.join(STATE_DIR, "cycle-sequence.json");
 const RECOVERY_BLOCK_FILE = path.join(STATE_DIR, "recovery-block.json");
 const PID_FILE = path.join(STATE_DIR, "runner.pid");
 const STOP_FILE = path.join(STATE_DIR, "stop");
@@ -57,6 +63,7 @@ let runnerState = {
   runnerLogFile: relativePath(RUNNER_LOG_FILE),
   statusFile: relativePath(STATUS_FILE),
   currentCycleStatusFile: relativePath(CURRENT_CYCLE_STATUS_FILE),
+  cycleSequenceFile: relativePath(CYCLE_SEQUENCE_FILE),
   recoveryBlockFile: relativePath(RECOVERY_BLOCK_FILE),
   startedAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -67,26 +74,38 @@ let runnerState = {
 let shutdownRequest = null;
 let activeChild = null;
 let statusHeartbeatTimer = null;
+let runnerOwnership = null;
 
 async function main() {
   await ensureStateDir();
-  await ensureSingleRunner();
-  await clearLaunchArtifacts();
-  await fs.writeFile(PID_FILE, `${process.pid}\n`, "utf8");
-  installSignalHandlers();
-  startStatusHeartbeat();
-
-  // Resume cycle counter from metrics NDJSON if available
-  const resumedCycleCount = await readMaxCycleCount();
-  if (resumedCycleCount > 0) {
-    runnerState.cycleCount = resumedCycleCount;
-    await logRunner(`resumed cycleCount from metrics = ${resumedCycleCount}`);
-  }
-
-  await logRunner(`started persistent runner with interval=${LOOP_INTERVAL_SECONDS}s`);
-  await updateRunnerStatus({ state: "idle", heartbeatAt: new Date().toISOString() });
+  const ownership = await acquireRunnerPidFile({ filePath: PID_FILE });
+  runnerOwnership = ownership.owner;
+  let fatalError = null;
 
   try {
+    await clearLaunchArtifacts();
+
+    const resumedCycleCount = await readMaxCycleCount();
+    if (resumedCycleCount > 0) {
+      runnerState.cycleCount = resumedCycleCount;
+      await logRunner(`resumed cycleCount from durable state = ${resumedCycleCount}`);
+    }
+    if (ownership.recoveredStalePaths.length > 0) {
+      await logRunner(
+        `recovered ${ownership.recoveredStalePaths.length} stale runner ownership file(s): ${ownership.recoveredStalePaths.map(relativePath).join(", ")}`,
+      );
+    }
+
+    await logRunner(`started persistent runner with interval=${LOOP_INTERVAL_SECONDS}s`);
+    await updateRunnerStatus({
+      state: "idle",
+      heartbeatAt: new Date().toISOString(),
+      pidFileSchemaVersion: 1,
+      recoveredStalePidFiles: ownership.recoveredStalePaths.map(relativePath),
+    });
+    installSignalHandlers();
+    startStatusHeartbeat();
+
     while (true) {
       if (await syncStopFileState()) break;
 
@@ -117,7 +136,7 @@ async function main() {
         continue;
       }
 
-      const cycleIndex = runnerState.cycleCount + 1;
+      const cycleIndex = await reserveNextCycleIndex();
       const cycleStamp = new Date().toISOString().replace(/[:.]/g, "-");
       const cycleLogFile = path.join(CYCLES_DIR, `cycle-${String(cycleIndex).padStart(4, "0")}-${cycleStamp}.log`);
       await fs.writeFile(CURRENT_CYCLE_STATUS_FILE, "", "utf8");
@@ -181,20 +200,43 @@ async function main() {
       if (await syncStopFileState()) break;
       if (await sleepWithStopPolling(LOOP_INTERVAL_SECONDS)) break;
     }
+  } catch (err) {
+    fatalError = err;
+    const message = err instanceof Error ? err.stack || err.message : String(err);
+    await updateRunnerStatus({
+      state: "error",
+      nextRunAt: null,
+      error: message,
+      finishedAt: new Date().toISOString(),
+    }).catch(() => {});
+    await logRunner(`fatal error: ${message}`).catch(() => {});
+    console.error(message);
+    process.exitCode = 1;
   } finally {
     stopStatusHeartbeat();
-    const shutdown = shutdownRequest || {
-      reason: "completed",
-      requestedAt: new Date().toISOString(),
-    };
-    await updateRunnerStatus({
-      state: "stopped",
-      nextRunAt: null,
-      shutdown,
-      finishedAt: new Date().toISOString(),
-    });
-    await logRunner(`stopped (${shutdown.reason})`);
-    await safeUnlink(PID_FILE);
+    try {
+      if (!fatalError) {
+        const shutdown = shutdownRequest || {
+          reason: "completed",
+          requestedAt: new Date().toISOString(),
+        };
+        await updateRunnerStatus({
+          state: "stopped",
+          nextRunAt: null,
+          shutdown,
+          finishedAt: new Date().toISOString(),
+        });
+        await logRunner(`stopped (${shutdown.reason})`);
+      }
+    } finally {
+      const released = await releaseRunnerPidFile({
+        filePath: PID_FILE,
+        pid: process.pid,
+        token: runnerOwnership.token,
+      });
+      runnerOwnership = null;
+      if (!released) throw new Error("Autoloop runner ownership changed before release.");
+    }
   }
 }
 
@@ -218,20 +260,6 @@ async function ensureStateDir() {
 
 async function clearLaunchArtifacts() {
   await safeUnlink(STOP_FILE);
-}
-
-async function ensureSingleRunner() {
-  const rawPid = await fs.readFile(PID_FILE, "utf8").catch(() => "");
-  const pid = Number.parseInt(rawPid.trim(), 10);
-  if (!Number.isFinite(pid) || pid <= 0) return;
-  try {
-    process.kill(pid, 0);
-    throw new Error(`Autoloop runner is already active with PID ${pid}.`);
-  } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === "ESRCH") return;
-    if (err instanceof Error) throw err;
-    throw new Error(String(err));
-  }
 }
 
 async function updateRunnerStatus(patch) {
@@ -1153,34 +1181,41 @@ async function safeUnlink(filePath) {
   await fs.unlink(filePath).catch(() => {});
 }
 
-async function readMaxCycleCount() {
-  const metricsPath = path.join(ROOT, "reports", "autoloop-metrics.ndjson");
-  const raw = await fs.readFile(metricsPath, "utf8").catch(() => "");
-  if (!raw.trim()) return 0;
-  let max = 0;
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const obj = JSON.parse(line);
-      if (typeof obj.cycleCount === "number" && obj.cycleCount > max) {
-        max = obj.cycleCount;
-      }
-    } catch {
-      // ignore malformed lines
-    }
+async function readTextIfPresent(filePath) {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
   }
-  return max;
 }
 
-main().catch(async (err) => {
+async function readMaxCycleCount() {
+  const metricsPath = path.join(ROOT, "reports", "autoloop-metrics.ndjson");
+  const [metricsRaw, status, currentCycle, sequenceRaw] = await Promise.all([
+    readTextIfPresent(metricsPath),
+    readJsonIfPresent(STATUS_FILE),
+    readJsonIfPresent(CURRENT_CYCLE_STATUS_FILE),
+    readTextIfPresent(CYCLE_SEQUENCE_FILE),
+  ]);
+  const sequence = sequenceRaw === null ? null : parseCycleSequence(sequenceRaw);
+  return resolveResumedCycleCount({
+    metricsRaw: metricsRaw ?? "",
+    status,
+    currentCycle,
+    sequence,
+  });
+}
+
+async function reserveNextCycleIndex() {
+  const sequence = nextCycleSequence(runnerState.cycleCount);
+  await writeJsonFileAtomic(CYCLE_SEQUENCE_FILE, sequence);
+  runnerState.cycleCount = sequence.lastIssued;
+  return sequence.lastIssued;
+}
+
+main().catch((err) => {
   const message = err instanceof Error ? err.stack || err.message : String(err);
-  await updateRunnerStatus({
-    state: "error",
-    nextRunAt: null,
-    error: message,
-    finishedAt: new Date().toISOString(),
-  }).catch(() => {});
-  await logRunner(`fatal error: ${message}`).catch(() => {});
   console.error(message);
   process.exitCode = 1;
 });

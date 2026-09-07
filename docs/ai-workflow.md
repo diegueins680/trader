@@ -96,6 +96,13 @@ zero-signal probe proves that the PID exists; only a missing PID is reported as
 dead, so restricted monitoring cannot mistake a live supervised runner for an
 available launch slot.
 
+Runner ownership uses an exclusively created schema-1 `runner.pid` record with
+a per-process token. A live owner or recent incomplete record blocks another
+launch; a proven-dead or abandoned record is renamed for audit before a new
+owner is admitted, and only the matching token may release it. Each bounded
+cycle is also reserved in `cycle-sequence.json` before its status/log begins,
+so a supervisor restart advances beyond incomplete as well as completed work.
+
 Logical-correctness loop:
 
 ```bash

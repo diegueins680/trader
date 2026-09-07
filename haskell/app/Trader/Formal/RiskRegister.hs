@@ -134,17 +134,17 @@ riskRegister =
     , riskEntry
         AUTOLOOP_RESET_2026_05_30
         CRITICAL
-        OPEN
+        MITIGATED
         "Autoloop cycle counter reset and broke continuity assumptions"
         "trader-firm-cto"
-        "Establish and verify durable monotone cycle identity across supervisor restarts"
+        "Restart the supervised runner onto the atomic sequence and capture a post-restart ID strictly beyond the last reserved cycle before closing"
     , riskEntry
         AUTOLOOP_SINGLETON_001
         HIGH
-        OPEN
+        MITIGATED
         "Multiple autoloop instances may race on the same repository"
         "trader-firm-cto"
-        "Enforce one process with a verified lock and stale-owner recovery"
+        "Restart onto the exclusive owner record and capture a rejected concurrent start without status mutation before closing"
     , riskEntry
         AUTOLOOP_STALL_001
         CRITICAL

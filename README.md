@@ -503,6 +503,8 @@ Autoloop never auto-resolves merge conflicts. It promotes only non-recovery bran
 
 `scripts/autoloop-forever.sh status` verifies the PID recorded by the runner instead of trusting stale status JSON. A permission-denied zero-signal probe means the PID exists and is reported alive; only an absent PID downgrades a nonterminal persisted state to `dead`.
 
+The forever runner acquires `runner.pid` with exclusive creation and a private owner token before it clears launch artifacts or writes shared status. Active owners and recent incomplete acquisitions fail closed; proven-dead or abandoned records are quarantined for review. Before each bounded cycle starts, `cycle-sequence.json` atomically reserves the next ID from the maximum durable metrics, status, incomplete-cycle, and sequence evidence, preventing supervisor restart from reusing an issued ID.
+
 For ChatGPT-authenticated Codex automation, the default model is `gpt-5.6-terra`; override it with `AUTOLOOP_MODEL` or `CODEX_LOOP_MODEL` only when the selected model is available to the active account.
 
 ## Project layout
