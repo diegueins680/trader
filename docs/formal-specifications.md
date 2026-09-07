@@ -61,6 +61,12 @@ expectancy remains absent rather than becoming a directional zero. Backtest trad
 at v1.1 because retroactively approximating the simulator's exact intrabar
 daily/weekly decision state would violate the evidence contract.
 
+The current execution-owner report closes `EXECUTION-MISSING-001` as a
+reporting obligation while preserving the missed historical deadlines and the
+remaining exchange/network, accounting, and end-to-end IO limitations. That
+administrative disposition changes no `H-EXECUTION` guarantee and grants no
+production-readiness or live-order authority.
+
 ## Verification
 
 Run:

@@ -176,10 +176,10 @@ riskRegister =
     , riskEntry
         EXECUTION_MISSING_001
         CRITICAL
-        OPEN
+        CLOSED
         "The execution reporting lane missed recorded trade-log deadlines"
         "trader-firm-execution"
-        "Obtain a current execution report and explicitly close or reassign the operational obligation"
+        "Current execution report records the missed deadlines, delivered controls, evidence boundary, and unresolved limitations"
     , riskEntry
         EXECUTION_RESTART_001
         CRITICAL
