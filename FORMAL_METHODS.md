@@ -52,7 +52,29 @@ Proof sketch:
 - Equality at `q10 == q90` satisfies the ordered-bound predicate and produces a zero-width interval with `Nothing` sigma because `sigmaFromQ1090` requires positive finite width. This preserves the valid deterministic boundary without creating false confidence from zero spread.
 - After admissibility, the returned lower and upper bounds are exactly the raw q10 and q90 values, so interval width is exactly `q90 - q10`. Widening ordered bounds can only preserve or increase that width, and sigma is width divided by a positive constant when width is positive, so a wider admissible spread cannot decrease a positive sigma estimate.
 
+## Formal derivatives first-seen panel decision-time contract
+
+`decodeDerivativesPanelV2` and `validateRows` in `haskell/app/Trader/Predictors/DerivativesPanelSchema.hs` are the fail-closed boundary for derivatives first-seen rows before derivative evidence can be aligned to predictor bars.
+
+Clauses:
+
+1. Every admitted row has a decoded decision time computed from its parsed open time and the positive interval.
+2. The sequence of admitted `dpr2DecisionTimeMs` values is strictly increasing. Equality is not admissible, so every admitted decision time is unique.
+3. Duplicate or reversed decision times reject the whole panel before `decodeDerivativesPanelV2` returns rows to any downstream alignment path.
+4. Open times remain strictly increasing as an independent grid-integrity obligation.
+
+Bounded executable obligation:
+
+- `testDerivativesPanelSchemaV2` asserts that two rows with the same decoded decision timestamp fail with `binance_derivatives_first_seen_v2 decision times are not strictly increasing`.
+
+Proof sketch:
+
+- `decodeRow` constructs each decision time using checked timestamp arithmetic after parsing the row's open time, so malformed or overflowed decision-time witnesses cannot enter the decoded row list.
+- `validateRows` applies `strictlyIncreasing` to `dpr2DecisionTimeMs` before returning the decoded panel. Because the predicate uses strict `<` between adjacent times, both duplicate and reversed timestamps fail closed.
+- Since `decodeDerivativesPanelV2` returns `Left` on that failed invariant, no decoded panel reaches the later alignment stage, preventing ambiguous or double-counted derivative evidence from attaching to a predictor bar.
+
 ## Formal exogenous alignment contract
+
 
 `alignToBars` in `haskell/app/Trader/Predictors/Exogenous.hs` is treated as the point-in-time boundary for irregular exogenous market features before they are attached to predictor inputs.
 

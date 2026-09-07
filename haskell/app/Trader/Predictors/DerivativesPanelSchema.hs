@@ -236,10 +236,11 @@ parseMask name raw =
 
 validateRows :: [DerivativesPanelRowV2] -> Either String ()
 validateRows [] = Left "binance_derivatives_first_seen_v2 has no rows"
-validateRows rows =
+validateRows rows = do
+    unless (strictlyIncreasing (map dpr2DecisionTimeMs rows)) $
+        Left "binance_derivatives_first_seen_v2 decision times are not strictly increasing"
     unless (strictlyIncreasing (map dpr2OpenTimeMs rows)) $
         Left "binance_derivatives_first_seen_v2 open times are not strictly increasing"
-
 validSymbol :: String -> Bool
 validSymbol symbol =
     not (null symbol)

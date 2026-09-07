@@ -1286,6 +1286,11 @@ testDerivativesPanelSchemaV2 = do
             _ -> False
         )
     assert
+        "derivatives panel v2 rejects duplicate decision timestamps before alignment"
+        ( decodeRows [validRow, validRow]
+            == Left "binance_derivatives_first_seen_v2 decision times are not strictly increasing"
+        )
+    assert
         "derivatives panel v2 rejects incompatible headers and malformed cells"
         ( and
             [ isLeft (decodeDerivativesPanelV2 "BTCUSDT" hourMs (derivativesBytes (drop 1 derivativesPanelColumnsV2) [drop 1 validRow]))
@@ -1311,7 +1316,6 @@ testDerivativesPanelSchemaV2 = do
             , isLeft (decodeDerivativesPanelV2 "BTCUSDT" 0 (derivativesBytes derivativesPanelColumnsV2 [validRow]))
             , isLeft (decodeDerivativesPanelV2 "BTCUSDT" (maxBound :: Int64) (derivativesBytes derivativesPanelColumnsV2 [validRow]))
             , isLeft (decodeRows [])
-            , isLeft (decodeRows [validRow, validRow])
             , isLeft (decodeRows [laterRow, validRow])
             , isLeft (decodeRows [derivativesRow (maxBound :: Int64) []])
             ]
