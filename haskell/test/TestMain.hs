@@ -323,9 +323,11 @@ import Trader.SensitivityAnalysis (
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
+    SignalGateConfig (..),
     SignalThresholdBoundary (..),
     defaultSignalGateConfig,
     directionalityWeakBandConfirmed,
+    directionalityWeakBandConfirmedWithConfig,
     directionalityWeakBandConfirmedWithPrediction,
     dynamicRangePct,
     finiteDouble,
@@ -336,15 +338,21 @@ import Trader.SignalGates (
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
     signalDirectionalitySnapshotImplWithPrediction,
+    signalDirectionalitySnapshotWithConfig,
     signalEntryEdgeSpikeAuditWarning,
     signalEntryEdgeSpikeAuditWarningInterval,
     signalEntryEdgeSpikeConsecutiveOk,
+    signalEntryEdgeSpikeConsecutiveOkWithConfig,
     signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeEntryOkInterval,
+    signalEntryEdgeSpikeEntryOkWithConfig,
     signalEntryEdgeSpikeOk,
     signalEntryEdgeSpikeOkInterval,
+    signalEntryEdgeSpikeOkWithConfig,
     signalEntryFeeBufferOk,
+    signalEntryFeeBufferOkWithConfig,
     signalEntryHeadroomOk,
+    signalEntryHeadroomOkWithConfig,
     signalEntryHeadroomThresholdCap,
     signalEntryOpenThresholdFeasibilityCap,
     signalEntryOpenThresholdFeasibilityReason,
@@ -356,6 +364,7 @@ import Trader.SignalGates (
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
     signalTrendSmaConfirmed,
+    signalTrendSmaConfirmedWithConfig,
  )
 
 import Trader.Test.ApiRoutes (apiRouteSuite)
@@ -601,7 +610,8 @@ main = do
     testSignalGateEntryThresholdFeasibilityInvariant
     testMarketDataFreshnessAndContinuationInvariant
     testSignalGateEntryEdgeSpikeCapRegression
-    testSignalGateNonFiniteEvidenceFailsClosed
+        testSignalGateNonFiniteEvidenceFailsClosed
+    testSignalGateNonFiniteConfigFailsClosed
     testSignalGateEntryEdgeSpikeAuditWarning
 
     testSignalGateEntryHeadroomSpecializesFeeBuffer
@@ -5019,6 +5029,55 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
                 (V.length trendPrices - 1)
                 1
                 == Just (DirectionalitySnapshot False Nothing)
+        )
+
+-- Every non-finite signal-gate configuration threshold must make every
+-- config-aware entry path hold, including the audit-only edge-spike path.
+-- This bounded grid covers NaN and both infinities for every Double field.
+testSignalGateNonFiniteConfigFailsClosed :: IO ()
+testSignalGateNonFiniteConfigFailsClosed = do
+    let nonFinite = [0 / 0, 1 / 0, negate (1 / 0)]
+        base = defaultSignalGateConfig
+        malformedConfigs value =
+            [ base{sgcEntryEdgeHeadroomMultiple = value}
+            , base{sgcEntryEdgeSpikeMultiple = value}
+            , base{sgcEntryEdgeSpikeCredibleCap = value}
+            , base{sgcTrendConfirmationSlackMultiple = value}
+            , base{sgcTrendConfirmationSlackCap = value}
+            , base{sgcDirectionalityChopEfficiencyMax = value}
+            , base{sgcDirectionalityMrEfficiencyMax = value}
+            , base{sgcDirectionalityWeakBandZMin = value}
+            , base{sgcPredictorTrackingFloor = value}
+            ]
+        trendPrices = pricesFromReturns (replicate 24 0.01)
+        malformedSnapshot = Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_MALFORMED"))
+        rejects cfg =
+            not (signalEntryEdgeSpikeOkWithConfig cfg 0.01 (Just 0.02))
+                && not (signalEntryEdgeSpikeEntryOkWithConfig cfg True 0.01 (Just 0.02))
+                && not (signalEntryEdgeSpikeConsecutiveOkWithConfig cfg 0 True 0.01 (Just 0.02))
+                && not (signalEntryHeadroomOkWithConfig cfg 0.01 (Just 0.02))
+                && not (signalEntryFeeBufferOkWithConfig cfg 0.01 0 (Just 0.02))
+                && not (signalTrendSmaConfirmedWithConfig cfg 0.01 101 100 1)
+                && not (directionalityWeakBandConfirmedWithConfig cfg 0.6 (Just 1))
+                && signalDirectionalitySnapshotWithConfig
+                    cfg
+                    0.05
+                    (Just (RegimeProbs 0.6 0.2 0.2))
+                    trendPrices
+                    (V.length trendPrices - 1)
+                    (Just 1)
+                    == malformedSnapshot
+    assert
+        "every NaN or infinite SignalGateConfig threshold fails closed across config-aware entry gates"
+        (all rejects [cfg | value <- nonFinite, cfg <- malformedConfigs value])
+    assert
+        "finite default signal-gate configuration preserves representative admissible boundaries"
+        ( signalEntryEdgeSpikeOkWithConfig base 0.01 (Just 0.02)
+            && signalEntryEdgeSpikeEntryOkWithConfig base True 0.01 (Just 6)
+            && signalEntryHeadroomOkWithConfig base 0.01 (Just 0.015)
+            && signalEntryFeeBufferOkWithConfig base 0.01 0 (Just 0.015)
+            && signalTrendSmaConfirmedWithConfig base 0.01 101 100 1
+            && directionalityWeakBandConfirmedWithConfig base 0.6 (Just 1)
         )
 
 testSignalGateEntryEdgeSpikeAuditWarning :: IO ()

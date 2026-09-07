@@ -146,6 +146,21 @@ class MkSignalThresholdBoundary r where
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value) && not (isInfinite value)
 
+signalGateConfigFinite :: SignalGateConfig -> Bool
+signalGateConfigFinite cfg =
+    all
+        finiteDouble
+        [ sgcEntryEdgeHeadroomMultiple cfg
+        , sgcEntryEdgeSpikeMultiple cfg
+        , sgcEntryEdgeSpikeCredibleCap cfg
+        , sgcTrendConfirmationSlackMultiple cfg
+        , sgcTrendConfirmationSlackCap cfg
+        , sgcDirectionalityChopEfficiencyMax cfg
+        , sgcDirectionalityMrEfficiencyMax cfg
+        , sgcDirectionalityWeakBandZMin cfg
+        , sgcPredictorTrackingFloor cfg
+        ]
+
 instance MkSignalThresholdBoundary SignalThresholdBoundary where
     mkSignalThresholdBoundary = failClosedSurface
 
@@ -283,6 +298,7 @@ signalDirectionalitySnapshotImpl' ::
     (Double -> Maybe Int -> Bool) ->
     Maybe DirectionalitySnapshot
 signalDirectionalitySnapshotImpl' cfg regimeBankHysteresis mRegimes pricesV t mChosenDir weakBandCheck
+    | not (signalGateConfigFinite cfg) = Just malformedDirectionalitySnapshot
     | not (directionalityGateEvidenceValid regimeBankHysteresis mRegimes) = Just malformedDirectionalitySnapshot
     | otherwise =
         case directionalityWindowMetricsWithConfig cfg pricesV t of
@@ -388,6 +404,7 @@ directionalityWeakBandConfirmed = directionalityWeakBandConfirmedWithConfig defa
 
 directionalityWeakBandConfirmedWithConfig :: SignalGateConfig -> Double -> Maybe Int -> Bool
 directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
+    | not (signalGateConfigFinite cfg) = False
     | not (finiteDouble zScore) = False
     | otherwise =
         let zMin = max 0 (sgcDirectionalityWeakBandZMin cfg)
@@ -536,22 +553,25 @@ signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeOk = signalEntryEdgeSpikeOkWithConfig defaultSignalGateConfig
 
 signalEntryEdgeSpikeOkWithConfig :: SignalGateConfig -> Double -> Maybe Double -> Bool
-signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod =
-    case normalizeSignalOpenThreshold openThreshold of
-        Nothing -> False
-        Just threshold ->
-            let spikeCap =
-                    min
-                        (signalGateSpikeMultiple cfg * threshold)
-                        (signalGateSpikeCredibleCap cfg)
-             in maybe False (\edge -> finiteDouble edge && edge >= 0 && edge <= spikeCap) edgeForMethod
+signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod
+    | not (signalGateConfigFinite cfg) = False
+    | otherwise =
+        case normalizeSignalOpenThreshold openThreshold of
+            Nothing -> False
+            Just threshold ->
+                let spikeCap =
+                        min
+                            (signalGateSpikeMultiple cfg * threshold)
+                            (signalGateSpikeCredibleCap cfg)
+                 in maybe False (\edge -> finiteDouble edge && edge >= 0 && edge <= spikeCap) edgeForMethod
 
 signalEntryEdgeSpikeEntryOk :: Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOkWithConfig defaultSignalGateConfig
 
 signalEntryEdgeSpikeEntryOkWithConfig :: SignalGateConfig -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeEntryOkWithConfig cfg auditOnly openThreshold edgeForMethod =
-    signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
+    signalGateConfigFinite cfg
+        && signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
         && (auditOnly || signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod)
 
 signalEntryEdgeSpikeEvidenceFinite :: Double -> Maybe Double -> Bool
@@ -579,23 +599,26 @@ signalEntryEdgeSpikeConsecutiveOk = signalEntryEdgeSpikeConsecutiveOkWithConfig 
 signalEntryEdgeSpikeConsecutiveOkWithConfig :: SignalGateConfig -> Int -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeConsecutiveOkWithConfig cfg consecutiveWarnings auditOnly openThreshold edgeForMethod =
     let ok = signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod
-     in signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
+     in signalGateConfigFinite cfg
+            && signalEntryEdgeSpikeEvidenceFinite openThreshold edgeForMethod
             && (ok || (auditOnly && consecutiveWarnings < signalGateSpikeConsecutiveLimit cfg))
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk = signalEntryFeeBufferOkWithConfig defaultSignalGateConfig
 
 signalEntryFeeBufferOkWithConfig :: SignalGateConfig -> Double -> Double -> Maybe Double -> Bool
-signalEntryFeeBufferOkWithConfig cfg openThreshold roundTripFeeFloor edgeForMethod =
-    case normalizeSignalOpenThreshold openThreshold of
-        Nothing -> False
-        Just threshold ->
-            let requiredHeadroom = signalGateHeadroomMultiple cfg * threshold
-             in case normalizeSignalFeeFloor roundTripFeeFloor of
-                    Nothing -> False
-                    Just feeFloor ->
-                        let requiredEdge = requiredHeadroom + feeFloor
-                         in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
+signalEntryFeeBufferOkWithConfig cfg openThreshold roundTripFeeFloor edgeForMethod
+    | not (signalGateConfigFinite cfg) = False
+    | otherwise =
+        case normalizeSignalOpenThreshold openThreshold of
+            Nothing -> False
+            Just threshold ->
+                let requiredHeadroom = signalGateHeadroomMultiple cfg * threshold
+                 in case normalizeSignalFeeFloor roundTripFeeFloor of
+                        Nothing -> False
+                        Just feeFloor ->
+                            let requiredEdge = requiredHeadroom + feeFloor
+                             in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
 
 trendConfirmationSlackMultiple :: Double
 trendConfirmationSlackMultiple = sgcTrendConfirmationSlackMultiple defaultSignalGateConfig
@@ -608,6 +631,7 @@ signalTrendSmaConfirmed = signalTrendSmaConfirmedWithConfig defaultSignalGateCon
 
 signalTrendSmaConfirmedWithConfig :: SignalGateConfig -> Double -> Double -> Double -> Int -> Bool
 signalTrendSmaConfirmedWithConfig cfg openThreshold currentPrice sma dir
+    | not (signalGateConfigFinite cfg) = False
     | not (finiteDouble currentPrice && finiteDouble sma) = False
     | otherwise =
         case normalizeSignalOpenThreshold openThreshold of
@@ -761,16 +785,18 @@ directionalityWeakBandConfirmedWithPrediction :: Double -> Maybe Int -> Maybe Do
 directionalityWeakBandConfirmedWithPrediction = directionalityWeakBandConfirmedWithPredictionAndConfig defaultSignalGateConfig
 
 directionalityWeakBandConfirmedWithPredictionAndConfig :: SignalGateConfig -> Double -> Maybe Int -> Maybe Double -> Double -> Bool
-directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mChosenDir mPrediction _currentPrice =
-    case mPrediction of
-        Nothing -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
-        Just predVal
-            | not (finiteDouble predVal) -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
-            | otherwise ->
-                case mChosenDir of
-                    Just dir | dir > 0 && predVal > 0 -> True
-                    Just dir | dir < 0 && predVal < 0 -> True
-                    _ -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
+directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mChosenDir mPrediction _currentPrice
+    | not (signalGateConfigFinite cfg) = False
+    | otherwise =
+        case mPrediction of
+            Nothing -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
+            Just predVal
+                | not (finiteDouble predVal) -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
+                | otherwise ->
+                    case mChosenDir of
+                        Just dir | dir > 0 && predVal > 0 -> True
+                        Just dir | dir < 0 && predVal < 0 -> True
+                        _ -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
 
 signalDirectionalitySnapshotImplWithPrediction ::
     Double ->
