@@ -9,6 +9,8 @@ module Trader.Predictors.FeatureSchema (
     frv2Values,
     frv2Available,
     frv2Required,
+    frv2EventTimesMs,
+    frv2AvailabilityTimesMs,
     featureAvailabilitySchemaIdV2,
     mkFeatureRowV2,
     featureRowModelInputs,
@@ -46,6 +48,8 @@ data FeatureRowV2 = FeatureRowV2
     , frv2Values :: ![Double]
     , frv2Available :: ![Bool]
     , frv2Required :: ![Bool]
+    , frv2EventTimesMs :: ![Maybe Int64]
+    , frv2AvailabilityTimesMs :: ![Maybe Int64]
     }
     deriving (Eq, Show)
 
@@ -68,6 +72,8 @@ mkFeatureRowV2 decisionTime fields
                 , frv2Values = map (maybe 0 tfvValue) cells
                 , frv2Available = map isJust cells
                 , frv2Required = map ((== RequiredFeature) . ffRequirement) fields
+                , frv2EventTimesMs = map (fmap tfvEventTimeMs) cells
+                , frv2AvailabilityTimesMs = map (fmap tfvAvailabilityTimeMs) cells
                 }
   where
     cells = map (availableObservation decisionTime . ffObservation) fields

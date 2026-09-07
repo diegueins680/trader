@@ -262,9 +262,17 @@ import Trader.PredictionMarkets (
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel (..), fitConformal, initAdaptiveConformal, predictInterval, updateAdaptiveConformal)
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
+import Trader.Predictors.DerivativesFeaturesV2 (
+    derivativesFeatureRowsV2,
+    derivativesModelFeatureNamesV2,
+    derivativesModelFeatureSchemaIdV2,
+    derivativesModelFeatureSchemaVersionV2,
+    derivativesModelFeatureSignatureV2,
+ )
 import Trader.Predictors.DerivativesPanelSchema (
     DerivativesFeatureV2 (..),
     DerivativesPanelCellV2 (..),
+    DerivativesPanelRowV2 (..),
     decodeDerivativesPanelV2,
     derivativesFeatureAvailabilitySchemaIdV2,
     derivativesObservationSchemaIdV2,
@@ -286,7 +294,7 @@ import Trader.Predictors.ExternalPanelSchema (
     externalPanelSchemaIdV2,
     externalPanelSchemaVersionV2,
  )
-import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2Available, frv2SchemaId, frv2Values, mkFeatureRowV2)
+import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2AvailabilityTimesMs, frv2Available, frv2EventTimesMs, frv2Names, frv2SchemaId, frv2Values, mkFeatureRowV2)
 import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
@@ -751,6 +759,7 @@ main = do
     testExternalDataFeatureInputs
     testExternalPanelSchemaV2
     testDerivativesPanelSchemaV2
+    testDerivativesFeatureAdapterV2
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
     testDecisionTreeSanitizesMalformedInputs
@@ -1343,6 +1352,126 @@ testDerivativesPanelSchemaV2 = do
       where
         featureCells feature =
             fromMaybe ["0", "0", "0", "", ""] (lookup feature overrides)
+
+testDerivativesFeatureAdapterV2 :: IO ()
+testDerivativesFeatureAdapterV2 = do
+    let hourMs = 3600000 :: Int64
+        approximately left right = abs (left - right) < 1.0e-12
+        approximatelyList actual expected =
+            length actual == length expected
+                && and (zipWith approximately actual expected)
+        finite value = not (isNaN value || isInfinite value)
+    fixture <- BL.readFile "test/fixtures/binance_derivatives_first_seen_v2.csv"
+    assert
+        "derivatives feature adapter has a distinct versioned schema and fixed legacy-value order"
+        ( derivativesModelFeatureSchemaIdV2 == "binance_derivatives_model_features_v2"
+            && derivativesModelFeatureSchemaVersionV2 == 2
+            && derivativesModelFeatureNamesV2
+                == [ "funding.level"
+                   , "funding.delta"
+                   , "open_interest.relative_delta"
+                   , "basis.level"
+                   , "taker_flow.centered"
+                   ]
+        )
+    case decodeDerivativesPanelV2 "BTCUSDT" hourMs fixture of
+        Left err -> assert ("derivatives adapter fixture should decode first: " ++ err) False
+        Right rows@[first, second, third] ->
+            case derivativesFeatureRowsV2 hourMs rows of
+                Nothing -> assert "valid decoded derivatives rows should produce v2 feature rows" False
+                Just featureRows@[firstFeatures, secondFeatures, thirdFeatures] -> do
+                    assert
+                        "adapter signature binds its identity, availability schema, names, and requirements"
+                        ( derivativesModelFeatureSignatureV2
+                            == derivativesModelFeatureSchemaIdV2
+                                ++ "|"
+                                ++ featureRowSchemaSignature secondFeatures
+                            && frv2Names secondFeatures == derivativesModelFeatureNamesV2
+                        )
+                    assert
+                        "first-row levels preserve observed zero while unavailable deltas and families stay masked"
+                        ( frv2Available firstFeatures == [True, False, False, True, False]
+                            && frv2Values firstFeatures == [0, 0, 0, 0.1, 0]
+                        )
+                    assert
+                        "second-row formulas preserve legacy value order and append masks only at model input"
+                        ( frv2Available secondFeatures == [True, True, False, True, True]
+                            && approximatelyList (frv2Values secondFeatures) [0.01, 0.01, 0, 0.2, 0.1]
+                            && drop 5 (featureRowModelInputs secondFeatures) == [1, 1, 0, 1, 1]
+                        )
+                    assert
+                        "derived feature rows retain the latest causal event and availability witnesses"
+                        ( frv2EventTimesMs secondFeatures
+                            == [Just 0, Just 0, Nothing, Just hourMs, Just hourMs]
+                            && frv2AvailabilityTimesMs secondFeatures
+                                == [Just 1000, Just 1000, Nothing, Just 3600100, Just 3600100]
+                        )
+                    assert
+                        "a computed zero and an unavailable zero remain distinguishable on later rows"
+                        ( frv2Available thirdFeatures == [True, True, True, False, False]
+                            && approximatelyList (frv2Values thirdFeatures) [0.01, 0, 0.01, 0, 0]
+                        )
+                    let changedFuture =
+                            third
+                                { dpr2Cells =
+                                    Map.adjust
+                                        (\cell -> cell{dpc2Value = 99})
+                                        DerivativesFundingV2
+                                        (dpr2Cells third)
+                                }
+                    assert
+                        "changing an appended future derivatives row cannot change an earlier feature row"
+                        ( case derivativesFeatureRowsV2 hourMs [first, second, changedFuture] of
+                            Just changed -> take 2 changed == take 2 featureRows
+                            Nothing -> False
+                        )
+
+                    let poisoned =
+                            second
+                                { dpr2Cells =
+                                    Map.adjust
+                                        (\cell -> cell{dpc2Value = 0 / 0})
+                                        DerivativesFundingV2
+                                        (dpr2Cells second)
+                                }
+                        futureAvailable =
+                            second
+                                { dpr2Cells =
+                                    Map.adjust
+                                        (\cell -> cell{dpc2AvailabilityTimeMs = Just (dpr2DecisionTimeMs second + 1)})
+                                        DerivativesFundingV2
+                                        (dpr2Cells second)
+                                }
+                        malformedOptionalRemainsUnavailable changed =
+                            case derivativesFeatureRowsV2 hourMs [first, changed] of
+                                Just [_, changedFeatures] ->
+                                    take 2 (frv2Available changedFeatures) == [False, False]
+                                        && all finite (frv2Values changedFeatures)
+                                _ -> False
+                    assert
+                        "non-finite or future-available optional cells become unavailable, never directional"
+                        ( malformedOptionalRemainsUnavailable poisoned
+                            && malformedOptionalRemainsUnavailable futureAvailable
+                        )
+
+                    let gappedOpen = 2 * hourMs
+                        gapped =
+                            second
+                                { dpr2OpenTimeMs = gappedOpen
+                                , dpr2DecisionTimeMs = gappedOpen + hourMs - 1
+                                }
+                        wrongDecision = second{dpr2DecisionTimeMs = dpr2DecisionTimeMs second + 1}
+                        mixedSymbol = second{dpr2Symbol = "ETHUSDT"}
+                    assert
+                        "empty, invalid-interval, malformed, gapped, and mixed-symbol panels fail closed"
+                        ( isNothing (derivativesFeatureRowsV2 hourMs [])
+                            && isNothing (derivativesFeatureRowsV2 0 rows)
+                            && isNothing (derivativesFeatureRowsV2 hourMs [first, wrongDecision])
+                            && isNothing (derivativesFeatureRowsV2 hourMs [first, gapped])
+                            && isNothing (derivativesFeatureRowsV2 hourMs [first, mixedSymbol])
+                        )
+                Just _ -> assert "derivatives adapter output row count changed" False
+        Right _ -> assert "derivatives adapter fixture row count changed" False
 
 {- | Multivariate LSTM: a single channel is byte-identical to the univariate
 model (so the default/live path is unchanged), input dim is recoverable from the
@@ -7047,6 +7176,13 @@ testFeatureAvailabilitySchemaV2 = do
             assert "feature schema v2 has a stable semantic identifier" (frv2SchemaId observed == featureAvailabilitySchemaIdV2)
             assert "observed zero retains availability" (frv2Values observed == [0] && frv2Available observed == [True])
             assert "missing optional value is neutral with an explicit false mask" (frv2Values missing == [0] && frv2Available missing == [False])
+            assert
+                "feature rows retain causal timestamp witnesses without inventing missing timestamps"
+                ( frv2EventTimesMs observed == [Just 1000]
+                    && frv2AvailabilityTimesMs observed == [Just 1500]
+                    && frv2EventTimesMs missing == [Nothing]
+                    && frv2AvailabilityTimesMs missing == [Nothing]
+                )
             assert "observed zero and missing evidence produce distinct model inputs" (featureRowModelInputs observed /= featureRowModelInputs missing)
             assert
                 "availability does not change the ordered schema signature"

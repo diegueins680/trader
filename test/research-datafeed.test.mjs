@@ -567,7 +567,7 @@ with tempfile.TemporaryDirectory() as read_only_cache:
   },
 );
 
-test("derivatives panel v2 decoder remains isolated from production features", () => {
+test("derivatives panel v2 decoder and adapter remain isolated from production features", () => {
   const features = readFileSync(
     new URL("../haskell/app/Trader/Predictors/Features.hs", import.meta.url),
     "utf8",
@@ -576,6 +576,17 @@ test("derivatives panel v2 decoder remains isolated from production features", (
     new URL("../haskell/app/Trader/Predictors/ExogenousFetch.hs", import.meta.url),
     "utf8",
   );
-  assert.doesNotMatch(features, /DerivativesPanelSchema|decodeDerivativesPanelV2/);
-  assert.doesNotMatch(fetchBridge, /DerivativesPanelSchema|decodeDerivativesPanelV2/);
+  const predictorRouter = readFileSync(
+    new URL("../haskell/app/Trader/Predictors.hs", import.meta.url),
+    "utf8",
+  );
+  const main = readFileSync(
+    new URL("../haskell/app/Main.hs", import.meta.url),
+    "utf8",
+  );
+  const isolatedContract =
+    /DerivativesPanelSchema|DerivativesFeaturesV2|decodeDerivativesPanelV2|derivativesFeatureRowsV2|binance_derivatives_model_features_v2/;
+  for (const productionPath of [features, fetchBridge, predictorRouter, main]) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
 });

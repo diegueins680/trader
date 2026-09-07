@@ -74,6 +74,7 @@ executable trader-hs
                      , Trader.Predictors.ExternalFeatureSchema
                      , Trader.Predictors.ExternalPanelSchema
                      , Trader.Predictors.DerivativesPanelSchema
+                     , Trader.Predictors.DerivativesFeaturesV2
                      , Trader.Predictors.Exogenous
                      , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.KNN
@@ -334,6 +335,7 @@ test-suite trader-tests
                      , Trader.Predictors.ExternalFeatureSchema
                      , Trader.Predictors.ExternalPanelSchema
                      , Trader.Predictors.DerivativesPanelSchema
+                     , Trader.Predictors.DerivativesFeaturesV2
                      , Trader.Predictors.Exogenous
                      , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.KNN
@@ -453,6 +455,7 @@ benchmark trader-bench
                      , Trader.Predictors.ExternalFeatureSchema
                      , Trader.Predictors.ExternalPanelSchema
                      , Trader.Predictors.DerivativesPanelSchema
+                     , Trader.Predictors.DerivativesFeaturesV2
                      , Trader.Predictors.Exogenous
                      , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.GBDT
