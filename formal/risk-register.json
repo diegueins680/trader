@@ -31,7 +31,7 @@
     { "id": "SCHEMA-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "THRESHOLD-FACTOR-001", "severity": "MEDIUM", "status": "CLOSED" },
     { "id": "TRADE-LOG-GAP-001", "severity": "HIGH", "status": "CLOSED" },
-    { "id": "TRADE-LOG-GAP-002", "severity": "MEDIUM", "status": "OPEN" },
+    { "id": "TRADE-LOG-GAP-002", "severity": "MEDIUM", "status": "CLOSED" },
     { "id": "TRAILING-STOP-001", "severity": "MEDIUM", "status": "CLOSED" },
     { "id": "VOL-TARGET-001", "severity": "CRITICAL", "status": "CLOSED" },
     { "id": "VOL-TARGET-INVALID-001", "severity": "CRITICAL", "status": "CLOSED" },

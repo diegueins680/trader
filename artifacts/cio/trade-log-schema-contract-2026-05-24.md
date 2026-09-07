@@ -1,174 +1,143 @@
-# Trade-Log Schema Contract — 2026-05-24
+# Trade-log schema contract
 
-**Owner:** trader-firm-cio  
-**Manager:** trader-firm-ceo  
-**Reference:** `haskell/app/Trader/Trading.hs` (Trade, BacktestCostAttribution, ExitReason), `haskell/app/Trader/Metrics.hs` (BacktestMetrics), Research field semantics request, Risk validation invariants  
-**Status:** ACTIVE — replaces the missing `artifacts/research/trade-log-schema-fields-2026-05-23.md`
+- Owner: trader-firm-cio
+- Effective version: backtest `1.1`; live event `1.2`
+- Last reconciled with production: 2026-09-07
 
----
+## Scope
 
-## 1. Purpose
+`--trade-log FILE` appends one JSON object per line. There is no outer array.
+The file can contain two record kinds:
 
-This contract defines the exact JSON serialization format for every trade emitted by the backtester and live engine. It is the single source of truth for:
-- Risk validation (RISK-AC-001)
-- Execution wire format
-- Research reproducibility
-- External integrations (journal, webhook, NDJSON archive)
+- backtest closed-trade records, which retain schema `1.1`; and
+- live applied-execution event records, whose schema advances additively to
+  `1.2` with a native pre-execution risk-state snapshot.
 
----
+Readers must dispatch by `schemaVersion` or `schema_version` and `method`.
+Version 1.2 does not change or remove any version 1.1 field. In particular, a
+live row is an applied OPEN/CLOSE event marker; its zero quantity, P&L, and fee
+compatibility fields are not a claim that a completed round trip earned zero.
 
-## 2. Top-Level JSON Object (per trade)
+Canonical implementation:
 
-Each trade is one JSON object. In NDJSON mode one object per line. No outer array.
+- `haskell/app/Main.hs` selects the record and supplies live decision state.
+- `haskell/app/Trader/TradeLogRiskState.hs` owns the version 1.2 live encoder
+  and non-finite handling.
 
-| # | Field Name | Haskell Type | JSON Type | Nullability | NaN / Inf Handling | Example Value |
-|---|-----------|--------------|-----------|-------------|-------------------|---------------|
-| 1 | `entry_index` | `Int` | `number` (integer) | NOT NULL | N/A | `42` |
-| 2 | `exit_index` | `Int` | `number` (integer) | NOT NULL | N/A | `55` |
-| 3 | `entry_equity` | `Double` | `number` (decimal) | NOT NULL | `null` if NaN/Inf | `10000.00` |
-| 4 | `exit_equity` | `Double` | `number` (decimal) | NOT NULL | `null` if NaN/Inf | `10019.20` |
-| 5 | `return` | `Double` | `number` (decimal) | NOT NULL | `0.0` if NaN/Inf | `0.00192` |
-| 6 | `holding_periods` | `Int` | `number` (integer) | NOT NULL | N/A | `13` |
-| 7 | `entry_high_vol_prob` | `Maybe Double` | `number` / `null` | NULLABLE | `null` if NaN/Inf | `0.12` |
-| 8 | `entry_source` | `TradeEntrySource` | `string` | NOT NULL | N/A | `"signal"` |
-| 9 | `exit_reason` | `Maybe ExitReason` | `string` / `null` | NULLABLE | N/A | `"TRAILING_STOP"` |
-| 10 | `entry_ip` | `Maybe Text` | `string` / `null` | NULLABLE | N/A | `"192.168.1.42"` |
-| 11 | `exit_ip` | `Maybe Text` | `string` / `null` | NULLABLE | N/A | `null` |
-| 12 | `fee_cost` | `Double` | `number` (decimal) | NOT NULL | `0.0` if NaN/Inf | `0.15` |
-| 13 | `entry_price` | `Double` | `number` (decimal) | NOT NULL | `null` if NaN/Inf | `89129.50` |
-| 14 | `exit_price` | `Double` | `number` (decimal) | NOT NULL | `null` if NaN/Inf | `89012.30` |
-| 15 | `position_size` | `Double` | `number` (decimal) | NOT NULL | `0.0` if NaN/Inf | `1.0` |
-| 16 | `symbol` | `String` | `string` | NOT NULL | N/A | `"BTCUSDT"` |
-| 17 | `timestamp_ms` | `Int64` | `number` (integer) | NOT NULL | N/A | `1716547200000` |
-| 18 | `method` | `Method` | `string` | NOT NULL | N/A | `"ta_trend"` |
-| 19 | `vol_conf_gate` | `VolConfGatePreset` | `string` | NOT NULL | N/A | `"vol_conf_v1_high_vol_looser"` |
-| 20 | `trailing_stop` | `Maybe Double` | `number` / `null` | NULLABLE | `null` if NaN/Inf | `0.005` |
-| 21 | `cost_attribution` | `BacktestCostAttribution` | `object` | NOT NULL | see §4 | `{...}` |
-| 22 | `sharpe` | `Double` | `number` (decimal) | NOT NULL | `null` if NaN/Inf | `2.663` |
-| 23 | `max_drawdown` | `Double` | `number` (decimal) | NOT NULL | `null` if NaN/Inf | `0.0726` |
-| 24 | `trade_count` | `Int` | `number` (integer) | NOT NULL | N/A | `13` |
+## Version 1.1 common fields
 
----
+The writer preserves these fields in both record kinds. Camel-case numeric
+fields are the current typed interface; snake-case decimal fields are legacy
+string compatibility aliases.
 
-## 3. Enum Values
+| Field | JSON type | Backtest meaning | Live event meaning |
+|---|---|---|---|
+| `timestamp` | string | last input-bar time for the emitting run, or empty when unavailable | processing time in UTC, second precision |
+| `symbol` | string | explicit symbol or symbol inferred from the data filename | configured live symbol |
+| `side` | string | `LONG` or `SHORT` | `OPEN` or `CLOSE` event type |
+| `entryPrice` | number | price at trade entry index | event price |
+| `exitPrice` | number | price at trade exit index | event price |
+| `quantity` | number | absolute simulated exposure at entry | compatibility marker `0.0` |
+| `pnl` | number | exit equity minus entry equity | compatibility marker `0.0` |
+| `pnlPercent` | number | recorded net trade return | compatibility marker `0.0` |
+| `fees` | number | recorded trade fee cost | compatibility marker `0.0` |
+| `method` | string | selected backtest method | `live` |
+| `volConfGate` | string | selected volatility-confidence preset | `live` |
+| `exitReason` | string or null | canonical simulated exit reason | `OPEN` or `CLOSE` event type |
+| `entry_price` | string | decimal compatibility alias | decimal compatibility alias |
+| `exit_price` | string | decimal compatibility alias | decimal compatibility alias |
+| `quantity_text` | string | decimal compatibility alias | `"0.0"` |
+| `pnl_quote` | string | decimal compatibility alias | `"0.0"` |
+| `pnl_pct` | string | decimal compatibility alias | `"0.0"` |
+| `fee_quote` | string | decimal compatibility alias | `"0.0"` |
+| `signal_method` | string | compatibility method alias | `live` |
+| `vol_conf_gate` | string | compatibility preset alias | `live` |
+| `regime_filter` | null | reserved | reserved |
+| `slippage_estimate` | null | reserved | reserved |
+| `latency_ms` | null | reserved | reserved |
+| `trade_id` | string | generated UUID | generated UUID |
+| `schemaVersion` | string | `1.1` | `1.2` |
+| `schema_version` | string | `1.1` | `1.2` |
 
-### 3.1 `entry_source`
-| Value | Meaning |
-|-------|---------|
-| `"signal"` | Entry triggered by primary signal |
-| `"adopted"` | Entry adopted from prior open position |
-| `"post_direction_gates"` | Entry after direction gates passed |
+The generated UUID intentionally makes emitted files non-deterministic. Tests
+bind field semantics and safe encoding rather than claiming byte-identical
+logs.
 
-### 3.2 `exit_reason`
-| Value | Meaning |
-|-------|---------|
-| `"SIGNAL"` | Exit by opposing signal |
-| `"STOP_LOSS"` | Hard stop-loss hit |
-| `"TRAILING_STOP"` | Trailing stop triggered |
-| `"TAKE_PROFIT"` | Take-profit level reached |
-| `"MAX_DRAWDOWN"` | Max drawdown circuit breaker |
-| `"MAX_DAILY_LOSS"` | Daily loss limit breached |
-| `"MAX_WEEKLY_LOSS"` | Weekly loss limit breached |
-| `"LIQUIDATION"` | Liquidation (live only) |
-| `"EOD"` | End-of-day close (not a round-trip) |
+## Version 1.2 live risk state
 
-**Note:** `null` means the trade is still open or the reason was not recorded.
+Live rows add `closeReason`/`close_reason` aliases and identical `riskState` and
+`risk_state` objects. The close reason is null on OPEN and otherwise carries
+the canonical reason used to create the closed trade; the legacy `exitReason`
+event marker is unchanged. The snapshot is
+captured at the `pre_execution_decision` boundary from the same values passed
+to the canonical live halt decision. It therefore describes risk evidence
+before the current order's execution cost, not post-fill accounting.
 
----
+| Field | JSON type | Meaning |
+|---|---|---|
+| `phase` | string | always `pre_execution_decision` |
+| `asOfMs` | integer | processing/availability time of the decision |
+| `marketEventTimeMs` | integer | causal completed-bar event time used by the decision |
+| `equity` | number or null | marked-to-market equity evaluated by risk |
+| `peakEquity` | number or null | peak including the current evaluated equity |
+| `dayKey` | integer | UTC epoch-day bucket |
+| `dayStartEquity` | number or null | equity reference for daily loss |
+| `weekKey` | integer | seven-day epoch bucket; not an ISO week number |
+| `weekStartEquity` | number or null | equity reference for weekly loss |
+| `drawdown` | number or null | non-negative drawdown supplied to the halt decision |
+| `dailyLoss` | number or null | non-negative daily loss supplied to the halt decision |
+| `weeklyLoss` | number or null | non-negative weekly loss supplied to the halt decision |
+| `expectancy` | number or null | evaluated recent mean trade return, or null when not evaluated/unavailable |
+| `expectancyLookback` | integer | configured non-negative trade lookback |
+| `expectancyObservations` | integer | finite preceding trade returns used when evaluated |
+| `expectancyRequired` | boolean | whether a minimum-expectancy risk gate is configured |
+| `expectancyAvailable` | boolean | whether this snapshot contains finite expectancy evidence |
+| `haltReason` | string or null | halt state at the decision boundary |
+| `finite` | boolean | false if any required metric or supplied expectancy was non-finite |
+| `valid` | boolean | false if a source value is outside its risk domain or required expectancy is unavailable |
 
-## 4. `cost_attribution` Object
+`expectancy=null` is not zero and must never be interpreted as bullish,
+bearish, or sufficient risk evidence. If a numeric input is NaN, infinite, or
+outside its risk domain, the corresponding field is `null`. Non-finite input
+sets `finite=false`; any domain error or unavailable required expectancy sets
+`valid=false`. Consumers must abstain or fail closed unless both flags are true;
+they must not impute an actionable value.
 
-Embedded in every trade record for full cost transparency.
+## Compatibility and limitations
 
-| Field Name | Haskell Type | JSON Type | Nullability | Example Value |
-|-----------|--------------|-----------|-------------|---------------|
-| `gross_equity_curve` | `[Double]` | `array` of `number` | NOT NULL | `[10000.0, 10005.2, ...]` |
-| `net_equity_curve` | `[Double]` | `array` of `number` | NOT NULL | `[10000.0, 10003.1, ...]` |
-| `realized_fee_cost` | `Double` | `number` | NOT NULL | `0.15` |
-| `realized_slippage_cost` | `Double` | `number` | NOT NULL | `0.05` |
-| `realized_spread_cost` | `Double` | `number` | NOT NULL | `0.02` |
-| `realized_funding_cost` | `Double` | `number` | NOT NULL | `0.00` |
-| `realized_total_cost` | `Double` | `number` | NOT NULL | `0.22` |
-| `consistency_residual` | `Double` | `number` | NOT NULL | `0.0001` |
+- Version 1.1 readers may ignore the two additive risk-state objects after
+  accepting version 1.2 through an explicit compatible-version policy.
+- Backtest rows remain 1.1. The simulator's exact intrabar daily/weekly risk
+  decision state is not present in `BacktestSummary`; manufacturing it later
+  from close-only trade rows would be an approximation and is prohibited by
+  this contract.
+- Live event markers do not replace the richer bot status, order journal, or
+  exchange evidence. They must not be used alone to infer fills, quantity,
+  round-trip P&L, fees, or actual exit cause.
+- No field in this contract authorizes orders, promotion, deployment, or live
+  trading.
 
----
+## Required invariants
 
-## 5. Complete Example NDJSON Record
+1. Every live applied OPEN/CLOSE row is schema 1.2 and contains equal
+   `riskState` and `risk_state` objects.
+2. All version 1.1 keys and meanings remain present in version 1.2.
+3. `closeReason` and `close_reason` are equal, null on OPEN, and preserve the
+   canonical close cause when a CLOSE row is emitted.
+4. Risk values come from the same pre-execution boundary as the canonical halt
+   decision; event time and processing time remain distinct.
+5. A non-finite risk value is serialized as `null` and makes `finite=false` and
+   `valid=false`; an out-of-domain value is also null and invalid.
+6. Missing expectancy remains explicitly unavailable and is never zero-filled;
+   it makes the snapshot invalid when the expectancy gate is required.
+7. Backtest rows retain schema 1.1 until exact state is carried natively by the
+   simulator.
 
-```json
-{
-  "entry_index": 42,
-  "exit_index": 55,
-  "entry_equity": 10000.00,
-  "exit_equity": 10019.20,
-  "return": 0.00192,
-  "holding_periods": 13,
-  "entry_high_vol_prob": 0.12,
-  "entry_source": "signal",
-  "exit_reason": "TRAILING_STOP",
-  "entry_ip": "192.168.1.42",
-  "exit_ip": null,
-  "fee_cost": 0.15,
-  "entry_price": 89129.50,
-  "exit_price": 89012.30,
-  "position_size": 1.0,
-  "symbol": "BTCUSDT",
-  "timestamp_ms": 1716547200000,
-  "method": "ta_trend",
-  "vol_conf_gate": "vol_conf_v1_high_vol_looser",
-  "trailing_stop": 0.005,
-  "cost_attribution": {
-    "gross_equity_curve": [10000.0, 10005.2, 10010.1, 10019.4],
-    "net_equity_curve": [10000.0, 10003.1, 10007.8, 10019.2],
-    "realized_fee_cost": 0.15,
-    "realized_slippage_cost": 0.05,
-    "realized_spread_cost": 0.02,
-    "realized_funding_cost": 0.00,
-    "realized_total_cost": 0.22,
-    "consistency_residual": 0.0001
-  },
-  "sharpe": 2.663,
-  "max_drawdown": 0.0726,
-  "trade_count": 13
-}
-```
+## Verification
 
----
-
-## 6. Numeric Precision Rules
-
-- **Prices & equity:** 2 decimal places (matching quote asset precision).
-- **Returns, Sharpe, drawdowns:** 6 decimal places.
-- **Costs:** 2 decimal places.
-- **Percentages stored as ratios:** e.g. `0.0726` for 7.26% (not `7.26`).
-
----
-
-## 7. Nullability & Edge Cases
-
-| Condition | Action |
-|-----------|--------|
-| NaN or ±Inf in any `Double` field | Serialize as `null` (if nullable) or `0.0` (if not nullable). Document in `consistency_residual`. |
-| Missing `exit_reason` (open trade) | `null` |
-| Missing `entry_ip` / `exit_ip` | `null` |
-| Missing `trailing_stop` (not used) | `null` |
-| Empty `gross_equity_curve` / `net_equity_curve` | `[]` (empty array) |
-
----
-
-## 8. Validation Invariants (for Risk)
-
-1. `entry_index < exit_index` (unless EOD close).
-2. `exit_equity == entry_equity * (1 + return)` within `consistency_residual` tolerance.
-3. `exit_reason` must be one of the enum values in §3.2 or `null`.
-4. `cost_attribution.realized_total_cost` must equal the sum of the four realized cost components.
-5. `timestamp_ms` must be a valid Unix epoch millisecond timestamp (≥ 0).
-
----
-
-## 9. Versioning
-
-- **Contract version:** `v1.0`
-- **Effective date:** 2026-05-24
-- **Next review:** 2026-05-31 or upon schema change
-- **Change process:** Research proposes field changes → CIO approves → Execution updates serialization → Risk updates invariants
+`Trader.Test.TradeLogRiskState` checks exact finite values, non-finite
+neutralization, version markers, both risk aliases, and preservation of every
+legacy v1.1 key in the version 1.2 encoder. It also binds the additive close
+reason aliases and the flat-to-open / position-to-flat transition classifier
+that carries the canonical close cause. The repository-wide Haskell wrapper
+compiles the production call site that supplies the canonical risk inputs.

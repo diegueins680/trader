@@ -340,24 +340,27 @@
     {
       "id": "H-EXECUTION",
       "title": "Live order intent and fill reconciliation",
-      "features": ["desired position", "order direction", "fill evidence", "applied fraction", "position reconciliation", "reduce-only reconciliation", "closed-trade snapshot recovery"],
+      "features": ["desired position", "order direction", "fill evidence", "applied fraction", "position reconciliation", "reduce-only reconciliation", "closed-trade snapshot recovery", "versioned live trade-log risk snapshot"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/OrderExecution.hs", "haskell/app/Trader/LiveOrderIntent.hs", "haskell/app/Trader/BotSnapshotRecovery.hs"],
+      "implementation": ["haskell/app/Trader/OrderExecution.hs", "haskell/app/Trader/LiveOrderIntent.hs", "haskell/app/Trader/BotSnapshotRecovery.hs", "haskell/app/Trader/TradeLogRiskState.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-REDUCE-ONLY", "G-ACCOUNT"],
       "dependsOn": ["H-TYPES"],
       "requires": [{ "id": "H-EXECUTION-R1", "statement": "A fill transition requires sent/live/status evidence plus a positive finite executed or defensible fallback quantity in one declared unit." }],
-      "ensures": [{ "id": "H-EXECUTION-E1", "statement": "closeQty + openQty = sanitized executedQty; applied exposure fraction <= intended fraction; reduce-only never increases or flips exposure." }],
+      "ensures": [{ "id": "H-EXECUTION-E1", "statement": "closeQty + openQty = sanitized executedQty; applied exposure fraction <= intended fraction; reduce-only never increases or flips exposure; every applied live OPEN/CLOSE event preserves the legacy trade-log fields and adds versioned canonical close-cause aliases plus a snapshot of the exact pre-execution risk inputs." }],
       "invariants": [
         { "id": "H-EXECUTION-I1", "statement": "Canceled/failed status with no executed quantity applies nothing; explicit partial fill evidence dominates terminal status text." },
-        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory from status; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." }
+        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory from status; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." },
+        { "id": "H-EXECUTION-I3", "statement": "A schema-1.2 live trade-event risk snapshot keeps market event time distinct from processing time, preserves missing expectancy as absent, represents every non-finite numeric risk input as null with finite=false, and marks out-of-domain or unavailable-required evidence with valid=false." }
       ],
-      "failures": [{ "id": "H-EXECUTION-F1", "statement": "Unsent, ambiguous, non-positive, non-finite, or unitless live evidence applies no quantity." }],
+      "failures": [{ "id": "H-EXECUTION-F1", "statement": "Unsent, ambiguous, non-positive, non-finite, or unitless live evidence applies no quantity; invalid or unavailable risk snapshot evidence cannot be serialized as an actionable numeric value." }],
       "evidence": [
         { "level": "bounded-exhaustive", "path": "haskell/app/Trader/Formal/Execution.hs", "contains": "verifyFormalExecution" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testStartupCanceledAfterPartialExecutionScenario" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testLiveReversalPartialEntryScenario" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testReduceOnlyPartialTakeProfitTerminalCancelScenario" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testSnapshotRestartRestoresMemoryWithoutExposureScenario" }
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testSnapshotRestartRestoresMemoryWithoutExposureScenario" },
+        { "level": "regression", "path": "haskell/test/Trader/Test/TradeLogRiskState.hs", "contains": "live transition classification preserves the canonical close cause" },
+        { "level": "regression", "path": "haskell/test/Trader/Test/TradeLogRiskState.hs", "contains": "live v1.2 records preserve every legacy v1.1 field and both risk aliases" }
       ]
     },
     {
