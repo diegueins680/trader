@@ -131,6 +131,8 @@ cabal run optimize-equity -- --help
 Serve mode requires `TRADER_DB_URL` or `DATABASE_URL`. The local wrapper supplies the conventional local PostgreSQL URL when possible.
 Database-backed endpoints serialize access to their shared PostgreSQL connection and automatically replace it after libpq connection failures, including a connection left busy by an interrupted command.
 
+`--trade-log FILE` remains backward compatible with schema-1.1 backtest closed-trade rows. Applied live OPEN/CLOSE event rows use schema 1.2 and add `closeReason`/`close_reason` plus identical `riskState`/`risk_state` objects containing the exact pre-execution drawdown, daily loss, weekly loss, and configured-expectancy evidence supplied to the canonical halt decision, their equity references, and distinct market-event/processing timestamps. Missing expectancy stays `null`; non-finite or out-of-domain risk evidence is serialized as `null` and marked by `finite=false` or `valid=false`, and must be treated as unavailable, never as a bullish, bearish, or neutral zero. Live event rows retain their legacy zero-quantity/P&L compatibility fields and therefore are not substitutes for fill, round-trip P&L, or fee evidence. The complete versioned contract is in [`artifacts/cio/trade-log-schema-contract-2026-05-24.md`](artifacts/cio/trade-log-schema-contract-2026-05-24.md).
+
 Important operational endpoints:
 
 - `GET /health` — process liveness and build commit

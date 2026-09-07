@@ -51,6 +51,16 @@ only its bounded `trades` history is decoded. Persisted `positions` and
 `Main.initBotState` derives startup exposure from the venue when trading is
 enabled and otherwise starts flat.
 
+The same execution contract binds schema-1.2 live trade-event observability to
+the canonical pre-execution halt boundary. Every applied OPEN/CLOSE row retains
+the complete v1.1 interface and adds equal `riskState`/`risk_state` snapshots;
+drawdown, daily/weekly loss, expectancy availability, their equity references,
+and distinct market-event/processing timestamps are preserved. Non-finite or
+out-of-domain values become `null` with explicit finite/valid flags, and missing
+expectancy remains absent rather than becoming a directional zero. Backtest trade rows deliberately stay
+at v1.1 because retroactively approximating the simulator's exact intrabar
+daily/weekly decision state would violate the evidence contract.
+
 ## Verification
 
 Run:

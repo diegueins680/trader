@@ -613,6 +613,14 @@ import Trader.TopCombosStore (
     withTopCombosLock,
     writeTopCombosValue,
  )
+import Trader.TradeLogRiskState (
+    LiveTradeEvent (..),
+    TradeLogRiskState,
+    TradeLogRiskStateInput (..),
+    encodeLiveTradeEvent,
+    liveTradeEventForTransition,
+    mkTradeLogRiskState,
+ )
 import Trader.TradeMethodGate (
     MethodGateConfig (..),
     MethodGateDecision (..),
@@ -14835,18 +14843,23 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             if weekStartEq1 > 0
                 then max 0 (1 - eqAfterReturn / weekStartEq1)
                 else 0
+        expectancyLookback = max 0 (argExpectancyLookback args)
+        expectancyRequired = isJust (argMinExpectancy args)
+        expectancyRecent =
+            if expectancyRequired && expectancyLookback > 0
+                then take expectancyLookback (reverse (botTrades st))
+                else []
+        expectancyFiniteReturns =
+            filter
+                (\x -> not (isNaN x || isInfinite x))
+                (map trReturn expectancyRecent)
         expectancy =
-            case (argMinExpectancy args, argExpectancyLookback args) of
-                (Just _, n)
-                    | n > 0 ->
-                        let recent = take n (reverse (botTrades st))
-                         in if length recent < n
-                                then Nothing
-                                else
-                                    let returns = map trReturn recent
-                                        vals = filter (\x -> not (isNaN x || isInfinite x)) returns
-                                     in if null vals then Nothing else Just (sum vals / fromIntegral (length vals))
-                _ -> Nothing
+            if not expectancyRequired
+                || expectancyLookback <= 0
+                || length expectancyRecent < expectancyLookback
+                || null expectancyFiniteReturns
+                then Nothing
+                else Just (sum expectancyFiniteReturns / fromIntegral (length expectancyFiniteReturns))
         canonicalRiskHalt =
             liveRiskHaltAction
                 prevPos
@@ -14876,6 +14889,26 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         haltReason1 = botHaltReason st <|> riskHaltReason
         haltedAt1 = botHaltedAtMs st <|> (if isJust riskHaltReason then Just now else Nothing)
         halted = isJust haltReason1
+        tradeLogRiskState =
+            mkTradeLogRiskState
+                TradeLogRiskStateInput
+                    { tlrsiAsOfMs = now
+                    , tlrsiMarketEventTimeMs = openTimeNew
+                    , tlrsiEquity = eqAfterReturn
+                    , tlrsiPeakEquity = max peakEq0 eqAfterReturn
+                    , tlrsiDayKey = dayKey1
+                    , tlrsiDayStartEquity = dayStartEq1
+                    , tlrsiWeekKey = weekKey1
+                    , tlrsiWeekStartEquity = weekStartEq1
+                    , tlrsiDrawdown = drawdown
+                    , tlrsiDailyLoss = dailyLoss
+                    , tlrsiWeeklyLoss = weeklyLoss
+                    , tlrsiExpectancy = expectancy
+                    , tlrsiExpectancyLookback = expectancyLookback
+                    , tlrsiExpectancyObservations = length expectancyFiniteReturns
+                    , tlrsiExpectancyRequired = expectancyRequired
+                    , tlrsiHaltReason = T.pack <$> haltReason1
+                    }
 
         pricesV = V.snoc pricesPrev priceNew
         opensV = V.snoc (botOpens st) (kOpen k)
@@ -15840,10 +15873,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
 
                         let liveSym = fromMaybe "BTCUSDT" (argBinanceSymbol args)
-                        when (appliedExecution && prevPos == 0 && posNew /= 0) $
-                            emitLiveTradeNdjson (argTradeLog args) liveSym "OPEN" priceNew eqAfterFee
-                        when (appliedExecution && prevPos /= 0 && posNew == 0) $
-                            emitLiveTradeNdjson (argTradeLog args) liveSym "CLOSE" priceNew eqAfterFee
+                            liveTradeEvent =
+                                if appliedExecution
+                                    then liveTradeEventForTransition prevPos posNew (T.pack <$> mExitReason)
+                                    else Nothing
+                        case liveTradeEvent of
+                            Nothing -> pure ()
+                            Just (eventType, closeReason) ->
+                                emitLiveTradeNdjson (argTradeLog args) liveSym (T.unpack eventType) priceNew closeReason tradeLogRiskState
 
                         pure
                             ( opsNew
@@ -30385,8 +30422,8 @@ emitBacktestTradesNdjson args summary = do
             upper = map toUpper noExt
          in T.pack (takeWhile (/= '-') upper)
 
-emitLiveTradeNdjson :: Maybe FilePath -> String -> String -> Double -> Double -> IO ()
-emitLiveTradeNdjson mPath sym eventType price equity =
+emitLiveTradeNdjson :: Maybe FilePath -> String -> String -> Double -> Maybe T.Text -> TradeLogRiskState -> IO ()
+emitLiveTradeNdjson mPath sym eventType price closeReason riskState =
     case mPath of
         Nothing -> pure ()
         Just path -> do
@@ -30399,34 +30436,16 @@ emitLiveTradeNdjson mPath sym eventType price equity =
                             posixSecondsToUTCTime $
                                 fromIntegral ms / 1000
                 line =
-                    AE.encodingToLazyByteString $
-                        pairs $
-                            pair "timestamp" (toEncoding (epochMsToIso nowMs))
-                                <> pair "symbol" (toEncoding (T.pack sym))
-                                <> pair "side" (toEncoding (T.pack eventType))
-                                <> pair "entryPrice" (toEncoding price)
-                                <> pair "exitPrice" (toEncoding price)
-                                <> pair "quantity" (toEncoding (0.0 :: Double))
-                                <> pair "pnl" (toEncoding (0.0 :: Double))
-                                <> pair "pnlPercent" (toEncoding (0.0 :: Double))
-                                <> pair "fees" (toEncoding (0.0 :: Double))
-                                <> pair "method" (toEncoding (T.pack "live"))
-                                <> pair "volConfGate" (toEncoding (T.pack "live"))
-                                <> pair "exitReason" (toEncoding (T.pack eventType))
-                                <> pair "entry_price" (toEncoding (T.pack (show price)))
-                                <> pair "exit_price" (toEncoding (T.pack (show price)))
-                                <> pair "quantity_text" (toEncoding ("0.0" :: T.Text))
-                                <> pair "pnl_quote" (toEncoding ("0.0" :: T.Text))
-                                <> pair "pnl_pct" (toEncoding ("0.0" :: T.Text))
-                                <> pair "fee_quote" (toEncoding ("0.0" :: T.Text))
-                                <> pair "signal_method" (toEncoding (T.pack "live"))
-                                <> pair "vol_conf_gate" (toEncoding (T.pack "live"))
-                                <> pair "regime_filter" (toEncoding (Nothing :: Maybe T.Text))
-                                <> pair "slippage_estimate" (toEncoding (Nothing :: Maybe T.Text))
-                                <> pair "latency_ms" (toEncoding (Nothing :: Maybe T.Text))
-                                <> pair "trade_id" (toEncoding tid)
-                                <> pair "schemaVersion" (toEncoding ("1.1" :: T.Text))
-                                <> pair "schema_version" (toEncoding ("1.1" :: T.Text))
+                    encodeLiveTradeEvent
+                        LiveTradeEvent
+                            { lteTimestamp = epochMsToIso nowMs
+                            , lteSymbol = T.pack sym
+                            , lteEventType = T.pack eventType
+                            , ltePrice = price
+                            , lteTradeId = tid
+                            , lteCloseReason = closeReason
+                            , lteRiskState = riskState
+                            }
             BL.appendFile path (line <> BL.fromStrict (BS.pack "\n"))
 
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()

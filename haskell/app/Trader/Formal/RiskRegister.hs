@@ -316,10 +316,10 @@ riskRegister =
     , riskEntry
         TRADE_LOG_GAP_002
         MEDIUM
-        OPEN
+        CLOSED
         "Trade logs lack a native snapshot of derived risk-state metrics"
         "trader-firm-cio"
-        "Define whether schema or deterministic derivation owns the risk-state snapshot"
+        "Schema 1.2 live event rows carry null-safe pre-execution risk snapshots while backtest rows retain explicit v1.1 semantics"
     , riskEntry
         TRAILING_STOP_001
         MEDIUM

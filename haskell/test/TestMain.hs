@@ -351,6 +351,7 @@ import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
 import Trader.Test.Revenue (revenueSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
+import Trader.Test.TradeLogRiskState (tradeLogRiskStateSuite)
 import Trader.ThresholdCalibration (
     CalibrationMethod (..),
     EdgeDistribution (..),
@@ -760,6 +761,7 @@ main = do
     runSuite "cors" corsSuite
     runSuite "formalVerification" formalVerificationSuite
     runSuite "gracefulShutdown" gracefulShutdownSuite
+    runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite
     runSuite "binanceProbe" binanceProbeSuite
