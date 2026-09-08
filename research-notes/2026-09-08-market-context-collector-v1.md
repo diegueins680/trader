@@ -83,10 +83,12 @@ An existing or symlinked output path is never overwritten. Provenance and path
 preflight failures occur before a new output is created. After preflight, the
 collector creates a new directory, writes `source-manifest.json` only after the
 complete response sequence, and marks status complete only after that atomic
-write. A clock, deadline, transport, HTTP, redirect, response-size,
-content-type, JSON, rate-limit, eligibility, ticker, or kline failure leaves a
-sanitized `partial_failure` status and no source manifest. A catchable final
-status-write failure removes the new manifest before recording partial failure;
+write. New directory entries, every replaced file, the raw directory, and the
+output directory are flushed before the successful status is attempted. A
+clock, deadline, transport, HTTP, redirect, response-size, content-type, JSON,
+rate-limit, eligibility, ticker, or kline failure leaves a sanitized
+`partial_failure` status and no source manifest. A catchable final status-write
+failure removes and flushes the new manifest before recording partial failure;
 an abrupt stop in that narrow window can leave the manifest only alongside the
 earlier `collecting` / `sourceManifestPublished: false` status. Any raw
 responses already accepted before a failure are preserved for diagnosis and
@@ -111,6 +113,8 @@ IP redaction, and partial kline failure. The source-verifier regression also
 rejects any kline tuple that differs from the documented 12-field shape. Final
 publication fault injection proves a catchable status failure removes the
 manifest and an abrupt stop never leaves status falsely claiming publication.
+The source test also pins the directory-flush barriers required before final
+publication.
 
 The real CLI shape, for use only after the registered start, is:
 

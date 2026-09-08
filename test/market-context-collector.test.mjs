@@ -131,6 +131,22 @@ def collect_at(output, responses, clock):
 
 test("public market-context collector emits a deterministic independently verified bundle", () => {
   const result = runPython(`${pythonFixtureHelpers}
+durable_directories = []
+original_fsync_directory = collector._fsync_directory
+original_write_status = collector._write_status
+
+def record_fsync(path):
+    original_fsync_directory(path)
+    durable_directories.append(Path(path))
+
+def require_publication_barriers(path, value):
+    if value.get("state") == "complete_unverified":
+        assert durable_directories[-1] == path.parent
+        assert path.parent / "raw" in durable_directories
+    original_write_status(path, value)
+
+collector._fsync_directory = record_fsync
+collector._write_status = require_publication_barriers
 root = Path(tempfile.mkdtemp(prefix="trader-market-context-collector-"))
 first_manifest, first_opener = collect_at(
     root / "first", successful_responses(), success_clock
@@ -412,6 +428,8 @@ test("collector CLI requires committed provenance before any public request", as
     /BINANCE_API_KEY|BINANCE_API_SECRET|X-MBX-APIKEY|["']Authorization["']|\/fapi\/v1\/order/,
   );
   assert.match(source, /NoRedirectHandler/);
+  assert.match(source, /_fsync_directory\(raw_dir\)/);
+  assert.match(source, /_fsync_directory\(path\.parent\)/);
   assert.match(source, /_provenance_tracked_clean/);
   assert.match(source, /The separate market_context_source\.py/);
   assert.doesNotMatch(source, /verify_and_derive\s*\(/);

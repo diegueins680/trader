@@ -453,6 +453,15 @@ def _json_bytes(value: object) -> bytes:
     return (json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n").encode()
 
 
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _write_bytes_atomic(path: Path, payload: bytes) -> None:
     descriptor, temporary_name = tempfile.mkstemp(
         dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
@@ -464,6 +473,7 @@ def _write_bytes_atomic(path: Path, payload: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -726,8 +736,10 @@ def _prepare_output(output_dir: Path) -> tuple[Path, Path, Path]:
     if output_dir.name in {"", ".", ".."}:
         raise CollectionFailure("output_invalid", "output directory name is unsafe")
     resolved.mkdir(mode=0o700)
+    _fsync_directory(parent)
     raw_dir = resolved / "raw"
     raw_dir.mkdir(mode=0o700)
+    _fsync_directory(resolved)
     return resolved, raw_dir, resolved / "collection-status.json"
 
 
@@ -1011,6 +1023,7 @@ def collect_bundle(
             },
         }
         manifest_payload = _json_bytes(manifest)
+        _fsync_directory(raw_dir)
         _write_bytes_atomic(manifest_path, manifest_payload)
         manifest_written = True
         _write_status(
@@ -1030,6 +1043,7 @@ def collect_bundle(
         if manifest_written:
             try:
                 manifest_path.unlink(missing_ok=True)
+                _fsync_directory(output)
             except OSError:
                 pass
         try:
