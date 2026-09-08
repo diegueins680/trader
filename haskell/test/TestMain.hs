@@ -333,6 +333,15 @@ import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureInputs (..
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
+import Trader.Predictors.MarketContextFeaturesV2 (
+    MarketContextPeerReturnV2 (..),
+    marketContextFactorFeatureNamesV2,
+    marketContextFactorRowV2,
+    marketContextFactorRowsV2,
+    marketContextFactorSchemaIdV2,
+    marketContextFactorSchemaSignatureV2,
+    marketContextFactorSchemaVersionV2,
+ )
 import Trader.Predictors.OhlcvInputsV2 (
     completeOhlcvFieldNamesV2,
     completeOhlcvGridV2,
@@ -735,6 +744,8 @@ main = do
     testExogenousDerivativesBacktestWiring
     testPointInTimeUniverseSelectsHistoricalSnapshot
     testPointInTimeUniverseV2
+    testMarketContextFactorV2
+    testMarketContextFactorV2ProductionIsolation
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -8048,6 +8059,267 @@ testPointInTimeUniverseV2 = do
             , isNothing (snapshot 1000 1100 [member "BTCUSDT" (1 / 0) True])
             ]
         )
+
+testMarketContextFactorV2 :: IO ()
+testMarketContextFactorV2 = do
+    let intervalMs = 1000 :: Int64
+        opens = V.fromList [0, 1000, 2000 :: Int64]
+        member symbol volume = UniverseMemberV2 symbol volume True
+        snapshot = pointInTimeUniverseSnapshotV2 "USDT"
+        select decision maybeSnapshot = do
+            universeSnapshot <- maybeSnapshot
+            pointInTimeUniverseSelectionV2 "USDT" 4 1000 decision [universeSnapshot]
+        peer symbol openTime availabilityTime value =
+            Just
+                MarketContextPeerReturnV2
+                    { mcpr2Symbol = symbol
+                    , mcpr2BarOpenTimeMs = openTime
+                    , mcpr2EventTimeMs = openTime + intervalMs
+                    , mcpr2AvailabilityTimeMs = availabilityTime
+                    , mcpr2SimpleReturn = value
+                    }
+        selection0 =
+            select
+                1100
+                ( snapshot
+                    900
+                    950
+                    [ member "BTCUSDT" 1000
+                    , member "ETHUSDT" 600
+                    , member "SOLUSDT" 400
+                    , member "DOGEUSDT" 200
+                    ]
+                )
+        selection1 =
+            select
+                2100
+                ( snapshot
+                    1900
+                    1950
+                    [ member "DOGEUSDT" 800
+                    , member "BTCUSDT" 700
+                    , member "ETHUSDT" 500
+                    , member "SOLUSDT" 100
+                    ]
+                )
+        selection2 =
+            select
+                3100
+                ( snapshot
+                    2900
+                    2950
+                    [ member "XRPUSDT" 900
+                    , member "ETHUSDT" 800
+                    , member "BTCUSDT" 700
+                    , member "DOGEUSDT" 600
+                    ]
+                )
+        peers0 =
+            V.fromList
+                [ peer "BTCUSDT" 0 1010 0.9
+                , peer "ETHUSDT" 0 1020 0.1
+                , peer "SOLUSDT" 0 1040 (-0.05)
+                , peer "DOGEUSDT" 0 1030 0.5
+                ]
+        peers1 =
+            V.fromList
+                [ peer "DOGEUSDT" 1000 2010 0.2
+                , peer "BTCUSDT" 1000 2020 0.8
+                , peer "ETHUSDT" 1000 2030 (-0.1)
+                , peer "SOLUSDT" 1000 2040 0.4
+                ]
+        peers2 =
+            V.fromList
+                [ peer "XRPUSDT" 2000 3010 (-0.2)
+                , peer "ETHUSDT" 2000 3020 0.3
+                , peer "BTCUSDT" 2000 3030 0.7
+                , peer "DOGEUSDT" 2000 3040 0.1
+                ]
+        finite value = not (isNaN value || isInfinite value)
+    assert
+        "market-context factor v2 has a versioned optional-feature contract"
+        ( marketContextFactorSchemaIdV2 == "point_in_time_market_context_factor_v2"
+            && marketContextFactorSchemaVersionV2 == 2
+            && marketContextFactorFeatureNamesV2 == ["market.return_1"]
+            && marketContextFactorSchemaSignatureV2
+                == "point_in_time_market_context_factor_v2|feature_availability_v2|market.return_1:optional"
+        )
+    case selection0 of
+        Nothing -> assert "the first market-context universe fixture should select" False
+        Just selected -> do
+            case marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected peers0 of
+                Nothing -> assert "complete aligned peers should construct a factor row" False
+                Just row -> do
+                    let expectedLegacyWeightedLag = (600 * 0.1 + 400 * (-0.05)) / (600 + 400)
+                    assert
+                        "the complete v2 raw factor matches the legacy weighted-lag formula after target exclusion"
+                        ( case frv2Values row of
+                            [value] -> abs (value - expectedLegacyWeightedLag) <= 1.0e-12
+                            _ -> False
+                        )
+                    assert
+                        "the factor retains the latest causal event and availability witnesses"
+                        ( frv2DecisionTimeMs row == 1100
+                            && frv2Names row == ["market.return_1"]
+                            && frv2Required row == [False]
+                            && frv2Available row == [True]
+                            && frv2EventTimesMs row == [Just 1000]
+                            && frv2AvailabilityTimesMs row == [Just 1040]
+                            && featureRowModelInputs row == frv2Values row ++ [1]
+                        )
+            let missingChosen = peers0 V.// [(1, Nothing)]
+                invalidTiming = peers0 V.// [(1, peer "ETHUSDT" 0 999 0.1)]
+                futureAvailability = peers0 V.// [(1, peer "ETHUSDT" 0 1200 0.1)]
+                invalidReturn = peers0 V.// [(1, peer "ETHUSDT" 0 1020 (-1))]
+                nonFiniteReturn = peers0 V.// [(1, peer "ETHUSDT" 0 1020 (0 / 0))]
+                observedZero = peers0 V.// [(1, peer "ETHUSDT" 0 1020 0), (2, peer "SOLUSDT" 0 1040 0)]
+                wrongSymbol = peers0 V.// [(3, peer "XRPUSDT" 0 1030 0.5)]
+                wrongOpen = peers0 V.// [(3, peer "DOGEUSDT" 1000 2030 0.5)]
+                unavailable peerRows =
+                    case marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected peerRows of
+                        Just row ->
+                            frv2Values row == [0]
+                                && frv2Available row == [False]
+                                && frv2EventTimesMs row == [Nothing]
+                                && frv2AvailabilityTimesMs row == [Nothing]
+                                && featureRowModelInputs row == [0, 0]
+                        Nothing -> False
+            assert
+                "missing, premature, impossible, or non-finite selected peer returns are explicitly unavailable"
+                ( all unavailable [missingChosen, invalidTiming, futureAvailability, invalidReturn, nonFiniteReturn]
+                )
+            assert
+                "an observed zero market return stays distinct from unavailable evidence"
+                ( case marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected observedZero of
+                    Just row -> frv2Values row == [0] && frv2Available row == [True] && featureRowModelInputs row == [0, 1]
+                    Nothing -> False
+                )
+            let decisionFixture eventTime availabilityTime decisionTime =
+                    select
+                        decisionTime
+                        ( snapshot
+                            eventTime
+                            availabilityTime
+                            [ member "BTCUSDT" 1000
+                            , member "ETHUSDT" 600
+                            , member "SOLUSDT" 400
+                            , member "DOGEUSDT" 200
+                            ]
+                        )
+            assert
+                "symbol, bar, vector-shape, scope, count, interval, overflow, and decision mismatches reject structurally"
+                ( and
+                    [ isNothing (marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected wrongSymbol)
+                    , isNothing (marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected wrongOpen)
+                    , isNothing (marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected (V.take 3 peers0))
+                    , isNothing (marketContextFactorRowV2 "btcusdt" 2 0 intervalMs selected peers0)
+                    , isNothing (marketContextFactorRowV2 "BTCUSD" 2 0 intervalMs selected peers0)
+                    , isNothing (marketContextFactorRowV2 "BTCUSDT" 0 0 intervalMs selected peers0)
+                    , isNothing (marketContextFactorRowV2 "BTCUSDT" 4 0 intervalMs selected peers0)
+                    , isNothing (marketContextFactorRowV2 "BTCUSDT" 2 0 0 selected peers0)
+                    , isNothing (marketContextFactorRowV2 "BTCUSDT" 2 (maxBound :: Int64) intervalMs selected peers0)
+                    , isNothing (decisionFixture 900 950 999 >>= \decision -> marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs decision peers0)
+                    , isNothing (decisionFixture 1000 1000 2000 >>= \decision -> marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs decision peers0)
+                    ]
+                )
+    case (selection0, selection1, selection2) of
+        (Just selected0, Just selected1, Just selected2) -> do
+            let selections = V.fromList [selected0, selected1, selected2]
+                peerRows = V.fromList [peers0, peers1, peers2]
+                series = marketContextFactorRowsV2 "BTCUSDT" 2 intervalMs opens selections peerRows
+                changedFuture =
+                    marketContextFactorRowsV2
+                        "BTCUSDT"
+                        2
+                        intervalMs
+                        opens
+                        selections
+                        (peerRows V.// [(2, peers2 V.// [(0, peer "XRPUSDT" 2000 3010 0.9)])])
+                prefix = marketContextFactorRowsV2 "BTCUSDT" 2 intervalMs (V.take 2 opens) (V.take 2 selections) (V.take 2 peerRows)
+            assert
+                "each market-context row uses that row's point-in-time membership and weights"
+                ( case series of
+                    Just rows ->
+                        and
+                            ( zipWith
+                                ( \actual expected -> case frv2Values actual of
+                                    [value] -> abs (value - expected) <= 1.0e-12
+                                    _ -> False
+                                )
+                                rows
+                                [ 0.04
+                                , (800 * 0.2 + 500 * (-0.1)) / 1300
+                                , (900 * (-0.2) + 800 * 0.3) / 1700
+                                ]
+                            )
+                    Nothing -> False
+                )
+            assert
+                "appending or changing future peer evidence cannot rewrite earlier factor rows"
+                ( case (series, changedFuture, prefix) of
+                    (Just originalRows, Just changedRows, Just prefixRows) ->
+                        take 2 originalRows == take 2 changedRows
+                            && take 2 originalRows == prefixRows
+                    _ -> False
+                )
+            assert
+                "series construction rejects empty, gapped, mismatched, or non-ascending decisions"
+                ( and
+                    [ isNothing (marketContextFactorRowsV2 "BTCUSDT" 2 intervalMs V.empty V.empty V.empty)
+                    , isNothing (marketContextFactorRowsV2 "BTCUSDT" 2 intervalMs (V.fromList [0, 2000]) (V.take 2 selections) (V.take 2 peerRows))
+                    , isNothing (marketContextFactorRowsV2 "BTCUSDT" 2 intervalMs opens (V.take 2 selections) peerRows)
+                    , isNothing (marketContextFactorRowsV2 "BTCUSDT" 2 intervalMs opens (V.fromList [selected0, selected0, selected2]) peerRows)
+                    ]
+                )
+        _ -> assert "all per-row market-context universe fixtures should select" False
+    let hugeSelection =
+            select
+                1100
+                ( snapshot
+                    900
+                    950
+                    [ member "BTCUSDT" 1.7e308
+                    , member "ETHUSDT" 1.7e308
+                    , member "SOLUSDT" 1.6e308
+                    , member "DOGEUSDT" 1.5e308
+                    ]
+                )
+        hugePeers =
+            V.fromList
+                [ peer "BTCUSDT" 0 1010 0
+                , peer "ETHUSDT" 0 1020 1.7e308
+                , peer "SOLUSDT" 0 1030 1.6e308
+                , peer "DOGEUSDT" 0 1040 1.5e308
+                ]
+    assert
+        "market-context weighting stays finite when raw volume and return sums would overflow"
+        ( case hugeSelection >>= \selected -> marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected hugePeers of
+            Just row -> case frv2Values row of
+                [value] -> finite value && value > 1.0e308
+                _ -> False
+            Nothing -> False
+        )
+
+testMarketContextFactorV2ProductionIsolation :: IO ()
+testMarketContextFactorV2ProductionIsolation =
+    forM_
+        [ "app/Main.hs"
+        , "app/Trader/CrossSectionalMomentum.hs"
+        , "app/Trader/MarketContext.hs"
+        , "app/Trader/OrderExecution.hs"
+        , "app/Trader/PointInTimeUniverse.hs"
+        , "app/Trader/Predictors.hs"
+        , "app/Trader/Predictors/Features.hs"
+        , "app/Trader/Predictors/OnlineNeural.hs"
+        , "app/Trader/Trading.hs"
+        ]
+        $ \path -> do
+            source <- readFile path
+            assert
+                ("market-context factor v2 remains absent from production path " ++ path)
+                ( not ("Trader.Predictors.MarketContextFeaturesV2" `isInfixOf` source)
+                    && not (marketContextFactorSchemaIdV2 `isInfixOf` source)
+                )
 
 gapComboForTest :: T.Text -> Double -> Double -> Int -> Aeson.Value
 gapComboForTest method backtestAnn liveAnn ops =

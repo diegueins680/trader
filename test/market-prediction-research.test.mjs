@@ -162,6 +162,35 @@ test("point-in-time liquidity universe v2 remains isolated from production paths
   assert.match(boundary, /cannot change an\s+earlier selection/);
 });
 
+test("point-in-time market-context factor v2 remains isolated from production paths", async () => {
+  const adapter = await readFile(
+    new URL("../haskell/app/Trader/Predictors/MarketContextFeaturesV2.hs", import.meta.url),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Trader/MarketContext.hs",
+      "../haskell/app/Trader/PointInTimeUniverse.hs",
+      "../haskell/app/Trader/CrossSectionalMomentum.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors/OnlineNeural.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Trader/Trading.hs",
+      "../haskell/app/Trader/OrderExecution.hs",
+      "../haskell/app/Main.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /MarketContextFeaturesV2|marketContextFactorRowsV2|point_in_time_market_context_factor_v2/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.doesNotMatch(adapter, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(adapter, /A caller that may select the target must request at least one/);
+  assert.match(adapter, /no terminal membership or weight vector is\s+back-applied/);
+});
+
 test("market-prediction registrations remain future-only disabled challengers", async () => {
   const registrations = await Promise.all(registrationUrls.map(readJson));
   assert.deepEqual(
