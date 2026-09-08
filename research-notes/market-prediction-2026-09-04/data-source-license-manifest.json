@@ -1,19 +1,27 @@
 {
   "manifestVersion": 1,
-  "asOfUtc": "2026-09-04T17:00:00Z",
+  "asOfUtc": "2026-09-08T00:00:00Z",
   "policy": "Public access is not a transfer of copyright or database rights. Each source remains subject to its provider terms. No paper PDF, credential, paid feed, proprietary dataset, raw L2 archive, or trained artifact is committed by this audit.",
   "sources": [
     {
       "id": "binance-usdm-public-market-data",
       "status": "existing_authorized_public_read_only_source",
-      "families": ["OHLCV", "funding", "open interest", "basis", "taker buy/sell ratio", "mark price"],
+      "families": ["OHLCV", "exchange metadata", "24-hour ticker snapshots", "funding", "open interest", "basis", "taker buy/sell ratio", "mark price"],
       "canonicalDocumentation": "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api",
       "terms": "https://www.binance.com/en/terms",
       "licenseAssessment": "Use and redistribution remain subject to Binance terms; no claim of an open-data license is made.",
       "knownCoverage": "OHLCV and funding can be paged historically; the repository acquisition spec records approximately 30-day limits for several futures-data statistics endpoints.",
       "availabilityPolicy": "Provider timestamps are retained as event times. Where a derivatives history response supplies no independent publication or revision timestamp, prospective collection records fetch completion as first-seen availability under binance_derivatives_first_seen_v2; legacy aligned cells are not relabeled.",
       "rateLimitPolicy": "The scheduled public client uses conservative process-local request budgets, reconciles X-MBX-USED-WEIGHT-1M, and stops the remaining run on HTTP 418/429 or Binance -1003. Provider limits remain authoritative and may change.",
-      "researchUse": "Existing historical campaign evidence and prospective acquisition. The availability-schema change downloaded no data and did not inspect outcomes."
+      "researchUse": "Existing historical campaign evidence and prospective acquisition. The availability and market-context panel schema changes downloaded no data and did not inspect outcomes.",
+      "futureMarketContextArtifactContract": {
+        "schema": "binance_usdm_market_context_panel_v2",
+        "status": "decoder_only_collection_and_manifest_verifier_not_yet_implemented",
+        "requiredRawResponses": ["GET /fapi/v1/time before and after acquisition", "GET /fapi/v1/exchangeInfo", "GET /fapi/v1/ticker/24hr without symbol", "GET /fapi/v1/klines for each retained population member and exact completed bar"],
+        "manifestRequirements": ["exact raw response bytes and SHA-256", "request start and completion clocks", "server-time bracket", "HTTP status and rate-limit headers", "endpoint parameters", "complete response member counts", "eligibility predicate and excluded records", "code commit and source-license record"],
+        "verificationReceiptRequirements": ["source manifest SHA-256", "derived panel SHA-256", "decoder schema and version", "verifier code commit", "explicit zero outcome, model, order, and live-authorization use"],
+        "admissionPolicy": "The Haskell decoder validates derived row semantics and digest syntax only. Research use remains prohibited until an independent verifier recomputes the panel from a complete frozen manifest and raw responses."
+      }
     },
     {
       "id": "coinbase-public-market-data",
