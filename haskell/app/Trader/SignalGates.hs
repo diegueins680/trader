@@ -146,6 +146,9 @@ class MkSignalThresholdBoundary r where
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value) && not (isInfinite value)
 
+decisionEvidenceFinite :: [Double] -> Bool
+decisionEvidenceFinite = all finiteDouble
+
 signalGateConfigFinite :: SignalGateConfig -> Bool
 signalGateConfigFinite cfg =
     all
@@ -670,6 +673,7 @@ signalFundingOiCheck enabled fundingCap volCap sizeMult fundingPressure oiVolPro
 signalMetaLabelOk :: Bool -> Double -> Maybe Double -> Double -> Maybe Double -> Bool -> Bool -> Bool
 signalMetaLabelOk enabled minEdge edgeForMethod minConfidence methodConfidence requireBand bandOk
     | not enabled = True
+    | not (decisionEvidenceFinite [minEdge, minConfidence]) = False
     | otherwise =
         let edgeOk =
                 case edgeForMethod of
@@ -700,6 +704,7 @@ signalMtfConsensusCheck enabled mtfDirs mtfMinAgree
 signalRegimeEdgeOk :: Bool -> Double -> Maybe Double -> (Bool, Maybe String)
 signalRegimeEdgeOk enabled minEdge edgeForMethod
     | not enabled = (True, Nothing)
+    | not (decisionEvidenceFinite [minEdge]) = (False, Just "REGIME_EDGE")
     | otherwise =
         let minEdge' = max 0 minEdge
          in case edgeForMethod of
@@ -785,18 +790,17 @@ directionalityWeakBandConfirmedWithPrediction :: Double -> Maybe Int -> Maybe Do
 directionalityWeakBandConfirmedWithPrediction = directionalityWeakBandConfirmedWithPredictionAndConfig defaultSignalGateConfig
 
 directionalityWeakBandConfirmedWithPredictionAndConfig :: SignalGateConfig -> Double -> Maybe Int -> Maybe Double -> Double -> Bool
-directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mChosenDir mPrediction _currentPrice
+directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mChosenDir mPrediction currentPrice
     | not (signalGateConfigFinite cfg) = False
+    | not (decisionEvidenceFinite (zScore : currentPrice : maybe [] pure mPrediction)) = False
     | otherwise =
         case mPrediction of
             Nothing -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
-            Just predVal
-                | not (finiteDouble predVal) -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
-                | otherwise ->
-                    case mChosenDir of
-                        Just dir | dir > 0 && predVal > 0 -> True
-                        Just dir | dir < 0 && predVal < 0 -> True
-                        _ -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
+            Just predVal ->
+                case mChosenDir of
+                    Just dir | dir > 0 && predVal > 0 -> True
+                    Just dir | dir < 0 && predVal < 0 -> True
+                    _ -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
 
 signalDirectionalitySnapshotImplWithPrediction ::
     Double ->

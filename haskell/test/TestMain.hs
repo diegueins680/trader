@@ -5382,6 +5382,16 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
                 (V.length trendPrices - 1)
                 1
                 == malformedSnapshot
+        predictionRejected value =
+            not (directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) (Just value) 100)
+                && not (directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) (Just 0.05) value)
+        confidenceThresholdRejected value =
+            not (signalMetaLabelOk True value (Just 0.02) 0.8 (Just 0.9) False False)
+                && not (signalMetaLabelOk True 0.01 (Just 0.02) value (Just 0.9) False False)
+        riskThresholdRejected value =
+            signalFundingOiCheck True (Just value) Nothing 1 0 Nothing == (False, 0)
+                && signalFundingOiCheck True Nothing (Just value) 1 0 (Just 0.1) == (False, 0)
+                && signalRegimeEdgeOk True value (Just 0.02) == (False, Just "REGIME_EDGE")
     assert
         "non-finite edge evidence cannot bypass audit-only spike gates"
         (all edgeRejected nonFinite)
@@ -5391,9 +5401,15 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
     assert
         "non-finite funding or OI-volatility evidence fails the enabled funding/OI gate"
         (all volatilityRejected nonFinite)
-    assert
+        assert
         "non-finite trend price evidence fails trend confirmation"
         (all trendRejected nonFinite)
+    assert
+        "non-finite supplied forecast or current-price evidence fails prediction-aware directionality"
+        (all predictionRejected nonFinite)
+    assert
+        "non-finite confidence and risk-threshold evidence fails closed before admission comparisons"
+        (all confidenceThresholdRejected nonFinite && all riskThresholdRejected nonFinite)
     assert
         "non-finite regime hysteresis or probabilities produce the non-directional hold snapshot"
         (all hysteresisRejected nonFinite && all regimeRejected nonFinite)
@@ -5403,6 +5419,7 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
             && signalMetaLabelOk True 0.01 (Just 0.02) 0.8 (Just 0.9) False False
             && signalFundingOiCheck True Nothing Nothing 1 0 (Just 0.1) == (True, 1)
             && signalTrendSmaConfirmed 0.01 101 100 1
+            && directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) (Just 0.05) 100
             && directionalitySnapshot5Args
                 0.05
                 (Just (RegimeProbs 0.6 0.2 0.2))
