@@ -310,11 +310,22 @@ import Trader.Predictors.ExternalPanelSchema (
     externalPanelSchemaIdV2,
     externalPanelSchemaVersionV2,
  )
-import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2AvailabilityTimesMs, frv2Available, frv2DecisionTimeMs, frv2EventTimesMs, frv2Names, frv2SchemaId, frv2Values, mkFeatureRowV2)
-import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureSpec (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
+import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2AvailabilityTimesMs, frv2Available, frv2DecisionTimeMs, frv2EventTimesMs, frv2Names, frv2Required, frv2SchemaId, frv2Values, mkFeatureRowV2)
+import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureInputs (..), FeatureSpec (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
+import Trader.Predictors.OhlcvInputsV2 (
+    completeOhlcvFieldNamesV2,
+    completeOhlcvGridV2,
+    completeOhlcvInputsV2,
+    completeOhlcvLegacyFeatureInputsV2,
+    completeOhlcvRowsV2,
+    completeOhlcvSchemaIdV2,
+    completeOhlcvSchemaSignatureV2,
+    completeOhlcvSchemaVersionV2,
+    completeOhlcvScopeV2,
+ )
 import Trader.Predictors.PatchTST (PatchTSTModel (..), patchTstFeaturesAt, predictPatchTST, trainPatchTST)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
@@ -783,6 +794,7 @@ main = do
     testPredictorLivenessDetectsDegenerateForecast
     testCrossExchangeCoinbaseInputs
     testCrossExchangeFeatureAdapterV2
+    testCompleteOhlcvInputsV2
     testExternalDataFeatureInputs
     testExternalFeatureAdapterV2
     testExternalPanelSchemaV2
@@ -1125,6 +1137,188 @@ testCrossExchangeFeatureAdapterV2 = do
                         )
                 Nothing -> assert "complete sample should build v2 cross-exchange rows" False
         _ -> assert "complete sample should build both legacy and v2 cross-exchange features" False
+
+testCompleteOhlcvInputsV2 :: IO ()
+testCompleteOhlcvInputsV2 = do
+    let intervalMs = 60000 :: Int64
+        rowCount = 12
+        openTimes = V.generate rowCount (\index -> fromIntegral index * intervalMs)
+        eventTimes = V.map (+ intervalMs) openTimes
+        availabilityTimes = V.map (+ 50) eventTimes
+        decisionTimes = V.map (+ 100) eventTimes
+        closes = V.generate rowCount (\index -> 100 + fromIntegral index)
+        opens = V.map (subtract 0.25) closes
+        highs = V.map (+ 1) closes
+        lows = V.map (subtract 1.25) closes
+        volumes = V.generate rowCount (\index -> 1000 + fromIntegral index)
+        baseInputs = mkFeatureInputs closes (Just opens) (Just highs) (Just lows) (Just volumes)
+        enrichedInputs = withCoinbaseInputs (Just closes) baseInputs
+        build times decisions availability =
+            completeOhlcvInputsV2 "BTCUSDT" times decisions availability intervalMs
+        replaceFirst value vector = vector V.// [(0, value)]
+        missingCases =
+            [ baseInputs{fiOpen = Nothing}
+            , baseInputs{fiHigh = Nothing}
+            , baseInputs{fiLow = Nothing}
+            , baseInputs{fiVolume = Nothing}
+            ]
+        nonFiniteCases =
+            [ baseInputs{fiOpen = Just (replaceFirst (0 / 0) opens)}
+            , baseInputs{fiHigh = Just (replaceFirst (1 / 0) highs)}
+            , baseInputs{fiLow = Just (replaceFirst (negate (1 / 0)) lows)}
+            , baseInputs{fiClose = replaceFirst (0 / 0) closes}
+            , baseInputs{fiVolume = Just (replaceFirst (0 / 0) volumes)}
+            ]
+    assert
+        "complete OHLCV boundary has a distinct schema and stable required-field order"
+        ( completeOhlcvSchemaIdV2 == "complete_ohlcv_feature_inputs_v2"
+            && completeOhlcvSchemaVersionV2 == 2
+            && completeOhlcvFieldNamesV2
+                == ["market.open", "market.high", "market.low", "market.close", "market.volume"]
+        )
+    case build openTimes decisionTimes availabilityTimes enrichedInputs of
+        Nothing -> assert "complete causal OHLCV should construct the v2 boundary" False
+        Just completeInputs -> do
+            let rows = completeOhlcvRowsV2 completeInputs
+                projection = completeOhlcvLegacyFeatureInputsV2 completeInputs
+                featureSpec = mkFeatureSpec 10
+                featureIndex = 10
+            case rows of
+                first : _ -> do
+                    assert
+                        "complete OHLCV signature binds the availability schema and required fields"
+                        ( completeOhlcvSchemaSignatureV2
+                            == completeOhlcvSchemaIdV2
+                                ++ "|"
+                                ++ featureRowSchemaSignature first
+                            && frv2Names first == completeOhlcvFieldNamesV2
+                            && frv2Required first == replicate 5 True
+                        )
+                    assert
+                        "raw OHLCV rows retain bucket-end events, first-seen availability, and decisions"
+                        ( frv2Values first == [99.75, 101, 98.75, 100, 1000]
+                            && frv2Available first == replicate 5 True
+                            && frv2EventTimesMs first == replicate 5 (Just intervalMs)
+                            && frv2AvailabilityTimesMs first == replicate 5 (Just (intervalMs + 50))
+                            && frv2DecisionTimeMs first == intervalMs + 100
+                            && drop 5 (featureRowModelInputs first) == replicate 5 1
+                        )
+                [] -> assert "complete OHLCV rows should be non-empty" False
+            assert
+                "complete OHLCV scope and exact timing grid remain available for artifact provenance"
+                ( completeOhlcvScopeV2 completeInputs == "BTCUSDT"
+                    && completeOhlcvGridV2 completeInputs
+                        == (openTimes, decisionTimes, availabilityTimes, intervalMs)
+                )
+            assert
+                "the safe legacy projection strips unrelated optional channels"
+                ( and
+                    [ isNothing (fiCoinbaseClose projection)
+                    , isNothing (fiExternal projection)
+                    , isNothing (fiFunding projection)
+                    , isNothing (fiOpenInterest projection)
+                    , isNothing (fiBasis projection)
+                    , isNothing (fiTakerFlow projection)
+                    ]
+                )
+            assert
+                "complete-case projection is numerically identical to legacy formulas on complete OHLCV"
+                ( featuresAtWithInputsWithMarket featureSpec Nothing projection featureIndex
+                    == featuresAtWithInputsWithMarket featureSpec Nothing baseInputs featureIndex
+                )
+
+            let changedFutureInputs =
+                    baseInputs
+                        { fiOpen = Just (opens V.// [(11, 499)])
+                        , fiHigh = Just (highs V.// [(11, 501)])
+                        , fiLow = Just (lows V.// [(11, 498)])
+                        , fiClose = closes V.// [(11, 500)]
+                        , fiVolume = Just (volumes V.// [(11, 5000)])
+                        }
+            assert
+                "modifying an existing future OHLCV bar cannot alter an earlier raw or derived feature prefix"
+                ( case build openTimes decisionTimes availabilityTimes changedFutureInputs of
+                    Nothing -> False
+                    Just changedFuture ->
+                        take (featureIndex + 1) (completeOhlcvRowsV2 changedFuture)
+                            == take (featureIndex + 1) rows
+                            && featuresAtWithInputsWithMarket
+                                featureSpec
+                                Nothing
+                                (completeOhlcvLegacyFeatureInputsV2 changedFuture)
+                                featureIndex
+                                == featuresAtWithInputsWithMarket featureSpec Nothing projection featureIndex
+                )
+
+            let futureOpen = fromIntegral rowCount * intervalMs
+                extendedOpenTimes = V.snoc openTimes futureOpen
+                extendedAvailability = V.snoc availabilityTimes (futureOpen + intervalMs + 50)
+                extendedDecisions = V.snoc decisionTimes (futureOpen + intervalMs + 100)
+                extendedCloses = V.snoc closes 112
+                extendedOpens = V.snoc opens 111.75
+                extendedHighs = V.snoc highs 113
+                extendedLows = V.snoc lows 110.75
+                extendedVolumes = V.snoc volumes 1012
+                extendedInputs =
+                    mkFeatureInputs
+                        extendedCloses
+                        (Just extendedOpens)
+                        (Just extendedHighs)
+                        (Just extendedLows)
+                        (Just extendedVolumes)
+            assert
+                "appending a future OHLCV bar cannot alter an earlier raw or derived feature prefix"
+                ( case build extendedOpenTimes extendedDecisions extendedAvailability extendedInputs of
+                    Nothing -> False
+                    Just extended ->
+                        take rowCount (completeOhlcvRowsV2 extended) == rows
+                            && featuresAtWithInputsWithMarket
+                                featureSpec
+                                Nothing
+                                (completeOhlcvLegacyFeatureInputsV2 extended)
+                                featureIndex
+                                == featuresAtWithInputsWithMarket featureSpec Nothing projection featureIndex
+                )
+
+    let oneOpen = V.singleton 0
+        oneAvailability = V.singleton (intervalMs + 50)
+        oneDecision = V.singleton (intervalMs + 100)
+        oneInputs =
+            mkFeatureInputs
+                (V.singleton 100)
+                (Just (V.singleton 99))
+                (Just (V.singleton 101))
+                (Just (V.singleton 98))
+                (Just (V.singleton 1000))
+        invalidHigh = oneInputs{fiHigh = Just (V.singleton 99.5)}
+        invalidLow = oneInputs{fiLow = Just (V.singleton 100.5)}
+        zeroPrice = oneInputs{fiClose = V.singleton 0}
+        negativeVolume = oneInputs{fiVolume = Just (V.singleton (-1))}
+        shortOpen = oneInputs{fiOpen = Just V.empty}
+    assert
+        "missing, wrong-shape, non-finite, non-positive, incoherent, and negative-volume OHLCV fails closed"
+        ( all (isNothing . build openTimes decisionTimes availabilityTimes) missingCases
+            && all (isNothing . build openTimes decisionTimes availabilityTimes) nonFiniteCases
+            && all
+                (isNothing . build oneOpen oneDecision oneAvailability)
+                [invalidHigh, invalidLow, zeroPrice, negativeVolume, shortOpen]
+        )
+    assert
+        "empty, malformed-scope, interval, gap, timing, and overflow OHLCV boundaries fail closed"
+        ( and
+            [ isNothing (completeOhlcvInputsV2 "" oneOpen oneDecision oneAvailability intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "btcusdt" oneOpen oneDecision oneAvailability intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTC USDT" oneOpen oneDecision oneAvailability intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" V.empty V.empty V.empty intervalMs (mkFeatureInputs V.empty (Just V.empty) (Just V.empty) (Just V.empty) (Just V.empty)))
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen oneDecision oneAvailability 0 oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" (V.fromList [0, 2 * intervalMs]) (V.fromList [intervalMs + 100, 3 * intervalMs + 100]) (V.fromList [intervalMs + 50, 3 * intervalMs + 50]) intervalMs (mkFeatureInputs (V.fromList [100, 101]) (Just (V.fromList [99, 100])) (Just (V.fromList [101, 102])) (Just (V.fromList [98, 99])) (Just (V.fromList [1000, 1001]))))
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen (V.singleton (intervalMs - 1)) oneAvailability intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen (V.singleton (2 * intervalMs)) oneAvailability intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen oneDecision (V.singleton (intervalMs - 1)) intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen oneDecision (V.singleton (intervalMs + 101)) intervalMs oneInputs)
+            , isNothing (completeOhlcvInputsV2 "BTCUSDT" (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) intervalMs oneInputs)
+            ]
+        )
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do

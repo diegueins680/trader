@@ -108,6 +108,33 @@ test("cross-exchange feature adapter v2 remains isolated from production paths",
   assert.match(adapter, /forbids implicit forward-fill/);
 });
 
+test("complete-case OHLCV v2 boundary remains isolated from production paths", async () => {
+  const boundary = await readFile(
+    new URL("../haskell/app/Trader/Predictors/OhlcvInputsV2.hs", import.meta.url),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Trader/Binance.hs",
+      "../haskell/app/Trader/Coinbase.hs",
+      "../haskell/app/Trader/Kraken.hs",
+      "../haskell/app/Trader/Poloniex.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Main.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /OhlcvInputsV2|completeOhlcvInputsV2|complete_ohlcv_feature_inputs_v2/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(boundary, /Missing or malformed core/);
+  assert.match(boundary, /legacy synthetic/);
+});
+
 test("market-prediction registrations remain future-only disabled challengers", async () => {
   const registrations = await Promise.all(registrationUrls.map(readJson));
   assert.deepEqual(
