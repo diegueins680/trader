@@ -824,15 +824,17 @@ signalDirectionalitySnapshotImplWithPredictionAndConfig ::
     Maybe Double ->
     Double ->
     Maybe DirectionalitySnapshot
-signalDirectionalitySnapshotImplWithPredictionAndConfig cfg regimeBankHysteresis mRegimes pricesV t mChosenDir mPrediction currentPrice =
-    signalDirectionalitySnapshotImpl'
-        cfg
-        regimeBankHysteresis
-        mRegimes
-        pricesV
-        t
-        mChosenDir
-        (\zScore mDir -> directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mDir mPrediction currentPrice)
+signalDirectionalitySnapshotImplWithPredictionAndConfig cfg regimeBankHysteresis mRegimes pricesV t mChosenDir mPrediction currentPrice
+    | not (decisionEvidenceFinite (currentPrice : maybe [] pure mPrediction)) = Just malformedDirectionalitySnapshot
+    | otherwise =
+        signalDirectionalitySnapshotImpl'
+            cfg
+            regimeBankHysteresis
+            mRegimes
+            pricesV
+            t
+            mChosenDir
+            (\zScore mDir -> directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mDir mPrediction currentPrice)
 
 {- | Scale the edge-spike cap by interval duration so longer intervals allow
 proportionally larger per-bar edges. Empty or unparseable intervals fall

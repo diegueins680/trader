@@ -5412,9 +5412,40 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
                 (V.length trendPrices - 1)
                 1
                 == malformedSnapshot
-        predictionRejected value =
+                predictionRejected value =
             not (directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) (Just value) 100)
                 && not (directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) (Just 0.05) value)
+        predictionSnapshotRejected value =
+            ( signalDirectionalitySnapshotImplWithPrediction
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                trendPrices
+                (V.length trendPrices - 1)
+                (Just 1)
+                (Just value)
+                100
+                == malformedSnapshot
+            )
+                && ( signalDirectionalitySnapshotImplWithPrediction
+                        0.05
+                        (Just (RegimeProbs 0.6 0.2 0.2))
+                        trendPrices
+                        (V.length trendPrices - 1)
+                        (Just 1)
+                        (Just 0.05)
+                        value
+                        == malformedSnapshot
+                   )
+        predictionSnapshotAllowed =
+            signalDirectionalitySnapshotImplWithPrediction
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                trendPrices
+                (V.length trendPrices - 1)
+                (Just 1)
+                (Just 0.05)
+                100
+                == Just (DirectionalitySnapshot False Nothing)
         confidenceThresholdRejected value =
             not (signalMetaLabelOk True value (Just 0.02) 0.8 (Just 0.9) False False)
                 && not (signalMetaLabelOk True 0.01 (Just 0.02) value (Just 0.9) False False)
@@ -5434,9 +5465,15 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
     assert
         "non-finite trend price evidence fails trend confirmation"
         (all trendRejected nonFinite)
-    assert
+        assert
         "non-finite supplied forecast or current-price evidence fails prediction-aware directionality"
         (all predictionRejected nonFinite)
+    assert
+        "non-finite predictor or current-price evidence fails the full directionality snapshot before strong trends can bypass weak-band checking"
+        (all predictionSnapshotRejected nonFinite)
+    assert
+        "finite predictor and current-price evidence preserves the existing directional snapshot"
+        predictionSnapshotAllowed
     assert
         "non-finite confidence and risk-threshold evidence fails closed before admission comparisons"
         (all confidenceThresholdRejected nonFinite && all riskThresholdRejected nonFinite)
