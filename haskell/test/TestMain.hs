@@ -5420,7 +5420,7 @@ testSignalGateNonFiniteEvidenceFailsClosed = do
     assert
         "non-finite funding or OI-volatility evidence fails the enabled funding/OI gate"
         (all volatilityRejected nonFinite)
-        assert
+    assert
         "non-finite trend price evidence fails trend confirmation"
         (all trendRejected nonFinite)
     assert
