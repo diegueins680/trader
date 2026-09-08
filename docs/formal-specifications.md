@@ -61,8 +61,11 @@ directory, derives its commit from Git only when every provenance file is
 tracked and unchanged, uses only fixed public GET endpoints, refuses redirects,
 and enforces response-size, causal-window, deadline, local request-weight, and
 observed shared-IP weight limits. It requests every contemporaneously eligible
-member and writes the source manifest only after complete coverage. Its success
-state is `complete_unverified`; any transport, provider-throttle, clock,
+member, bounds each member's ticker event to the ticker request/response window,
+and writes the source manifest only after complete coverage. Blocking transport
+is bounded by the overall monotonic deadline even if response bytes continue to
+trickle without an idle timeout. Its success state is `complete_unverified`;
+any transport, provider-throttle, clock,
 provenance, response, population, peer-grid, or output failure leaves no source
 manifest and grants no downstream authority. File and directory publication is
 durably flushed and deadline-checked before successful status. If removal of a

@@ -27,6 +27,7 @@ import platform
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -356,6 +357,50 @@ def _read_bounded(response: object, endpoint: str) -> bytes:
     return payload
 
 
+def _run_before_deadline(
+    action: Callable[[], object], deadline: float, endpoint: str
+) -> object:
+    """Bound a potentially trickled blocking transport operation end to end."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise CollectionFailure(
+            "deadline_exceeded",
+            "collection deadline expired before transport",
+            endpoint=endpoint,
+        )
+    result: list[tuple[bool, object]] = []
+    completed = threading.Event()
+
+    def run() -> None:
+        try:
+            result.append((True, action()))
+        except BaseException as error:
+            result.append((False, error))
+        finally:
+            completed.set()
+
+    worker = threading.Thread(
+        target=run,
+        name="market-context-public-request",
+        daemon=True,
+    )
+    worker.start()
+    if not completed.wait(remaining) or time.monotonic() >= deadline:
+        raise CollectionFailure(
+            "deadline_exceeded",
+            "collection deadline expired during transport",
+            endpoint=endpoint,
+        )
+    succeeded, value = result[0]
+    if not succeeded:
+        if isinstance(value, BaseException):
+            raise value
+        raise CollectionFailure(
+            "transport_error", "public endpoint transport failed", endpoint=endpoint
+        )
+    return value
+
+
 def _request(
     endpoint: str,
     params: Mapping[str, object],
@@ -377,58 +422,82 @@ def _request(
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise CollectionFailure(
-            "deadline_exceeded", "collection deadline expired before transport", endpoint=endpoint
+            "deadline_exceeded",
+            "collection deadline expired before transport",
+            endpoint=endpoint,
         )
-    try:
-        with URL_OPENER.open(
-            request, timeout=min(REQUEST_TIMEOUT_SECONDS, remaining)
-        ) as response:
-            status = getattr(response, "status", None)
-            if type(status) is not int or status != 200:
-                raise CollectionFailure(
-                    "http_error", "public endpoint did not return HTTP 200", endpoint=endpoint
+
+    def receive() -> tuple[bytes, int, object]:
+        try:
+            with URL_OPENER.open(
+                request, timeout=min(REQUEST_TIMEOUT_SECONDS, remaining)
+            ) as response:
+                status = getattr(response, "status", None)
+                if type(status) is not int or status != 200:
+                    raise CollectionFailure(
+                        "http_error",
+                        "public endpoint did not return HTTP 200",
+                        endpoint=endpoint,
+                    )
+                headers = getattr(response, "headers", {})
+                content_type_getter = getattr(headers, "get_content_type", None)
+                if content_type_getter is not None:
+                    content_type = content_type_getter()
+                else:
+                    getter = getattr(headers, "get", None)
+                    raw_content_type = (
+                        getter("Content-Type") if getter is not None else None
+                    )
+                    content_type = (
+                        raw_content_type.split(";", 1)[0].strip().lower()
+                        if isinstance(raw_content_type, str)
+                        else None
+                    )
+                if content_type != "application/json":
+                    raise CollectionFailure(
+                        "response_invalid",
+                        "public response Content-Type is not application/json",
+                        endpoint=endpoint,
+                    )
+                payload = _read_bounded(response, endpoint)
+                used_weight = _positive_header(
+                    headers, "X-MBX-USED-WEIGHT-1M", endpoint
                 )
-            headers = getattr(response, "headers", {})
-            content_type_getter = getattr(headers, "get_content_type", None)
-            if content_type_getter is not None:
-                content_type = content_type_getter()
-            else:
-                getter = getattr(headers, "get", None)
-                raw_content_type = getter("Content-Type") if getter is not None else None
-                content_type = (
-                    raw_content_type.split(";", 1)[0].strip().lower()
-                    if isinstance(raw_content_type, str)
-                    else None
-                )
-            if content_type != "application/json":
-                raise CollectionFailure(
-                    "response_invalid",
-                    "public response Content-Type is not application/json",
-                    endpoint=endpoint,
-                )
-            payload = _read_bounded(response, endpoint)
-            used_weight = _positive_header(headers, "X-MBX-USED-WEIGHT-1M", endpoint)
-    except urllib.error.HTTPError as error:
-        if error.code in {418, 429}:
-            payload = error.read(65_537)[:65_536]
-            raise _rate_limit_failure(
-                endpoint,
-                http_status=error.code,
-                headers=error.headers,
-                payload=payload,
+                return payload, used_weight, headers
+        except urllib.error.HTTPError as error:
+            if error.code in {418, 429}:
+                payload = error.read(65_537)[:65_536]
+                raise _rate_limit_failure(
+                    endpoint,
+                    http_status=error.code,
+                    headers=error.headers,
+                    payload=payload,
+                ) from error
+            raise CollectionFailure(
+                "http_error",
+                f"public endpoint returned HTTP {error.code}",
+                endpoint=endpoint,
             ) from error
-        raise CollectionFailure(
-            "http_error", f"public endpoint returned HTTP {error.code}", endpoint=endpoint
-        ) from error
-    except (
-        urllib.error.URLError,
-        TimeoutError,
-        OSError,
-        http.client.HTTPException,
-    ) as error:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            http.client.HTTPException,
+        ) as error:
+            raise CollectionFailure(
+                "transport_error", "public endpoint transport failed", endpoint=endpoint
+            ) from error
+
+    transport_result = _run_before_deadline(receive, deadline, endpoint)
+    if not isinstance(transport_result, tuple) or len(transport_result) != 3:
         raise CollectionFailure(
             "transport_error", "public endpoint transport failed", endpoint=endpoint
-        ) from error
+        )
+    payload, used_weight, headers = transport_result
+    if not isinstance(payload, bytes) or type(used_weight) is not int:
+        raise CollectionFailure(
+            "transport_error", "public endpoint transport failed", endpoint=endpoint
+        )
     response_completed_at_ms = _epoch_ms()
     if response_completed_at_ms < request_started_at_ms:
         raise CollectionFailure(
@@ -658,7 +727,13 @@ def _derive_population(
     return eligible, excluded
 
 
-def _validate_tickers(payload: object, eligible: list[str]) -> int:
+def _validate_tickers(
+    payload: object,
+    eligible: list[str],
+    *,
+    earliest_event_time: int,
+    latest_event_time: int,
+) -> int:
     if not isinstance(payload, list) or not payload:
         raise CollectionFailure(
             "response_invalid",
@@ -702,6 +777,12 @@ def _validate_tickers(payload: object, eligible: list[str]) -> int:
             raise CollectionFailure(
                 "response_invalid",
                 f"ticker clocks for {symbol} are reversed",
+                endpoint="/fapi/v1/ticker/24hr",
+            )
+        if not earliest_event_time <= close_time <= latest_event_time:
+            raise CollectionFailure(
+                "clock_invalid",
+                f"ticker event for {symbol} is outside the collection window",
                 endpoint="/fapi/v1/ticker/24hr",
             )
         close_times.append(close_time)
@@ -988,7 +1069,16 @@ def collect_bundle(
         ticker_record, tickers = capture(
             "ticker-24hr.json", "/fapi/v1/ticker/24hr", {}
         )
-        ticker_event_time = _validate_tickers(tickers, eligible)
+        ticker_event_time = _validate_tickers(
+            tickers,
+            eligible,
+            earliest_event_time=(
+                int(ticker_record["requestStartedAtMs"]) - max_clock_skew_ms
+            ),
+            latest_event_time=(
+                int(ticker_record["responseCompletedAtMs"]) + max_clock_skew_ms
+            ),
+        )
         peer_records: list[dict[str, object]] = []
         width = max(4, len(str(len(eligible) - 1)))
         for ordinal, symbol in enumerate(eligible):

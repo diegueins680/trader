@@ -66,7 +66,10 @@ member must be `PERPETUAL`, use the declared quote, be `TRADING`, and have
 `onboardDate <= barEndTime`. Every other returned member and every reason for
 exclusion are retained. The collector then requires one all-symbol ticker
 member and the exact previous/current completed kline pair for every eligible
-symbol. It publishes `source-manifest.json` only after this complete sequence.
+symbol. Every eligible ticker member's event time must fall within the ticker
+request/response window after applying the declared clock-skew allowance; one
+fresh member cannot mask a stale peer. It publishes `source-manifest.json` only
+after this complete sequence.
 The independent verifier still recomputes all ticker values, event clocks,
 eligibility, close-to-close returns, raw inventories, hashes, and output bytes.
 
@@ -98,6 +101,13 @@ window can leave the manifest only alongside the earlier `collecting` /
 `sourceManifestPublished: false` status. Any raw responses already accepted
 before a failure are preserved for diagnosis and cannot be admitted without
 complete status and separate verification.
+
+Each blocking public transport exchange runs behind the same absolute
+monotonic deadline as the overall collection. The caller therefore fails
+closed at the deadline even when a peer continuously trickles response bytes
+without triggering an idle socket timeout; any detached request worker is a
+daemon, performs only that already-authorized public GET, and cannot publish
+an artifact.
 
 ## Reproduction without network access
 

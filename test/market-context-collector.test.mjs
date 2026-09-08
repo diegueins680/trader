@@ -26,6 +26,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 
@@ -86,11 +87,11 @@ class Clock:
 def raw(name):
     return (fixture / "raw" / name).read_bytes()
 
-def successful_responses(btc_payload=None):
+def successful_responses(btc_payload=None, ticker_payload=None):
     payloads = [
         raw("server-time-before.json"),
         raw("exchange-info.json"),
-        raw("ticker-24hr.json"),
+        ticker_payload if ticker_payload is not None else raw("ticker-24hr.json"),
         btc_payload if btc_payload is not None else raw("BTCUSDT-klines.json"),
         raw("ETHUSDT-klines.json"),
         raw("DOGEUSDT-klines.json"),
@@ -226,6 +227,34 @@ assert kline_query == {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("public market-context transport enforces an end-to-end deadline", () => {
+  const result = runPython(`${pythonFixtureHelpers}
+class SlowResponse(Response):
+    def read(self, size=-1):
+        time.sleep(0.3)
+        return super().read(size)
+
+collector.URL_OPENER = Opener([
+    SlowResponse(raw("server-time-before.json"), 1)
+])
+collector._epoch_ms = lambda: 10800100
+started = time.monotonic()
+try:
+    collector._request(
+        "/fapi/v1/time",
+        {},
+        deadline=started + 0.02,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "deadline_exceeded"
+else:
+    raise AssertionError("trickled transport must not exceed the absolute deadline")
+assert time.monotonic() - started < 0.2
+`);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("public market-context collector preserves fail-closed partial evidence", () => {
   const result = runPython(`${pythonFixtureHelpers}
 root = Path(tempfile.mkdtemp(prefix="trader-market-context-failures-"))
@@ -348,6 +377,36 @@ invalid_status = json.loads((invalid_output / "collection-status.json").read_tex
 assert invalid_status["state"] == "partial_failure"
 assert invalid_status["failedEndpoint"] == "/fapi/v1/klines"
 assert invalid_status["completedArtifactPaths"][-1].endswith("BTCUSDT-klines.json")
+
+stale_tickers = json.loads(raw("ticker-24hr.json"))
+stale_tickers[2]["closeTime"] = 10799149
+stale_bytes = (json.dumps(stale_tickers) + "\\n").encode()
+stale_output = root / "stale-ticker"
+collector.URL_OPENER = Opener(successful_responses(ticker_payload=stale_bytes)[:3])
+collector._epoch_ms = Clock([
+    10800090,
+    10800100, 10800120,
+    10800130, 10800140,
+    10800150, 10800160,
+    10800170,
+])
+try:
+    collector.collect_bundle(
+        stale_output,
+        quote="USDT",
+        interval="1h",
+        bar_open=7200000,
+        max_clock_skew_ms=1000,
+        deadline_seconds=240,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "clock_invalid"
+else:
+    raise AssertionError("every eligible ticker member must be contemporaneous")
+assert not (stale_output / "source-manifest.json").exists()
+stale_status = json.loads((stale_output / "collection-status.json").read_text())
+assert stale_status["failedEndpoint"] == "/fapi/v1/ticker/24hr"
 
 status_failure_output = root / "status-failure"
 collector.URL_OPENER = Opener(successful_responses())

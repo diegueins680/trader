@@ -514,6 +514,13 @@ def verify_and_derive(manifest_path: Path) -> tuple[bytes, dict[str, object]]:
         if symbol not in tickers:
             raise ValueError(f"ticker24hr is missing eligible symbol {symbol}")
         ticker_evidence[symbol] = _ticker_evidence(tickers[symbol], symbol)
+    earliest_ticker_event = int(ticker_record["requestStartedAtMs"]) - max_skew
+    latest_ticker_event = int(ticker_record["responseCompletedAtMs"]) + max_skew
+    for symbol, (_, _, close_time) in ticker_evidence.items():
+        if not earliest_ticker_event <= close_time <= latest_ticker_event:
+            raise ValueError(
+                f"{symbol} ticker event exceeds the declared collection window"
+            )
     universe_event = max(close_time for _, _, close_time in ticker_evidence.values())
     if universe_event > int(ticker_record["responseCompletedAtMs"]) + max_skew:
         raise ValueError("ticker event exceeds the declared clock-skew bound")

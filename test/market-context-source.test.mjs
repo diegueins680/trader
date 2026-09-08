@@ -171,6 +171,23 @@ test("market-context source verifier rejects strict-JSON and market-value failur
   assert.equal(result.status, 1);
   assert.match(result.stderr, /quoteVolume must be finite/);
 
+  const staleTicker = await fixtureCopy();
+  const staleTickerManifest = await readManifest(staleTicker);
+  const staleTickerPath = join(staleTicker, "raw/ticker-24hr.json");
+  const staleTickerRows = JSON.parse(await readFile(staleTickerPath, "utf8"));
+  staleTickerRows.find(({ symbol }) => symbol === "DOGEUSDT").closeTime =
+    staleTickerManifest.artifacts.ticker24hr.requestStartedAtMs -
+    staleTickerManifest.maxClockSkewMs -
+    1;
+  const staleTickerBytes = Buffer.from(`${JSON.stringify(staleTickerRows)}\n`);
+  await writeFile(staleTickerPath, staleTickerBytes);
+  staleTickerManifest.artifacts.ticker24hr.bytes = staleTickerBytes.length;
+  staleTickerManifest.artifacts.ticker24hr.sha256 = sha256(staleTickerBytes);
+  await writeManifest(staleTicker, staleTickerManifest);
+  result = runVerifier(join(staleTicker, "source-manifest.json"));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ticker event exceeds the declared collection window/);
+
   const wrongGrid = await fixtureCopy();
   const wrongGridManifest = await readManifest(wrongGrid);
   const klinePath = join(wrongGrid, "raw/BTCUSDT-klines.json");
