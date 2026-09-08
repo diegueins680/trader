@@ -2,8 +2,8 @@
 
 Date: 2026-09-08
 
-Disposition: research infrastructure only; decoder complete, acquisition and
-manifest verification not implemented
+Disposition: research infrastructure only; decoder and offline raw-manifest
+verification complete, acquisition not implemented
 
 Risk status: `FEATURE-MISSINGNESS-001` remains **OPEN**
 
@@ -80,14 +80,14 @@ cannot prove that:
 - an excluded or delisted instrument was retained correctly; or
 - the derived CSV is a deterministic projection of those raw bytes.
 
-The data-source manifest therefore marks collection and verification as not
-implemented. A later verifier must independently hash and decode the raw
-responses, recompute population membership, counts, volumes, clocks, returns,
-and panel bytes, then reject partial or throttled acquisitions. A separate
-verification receipt must bind both the source-manifest and derived-panel
-hashes, avoiding a circular digest between a panel and the manifest digest it
-embeds. Merely replacing the declared digest must not make altered rows
-admissible.
+The offline `binance_usdm_market_context_source_manifest_v1` verifier now
+independently hashes and decodes the raw responses, recomputes population
+membership, counts, volumes, clocks, close-to-close returns, and panel bytes,
+and rejects partial evidence. Its separate verification receipt binds both the
+source-manifest and derived-panel hashes, avoiding a circular digest between a
+panel and the manifest digest it embeds. Merely replacing the declared digest
+cannot make altered rows admissible. A lawful prospective collector still does
+not exist, so no real bundle is currently admissible.
 
 ## Verification evidence
 
@@ -108,9 +108,9 @@ admissible.
 
 ## Decision
 
-The typed derived-panel boundary is complete, but the lawful prospective
-collector and raw-manifest verifier do not yet exist. Historical data cannot be
-retrofitted with these unavailable facts. The registered development window
-still begins 2027-01-21 and the final holdout remains untouched. No forecast,
-return, cost, drawdown, DSR, PBO, or latency result was produced. **Continue
-research; no candidate passed.**
+The typed derived-panel boundary and independent offline raw-manifest verifier
+are complete, but the lawful prospective collector does not yet exist.
+Historical data cannot be retrofitted with these unavailable facts. The
+registered development window still begins 2027-01-21 and the final holdout
+remains untouched. No forecast, return, cost, drawdown, DSR, PBO, or latency
+result was produced. **Continue research; no candidate passed.**

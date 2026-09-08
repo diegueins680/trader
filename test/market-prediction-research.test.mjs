@@ -241,15 +241,25 @@ test("market-context source provenance separates raw-manifest and derived-panel 
   assert.equal(contract.schema, "binance_usdm_market_context_panel_v2");
   assert.equal(
     contract.status,
-    "decoder_only_collection_and_manifest_verifier_not_yet_implemented",
+    "offline_verifier_implemented_collector_not_yet_implemented",
   );
   assert.ok(contract.requiredRawResponses.some((item) => item.includes("exchangeInfo")));
   assert.ok(contract.requiredRawResponses.some((item) => item.includes("ticker/24hr")));
   assert.ok(contract.requiredRawResponses.some((item) => item.includes("klines")));
   assert.ok(contract.manifestRequirements.every((item) => !item.includes("derived panel")));
-  assert.ok(contract.verificationReceiptRequirements.includes("source manifest SHA-256"));
+  assert.ok(
+    contract.verificationReceiptRequirements.some((item) =>
+      item.includes("source manifest SHA-256"),
+    ),
+  );
   assert.ok(contract.verificationReceiptRequirements.includes("derived panel SHA-256"));
-  assert.match(contract.admissionPolicy, /independent verifier/);
+  assert.ok(
+    contract.verificationReceiptRequirements.includes(
+      "verifier path and byte SHA-256",
+    ),
+  );
+  assert.match(contract.verificationCommand, /market_context_source\.py verify/);
+  assert.match(contract.admissionPolicy, /independent offline verifier/);
 });
 
 test("market-prediction registrations remain future-only disabled challengers", async () => {

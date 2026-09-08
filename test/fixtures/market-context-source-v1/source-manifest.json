@@ -1,0 +1,144 @@
+{
+  "artifacts": {
+    "exchangeInfo": {
+      "bytes": 652,
+      "endpoint": "/fapi/v1/exchangeInfo",
+      "httpStatus": 200,
+      "logicalPath": "raw/exchange-info.json",
+      "params": {},
+      "requestStartedAtMs": 10800130,
+      "responseCompletedAtMs": 10800140,
+      "sha256": "84f656ddec92fa56a42314cce07b5b4a29f93149554dd564a77a2e8acd1a1ca7",
+      "usedWeight1m": 2
+    },
+    "peerKlines": [
+      {
+        "bytes": 144,
+        "endpoint": "/fapi/v1/klines",
+        "httpStatus": 200,
+        "logicalPath": "raw/BTCUSDT-klines.json",
+        "params": {
+          "endTime": 10799999,
+          "interval": "1h",
+          "limit": 2,
+          "startTime": 3600000,
+          "symbol": "BTCUSDT"
+        },
+        "requestStartedAtMs": 10800170,
+        "responseCompletedAtMs": 10800180,
+        "sha256": "f4ff878fcb446cae2ea266b53623a11668e152ff2f51b39b04ed59e57b228165",
+        "usedWeight1m": 43
+      },
+      {
+        "bytes": 148,
+        "endpoint": "/fapi/v1/klines",
+        "httpStatus": 200,
+        "logicalPath": "raw/ETHUSDT-klines.json",
+        "params": {
+          "endTime": 10799999,
+          "interval": "1h",
+          "limit": 2,
+          "startTime": 3600000,
+          "symbol": "ETHUSDT"
+        },
+        "requestStartedAtMs": 10800190,
+        "responseCompletedAtMs": 10800200,
+        "sha256": "34b1ac61a0cd232268d3d5febd5e20a21bef19a6bc8a0dc22d02243cc86a269b",
+        "usedWeight1m": 44
+      },
+      {
+        "bytes": 135,
+        "endpoint": "/fapi/v1/klines",
+        "httpStatus": 200,
+        "logicalPath": "raw/DOGEUSDT-klines.json",
+        "params": {
+          "endTime": 10799999,
+          "interval": "1h",
+          "limit": 2,
+          "startTime": 3600000,
+          "symbol": "DOGEUSDT"
+        },
+        "requestStartedAtMs": 10800210,
+        "responseCompletedAtMs": 10800220,
+        "sha256": "a8b99e9db76e4e10899652b757e85b866bc5ba4aacbde5b03b38b7d8f9b25f86",
+        "usedWeight1m": 45
+      }
+    ],
+    "serverTimeAfter": {
+      "bytes": 24,
+      "endpoint": "/fapi/v1/time",
+      "httpStatus": 200,
+      "logicalPath": "raw/server-time-after.json",
+      "params": {},
+      "requestStartedAtMs": 10800230,
+      "responseCompletedAtMs": 10800240,
+      "sha256": "c50e4c0ead6f4c086f83a9a22c25c566ea9c3f2d4e2a74eb5e893cd763a2beba",
+      "usedWeight1m": 46
+    },
+    "serverTimeBefore": {
+      "bytes": 24,
+      "endpoint": "/fapi/v1/time",
+      "httpStatus": 200,
+      "logicalPath": "raw/server-time-before.json",
+      "params": {},
+      "requestStartedAtMs": 10800100,
+      "responseCompletedAtMs": 10800120,
+      "sha256": "3be09b76027e3ab1ca718d63d3499827f007f4a62013e1f15801878dc80e4c89",
+      "usedWeight1m": 1
+    },
+    "ticker24hr": {
+      "bytes": 323,
+      "endpoint": "/fapi/v1/ticker/24hr",
+      "httpStatus": 200,
+      "logicalPath": "raw/ticker-24hr.json",
+      "params": {},
+      "requestStartedAtMs": 10800150,
+      "responseCompletedAtMs": 10800160,
+      "sha256": "1e7b49443cd4710fff716bdf4f4dd214da3735c0cd0a08b3711c56095d8042c6",
+      "usedWeight1m": 42
+    }
+  },
+  "barEndTime": 10800000,
+  "barOpenTime": 7200000,
+  "codeCommit": "828e3cc123689165da1a15dfbbe27ec0c3be063b",
+  "completedAtMs": 10800240,
+  "decisionTime": 10800300,
+  "eligibilityPredicateId": "usdm_trading_perpetual_quote_onboarded_v1",
+  "interval": "1h",
+  "intervalMs": 3600000,
+  "maxClockSkewMs": 1000,
+  "population": {
+    "eligibleSymbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "DOGEUSDT"
+    ],
+    "excluded": [
+      {
+        "reasons": [
+          "contract_type",
+          "quote_asset"
+        ],
+        "symbol": "BTCUSD_260925"
+      },
+      {
+        "reasons": [
+          "status"
+        ],
+        "symbol": "OLDUSDT"
+      },
+      {
+        "reasons": [
+          "onboard_after_bar"
+        ],
+        "symbol": "NEWUSDT"
+      }
+    ]
+  },
+  "quote": "USDT",
+  "schemaId": "binance_usdm_market_context_source_manifest_v1",
+  "schemaVersion": 1,
+  "sourceId": "binance-usdm-public-market-data",
+  "sourceLicenseRecord": "research-notes/market-prediction-2026-09-04/data-source-license-manifest.json#binance-usdm-public-market-data",
+  "startedAtMs": 10800100
+}

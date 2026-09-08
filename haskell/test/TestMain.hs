@@ -8083,6 +8083,8 @@ testPointInTimeUniverseV2 = do
 
 testMarketContextPanelSchemaV2 :: IO ()
 testMarketContextPanelSchemaV2 = do
+    sourceFixture <-
+        BL.readFile "../test/fixtures/market-context-source-v1/expected-panel.csv"
     let hashA = replicate 64 'a'
         hashB = replicate 64 'b'
         intervalMs = 1000 :: Int64
@@ -8109,6 +8111,25 @@ testMarketContextPanelSchemaV2 = do
                 && frv2Available row == [False]
                 && frv2EventTimesMs row == [Nothing]
                 && frv2AvailabilityTimesMs row == [Nothing]
+    case decodeMarketContextPanelV2 sourceFixture of
+        Right [panel] ->
+            assert
+                "offline source verifier output is a cross-language golden input for the Haskell boundary"
+                ( case marketContextPanelSelectionInputsV2 3 (mcps2IntervalMs panel) panel of
+                    Just (selection, peers) ->
+                        case marketContextFactorRowV2 "BTCUSDT" 2 (mcps2BarOpenTimeMs panel) (mcps2IntervalMs panel) selection peers of
+                            Just row ->
+                                case frv2Values row of
+                                    [value] ->
+                                        abs (value - (-0.075)) <= 1.0e-12
+                                            && frv2Available row == [True]
+                                            && frv2AvailabilityTimesMs row == [Just 10800220]
+                                    _ -> False
+                            Nothing -> False
+                    Nothing -> False
+                )
+        Left err -> assert ("offline source verifier golden panel should decode: " ++ err) False
+        Right _ -> assert "offline source verifier golden panel snapshot count changed" False
     assert
         "market-context panel v2 has stable source and schema identities"
         ( marketContextPanelSchemaIdV2 == "binance_usdm_market_context_panel_v2"

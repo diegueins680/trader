@@ -44,6 +44,17 @@ meaning. A partial field pair, duplicate or missing member, unknown policy, or
 time-incoherent order fails closed. Rotation neither increases request volume
 nor makes a throttled or incomplete run admissible.
 
+`A-RESEARCH` also defines an offline source verifier for prospective
+`binance_usdm_market_context_panel_v2` evidence. The verifier has no network or
+credential interface. It binds exact public endpoint parameters, raw byte
+hashes and sizes, request clocks, a provider server-time bracket, the complete
+exchange-info eligibility population, rolling-ticker evidence, and two exact
+completed peer bars. It independently derives close-to-close returns and the
+panel bytes, then emits a separate receipt whose outcome, model, order, and
+live-authorization fields are all false. Verification cannot substitute for a
+collector, admit a dataset into an experiment, open a holdout, promote a model,
+or authorize trading.
+
 The small public backtest-data path is separately fixed-window and hash-bound.
 It requires an explicit end time, accepts only exact contiguous completed bars,
 records public source/license metadata plus explicit no-randomness provenance,

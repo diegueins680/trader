@@ -77,6 +77,8 @@ Material gaps:
 - `MarketContext` may use a current top-volume universe when point-in-time membership is not required. That fallback is useful operationally but unsuitable for a survivorship-controlled research claim; the v2 factor remains isolated rather than changing this compatibility behavior.
 - Labels are predominantly one-step returns. The current public predictor contract does not independently version 1-, 3-, and 6-bar distributional targets.
 
+The separate offline `binance_usdm_market_context_source_manifest_v1` verifier now closes the derived panel's raw-byte reconstruction gap for a frozen bundle: it independently hashes and decodes the registered responses, recomputes eligibility and close-to-close peer returns, and reproduces the exact Haskell-readable panel plus a non-authorizing receipt. It does not acquire public data. Consequently, the absence of a prospective collector and the missing fold-local artifact boundary remain material gaps.
+
 Accordingly, no new external-data predictor should become trading-eligible until the feature schema carries availability/coverage explicitly and required missing inputs force abstention.
 
 ## Validation and economic-fidelity audit
