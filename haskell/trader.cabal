@@ -67,6 +67,7 @@ executable trader-hs
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.PointInTimeUniverse
+                     , Trader.PointInTimeUniverseV2
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
@@ -331,6 +332,7 @@ test-suite trader-tests
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.PointInTimeUniverse
+                     , Trader.PointInTimeUniverseV2
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
@@ -454,6 +456,7 @@ benchmark trader-bench
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.PointInTimeUniverse
+                     , Trader.PointInTimeUniverseV2
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features

@@ -135,6 +135,33 @@ test("complete-case OHLCV v2 boundary remains isolated from production paths", a
   assert.match(boundary, /legacy synthetic/);
 });
 
+test("point-in-time liquidity universe v2 remains isolated from production paths", async () => {
+  const boundary = await readFile(
+    new URL("../haskell/app/Trader/PointInTimeUniverseV2.hs", import.meta.url),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Trader/MarketContext.hs",
+      "../haskell/app/Trader/PointInTimeUniverse.hs",
+      "../haskell/app/Trader/CrossSectionalMomentum.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors/OnlineNeural.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Main.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /PointInTimeUniverseV2|pointInTimeUniverseSelectionV2|point_in_time_liquidity_universe_v2/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(boundary, /complete venue population/);
+  assert.match(boundary, /cannot change an\s+earlier selection/);
+});
+
 test("market-prediction registrations remain future-only disabled challengers", async () => {
   const registrations = await Promise.all(registrationUrls.map(readJson));
   assert.deepEqual(

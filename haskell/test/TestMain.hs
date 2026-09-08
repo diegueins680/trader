@@ -218,6 +218,24 @@ import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
 import Trader.Platform (Platform (..))
 import Trader.PointInTimeUniverse (PointInTimeUniverseConfig (..), loadPointInTimeUniverse)
+import Trader.PointInTimeUniverseV2 (
+    UniverseMemberV2 (..),
+    pitSelectionAvailabilityTimeMsV2,
+    pitSelectionDecisionTimeMsV2,
+    pitSelectionEventTimeMsV2,
+    pitSelectionMembersV2,
+    pitSelectionQuoteV2,
+    pitSelectionWeightsV2,
+    pitSnapshotAvailabilityTimeMsV2,
+    pitSnapshotEventTimeMsV2,
+    pitSnapshotMembersV2,
+    pitSnapshotQuoteV2,
+    pointInTimeUniverseSchemaIdV2,
+    pointInTimeUniverseSchemaSignatureV2,
+    pointInTimeUniverseSchemaVersionV2,
+    pointInTimeUniverseSelectionV2,
+    pointInTimeUniverseSnapshotV2,
+ )
 import Trader.PortfolioSelection (
     PortfolioCandidate (..),
     PortfolioDailyReturn (..),
@@ -716,6 +734,7 @@ main = do
     testFeatureAvailabilitySchemaV2
     testExogenousDerivativesBacktestWiring
     testPointInTimeUniverseSelectsHistoricalSnapshot
+    testPointInTimeUniverseV2
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -7888,6 +7907,147 @@ testPointInTimeUniverseSelectsHistoricalSnapshot = do
     removeFile path
     assert "PIT universe uses latest rows at or before as-of time" (selectedEarly == Just [("ETHUSDT", 200), ("BTCUSDT", 100)])
     assert "PIT universe updates ranking after newer historical rows" (selectedLate == Just [("BTCUSDT", 500), ("ETHUSDT", 50)])
+
+testPointInTimeUniverseV2 :: IO ()
+testPointInTimeUniverseV2 = do
+    let member = UniverseMemberV2
+        originalMembers =
+            [ member "DOGEUSDT" 50 True
+            , member "USDCUSDT" 10000 False
+            , member "BTCUSDT" 100 True
+            , member "XRPUSDT" 0 True
+            , member "ETHUSDT" 200 True
+            ]
+        revisedMembers =
+            [ member "BTCUSDT" 500 True
+            , member "ETHUSDT" 50 True
+            , member "DOGEUSDT" 40 True
+            , member "USDCUSDT" 10000 False
+            ]
+        newMembers =
+            [ member "ETHUSDT" 300 True
+            , member "DOGEUSDT" 250 True
+            , member "BTCUSDT" 300 True
+            ]
+        futureMembers =
+            [ member "BTCUSDT" 1 True
+            , member "ETHUSDT" 2 True
+            , member "DOGEUSDT" 3 True
+            ]
+        snapshot = pointInTimeUniverseSnapshotV2 "USDT"
+        selection = pointInTimeUniverseSelectionV2 "USDT" 3 1000
+        memberTuples = map (\value -> (um2Symbol value, um2QuoteVolume value, um2Eligible value))
+        finite value = not (isNaN value || isInfinite value)
+    assert
+        "point-in-time universe v2 has an explicit stable schema identity"
+        ( pointInTimeUniverseSchemaIdV2 == "point_in_time_liquidity_universe_v2"
+            && pointInTimeUniverseSchemaVersionV2 == 2
+            && pointInTimeUniverseSchemaSignatureV2
+                == "point_in_time_liquidity_universe_v2|quote,event_time_ms,availability_time_ms,decision_time_ms,symbol,quote_volume,eligible"
+        )
+    case ( snapshot 1000 1100 originalMembers
+         , snapshot 1000 1500 revisedMembers
+         , snapshot 2000 2100 newMembers
+         , snapshot 3000 3100 futureMembers
+         , pointInTimeUniverseSnapshotV2 "USD" 1000 1100 [member "BTCUSD" 100 True]
+         ) of
+        (Just original, Just revision, Just newer, Just future, Just otherQuote) -> do
+            assert
+                "v2 snapshot retains exact scope and timing while canonicalizing member order"
+                ( pitSnapshotQuoteV2 original == "USDT"
+                    && pitSnapshotEventTimeMsV2 original == 1000
+                    && pitSnapshotAvailabilityTimeMsV2 original == 1100
+                    && map um2Symbol (pitSnapshotMembersV2 original)
+                        == ["BTCUSDT", "DOGEUSDT", "ETHUSDT", "USDCUSDT", "XRPUSDT"]
+                )
+            case selection 1200 [original, revision, newer] of
+                Nothing -> assert "the first causally available v2 universe snapshot should be selected" False
+                Just early -> do
+                    assert
+                        "an unavailable revision cannot rewrite the earlier universe decision"
+                        ( pitSelectionQuoteV2 early == "USDT"
+                            && pitSelectionEventTimeMsV2 early == 1000
+                            && pitSelectionAvailabilityTimeMsV2 early == 1100
+                            && pitSelectionDecisionTimeMsV2 early == 1200
+                            && memberTuples (pitSelectionMembersV2 early)
+                                == [ ("ETHUSDT", 200, True)
+                                   , ("BTCUSDT", 100, True)
+                                   , ("DOGEUSDT", 50, True)
+                                   ]
+                        )
+                    let weights = pitSelectionWeightsV2 early
+                    assert
+                        "selected quote-volume weights are finite, normalized, and preserve rank order"
+                        ( map fst weights == ["ETHUSDT", "BTCUSDT", "DOGEUSDT"]
+                            && all (finite . snd) weights
+                            && abs (sum (map snd weights) - 1) <= 1.0e-12
+                        )
+                    assert
+                        "appending future snapshots, including an ambiguity unavailable at the decision, cannot alter an earlier universe selection"
+                        ( selection 1200 [original, revision, newer, future] == Just early
+                            && selection 1200 [original, revision, newer, future, future] == Just early
+                        )
+            assert
+                "a same-event revision becomes usable only after its real first-seen time"
+                ( case selection 1600 [original, revision, newer] of
+                    Just selected ->
+                        pitSelectionAvailabilityTimeMsV2 selected == 1500
+                            && map um2Symbol (pitSelectionMembersV2 selected)
+                                == ["BTCUSDT", "ETHUSDT", "DOGEUSDT"]
+                    Nothing -> False
+                )
+            assert
+                "the freshest available economic snapshot wins independently of input order and ties are symbol-stable"
+                ( selection 2200 [original, revision, newer]
+                    == selection 2200 [newer, original, revision]
+                    && case selection 2200 [newer, original, revision] of
+                        Just selected ->
+                            pitSelectionEventTimeMsV2 selected == 2000
+                                && map um2Symbol (pitSelectionMembersV2 selected)
+                                    == ["BTCUSDT", "ETHUSDT", "DOGEUSDT"]
+                        Nothing -> False
+                )
+            assert
+                "stale, incomplete, ambiguous, unavailable, and mixed-scope universe evidence fails closed"
+                ( and
+                    [ isNothing (pointInTimeUniverseSelectionV2 "USDT" 3 999 2000 [original])
+                    , isNothing (pointInTimeUniverseSelectionV2 "USDT" 4 1000 1200 [original])
+                    , isNothing (selection 1200 [original, original])
+                    , isNothing (selection 1200 [original, otherQuote])
+                    , isNothing (selection 1000 [original])
+                    , isNothing (selection 1200 [future])
+                    , isNothing (pointInTimeUniverseSelectionV2 "usdt" 3 1000 1200 [original])
+                    , isNothing (pointInTimeUniverseSelectionV2 "USDT" 0 1000 1200 [original])
+                    , isNothing (pointInTimeUniverseSelectionV2 "USDT" 3 (-1) 1200 [original])
+                    , isNothing (pointInTimeUniverseSelectionV2 "USDT" 3 1000 (-1) [original])
+                    ]
+                )
+            case snapshot 1000 1100 [member "BTCUSDT" 1.7e308 True, member "ETHUSDT" 1.6e308 True, member "DOGEUSDT" 1.5e308 True] of
+                Nothing -> assert "finite high-magnitude volumes should construct without summation" False
+                Just huge ->
+                    assert
+                        "v2 weight normalization remains finite when the raw quote-volume sum would overflow"
+                        ( case selection 1200 [huge] of
+                            Just selected ->
+                                let weights = map snd (pitSelectionWeightsV2 selected)
+                                 in all finite weights && abs (sum weights - 1) <= 1.0e-12
+                            Nothing -> False
+                        )
+        _ -> assert "valid point-in-time v2 universe fixtures should construct" False
+    assert
+        "malformed v2 snapshots fail before universe construction"
+        ( and
+            [ isNothing (snapshot 1000 1100 [])
+            , isNothing (snapshot 1200 1100 originalMembers)
+            , isNothing (pointInTimeUniverseSnapshotV2 "usdt" 1000 1100 originalMembers)
+            , isNothing (snapshot 1000 1100 [member "btcusdt" 100 True])
+            , isNothing (snapshot 1000 1100 [member "BTCUSD" 100 True])
+            , isNothing (snapshot 1000 1100 [member "BTCUSDT" 100 True, member "BTCUSDT" 50 False])
+            , isNothing (snapshot 1000 1100 [member "BTCUSDT" (-1) True])
+            , isNothing (snapshot 1000 1100 [member "BTCUSDT" (0 / 0) True])
+            , isNothing (snapshot 1000 1100 [member "BTCUSDT" (1 / 0) True])
+            ]
+        )
 
 gapComboForTest :: T.Text -> Double -> Double -> Int -> Aeson.Value
 gapComboForTest method backtestAnn liveAnn ops =
