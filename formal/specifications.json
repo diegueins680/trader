@@ -90,22 +90,27 @@
     {
       "id": "H-MARKET-DATA",
       "title": "Market-series integrity, context alignment, cache, and point-in-time universe",
-      "features": ["closed-candle validation", "freshness", "continuity", "market context alignment", "point-in-time universe", "point-in-time liquidity universe v2", "per-row point-in-time market factor v2", "cache freshness", "CSV loading"],
+      "features": ["closed-candle validation", "freshness", "continuity", "market context alignment", "point-in-time universe", "point-in-time liquidity universe v2", "prospective market-context panel v2", "per-row point-in-time market factor v2", "cache freshness", "CSV loading"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/MarketDataIntegrity.hs", "haskell/app/Trader/MarketContext.hs", "haskell/app/Trader/PointInTimeUniverse.hs", "haskell/app/Trader/PointInTimeUniverseV2.hs", "haskell/app/Trader/Cache.hs", "haskell/app/Trader/App/Csv.hs", "haskell/app/Trader/BinanceIntervals.hs"],
+      "implementation": ["haskell/app/Trader/MarketDataIntegrity.hs", "haskell/app/Trader/MarketContext.hs", "haskell/app/Trader/PointInTimeUniverse.hs", "haskell/app/Trader/PointInTimeUniverseV2.hs", "haskell/app/Trader/Predictors/MarketContextPanelSchemaV2.hs", "haskell/app/Trader/Cache.hs", "haskell/app/Trader/App/Csv.hs", "haskell/app/Trader/BinanceIntervals.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-CAUSAL", "G-BOUNDED"],
       "dependsOn": ["H-TYPES"],
       "requires": [
         { "id": "H-MARKET-DATA-R1", "statement": "Bars have finite valid OHLCV, strictly increasing unique open times, positive interval, and a close-time computation representable in Int64." },
-        { "id": "H-MARKET-DATA-R2", "statement": "A point-in-time liquidity selection requires a snapshot-complete exact quote scope with separate economic event and first-seen availability times, explicit contemporaneous eligibility, finite non-negative volume, and a predeclared event-age bound." }
+        { "id": "H-MARKET-DATA-R2", "statement": "A point-in-time liquidity selection requires a snapshot-complete exact quote scope with separate economic event and first-seen availability times, explicit contemporaneous eligibility, finite non-negative volume, and a predeclared event-age bound." },
+        { "id": "H-MARKET-DATA-R3", "statement": "A binance_usdm_market_context_panel_v2 snapshot has one canonical ordered row per declared population member, a unique frozen source-manifest digest, rolling-volume window witnesses, and either a complete exact-bar peer-return cell or explicit absence." }
       ],
-      "ensures": [{ "id": "H-MARKET-DATA-E1", "statement": "An admitted live series contains only closed, contiguous, ordered bars and every aligned peer value has the exact target open time; a v2 liquidity selection binds one coherent quote-scoped snapshot, its event and availability witnesses, explicit eligibility, decision, and deterministic rank." }],
+      "ensures": [
+        { "id": "H-MARKET-DATA-E1", "statement": "An admitted live series contains only closed, contiguous, ordered bars and every aligned peer value has the exact target open time; a v2 liquidity selection binds one coherent quote-scoped snapshot, its event and availability witnesses, explicit eligibility, decision, and deterministic rank." },
+        { "id": "H-MARKET-DATA-E2", "statement": "The prospective market-context panel decoder projects through the canonical v2 universe selector, preserves unavailable peer evidence as absence, and cannot by itself elevate a declared digest into proof of raw-response completeness." }
+      ],
       "invariants": [{ "id": "H-MARKET-DATA-I1", "statement": "Cache age is not market age; freshness is computed from the last representable event or closed-bar time and cannot be made fresh by overflow, a future timestamp, or a later revision that was unavailable at the decision." }],
-      "failures": [{ "id": "H-MARKET-DATA-F1", "statement": "Gap, duplicate, open, stale, malformed, overflowed, incomplete, mixed-scope, availability-incoherent, or ambiguous time/universe evidence yields an unavailable result or hold and cannot reach fresh-entry logic." }],
+      "failures": [{ "id": "H-MARKET-DATA-F1", "statement": "Gap, duplicate, open, stale, malformed, overflowed, incomplete, mixed-scope, availability-incoherent, digest-incoherent, or ambiguous time/universe evidence yields an unavailable result or hold and cannot reach fresh-entry logic." }],
       "evidence": [
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testMarketDataFreshnessAndContinuationInvariant" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextAlignsPeerKlinesByOpenTime" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testPointInTimeUniverseV2" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextPanelSchemaV2" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextFactorV2" }
       ]
     },
