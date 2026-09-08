@@ -342,6 +342,25 @@ import Trader.Predictors.MarketContextFeaturesV2 (
     marketContextFactorSchemaSignatureV2,
     marketContextFactorSchemaVersionV2,
  )
+import Trader.Predictors.MarketContextPanelSchemaV2 (
+    decodeMarketContextPanelV2,
+    marketContextPanelColumnsV2,
+    marketContextPanelSchemaIdV2,
+    marketContextPanelSchemaVersionV2,
+    marketContextPanelSelectionInputsV2,
+    marketContextPanelSourceIdV2,
+    mcpm2Eligible,
+    mcpm2PeerReturn,
+    mcpm2Symbol,
+    mcps2BarOpenTimeMs,
+    mcps2DecisionTimeMs,
+    mcps2IntervalMs,
+    mcps2Members,
+    mcps2Quote,
+    mcps2SourceManifestSha256,
+    mcps2UniverseAvailabilityTimeMs,
+    mcps2UniverseEventTimeMs,
+ )
 import Trader.Predictors.OhlcvInputsV2 (
     completeOhlcvFieldNamesV2,
     completeOhlcvGridV2,
@@ -744,8 +763,10 @@ main = do
     testExogenousDerivativesBacktestWiring
     testPointInTimeUniverseSelectsHistoricalSnapshot
     testPointInTimeUniverseV2
+    testMarketContextPanelSchemaV2
     testMarketContextFactorV2
     testMarketContextFactorV2ProductionIsolation
+    testMarketContextPanelV2ProductionIsolation
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -8060,6 +8081,180 @@ testPointInTimeUniverseV2 = do
             ]
         )
 
+testMarketContextPanelSchemaV2 :: IO ()
+testMarketContextPanelSchemaV2 = do
+    let hashA = replicate 64 'a'
+        hashB = replicate 64 'b'
+        intervalMs = 1000 :: Int64
+        firstRows =
+            [ panelRow hashA 0 1100 930 950 4 0 "DOGEUSDT" "200" "1" 800 930 ["1", "1000", "1030", "0.5"]
+            , panelRow hashA 0 1100 930 950 4 1 "BTCUSDT" "1000" "1" 800 900 ["1", "1000", "1010", "0.9"]
+            , panelRow hashA 0 1100 930 950 4 2 "ETHUSDT" "600" "1" 800 910 ["1", "1000", "1020", "0.1"]
+            , panelRow hashA 0 1100 930 950 4 3 "SOLUSDT" "400" "1" 800 920 ["1", "1000", "1040", "-0.05"]
+            ]
+        secondRows =
+            [ panelRow hashB 1000 2100 1930 1950 4 0 "DOGEUSDT" "800" "1" 1800 1930 ["1", "2000", "2010", "0.2"]
+            , panelRow hashB 1000 2100 1930 1950 4 1 "BTCUSDT" "700" "1" 1800 1900 ["1", "2000", "2020", "0.8"]
+            , panelRow hashB 1000 2100 1930 1950 4 2 "ETHUSDT" "500" "1" 1800 1910 ["1", "2000", "2030", "-0.1"]
+            , panelRow hashB 1000 2100 1930 1950 4 3 "SOLUSDT" "100" "0" 1800 1920 ["0", "", "", ""]
+            ]
+        fixture = marketContextPanelBytes (firstRows ++ secondRows)
+        decodeRows = decodeMarketContextPanelV2 . marketContextPanelBytes
+        set name value row =
+            [ if column == name then value else original
+            | (column, original) <- zip marketContextPanelColumnsV2 row
+            ]
+        isUnavailable row =
+            frv2Values row == [0]
+                && frv2Available row == [False]
+                && frv2EventTimesMs row == [Nothing]
+                && frv2AvailabilityTimesMs row == [Nothing]
+    assert
+        "market-context panel v2 has stable source and schema identities"
+        ( marketContextPanelSchemaIdV2 == "binance_usdm_market_context_panel_v2"
+            && marketContextPanelSchemaVersionV2 == 2
+            && marketContextPanelSourceIdV2 == "binance-usdm-public-market-data"
+            && length marketContextPanelColumnsV2 == 20
+        )
+    case decodeMarketContextPanelV2 fixture of
+        Left err -> assert ("valid market-context panel v2 should decode: " ++ err) False
+        Right snapshots@[first, second] -> do
+            assert
+                "decoded snapshots retain manifest, clock, population, eligibility, and missing-peer evidence"
+                ( mcps2SourceManifestSha256 first == hashA
+                    && mcps2Quote first == "USDT"
+                    && mcps2IntervalMs first == intervalMs
+                    && mcps2BarOpenTimeMs first == 0
+                    && mcps2DecisionTimeMs first == 1100
+                    && mcps2UniverseEventTimeMs first == 930
+                    && mcps2UniverseAvailabilityTimeMs first == 950
+                    && map mcpm2Symbol (mcps2Members first)
+                        == ["DOGEUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
+                    && isNothing (mcpm2PeerReturn (last (mcps2Members second)))
+                    && not (mcpm2Eligible (last (mcps2Members second)))
+                )
+            case marketContextPanelSelectionInputsV2 4 1000 first of
+                Nothing -> assert "valid panel should project through the canonical universe selector" False
+                Just (selection, peers) -> do
+                    assert
+                        "panel projection uses canonical volume rank and reorders peer cells to the selection"
+                        ( map um2Symbol (pitSelectionMembersV2 selection)
+                            == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"]
+                            && map (fmap mcpr2Symbol) (V.toList peers)
+                                == map Just ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"]
+                        )
+                    assert
+                        "decoded panel inputs compose with the isolated market-context factor without changing its formula"
+                        ( case marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selection peers of
+                            Just row ->
+                                case frv2Values row of
+                                    [value] -> abs (value - 0.04) <= 1.0e-12 && frv2Available row == [True]
+                                    _ -> False
+                            Nothing -> False
+                        )
+            case marketContextPanelSelectionInputsV2 3 1000 second of
+                Nothing -> assert "second valid panel should retain its own point-in-time rank" False
+                Just (selection, peers) ->
+                    assert
+                        "an unavailable unselected peer stays absent and does not become a numeric zero"
+                        ( map um2Symbol (pitSelectionMembersV2 selection) == ["DOGEUSDT", "BTCUSDT", "ETHUSDT"]
+                            && all isJust (V.toList peers)
+                        )
+            assert
+                "appending a future source snapshot cannot rewrite the decoded prefix"
+                (decodeRows firstRows == Right [first] && take 1 snapshots == [first])
+        Right _ -> assert "market-context panel fixture snapshot count changed" False
+
+    let missingSelectedRows =
+            take 2 firstRows
+                ++ [set "peerObserved" "0" (set "peerEventTime" "" (set "peerAvailabilityTime" "" (set "peerSimpleReturn" "" (firstRows !! 2))))]
+                ++ drop 3 firstRows
+    case decodeRows missingSelectedRows of
+        Right [panel] ->
+            assert
+                "missing selected peer evidence remains an unavailable factor instead of a directional value"
+                ( case marketContextPanelSelectionInputsV2 4 1000 panel of
+                    Just (selection, peers) ->
+                        maybe False isUnavailable (marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selection peers)
+                    Nothing -> False
+                )
+        _ -> assert "a coherent missing peer cell should decode" False
+
+    let oneRowMutation name value = decodeRows (set name value (head firstRows) : tail firstRows)
+        groupMutation name value = decodeRows (map (set name value) firstRows)
+    assert
+        "market-context panel rejects incompatible identity, digest, scope, counts, ordinals, and symbols"
+        ( and
+            [ isLeft (decodeMarketContextPanelV2 (marketContextPanelBytesWithColumns (drop 1 marketContextPanelColumnsV2) (map tail firstRows)))
+            , isLeft (oneRowMutation "schemaId" "legacy")
+            , isLeft (oneRowMutation "sourceId" "unknown")
+            , isLeft (oneRowMutation "sourceManifestSha256" (replicate 64 'A'))
+            , isLeft (oneRowMutation "sourceManifestSha256" "abc")
+            , isLeft (groupMutation "quote" "usdt")
+            , isLeft (groupMutation "populationCount" "5")
+            , isLeft (oneRowMutation "memberOrdinal" "2")
+            , isLeft (oneRowMutation "symbol" "BTCUSD")
+            , isLeft (decodeRows (set "symbol" "BTCUSDT" (head firstRows) : tail firstRows))
+            ]
+        )
+    assert
+        "market-context panel rejects non-finite values, false missingness, and non-causal clocks"
+        ( and
+            [ isLeft (oneRowMutation "quoteVolume" "NaN")
+            , isLeft (oneRowMutation "quoteVolume" "-1")
+            , isLeft (oneRowMutation "eligible" "0.0")
+            , isLeft (oneRowMutation "peerObserved" "0")
+            , isLeft (oneRowMutation "peerSimpleReturn" "NaN")
+            , isLeft (oneRowMutation "peerSimpleReturn" "-1")
+            , isLeft (oneRowMutation "peerEventTime" "999")
+            , isLeft (oneRowMutation "peerAvailabilityTime" "1200")
+            , isLeft (groupMutation "universeEventTime" "929")
+            , isLeft (groupMutation "universeAvailabilityTime" "900")
+            , isLeft (groupMutation "decisionTime" "999")
+            , isLeft (groupMutation "barOpenTime" "9223372036854775807")
+            , isLeft (groupMutation "intervalMs" "01")
+            ]
+        )
+    assert
+        "market-context panel rejects mixed longitudinal scope and reused source evidence"
+        ( and
+            [ isLeft (decodeRows (firstRows ++ map (set "quote" "USD") secondRows))
+            , isLeft (decodeRows (firstRows ++ map (set "intervalMs" "2000") secondRows))
+            , isLeft (decodeRows (firstRows ++ map (set "barOpenTime" "0") secondRows))
+            , isLeft (decodeRows (firstRows ++ map (set "decisionTime" "1100") secondRows))
+            , isLeft (decodeRows (firstRows ++ map (set "sourceManifestSha256" hashA) secondRows))
+            ]
+        )
+  where
+    marketContextPanelBytes = marketContextPanelBytesWithColumns marketContextPanelColumnsV2
+
+    marketContextPanelBytesWithColumns columns rows =
+        BL8.pack
+            ( intercalate "," columns
+                ++ "\n"
+                ++ concatMap ((++ "\n") . intercalate ",") rows
+            )
+
+    panelRow sourceHash barOpen decision eventTime available population ordinal symbol volume eligible tickerOpen tickerClose peer =
+        [ marketContextPanelSchemaIdV2
+        , marketContextPanelSourceIdV2
+        , sourceHash
+        , "USDT"
+        , "1000"
+        , show barOpen
+        , show decision
+        , show eventTime
+        , show available
+        , show population
+        , show ordinal
+        , symbol
+        , volume
+        , eligible
+        , show tickerOpen
+        , show tickerClose
+        ]
+            ++ peer
+
 testMarketContextFactorV2 :: IO ()
 testMarketContextFactorV2 = do
     let intervalMs = 1000 :: Int64
@@ -8319,6 +8514,36 @@ testMarketContextFactorV2ProductionIsolation =
                 ("market-context factor v2 remains absent from production path " ++ path)
                 ( not ("Trader.Predictors.MarketContextFeaturesV2" `isInfixOf` source)
                     && not (marketContextFactorSchemaIdV2 `isInfixOf` source)
+                )
+
+testMarketContextPanelV2ProductionIsolation :: IO ()
+testMarketContextPanelV2ProductionIsolation = do
+    boundary <- readFile "app/Trader/Predictors/MarketContextPanelSchemaV2.hs"
+    assert
+        "market-context panel decoder documents external raw-manifest verification"
+        ( "cannot prove that the referenced manifest exists" `isInfixOf` boundary
+            && "Missing peer evidence stays 'Nothing'" `isInfixOf` boundary
+            && not ("Trader.Trading" `isInfixOf` boundary)
+            && not ("Trader.OrderExecution" `isInfixOf` boundary)
+        )
+    forM_
+        [ "app/Main.hs"
+        , "app/Trader/Binance.hs"
+        , "app/Trader/CrossSectionalMomentum.hs"
+        , "app/Trader/MarketContext.hs"
+        , "app/Trader/OrderExecution.hs"
+        , "app/Trader/PointInTimeUniverse.hs"
+        , "app/Trader/Predictors.hs"
+        , "app/Trader/Predictors/Features.hs"
+        , "app/Trader/Predictors/OnlineNeural.hs"
+        , "app/Trader/Trading.hs"
+        ]
+        $ \path -> do
+            source <- readFile path
+            assert
+                ("market-context panel v2 remains absent from production path " ++ path)
+                ( not ("Trader.Predictors.MarketContextPanelSchemaV2" `isInfixOf` source)
+                    && not (marketContextPanelSchemaIdV2 `isInfixOf` source)
                 )
 
 gapComboForTest :: T.Text -> Double -> Double -> Int -> Aeson.Value

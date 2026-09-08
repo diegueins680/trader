@@ -18,6 +18,11 @@ const rateLimitCircuitReceiptUrl = new URL(
   import.meta.url,
 );
 
+const dataSourceManifestUrl = new URL(
+  "../research-notes/market-prediction-2026-09-04/data-source-license-manifest.json",
+  import.meta.url,
+);
+
 const requiredRegistrationKeys = [
   "ablations",
   "academicOrigin",
@@ -189,6 +194,62 @@ test("point-in-time market-context factor v2 remains isolated from production pa
   assert.doesNotMatch(adapter, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
   assert.match(adapter, /A caller that may select the target must request at least one/);
   assert.match(adapter, /no terminal membership or weight vector is\s+back-applied/);
+});
+
+test("market-context panel v2 requires external manifest proof and remains production-isolated", async () => {
+  const boundary = await readFile(
+    new URL(
+      "../haskell/app/Trader/Predictors/MarketContextPanelSchemaV2.hs",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Trader/Binance.hs",
+      "../haskell/app/Trader/MarketContext.hs",
+      "../haskell/app/Trader/PointInTimeUniverse.hs",
+      "../haskell/app/Trader/CrossSectionalMomentum.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors/OnlineNeural.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Trader/Trading.hs",
+      "../haskell/app/Trader/OrderExecution.hs",
+      "../haskell/app/Main.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /MarketContextPanelSchemaV2|decodeMarketContextPanelV2|binance_usdm_market_context_panel_v2/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(boundary, /cannot prove that the referenced manifest exists/);
+  assert.match(boundary, /Missing peer evidence stays 'Nothing'/);
+  assert.match(boundary, /pointInTimeUniverseSelectionV2/);
+});
+
+test("market-context source provenance separates raw-manifest and derived-panel digests", async () => {
+  const manifest = await readJson(dataSourceManifestUrl);
+  const source = manifest.sources.find(
+    ({ id }) => id === "binance-usdm-public-market-data",
+  );
+
+  assert.ok(source);
+  const contract = source.futureMarketContextArtifactContract;
+  assert.equal(contract.schema, "binance_usdm_market_context_panel_v2");
+  assert.equal(
+    contract.status,
+    "decoder_only_collection_and_manifest_verifier_not_yet_implemented",
+  );
+  assert.ok(contract.requiredRawResponses.some((item) => item.includes("exchangeInfo")));
+  assert.ok(contract.requiredRawResponses.some((item) => item.includes("ticker/24hr")));
+  assert.ok(contract.requiredRawResponses.some((item) => item.includes("klines")));
+  assert.ok(contract.manifestRequirements.every((item) => !item.includes("derived panel")));
+  assert.ok(contract.verificationReceiptRequirements.includes("source manifest SHA-256"));
+  assert.ok(contract.verificationReceiptRequirements.includes("derived panel SHA-256"));
+  assert.match(contract.admissionPolicy, /independent verifier/);
 });
 
 test("market-prediction registrations remain future-only disabled challengers", async () => {
