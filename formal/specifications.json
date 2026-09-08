@@ -90,7 +90,7 @@
     {
       "id": "H-MARKET-DATA",
       "title": "Market-series integrity, context alignment, cache, and point-in-time universe",
-      "features": ["closed-candle validation", "freshness", "continuity", "market context alignment", "point-in-time universe", "point-in-time liquidity universe v2", "cache freshness", "CSV loading"],
+      "features": ["closed-candle validation", "freshness", "continuity", "market context alignment", "point-in-time universe", "point-in-time liquidity universe v2", "per-row point-in-time market factor v2", "cache freshness", "CSV loading"],
       "criticality": "safety",
       "implementation": ["haskell/app/Trader/MarketDataIntegrity.hs", "haskell/app/Trader/MarketContext.hs", "haskell/app/Trader/PointInTimeUniverse.hs", "haskell/app/Trader/PointInTimeUniverseV2.hs", "haskell/app/Trader/Cache.hs", "haskell/app/Trader/App/Csv.hs", "haskell/app/Trader/BinanceIntervals.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-CAUSAL", "G-BOUNDED"],
@@ -105,7 +105,8 @@
       "evidence": [
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testMarketDataFreshnessAndContinuationInvariant" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextAlignsPeerKlinesByOpenTime" },
-        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testPointInTimeUniverseV2" }
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testPointInTimeUniverseV2" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextFactorV2" }
       ]
     },
     {
@@ -179,33 +180,40 @@
     {
       "id": "H-FEATURES",
       "title": "Predictor feature schema and ensemble evidence",
-      "features": ["feature construction", "availability-aware feature schema v2", "complete-case OHLCV input v2", "external feature adapter v2", "derivatives feature adapter v2", "cross-exchange feature adapter v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
+      "features": ["feature construction", "availability-aware feature schema v2", "complete-case OHLCV input v2", "external feature adapter v2", "derivatives feature adapter v2", "cross-exchange feature adapter v2", "point-in-time market-context factor v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/OhlcvInputsV2.hs", "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/Predictors/CrossExchangeFeaturesV2.hs", "haskell/app/Trader/SensorVariance.hs"],
+      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/OhlcvInputsV2.hs", "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/Predictors/CrossExchangeFeaturesV2.hs", "haskell/app/Trader/Predictors/MarketContextFeaturesV2.hs", "haskell/app/Trader/SensorVariance.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-DETERMINISTIC"],
       "dependsOn": ["H-MARKET-DATA", "H-EXTERNAL"],
       "requires": [
         { "id": "H-FEATURES-R1", "statement": "A feature vector declares one stable ordered schema and is computed only from bars and attached observations available at its index." },
-        { "id": "H-FEATURES-R2", "statement": "A feature_availability_v2 row has non-empty unique ordered field names, explicit required flags, finite dense values, parallel availability masks, and parallel event/availability witnesses bound by its schema signature." }
+        { "id": "H-FEATURES-R2", "statement": "A feature_availability_v2 row has non-empty unique ordered field names, explicit required flags, finite dense values, parallel availability masks, and parallel event/availability witnesses bound by its schema signature." },
+        { "id": "H-FEATURES-R3", "statement": "A point-in-time market-context factor row has one exact-bar peer position per member of that row's causal liquidity selection, excludes the target before taking its declared peer count, and admits only completed returns first seen by the decision." }
       ],
       "ensures": [
         { "id": "H-FEATURES-E1", "statement": "Feature dimension and ordering match the selected model; probability vectors are finite, non-negative, and normalized within tolerance." },
-        { "id": "H-FEATURES-E2", "statement": "An optional unavailable value has dense value zero and mask false, an observed zero has mask true, and unavailable required evidence yields no row." }
+        { "id": "H-FEATURES-E2", "statement": "An optional unavailable value has dense value zero and mask false, an observed zero has mask true, and unavailable required evidence yields no row." },
+        { "id": "H-FEATURES-E3", "statement": "On complete evidence, point_in_time_market_context_factor_v2 equals the legacy raw quote-volume-weighted peer-basket return after target exclusion and without the optional same-asset Coinbase augmentation, and retains the latest contributing event and availability witnesses." }
       ],
       "invariants": [
         { "id": "H-FEATURES-I1", "statement": "Prefix extension cannot alter an earlier feature row, and optional channels never shift the meaning of existing indices." },
-        { "id": "H-FEATURES-I2", "statement": "The availability-aware schema is opt-in; legacy feature construction, ordering, dimensions, identifiers, saved configurations, and predictions remain unchanged." }
+        { "id": "H-FEATURES-I2", "statement": "The availability-aware schema is opt-in; legacy feature construction, ordering, dimensions, identifiers, saved configurations, and predictions remain unchanged." },
+        { "id": "H-FEATURES-I3", "statement": "Every market-context factor row uses that row's point-in-time membership and weights; appending or changing future selection or peer evidence cannot alter an earlier factor row, and the v2 adapter remains absent from production imports." }
       ],
       "failures": [
         { "id": "H-FEATURES-F1", "statement": "Dimension, finiteness, or probability-mass failure marks predictor evidence unavailable." },
-        { "id": "H-FEATURES-F2", "statement": "Negative or incoherent timestamps, future availability, missing or non-finite required values, invalid complete-case OHLCV, empty or duplicate fields, ambiguous field names, and structurally misaligned cross-exchange bars fail closed before model input construction." }
+        { "id": "H-FEATURES-F2", "statement": "Negative or incoherent timestamps, future availability, missing or non-finite required values, invalid complete-case OHLCV, empty or duplicate fields, ambiguous field names, and structurally misaligned cross-exchange bars fail closed before model input construction." },
+        { "id": "H-FEATURES-F3", "statement": "Malformed market-context scope, grid, count, shape, symbol, bar identity, overflow, or decision timing yields no row; unusable selected peer evidence yields finite neutral value with availability false rather than a directional signal." }
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testCompleteOhlcvInputsV2" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testExternalFeatureAdapterV2" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testCrossExchangeFeatureAdapterV2" },
-        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" }
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextFactorV2" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testMarketContextFactorV2ProductionIsolation" },
+        { "level": "regression", "path": "test/market-prediction-research.test.mjs", "contains": "point-in-time market-context factor v2 remains isolated" }
       ]
     },
     {

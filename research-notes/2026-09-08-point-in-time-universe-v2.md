@@ -84,9 +84,10 @@ bearish interpretation is produced.
 The snapshot constructor intentionally cannot certify population completeness.
 A future source must bind a comprehensive instrument manifest, venue/source
 identity, event and acquisition clocks, revisions, eligibility semantics,
-license, schema, hashes, and deterministic reconstruction. A future market
-factor must select separately at every decision row; it may not reuse a later
-cutoff membership or weight vector for earlier history.
+license, schema, hashes, and deterministic reconstruction. The isolated
+`point_in_time_market_context_factor_v2` adapter now selects separately at
+every decision row and does not reuse a later cutoff membership or weight
+vector for earlier history. It still needs a verified source artifact.
 
 ## Verification evidence
 
@@ -110,7 +111,8 @@ the main entry path.
 ## Decision
 
 This boundary defines the required point-in-time selection semantics but does
-not justify a model or close the source gap. A snapshot-complete lawful public
-artifact, per-row market-factor adapter, versioned model boundary, and
-prospective evidence beginning 2027-01-21 remain required. No development
-metric or final holdout was viewed. **Continue research; no candidate passed.**
+not justify a model or close the source gap. The separate per-row raw-factor
+adapter is now available, but a snapshot-complete lawful public artifact,
+versioned fitted-model boundary, and prospective evidence beginning 2027-01-21
+remain required. No development metric or final holdout was viewed. **Continue
+research; no candidate passed.**
