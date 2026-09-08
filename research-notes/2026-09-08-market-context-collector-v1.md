@@ -75,12 +75,15 @@ eligibility, close-to-close returns, raw inventories, hashes, and output bytes.
 
 ## Provenance and failure behavior
 
-The CLI derives `codeCommit` from the current checkout. Before transport it
-requires the collector, verifier, and source/license manifest to be tracked and
-unchanged at that commit. Collection status records those file hashes and the
-Python runtime. The collector explicitly supplies only `Accept` and a fixed
-`User-Agent`; there is no API-key, authorization, body, private endpoint, or
-configurable host.
+The CLI captures `codeCommit` and hashes the collector, verifier, and
+source/license manifest when the module loads. Before transport it requires
+those paths to be tracked, unchanged, byte-identical to that module-load
+snapshot, and still checked out at the captured commit. The same exact binding
+is revalidated immediately before both manifest and success-status publication,
+with the deadline check following the Git work. Collection status records the
+file hashes and Python runtime. The collector explicitly supplies only `Accept`
+and a fixed `User-Agent`; there is no API-key, authorization, body, private
+endpoint, or configurable host.
 
 An existing or symlinked output path is never overwritten. Provenance and path
 preflight failures occur before a new output is created. After preflight, the

@@ -36,7 +36,7 @@ import collect_market_context as collector
 import market_context_source as source
 
 collector._repository_commit = lambda: "a" * 40
-collector._provenance_tracked_clean = lambda: True
+collector._provenance_tracked_clean = lambda _commit: True
 
 class Headers(dict):
     def get_content_type(self):
@@ -408,6 +408,39 @@ assert not (stale_output / "source-manifest.json").exists()
 stale_status = json.loads((stale_output / "collection-status.json").read_text())
 assert stale_status["failedEndpoint"] == "/fapi/v1/ticker/24hr"
 
+provenance_output = root / "provenance-moved"
+collector.URL_OPENER = Opener(successful_responses())
+collector._epoch_ms = Clock(success_clock)
+provenance_checks = 0
+
+def move_head_before_publication(_commit):
+    global provenance_checks
+    provenance_checks += 1
+    return provenance_checks == 1
+
+collector._provenance_tracked_clean = move_head_before_publication
+try:
+    collector.collect_bundle(
+        provenance_output,
+        quote="USDT",
+        interval="1h",
+        bar_open=7200000,
+        max_clock_skew_ms=0,
+        deadline_seconds=240,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "provenance_invalid"
+else:
+    raise AssertionError("provenance changes before publication must fail closed")
+assert provenance_checks == 2
+assert not (provenance_output / "source-manifest.json").exists()
+provenance_status = json.loads(
+    (provenance_output / "collection-status.json").read_text()
+)
+assert provenance_status["failureKind"] == "provenance_invalid"
+collector._provenance_tracked_clean = lambda _commit: True
+
 status_failure_output = root / "status-failure"
 collector.URL_OPENER = Opener(successful_responses())
 collector._epoch_ms = Clock(success_clock)
@@ -566,7 +599,8 @@ test("collector CLI requires committed provenance before any public request", as
   assert.match(source, /_fsync_directory\(raw_dir\)/);
   assert.match(source, /_fsync_directory\(path\.parent\)/);
   assert.equal(
-    source.match(/before_replace=lambda: _require_publication_window/g)?.length,
+    source.match(/before_replace=lambda: _require_publication_preconditions/g)
+      ?.length,
     2,
   );
   assert.match(source, /_provenance_tracked_clean/);
@@ -576,7 +610,7 @@ test("collector CLI requires committed provenance before any public request", as
   const result = runPython(`${pythonFixtureHelpers}
 root = Path(tempfile.mkdtemp(prefix="trader-market-context-provenance-"))
 collector._repository_commit = lambda: "a" * 40
-collector._provenance_tracked_clean = lambda: False
+collector._provenance_tracked_clean = lambda _commit: False
 opener = Opener([])
 collector.URL_OPENER = opener
 result = collector.main([

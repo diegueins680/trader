@@ -182,7 +182,7 @@ def _epoch_ms() -> int:
     return value
 
 
-def _repository_commit() -> str | None:
+def _read_repository_commit() -> str | None:
     repository_root = Path(__file__).resolve().parents[2]
     try:
         result = subprocess.run(
@@ -199,8 +199,34 @@ def _repository_commit() -> str | None:
     return commit if COMMIT_PATTERN.fullmatch(commit) else None
 
 
-def _provenance_tracked_clean() -> bool:
+def _current_provenance_hashes() -> dict[str, str] | None:
     repository_root = Path(__file__).resolve().parents[2]
+    try:
+        return {
+            path: hashlib.sha256((repository_root / path).read_bytes()).hexdigest()
+            for path in PROVENANCE_PATHS
+        }
+    except OSError:
+        return None
+
+
+IMPORTED_CODE_COMMIT = _read_repository_commit()
+IMPORTED_PROVENANCE_HASHES = _current_provenance_hashes()
+
+
+def _repository_commit() -> str | None:
+    return IMPORTED_CODE_COMMIT
+
+
+def _provenance_tracked_clean(code_commit: str) -> bool:
+    repository_root = Path(__file__).resolve().parents[2]
+    if (
+        code_commit != IMPORTED_CODE_COMMIT
+        or IMPORTED_PROVENANCE_HASHES is None
+        or _read_repository_commit() != code_commit
+        or _current_provenance_hashes() != IMPORTED_PROVENANCE_HASHES
+    ):
+        return False
     try:
         tracked = subprocess.run(
             ["git", "ls-files", "--error-unmatch", *PROVENANCE_PATHS],
@@ -211,7 +237,7 @@ def _provenance_tracked_clean() -> bool:
             timeout=3,
         )
         unchanged = subprocess.run(
-            ["git", "diff", "--quiet", "HEAD", "--", *PROVENANCE_PATHS],
+            ["git", "diff", "--quiet", code_commit, "--", *PROVENANCE_PATHS],
             cwd=repository_root,
             check=False,
             capture_output=True,
@@ -220,7 +246,12 @@ def _provenance_tracked_clean() -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    return tracked.returncode == 0 and unchanged.returncode == 0
+    return (
+        tracked.returncode == 0
+        and unchanged.returncode == 0
+        and _read_repository_commit() == code_commit
+        and _current_provenance_hashes() == IMPORTED_PROVENANCE_HASHES
+    )
 
 
 def _bounded_sleep(delay: float, deadline: float) -> None:
@@ -241,6 +272,17 @@ def _require_publication_window(deadline: float, latest_safe_completion_ms: int)
         raise CollectionFailure(
             "deadline_exceeded", "publication crossed the causal decision window"
         )
+
+
+def _require_publication_preconditions(
+    deadline: float, latest_safe_completion_ms: int, code_commit: str
+) -> None:
+    if not _provenance_tracked_clean(code_commit):
+        raise CollectionFailure(
+            "provenance_invalid",
+            "collector provenance changed during collection",
+        )
+    _require_publication_window(deadline, latest_safe_completion_ms)
 
 
 def _reject_constant(value: str) -> None:
@@ -993,7 +1035,7 @@ def collect_bundle(
     limiter: RequestWeightLimiter | None = None,
 ) -> Path:
     code_commit = _repository_commit()
-    if code_commit is None or not _provenance_tracked_clean():
+    if code_commit is None or not _provenance_tracked_clean(code_commit):
         raise CollectionFailure(
             "provenance_invalid",
             "collector, verifier, and source-license files must match a Git commit",
@@ -1175,8 +1217,8 @@ def collect_bundle(
         _write_bytes_atomic(
             manifest_path,
             manifest_payload,
-            before_replace=lambda: _require_publication_window(
-                deadline, latest_safe_completion
+            before_replace=lambda: _require_publication_preconditions(
+                deadline, latest_safe_completion, code_commit
             ),
             after_replace=mark_manifest_written,
         )
@@ -1191,8 +1233,8 @@ def collect_bundle(
                 "sourceManifestSha256": hashlib.sha256(manifest_payload).hexdigest(),
                 "eligiblePopulationCount": len(eligible),
             },
-            before_replace=lambda: _require_publication_window(
-                deadline, latest_safe_completion
+            before_replace=lambda: _require_publication_preconditions(
+                deadline, latest_safe_completion, code_commit
             ),
         )
         return manifest_path

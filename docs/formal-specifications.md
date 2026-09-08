@@ -58,8 +58,10 @@ or authorize trading.
 The prospective collector that supplies this boundary is a separate
 `A-RESEARCH` component. It accepts an explicit aligned bar and a new output
 directory, derives its commit from Git only when every provenance file is
-tracked and unchanged, uses only fixed public GET endpoints, refuses redirects,
-and enforces response-size, causal-window, deadline, local request-weight, and
+tracked and unchanged, binds the loaded provenance bytes to that captured
+commit, revalidates the exact binding at both publication boundaries, uses only
+fixed public GET endpoints, refuses redirects, and enforces response-size,
+causal-window, deadline, local request-weight, and
 observed shared-IP weight limits. It requests every contemporaneously eligible
 member, bounds each member's ticker event to the ticker request/response window,
 and writes the source manifest only after complete coverage. Blocking transport
