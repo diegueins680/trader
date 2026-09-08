@@ -64,7 +64,11 @@ observed shared-IP weight limits. It requests every contemporaneously eligible
 member and writes the source manifest only after complete coverage. Its success
 state is `complete_unverified`; any transport, provider-throttle, clock,
 provenance, response, population, peer-grid, or output failure leaves no source
-manifest and grants no downstream authority.
+manifest and grants no downstream authority. File and directory publication is
+durably flushed and deadline-checked before successful status. If removal of a
+manifest after a final status failure cannot itself be confirmed, the status
+records an indeterminate cleanup failure rather than falsely asserting that the
+manifest is unpublished.
 
 The small public backtest-data path is separately fixed-window and hash-bound.
 It requires an explicit end time, accepts only exact contiguous completed bars,

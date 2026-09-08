@@ -25,7 +25,7 @@
         "verificationReceiptRequirements": ["source manifest SHA-256 and source-manifest code commit", "derived panel SHA-256", "decoder schema and version", "verifier path and byte SHA-256", "explicit zero outcome, model, order, and live-authorization use"],
         "collectionCommand": "python3 scripts/research/collect_market_context.py collect --output-dir <new-artifact-dir> --interval <interval> --bar-open-time <aligned-epoch-ms>",
         "verificationCommand": "python3 scripts/research/market_context_source.py verify --manifest <artifact-dir>/source-manifest.json --panel-output <artifact-dir>/derived-panel.csv --receipt-output <artifact-dir>/verification-receipt.json",
-        "admissionPolicy": "A collector complete_unverified status is not admission. The independent offline verifier must re-hash and strictly decode every frozen response, recompute the eligible population and panel, and emit a separate receipt binding source-manifest and panel hashes. No real acquisition has run, and research use remains prohibited before the registered prospective window and a separately reviewed data-admission decision."
+        "admissionPolicy": "A collector complete_unverified status is not admission, and any collecting, partial_failure, cleanup_failure, absent, or indeterminate status is inadmissible. The independent offline verifier must re-hash and strictly decode every frozen response, recompute the eligible population and panel, and emit a separate receipt binding source-manifest and panel hashes. No real acquisition has run, and research use remains prohibited before the registered prospective window and a separately reviewed data-admission decision."
       }
     },
     {

@@ -266,6 +266,7 @@ test("market-context source provenance separates raw-manifest and derived-panel 
   assert.match(contract.collectionCommand, /collect_market_context\.py collect/);
   assert.match(contract.admissionPolicy, /independent offline verifier/);
   assert.match(contract.admissionPolicy, /complete_unverified status is not admission/);
+  assert.match(contract.admissionPolicy, /cleanup_failure/);
 });
 
 test("market-prediction registrations remain future-only disabled challengers", async () => {

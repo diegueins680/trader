@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -82,7 +82,7 @@ PROVENANCE_PATHS = (
 
 
 class CollectionFailure(RuntimeError):
-    """A sanitized, classified failure that leaves no source manifest."""
+    """A sanitized, classified fail-closed collection error."""
 
     def __init__(
         self,
@@ -229,6 +229,17 @@ def _bounded_sleep(delay: float, deadline: float) -> None:
             "deadline_exceeded", "collection deadline expired while pacing requests"
         )
     time.sleep(max(0.0, delay))
+
+
+def _require_publication_window(deadline: float, latest_safe_completion_ms: int) -> None:
+    if time.monotonic() >= deadline:
+        raise CollectionFailure(
+            "deadline_exceeded", "collection deadline expired during publication"
+        )
+    if _epoch_ms() >= latest_safe_completion_ms:
+        raise CollectionFailure(
+            "deadline_exceeded", "publication crossed the causal decision window"
+        )
 
 
 def _reject_constant(value: str) -> None:
@@ -462,7 +473,13 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _write_bytes_atomic(path: Path, payload: bytes) -> None:
+def _write_bytes_atomic(
+    path: Path,
+    payload: bytes,
+    *,
+    before_replace: Callable[[], None] | None = None,
+    after_replace: Callable[[], None] | None = None,
+) -> None:
     descriptor, temporary_name = tempfile.mkstemp(
         dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
     )
@@ -472,7 +489,11 @@ def _write_bytes_atomic(path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        if before_replace is not None:
+            before_replace()
         os.replace(temporary, path)
+        if after_replace is not None:
+            after_replace()
         _fsync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
@@ -768,8 +789,15 @@ def _status_base(started_at_ms: int, code_commit: str) -> dict[str, object]:
     }
 
 
-def _write_status(path: Path, value: Mapping[str, object]) -> None:
-    _write_bytes_atomic(path, _json_bytes(dict(value)))
+def _write_status(
+    path: Path,
+    value: Mapping[str, object],
+    *,
+    before_replace: Callable[[], None] | None = None,
+) -> None:
+    _write_bytes_atomic(
+        path, _json_bytes(dict(value)), before_replace=before_replace
+    )
 
 
 def _failure_status(
@@ -804,6 +832,32 @@ def _failure_status(
         "bannedUntilMs": banned_until,
         "sourceManifestPublished": False,
     }
+
+
+def _cleanup_failure_status(
+    base: Mapping[str, object],
+    original_error: Exception,
+    completed_paths: list[str],
+) -> dict[str, object]:
+    status = _failure_status(base, original_error, completed_paths)
+    original_failure_kind = status["failureKind"]
+    return {
+        **status,
+        "state": "cleanup_failure",
+        "failureKind": "manifest_cleanup_failed",
+        "failureMessage": (
+            "source-manifest cleanup could not be confirmed; bundle state is indeterminate"
+        ),
+        "originalFailureKind": original_failure_kind,
+        "sourceManifestPublished": None,
+        "sourceManifestState": "indeterminate_after_cleanup_failure",
+        "manifestCleanupRequired": True,
+    }
+
+
+def _remove_manifest(manifest_path: Path, output_dir: Path) -> None:
+    manifest_path.unlink(missing_ok=True)
+    _fsync_directory(output_dir)
 
 
 def _validate_inputs(
@@ -898,6 +952,10 @@ def collect_bundle(
     previous_completion: int | None = None
     manifest_path = output / "source-manifest.json"
     manifest_written = False
+
+    def mark_manifest_written() -> None:
+        nonlocal manifest_written
+        manifest_written = True
 
     def capture(
         logical_name: str, endpoint: str, params: Mapping[str, object]
@@ -1024,8 +1082,14 @@ def collect_bundle(
         }
         manifest_payload = _json_bytes(manifest)
         _fsync_directory(raw_dir)
-        _write_bytes_atomic(manifest_path, manifest_payload)
-        manifest_written = True
+        _write_bytes_atomic(
+            manifest_path,
+            manifest_payload,
+            before_replace=lambda: _require_publication_window(
+                deadline, latest_safe_completion
+            ),
+            after_replace=mark_manifest_written,
+        )
         _write_status(
             status_path,
             {
@@ -1037,15 +1101,30 @@ def collect_bundle(
                 "sourceManifestSha256": hashlib.sha256(manifest_payload).hexdigest(),
                 "eligiblePopulationCount": len(eligible),
             },
+            before_replace=lambda: _require_publication_window(
+                deadline, latest_safe_completion
+            ),
         )
         return manifest_path
     except Exception as error:
+        cleanup_error: OSError | None = None
         if manifest_written:
             try:
-                manifest_path.unlink(missing_ok=True)
-                _fsync_directory(output)
-            except OSError:
+                _remove_manifest(manifest_path, output)
+            except OSError as removal_error:
+                cleanup_error = removal_error
+        if cleanup_error is not None:
+            try:
+                _write_status(
+                    status_path,
+                    _cleanup_failure_status(status_base, error, completed_paths),
+                )
+            except Exception:
                 pass
+            raise CollectionFailure(
+                "manifest_cleanup_failed",
+                "source-manifest cleanup failed; bundle state is indeterminate",
+            ) from cleanup_error
         try:
             _write_status(
                 status_path, _failure_status(status_base, error, completed_paths)

@@ -109,7 +109,7 @@ success_clock = [
     10800190, 10800200,
     10800210, 10800220,
     10800230, 10800240,
-    10800250, 10800260, 10800270,
+    10800250, 10800260, 10800270, 10800280, 10800290,
 ]
 
 def collect_at(output, responses, clock):
@@ -139,11 +139,11 @@ def record_fsync(path):
     original_fsync_directory(path)
     durable_directories.append(Path(path))
 
-def require_publication_barriers(path, value):
+def require_publication_barriers(path, value, **kwargs):
     if value.get("state") == "complete_unverified":
         assert durable_directories[-1] == path.parent
         assert path.parent / "raw" in durable_directories
-    original_write_status(path, value)
+    original_write_status(path, value, **kwargs)
 
 collector._fsync_directory = record_fsync
 collector._write_status = require_publication_barriers
@@ -351,13 +351,13 @@ assert invalid_status["completedArtifactPaths"][-1].endswith("BTCUSDT-klines.jso
 
 status_failure_output = root / "status-failure"
 collector.URL_OPENER = Opener(successful_responses())
-collector._epoch_ms = Clock(success_clock + [10800280])
+collector._epoch_ms = Clock(success_clock)
 original_write_status = collector._write_status
 
-def fail_completion_status(path, value):
+def fail_completion_status(path, value, **kwargs):
     if value.get("state") == "complete_unverified":
         raise OSError("injected completion-status failure")
-    original_write_status(path, value)
+    original_write_status(path, value, **kwargs)
 
 collector._write_status = fail_completion_status
 try:
@@ -381,6 +381,82 @@ status_failure = json.loads(
 assert status_failure["state"] == "partial_failure"
 assert status_failure["failureKind"] == "collector_internal_failure"
 
+cleanup_failure_output = root / "cleanup-failure"
+collector.URL_OPENER = Opener(successful_responses())
+collector._epoch_ms = Clock(success_clock)
+original_remove_manifest = collector._remove_manifest
+
+def fail_manifest_cleanup(_manifest_path, _output_dir):
+    raise OSError("injected manifest cleanup failure")
+
+collector._write_status = fail_completion_status
+collector._remove_manifest = fail_manifest_cleanup
+try:
+    collector.collect_bundle(
+        cleanup_failure_output,
+        quote="USDT",
+        interval="1h",
+        bar_open=7200000,
+        max_clock_skew_ms=0,
+        deadline_seconds=240,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "manifest_cleanup_failed"
+else:
+    raise AssertionError("failed manifest cleanup must be explicit")
+assert (cleanup_failure_output / "source-manifest.json").is_file()
+cleanup_status = json.loads(
+    (cleanup_failure_output / "collection-status.json").read_text()
+)
+assert cleanup_status["state"] == "cleanup_failure"
+assert cleanup_status["failureKind"] == "manifest_cleanup_failed"
+assert cleanup_status["originalFailureKind"] == "collector_internal_failure"
+assert cleanup_status["sourceManifestPublished"] is None
+assert cleanup_status["sourceManifestState"] == "indeterminate_after_cleanup_failure"
+assert cleanup_status["manifestCleanupRequired"] is True
+assert "injected" not in json.dumps(cleanup_status)
+collector._remove_manifest = original_remove_manifest
+
+deadline_output = root / "publication-deadline"
+collector.URL_OPENER = Opener(successful_responses())
+collector._epoch_ms = Clock(success_clock)
+collector._write_status = original_write_status
+original_publication_window = collector._require_publication_window
+publication_checks = 0
+
+def expire_final_publication(_deadline, _latest_safe_completion):
+    global publication_checks
+    publication_checks += 1
+    if publication_checks == 2:
+        raise collector.CollectionFailure(
+            "deadline_exceeded", "injected final publication deadline"
+        )
+
+collector._require_publication_window = expire_final_publication
+try:
+    collector.collect_bundle(
+        deadline_output,
+        quote="USDT",
+        interval="1h",
+        bar_open=7200000,
+        max_clock_skew_ms=0,
+        deadline_seconds=240,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "deadline_exceeded"
+else:
+    raise AssertionError("expired final publication must fail")
+assert publication_checks == 2
+assert not (deadline_output / "source-manifest.json").exists()
+deadline_status = json.loads(
+    (deadline_output / "collection-status.json").read_text()
+)
+assert deadline_status["state"] == "partial_failure"
+assert deadline_status["failureKind"] == "deadline_exceeded"
+collector._require_publication_window = original_publication_window
+
 abrupt_output = root / "abrupt-stop"
 collector.URL_OPENER = Opener(successful_responses())
 collector._epoch_ms = Clock(success_clock)
@@ -388,10 +464,10 @@ collector._epoch_ms = Clock(success_clock)
 class AbruptStop(BaseException):
     pass
 
-def interrupt_completion_status(path, value):
+def interrupt_completion_status(path, value, **kwargs):
     if value.get("state") == "complete_unverified":
         raise AbruptStop()
-    original_write_status(path, value)
+    original_write_status(path, value, **kwargs)
 
 collector._write_status = interrupt_completion_status
 try:
@@ -430,6 +506,10 @@ test("collector CLI requires committed provenance before any public request", as
   assert.match(source, /NoRedirectHandler/);
   assert.match(source, /_fsync_directory\(raw_dir\)/);
   assert.match(source, /_fsync_directory\(path\.parent\)/);
+  assert.equal(
+    source.match(/before_replace=lambda: _require_publication_window/g)?.length,
+    2,
+  );
   assert.match(source, /_provenance_tracked_clean/);
   assert.match(source, /The separate market_context_source\.py/);
   assert.doesNotMatch(source, /verify_and_derive\s*\(/);
@@ -463,6 +543,22 @@ else:
 assert collector._validate_inputs(
     "USDT", "8h", 1800489600000, 0, "a" * 40, 240
 )[0] == 28800000
+
+collector.time.monotonic = lambda: 10.0
+collector._epoch_ms = lambda: 20
+try:
+    collector._require_publication_window(10.0, 30)
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "deadline_exceeded"
+else:
+    raise AssertionError("expired monotonic deadline must block publication")
+collector.time.monotonic = lambda: 9.0
+try:
+    collector._require_publication_window(10.0, 20)
+except collector.CollectionFailure as error:
+    assert error.failure_kind == "deadline_exceeded"
+else:
+    raise AssertionError("expired causal window must block publication")
 `);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /provenance_invalid/);
