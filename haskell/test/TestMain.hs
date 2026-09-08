@@ -261,6 +261,15 @@ import Trader.PredictionMarkets (
  )
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel (..), fitConformal, initAdaptiveConformal, predictInterval, updateAdaptiveConformal)
+import Trader.Predictors.CrossExchangeFeaturesV2 (
+    CrossExchangeCloseV2 (..),
+    crossExchangeFeatureRowsV2,
+    crossExchangeInputsV2,
+    crossExchangeModelFeatureNamesV2,
+    crossExchangeModelFeatureSchemaIdV2,
+    crossExchangeModelFeatureSchemaVersionV2,
+    crossExchangeModelFeatureSignatureV2,
+ )
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.DerivativesFeaturesV2 (
     derivativesFeatureRowsV2,
@@ -301,8 +310,8 @@ import Trader.Predictors.ExternalPanelSchema (
     externalPanelSchemaIdV2,
     externalPanelSchemaVersionV2,
  )
-import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2AvailabilityTimesMs, frv2Available, frv2EventTimesMs, frv2Names, frv2SchemaId, frv2Values, mkFeatureRowV2)
-import Trader.Predictors.Features (ExternalFeatureInputs (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
+import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (..), TimedFeatureValue (..), featureAvailabilitySchemaIdV2, featureRowModelInputs, featureRowSchemaSignature, frv2AvailabilityTimesMs, frv2Available, frv2DecisionTimeMs, frv2EventTimesMs, frv2Names, frv2SchemaId, frv2Values, mkFeatureRowV2)
+import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureSpec (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
@@ -610,7 +619,7 @@ main = do
     testSignalGateEntryThresholdFeasibilityInvariant
     testMarketDataFreshnessAndContinuationInvariant
     testSignalGateEntryEdgeSpikeCapRegression
-        testSignalGateNonFiniteEvidenceFailsClosed
+    testSignalGateNonFiniteEvidenceFailsClosed
     testSignalGateNonFiniteConfigFailsClosed
     testSignalGateEntryEdgeSpikeAuditWarning
 
@@ -773,6 +782,7 @@ main = do
     testSignalGatesFailClosedExhaustive
     testPredictorLivenessDetectsDegenerateForecast
     testCrossExchangeCoinbaseInputs
+    testCrossExchangeFeatureAdapterV2
     testExternalDataFeatureInputs
     testExternalFeatureAdapterV2
     testExternalPanelSchemaV2
@@ -938,6 +948,183 @@ testCrossExchangeCoinbaseInputs = do
                 "basis feature reflects the ~+2% Coinbase premium"
                 (basisNow > 0.015 && basisNow < 0.025)
         _ -> assert "feature vectors should be computable at t" False
+
+testCrossExchangeFeatureAdapterV2 :: IO ()
+testCrossExchangeFeatureAdapterV2 = do
+    let intervalMs = 60000 :: Int64
+        openTimes = V.fromList [0, intervalMs, 2 * intervalMs, 3 * intervalMs]
+        decisionAt openTime = openTime + intervalMs + 100
+        decisionTimes = V.map decisionAt openTimes
+        closeAt openTime value =
+            CrossExchangeCloseV2
+                { cec2BarOpenTimeMs = openTime
+                , cec2EventTimeMs = openTime + intervalMs
+                , cec2AvailabilityTimeMs = openTime + intervalMs + 50
+                , cec2Close = value
+                }
+        binance = V.zipWith closeAt openTimes (V.fromList [100, 100, 100, 100])
+        coinbase =
+            V.fromList
+                [ Just (closeAt 0 100)
+                , Just (closeAt intervalMs 110)
+                , Nothing
+                , Just (closeAt (3 * intervalMs) 120)
+                ]
+        approximately left right = abs (left - right) < 1.0e-10
+        approximatelyList actual expected =
+            length actual == length expected
+                && and (zipWith approximately actual expected)
+    assert
+        "cross-exchange feature adapter has a distinct versioned schema and fixed legacy order"
+        ( crossExchangeModelFeatureSchemaIdV2 == "coinbase_cross_exchange_model_features_v2"
+            && crossExchangeModelFeatureSchemaVersionV2 == 2
+            && crossExchangeModelFeatureNamesV2
+                == [ "coinbase_binance_basis.level"
+                   , "coinbase_binance_basis.delta"
+                   , "coinbase_binance_basis.zscore"
+                   , "coinbase.return_1"
+                   , "coinbase_binance.return_spread_1"
+                   ]
+        )
+    case crossExchangeInputsV2 "BTCUSDT" "BTC-USD" openTimes decisionTimes intervalMs binance coinbase of
+        Nothing -> assert "valid exact-grid cross-exchange inputs should construct" False
+        Just inputs ->
+            case crossExchangeFeatureRowsV2 2 inputs of
+                Nothing -> assert "valid cross-exchange inputs should produce feature rows" False
+                Just featureRows@[first, second, third, fourth] -> do
+                    assert
+                        "cross-exchange signature binds identity, availability schema, names, and requirements"
+                        ( crossExchangeModelFeatureSignatureV2
+                            == crossExchangeModelFeatureSchemaIdV2
+                                ++ "|"
+                                ++ featureRowSchemaSignature second
+                            && frv2Names second == crossExchangeModelFeatureNamesV2
+                        )
+                    assert
+                        "an observed zero basis stays distinct from unavailable derived history"
+                        ( frv2Available first == [True, False, False, False, False]
+                            && frv2Values first == replicate 5 0
+                        )
+                    assert
+                        "complete current and prior evidence reproduces the five legacy formulas plus masks"
+                        ( frv2Available second == replicate 5 True
+                            && approximatelyList
+                                (frv2Values second)
+                                [0.1, 0.1, 0.7071067811158368, 0.1, 0.1]
+                            && drop 5 (featureRowModelInputs second) == replicate 5 1
+                        )
+                    assert
+                        "derived cross-exchange features retain the latest causal timestamps"
+                        ( frv2DecisionTimeMs second == decisionTimes V.! 1
+                            && frv2EventTimesMs second == replicate 5 (Just (2 * intervalMs))
+                            && frv2AvailabilityTimesMs second
+                                == replicate 5 (Just (2 * intervalMs + 50))
+                        )
+                    assert
+                        "a missing Coinbase bucket is unavailable and is never forward-filled"
+                        ( frv2Available third == replicate 5 False
+                            && frv2Values third == replicate 5 0
+                            && frv2Available fourth == [True, False, False, False, False]
+                        )
+                    let extendedOpenTimes = V.snoc openTimes (4 * intervalMs)
+                        extendedDecisionTimes = V.snoc decisionTimes (decisionAt (4 * intervalMs))
+                        extendedBinance = V.snoc binance (closeAt (4 * intervalMs) 101)
+                        extendedCoinbase = V.snoc coinbase (Just (closeAt (4 * intervalMs) 121))
+                    assert
+                        "changing an appended future cross-exchange bar cannot change an earlier feature prefix"
+                        ( case crossExchangeInputsV2 "BTCUSDT" "BTC-USD" extendedOpenTimes extendedDecisionTimes intervalMs extendedBinance extendedCoinbase of
+                            Nothing -> False
+                            Just extendedInputs ->
+                                case crossExchangeFeatureRowsV2 2 extendedInputs of
+                                    Just extendedRows -> take 4 extendedRows == featureRows
+                                    Nothing -> False
+                        )
+                Just _ -> assert "cross-exchange adapter output row count changed" False
+
+    let delayedCoinbase =
+            V.singleton
+                ( Just
+                    ( (closeAt 0 100)
+                        { cec2AvailabilityTimeMs = decisionAt 0 + 1
+                        }
+                    )
+                )
+        oneOpen = V.singleton 0
+        oneDecision = V.singleton (decisionAt 0)
+        oneBinance = V.singleton (closeAt 0 100)
+        wrongBar = V.singleton (Just (closeAt intervalMs 100))
+        nonFiniteCoinbase = V.singleton (Just ((closeAt 0 100){cec2Close = 0 / 0}))
+        incoherentCoinbase =
+            V.singleton
+                (Just ((closeAt 0 100){cec2AvailabilityTimeMs = intervalMs - 1}))
+        nonFiniteBinance = V.singleton ((closeAt 0 100){cec2Close = 0 / 0})
+        zeroBinance = V.singleton ((closeAt 0 100){cec2Close = 0})
+        wrongEventBinance = V.singleton ((closeAt 0 100){cec2EventTimeMs = 0})
+        optionalEvidenceUnavailable coinbaseEvidence =
+            case crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs oneBinance coinbaseEvidence of
+                Just optionalInputs ->
+                    case crossExchangeFeatureRowsV2 1 optionalInputs of
+                        Just [row] ->
+                            frv2Available row == replicate 5 False
+                                && frv2Values row == replicate 5 0
+                        _ -> False
+                Nothing -> False
+    assert
+        "future, non-finite, and incoherent optional evidence stays unavailable and neutral"
+        (all optionalEvidenceUnavailable [delayedCoinbase, nonFiniteCoinbase, incoherentCoinbase])
+    assert
+        "invalid scope, shape, grid, exact-bar identity, required value, interval, and z-score window fail closed"
+        ( and
+            [ isNothing (crossExchangeInputsV2 "btcusdt" "BTC-USD" oneOpen oneDecision intervalMs oneBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "ETH-USD" oneOpen oneDecision intervalMs oneBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" V.empty V.empty intervalMs V.empty V.empty)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen V.empty intervalMs oneBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen (V.singleton (intervalMs - 1)) intervalMs oneBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen (V.singleton (2 * intervalMs)) intervalMs oneBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision 0 oneBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" (V.fromList [0, 2 * intervalMs]) (V.fromList [decisionAt 0, decisionAt (2 * intervalMs)]) intervalMs (V.fromList [closeAt 0 100, closeAt (2 * intervalMs) 100]) (V.fromList [Nothing, Nothing]))
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs oneBinance V.empty)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs oneBinance wrongBar)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs nonFiniteBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs zeroBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs wrongEventBinance delayedCoinbase)
+            , isNothing (crossExchangeInputsV2 "BTCUSDT" "BTC-USD" (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) intervalMs (V.singleton (closeAt (maxBound :: Int64) 100)) (V.singleton Nothing))
+            , case crossExchangeInputsV2 "BTCUSDT" "BTC-USD" oneOpen oneDecision intervalMs oneBinance delayedCoinbase of
+                Just delayedInputs -> isNothing (crossExchangeFeatureRowsV2 0 delayedInputs)
+                Nothing -> False
+            ]
+        )
+
+    let sampleCount = 60
+        sampleOpenTimes = V.generate sampleCount (\index -> fromIntegral index * intervalMs)
+        sampleDecisionTimes = V.map decisionAt sampleOpenTimes
+        sampleBinanceValues = V.generate sampleCount (\index -> 100 + fromIntegral index * 0.5)
+        sampleCoinbaseValues =
+            V.imap
+                (\index value -> value * (1.01 + fromIntegral (index `mod` 5) * 0.001))
+                sampleBinanceValues
+        sampleBinance = V.zipWith closeAt sampleOpenTimes sampleBinanceValues
+        sampleCoinbase = V.map Just (V.zipWith closeAt sampleOpenTimes sampleCoinbaseValues)
+        featureSpec = mkFeatureSpec 10
+        featureIndex = 40
+        legacyInputs =
+            withCoinbaseInputs
+                (Just sampleCoinbaseValues)
+                (mkFeatureInputs sampleBinanceValues Nothing Nothing Nothing Nothing)
+    case ( crossExchangeInputsV2 "BTCUSDT" "BTC-USD" sampleOpenTimes sampleDecisionTimes intervalMs sampleBinance sampleCoinbase
+         , featuresAtWithInputsWithMarket featureSpec Nothing legacyInputs featureIndex
+         ) of
+        (Just sampleInputs, Just legacyFeatures) ->
+            case crossExchangeFeatureRowsV2 (fsShortBars featureSpec) sampleInputs of
+                Just sampleRows ->
+                    assert
+                        "complete v2 inputs are numerically equal to the legacy Coinbase feature block"
+                        ( approximatelyList
+                            (frv2Values (sampleRows !! featureIndex))
+                            (drop (length legacyFeatures - 5) legacyFeatures)
+                        )
+                Nothing -> assert "complete sample should build v2 cross-exchange rows" False
+        _ -> assert "complete sample should build both legacy and v2 cross-exchange features" False
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do

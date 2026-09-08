@@ -84,6 +84,30 @@ function parseCsvRow(source) {
   return fields;
 }
 
+test("cross-exchange feature adapter v2 remains isolated from production paths", async () => {
+  const adapter = await readFile(
+    new URL("../haskell/app/Trader/Predictors/CrossExchangeFeaturesV2.hs", import.meta.url),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Trader/Coinbase.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Main.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /CrossExchangeFeaturesV2|crossExchangeFeatureRowsV2|coinbase_cross_exchange_model_features_v2/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.doesNotMatch(adapter, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(adapter, /Source adapters must supply real event and availability witnesses/);
+  assert.match(adapter, /forbids implicit forward-fill/);
+});
+
 test("market-prediction registrations remain future-only disabled challengers", async () => {
   const registrations = await Promise.all(registrationUrls.map(readJson));
   assert.deepEqual(
