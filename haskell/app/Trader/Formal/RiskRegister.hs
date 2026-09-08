@@ -200,7 +200,7 @@ riskRegister =
         OPEN
         "Optional predictor features can encode unavailable evidence as the same numeric zero as an observed value"
         "trader-firm-research"
-        "Keep both v2 model adapters isolated; preserve source timestamps in a new verified external panel, define policies for OHLCV, market context, Coinbase, and direct sources, then version artifacts and production builders before promotion eligibility"
+        "Keep every v2 boundary isolated; build verified snapshot-complete timestamp-preserving OHLCV, external, Coinbase, and market-context artifacts plus remaining source policies and per-row market-factor construction, then version model artifacts and production builders before promotion eligibility"
     , riskEntry
         GITHUB_502_001
         MEDIUM
