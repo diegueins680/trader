@@ -1,0 +1,16 @@
+{
+  "liveAuthorizationUse": false,
+  "modelUse": false,
+  "orderUse": false,
+  "outcomeUse": false,
+  "panelRows": 3,
+  "panelSchemaId": "binance_usdm_market_context_panel_v2",
+  "panelSchemaVersion": 2,
+  "panelSha256": "e79995a422500a213a44055e637a1a380978890c165210a113719a3405dfc0da",
+  "schemaId": "binance_usdm_market_context_verification_receipt_v1",
+  "schemaVersion": 1,
+  "sourceManifestCodeCommit": "828e3cc123689165da1a15dfbbe27ec0c3be063b",
+  "sourceManifestSha256": "2439fe8a03915e4e3b66cac4b160fa71bcbb120992bd684cc45ecfa85ba6f3b9",
+  "verifierPath": "scripts/research/market_context_source.py",
+  "verifierSha256": "e36424eb1e40ee7bdc8e8e15ed90f28814157032e7b085f2b3829eba314bf4d5"
+}
