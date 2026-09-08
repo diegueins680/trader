@@ -284,6 +284,13 @@ import Trader.Predictors.DerivativesPanelSchema (
 import Trader.Predictors.Exogenous (afsV2AvailabilityTimesMs, afsV2Available, afsV2EventTimesMs, afsV2Values, alignTimedToBars, alignToBars, alignedFeatureSeries, alignedFeatureSeriesV2)
 import Trader.Predictors.ExogenousFetch (binanceStatsPeriodForInterval)
 import Trader.Predictors.ExternalFeatureSchema (externalFeatureFamilies)
+import Trader.Predictors.ExternalFeaturesV2 (
+    externalFeatureRowsV2,
+    externalModelFeatureNamesV2,
+    externalModelFeatureSchemaIdV2,
+    externalModelFeatureSchemaVersionV2,
+    externalModelFeatureSignatureV2,
+ )
 import Trader.Predictors.ExternalPanelSchema (
     ExternalPanelCellV2 (..),
     decodeExternalPanelV2,
@@ -757,6 +764,7 @@ main = do
     testPredictorLivenessDetectsDegenerateForecast
     testCrossExchangeCoinbaseInputs
     testExternalDataFeatureInputs
+    testExternalFeatureAdapterV2
     testExternalPanelSchemaV2
     testDerivativesPanelSchemaV2
     testDerivativesFeatureAdapterV2
@@ -1119,6 +1127,99 @@ testExternalDataFeatureInputs = do
             , not (externalSymbolMatches (Just "ETHUSDT") (Just "BTC"))
             ]
         )
+
+testExternalFeatureAdapterV2 :: IO ()
+testExternalFeatureAdapterV2 = do
+    let intervalMs = 60000 :: Int64
+        openTimes = V.fromList [0, intervalMs, 2 * intervalMs]
+        observations =
+            [ ExternalObservationV2 ExternalMicrostructure 0 0 1
+            , ExternalObservationV2 ExternalMicrostructure intervalMs 90000 3
+            , ExternalObservationV2 ExternalOptionsVol 0 0 0
+            , ExternalObservationV2 ExternalNews (2 * intervalMs) (2 * intervalMs) 0
+            ]
+        approximately left right = abs (left - right) < 1.0e-12
+        approximatelyList actual expected =
+            length actual == length expected
+                && and (zipWith approximately actual expected)
+        finite value = not (isNaN value || isInfinite value)
+    assert
+        "external feature adapter has a distinct versioned schema and fixed legacy-value order"
+        ( externalModelFeatureSchemaIdV2 == "external_family_model_features_v2"
+            && externalModelFeatureSchemaVersionV2 == 2
+            && length externalModelFeatureNamesV2 == 2 * length externalFeatureFamilies
+            && take 6 externalModelFeatureNamesV2
+                == [ "microstructure.level"
+                   , "microstructure.delta"
+                   , "options_vol.level"
+                   , "options_vol.delta"
+                   , "onchain.level"
+                   , "onchain.delta"
+                   ]
+        )
+    case alignedExternalFeatureInputsV2 openTimes intervalMs observations of
+        Nothing -> assert "external adapter observations should align first" False
+        Just inputs ->
+            case externalFeatureRowsV2 openTimes intervalMs inputs of
+                Nothing -> assert "valid aligned external rows should produce v2 feature rows" False
+                Just featureRows@[first, second, third] -> do
+                    assert
+                        "external adapter signature binds its identity, availability schema, names, and requirements"
+                        ( externalModelFeatureSignatureV2
+                            == externalModelFeatureSchemaIdV2
+                                ++ "|"
+                                ++ featureRowSchemaSignature second
+                            && frv2Names second == externalModelFeatureNamesV2
+                        )
+                    assert
+                        "external levels and deltas preserve legacy order while masks append only at model input"
+                        ( take 4 (frv2Available first) == [True, False, True, False]
+                            && take 4 (frv2Available second) == [True, True, True, True]
+                            && approximatelyList (take 4 (frv2Values second)) [3, 2, 0, 0]
+                            && length (featureRowModelInputs second) == 4 * length externalFeatureFamilies
+                            && take 4 (drop (length externalModelFeatureNamesV2) (featureRowModelInputs second))
+                                == [1, 1, 1, 1]
+                        )
+                    assert
+                        "external adapter retains the latest causal timestamps for levels and deltas"
+                        ( take 4 (frv2EventTimesMs second) == [Just intervalMs, Just intervalMs, Just 0, Just 0]
+                            && take 4 (frv2AvailabilityTimesMs second) == [Just 90000, Just 90000, Just 0, Just 0]
+                        )
+                    assert
+                        "an observed-zero news level remains distinct from its unavailable delta"
+                        ( take 2 (drop 10 (frv2Available third)) == [True, False]
+                            && take 2 (drop 10 (frv2Values third)) == [0, 0]
+                            && take 2 (drop 10 (frv2EventTimesMs third)) == [Just (2 * intervalMs), Nothing]
+                            && all (all finite . frv2Values) featureRows
+                        )
+                    let extendedOpenTimes = V.snoc openTimes (3 * intervalMs)
+                        futureObservation =
+                            ExternalObservationV2
+                                ExternalMicrostructure
+                                (3 * intervalMs)
+                                (3 * intervalMs)
+                                99
+                    assert
+                        "changing the future external suffix cannot change an existing feature prefix"
+                        ( case alignedExternalFeatureInputsV2 extendedOpenTimes intervalMs (observations ++ [futureObservation]) of
+                            Nothing -> False
+                            Just extendedInputs ->
+                                case externalFeatureRowsV2 extendedOpenTimes intervalMs extendedInputs of
+                                    Just extendedRows -> take 3 extendedRows == featureRows
+                                    Nothing -> False
+                        )
+                    let gappedOpenTimes = V.fromList [0, 2 * intervalMs, 3 * intervalMs]
+                        shiftedOpenTimes = V.map (+ intervalMs) openTimes
+                    assert
+                        "empty, invalid-interval, gapped, shifted, overflowing, and shape-mismatched external grids fail closed"
+                        ( isNothing (externalFeatureRowsV2 V.empty intervalMs inputs)
+                            && isNothing (externalFeatureRowsV2 openTimes 0 inputs)
+                            && isNothing (externalFeatureRowsV2 gappedOpenTimes intervalMs inputs)
+                            && isNothing (externalFeatureRowsV2 shiftedOpenTimes intervalMs inputs)
+                            && isNothing (externalFeatureRowsV2 (V.singleton (maxBound :: Int64)) intervalMs inputs)
+                            && isNothing (externalFeatureRowsV2 (V.snoc openTimes (3 * intervalMs)) intervalMs inputs)
+                        )
+                Just _ -> assert "external adapter output row count changed" False
 
 testExternalPanelSchemaV2 :: IO ()
 testExternalPanelSchemaV2 = do
