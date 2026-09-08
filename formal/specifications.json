@@ -125,9 +125,9 @@
     {
       "id": "H-EXTERNAL",
       "title": "External, exogenous, cross-sectional, and prediction-market evidence",
-      "features": ["external JSON/CSV features", "availability-aware external feature bundle v2", "external panel schema v2 decoder", "derivatives panel schema v2 decoder", "derivatives feature adapter v2", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
+      "features": ["external JSON/CSV features", "availability-aware external feature bundle v2", "external feature adapter v2", "external panel schema v2 decoder", "derivatives panel schema v2 decoder", "derivatives feature adapter v2", "point-in-time exogenous alignment", "exogenous fetch", "cross-sectional momentum", "prediction-market herd signal"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalPanelSchema.hs", "haskell/app/Trader/Predictors/DerivativesPanelSchema.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
+      "implementation": ["haskell/app/Trader/ExternalData.hs", "haskell/app/Trader/Predictors/Exogenous.hs", "haskell/app/Trader/Predictors/ExogenousFetch.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", "haskell/app/Trader/Predictors/ExternalPanelSchema.hs", "haskell/app/Trader/Predictors/DerivativesPanelSchema.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/CrossSectionalMomentum.hs", "haskell/app/Trader/PredictionMarkets.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-NO-LOOKAHEAD", "G-FAIL-CLOSED"],
       "dependsOn": ["H-MARKET-DATA"],
       "requires": [
@@ -135,32 +135,37 @@
         { "id": "H-EXTERNAL-R2", "statement": "Availability-aware observations preserve distinct event and availability timestamps with 0 <= eventTime <= availabilityTime <= decisionTime." },
         { "id": "H-EXTERNAL-R3", "statement": "An external_feature_panel_v2 decoder accepts only the exact ordered family/value/coverage schema and canonical single-scope decision-time rows; separate manifest verification must precede research admission." },
         { "id": "H-EXTERNAL-R4", "statement": "A binance_derivatives_first_seen_v2 bar decoder requires the complete canonical ordered v2 field groups, exact non-negative Int64 timestamp text in integer or zero-fraction decimal form, a canonical caller-supplied symbol, a positive representable interval, and strictly increasing non-overflowing bar times." },
-        { "id": "H-EXTERNAL-R5", "statement": "The derivatives feature adapter accepts only decoded rows on one exact canonical symbol and a contiguous interval grid; independent artifact verification must precede research admission." }
+        { "id": "H-EXTERNAL-R5", "statement": "The derivatives feature adapter accepts only decoded rows on one exact canonical symbol and a contiguous interval grid; independent artifact verification must precede research admission." },
+        { "id": "H-EXTERNAL-R6", "statement": "The external-family feature adapter requires the exact bar-open vector and interval retained by its aligned bundle, a positive non-overflowing contiguous grid, and exact aligned-series shapes; source and artifact provenance must be independently admissible before research use." }
       ],
       "ensures": [
         { "id": "H-EXTERNAL-E1", "statement": "Each bar receives only the latest admissible observation at or before its close; cross-sectional membership is selected from the contemporaneous universe." },
         { "id": "H-EXTERNAL-E2", "statement": "Availability-aware alignment preserves per-family value, observed mask, selected event time, and selected availability time; a revision cannot affect a bar that closed before the revision became available." },
         { "id": "H-EXTERNAL-E3", "statement": "The opt-in panel decoder retains every finite family value and fractional coverage cell, including the distinction between observed zero and unavailable zero." },
         { "id": "H-EXTERNAL-E4", "statement": "The opt-in derivatives decoder retains explicit observed, fresh, event-time, and availability-time witnesses; unavailable or stale cells are non-actionable and have zero dense value." },
-        { "id": "H-EXTERNAL-E5", "statement": "The opt-in derivatives feature adapter preserves the legacy five-value order and formulas, appends a parallel availability mask, and retains selected causal event/availability witnesses so observed zero remains distinct from unavailable zero." }
+        { "id": "H-EXTERNAL-E5", "statement": "The opt-in derivatives feature adapter preserves the legacy five-value order and formulas, appends a parallel availability mask, and retains selected causal event/availability witnesses so observed zero remains distinct from unavailable zero." },
+        { "id": "H-EXTERNAL-E6", "statement": "The opt-in external-family adapter preserves the legacy 19-family level/delta order, appends 38 availability masks, and retains selected causal event/availability witnesses without manufacturing timestamps." }
       ],
       "invariants": [
         { "id": "H-EXTERNAL-I1", "statement": "Adding a future observation cannot change any earlier aligned feature or decision." },
         { "id": "H-EXTERNAL-I2", "statement": "Legacy one-timestamp exogenous and external-family alignment is the compatibility projection of availability-aware alignment with eventTime equal to availabilityTime." },
         { "id": "H-EXTERNAL-I3", "statement": "The external panel decoder is not connected to legacy feature construction or production orchestration, so disabled v2 decoding cannot change an existing model input, prediction, or signal." },
         { "id": "H-EXTERNAL-I4", "statement": "The derivatives decoder derives freshness only from causal timestamp age under the collector's fixed family limits; only the explicit v2 adapter consumes it, and neither decoder nor adapter is imported by legacy feature, artifact, predictor, bot, or execution paths." },
-        { "id": "H-EXTERNAL-I5", "statement": "Changing or appending a future decoded derivatives row cannot change an already-produced feature prefix." }
+        { "id": "H-EXTERNAL-I5", "statement": "Changing or appending a future decoded derivatives row cannot change an already-produced feature prefix." },
+        { "id": "H-EXTERNAL-I6", "statement": "Changing or appending future external observations cannot alter an existing feature prefix; the external-family adapter remains absent from legacy feature, artifact, predictor, bot, and execution imports." }
       ],
       "failures": [
         { "id": "H-EXTERNAL-F1", "statement": "Missing/malformed optional evidence remains absent or neutral as documented and cannot synthesize confidence." },
         { "id": "H-EXTERNAL-F2", "statement": "Empty, reordered, malformed, non-finite, non-canonical, mixed-scope, duplicate-time, out-of-order, or coverage-incoherent v2 panels fail as a whole before feature construction." },
         { "id": "H-EXTERNAL-F3", "statement": "Partial, non-finite, non-binary, non-causal, future-available, freshness-incoherent, stale-nonzero, duplicate-header, unordered, or overflowed derivatives v2 evidence fails decoding before it can become a feature." },
-        { "id": "H-EXTERNAL-F4", "statement": "Empty, invalid-interval, malformed, gapped, or mixed-symbol decoded derivatives panels yield no feature rows; unusable optional cells yield finite neutral values with false availability masks." }
+        { "id": "H-EXTERNAL-F4", "statement": "Empty, invalid-interval, malformed, gapped, or mixed-symbol decoded derivatives panels yield no feature rows; unusable optional cells yield finite neutral values with false availability masks." },
+        { "id": "H-EXTERNAL-F5", "statement": "Empty, invalid-interval, gapped, overflowing, or shape-mismatched external-family grids yield no feature rows; unusable optional cells yield finite neutral values with false masks." }
       ],
       "evidence": [
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testAlignToBarsPointInTime" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testExternalFeatureAdapterV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalPanelSchemaV2" },
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testDerivativesPanelSchemaV2" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testDerivativesFeatureAdapterV2" },
@@ -170,9 +175,9 @@
     {
       "id": "H-FEATURES",
       "title": "Predictor feature schema and ensemble evidence",
-      "features": ["feature construction", "availability-aware feature schema v2", "derivatives feature adapter v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
+      "features": ["feature construction", "availability-aware feature schema v2", "external feature adapter v2", "derivatives feature adapter v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/SensorVariance.hs"],
+      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/SensorVariance.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-DETERMINISTIC"],
       "dependsOn": ["H-MARKET-DATA", "H-EXTERNAL"],
       "requires": [
@@ -193,6 +198,7 @@
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testExternalFeatureAdapterV2" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" }
       ]
     },

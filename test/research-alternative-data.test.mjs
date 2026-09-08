@@ -14,12 +14,34 @@ const HASKELL_EXTERNAL_DATA = fileURLToPath(
 const HASKELL_EXTERNAL_PANEL_V2 = fileURLToPath(
   new URL("../haskell/app/Trader/Predictors/ExternalPanelSchema.hs", import.meta.url),
 );
+const HASKELL_EXTERNAL_FEATURES_V2 = fileURLToPath(
+  new URL("../haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", import.meta.url),
+);
 
-test("external panel v2 decoder remains isolated from production inputs", () => {
+test("external panel v2 decoder and feature adapter remain isolated from production inputs", () => {
   const productionExternalData = readFileSync(HASKELL_EXTERNAL_DATA, "utf8");
   const panelDecoder = readFileSync(HASKELL_EXTERNAL_PANEL_V2, "utf8");
-  assert.doesNotMatch(productionExternalData, /ExternalPanelSchema|decodeExternalPanelV2/);
+  const featureAdapter = readFileSync(HASKELL_EXTERNAL_FEATURES_V2, "utf8");
+  const productionPaths = [
+    productionExternalData,
+    readFileSync(
+      new URL("../haskell/app/Trader/Predictors/Features.hs", import.meta.url),
+      "utf8",
+    ),
+    readFileSync(
+      new URL("../haskell/app/Trader/Predictors/ExogenousFetch.hs", import.meta.url),
+      "utf8",
+    ),
+    readFileSync(new URL("../haskell/app/Trader/Predictors.hs", import.meta.url), "utf8"),
+    readFileSync(new URL("../haskell/app/Main.hs", import.meta.url), "utf8"),
+  ];
+  const isolatedContract =
+    /ExternalPanelSchema|ExternalFeaturesV2|decodeExternalPanelV2|externalFeatureRowsV2|external_family_model_features_v2/;
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
   assert.doesNotMatch(panelDecoder, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.doesNotMatch(featureAdapter, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
   assert.match(panelDecoder, /externalPanelFeatureAvailabilitySchemaIdV2/);
 });
 

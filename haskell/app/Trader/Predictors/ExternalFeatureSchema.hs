@@ -6,6 +6,7 @@ module Trader.Predictors.ExternalFeatureSchema (
     externalFeatureColumnName,
     alignedExternalFeatureInputsV2,
     externalFeatureSeriesV2,
+    externalFeatureGridMatchesV2,
 ) where
 
 import Data.Int (Int64)
@@ -47,8 +48,10 @@ data ExternalObservationV2 = ExternalObservationV2
     }
     deriving (Eq, Show)
 
-newtype ExternalFeatureInputsV2 = ExternalFeatureInputsV2
-    { unExternalFeatureInputsV2 :: Map.Map ExternalFeature AlignedFeatureSeriesV2
+data ExternalFeatureInputsV2 = ExternalFeatureInputsV2
+    { efiV2OpenTimesMs :: !(V.Vector Int64)
+    , efiV2IntervalMs :: !Int64
+    , efiV2Series :: !(Map.Map ExternalFeature AlignedFeatureSeriesV2)
     }
     deriving (Eq, Show)
 
@@ -118,7 +121,13 @@ alignedExternalFeatureInputsV2 barOpenTimes intervalMs observations =
                 )
      in if Map.null aligned
             then Nothing
-            else Just (ExternalFeatureInputsV2 aligned)
+            else
+                Just
+                    ExternalFeatureInputsV2
+                        { efiV2OpenTimesMs = barOpenTimes
+                        , efiV2IntervalMs = intervalMs
+                        , efiV2Series = aligned
+                        }
   where
     insertObservation grouped observation
         | not (finite (eov2Value observation)) = grouped
@@ -143,7 +152,11 @@ alignedExternalFeatureInputsV2 barOpenTimes intervalMs observations =
     mergeBuckets (aSum, aCount) (bSum, bCount) = (aSum + bSum, aCount + bCount)
 
 externalFeatureSeriesV2 :: ExternalFeature -> ExternalFeatureInputsV2 -> Maybe AlignedFeatureSeriesV2
-externalFeatureSeriesV2 feature = Map.lookup feature . unExternalFeatureInputsV2
+externalFeatureSeriesV2 feature = Map.lookup feature . efiV2Series
+
+externalFeatureGridMatchesV2 :: V.Vector Int64 -> Int64 -> ExternalFeatureInputsV2 -> Bool
+externalFeatureGridMatchesV2 openTimes intervalMs inputs =
+    openTimes == efiV2OpenTimesMs inputs && intervalMs == efiV2IntervalMs inputs
 
 finite :: Double -> Bool
 finite value = not (isNaN value || isInfinite value)

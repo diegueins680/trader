@@ -72,6 +72,7 @@ executable trader-hs
                      , Trader.Predictors.Features
                      , Trader.Predictors.FeatureSchema
                      , Trader.Predictors.ExternalFeatureSchema
+                     , Trader.Predictors.ExternalFeaturesV2
                      , Trader.Predictors.ExternalPanelSchema
                      , Trader.Predictors.DerivativesPanelSchema
                      , Trader.Predictors.DerivativesFeaturesV2
@@ -333,6 +334,7 @@ test-suite trader-tests
                      , Trader.Predictors.Features
                      , Trader.Predictors.FeatureSchema
                      , Trader.Predictors.ExternalFeatureSchema
+                     , Trader.Predictors.ExternalFeaturesV2
                      , Trader.Predictors.ExternalPanelSchema
                      , Trader.Predictors.DerivativesPanelSchema
                      , Trader.Predictors.DerivativesFeaturesV2
@@ -453,6 +455,7 @@ benchmark trader-bench
                      , Trader.Predictors.Features
                      , Trader.Predictors.FeatureSchema
                      , Trader.Predictors.ExternalFeatureSchema
+                     , Trader.Predictors.ExternalFeaturesV2
                      , Trader.Predictors.ExternalPanelSchema
                      , Trader.Predictors.DerivativesPanelSchema
                      , Trader.Predictors.DerivativesFeaturesV2
