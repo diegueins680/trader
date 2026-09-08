@@ -619,7 +619,7 @@ main = do
     testSignalGateEntryThresholdFeasibilityInvariant
     testMarketDataFreshnessAndContinuationInvariant
     testSignalGateEntryEdgeSpikeCapRegression
-        testSignalGateNonFiniteEvidenceFailsClosed
+    testSignalGateNonFiniteEvidenceFailsClosed
     testSignalGateNonFiniteConfigFailsClosed
     testSignalGateEntryEdgeSpikeAuditWarning
 
