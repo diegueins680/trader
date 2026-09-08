@@ -2,8 +2,8 @@
 
 Date: 2026-09-08
 
-Disposition: research infrastructure only; offline verifier implemented,
-prospective public collector not implemented
+Disposition: research infrastructure only; offline verifier and prospective
+public collector implemented, no real acquisition run
 
 Risk status: `FEATURE-MISSINGNESS-001` remains **OPEN**
 
@@ -56,10 +56,10 @@ digest, avoiding circular provenance. Its `outcomeUse`, `modelUse`, `orderUse`, 
 `liveAuthorizationUse` fields are all `false`.
 
 A verified receipt proves only that these derived bytes follow from this frozen
-bundle under verifier v1. It does not admit data into an experiment, validate a
-future collector, open the registered holdout, promote or deploy a model, or
-authorize an order. A future collector must remain a separate component and
-must preserve complete raw responses for this verifier.
+bundle under verifier v1. It does not admit data into an experiment, validate
+the separate collector, open the registered holdout, promote or deploy a model,
+or authorize an order. The collector preserves complete raw responses for this
+verifier and labels its own success `complete_unverified`.
 
 ## Reproduction
 
@@ -86,8 +86,9 @@ panel and composes it with the canonical universe selector and factor adapter.
 
 ## Decision
 
-The independent offline verification boundary is complete. Real prospective
-acquisition is not. The development window begins 2027-01-21, the final holdout
-begins 2027-09-21, and neither was opened. No forecast, net return, cost,
-drawdown, tail-risk, DSR, PBO, or inference benchmark exists for a candidate.
-**Continue research; no candidate passed.**
+The independent offline verification boundary and separate bounded collector
+are complete. No real prospective acquisition ran. The collector enforces the
+2027-01-21 dataset start, the final holdout begins 2027-09-21, and neither was
+opened. No forecast, net return, cost, drawdown, tail-risk, DSR, PBO, or
+inference benchmark exists for a candidate. **Continue research; no candidate
+passed.**

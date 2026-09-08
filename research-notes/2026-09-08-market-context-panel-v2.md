@@ -2,8 +2,8 @@
 
 Date: 2026-09-08
 
-Disposition: research infrastructure only; decoder and offline raw-manifest
-verification complete, acquisition not implemented
+Disposition: research infrastructure only; decoder, offline raw-manifest
+verification, and prospective collector complete; no real acquisition run
 
 Risk status: `FEATURE-MISSINGNESS-001` remains **OPEN**
 
@@ -86,8 +86,10 @@ membership, counts, volumes, clocks, close-to-close returns, and panel bytes,
 and rejects partial evidence. Its separate verification receipt binds both the
 source-manifest and derived-panel hashes, avoiding a circular digest between a
 panel and the manifest digest it embeds. Merely replacing the declared digest
-cannot make altered rows admissible. A lawful prospective collector still does
-not exist, so no real bundle is currently admissible.
+cannot make altered rows admissible. A separate bounded public collector now
+exists, but its output is explicitly `complete_unverified`, it is locked to the
+registered 2027-01-21 through 2028-01-20 data window, and it has not been run
+against the exchange. No real bundle is currently admissible.
 
 ## Verification evidence
 
@@ -108,9 +110,9 @@ not exist, so no real bundle is currently admissible.
 
 ## Decision
 
-The typed derived-panel boundary and independent offline raw-manifest verifier
-are complete, but the lawful prospective collector does not yet exist.
-Historical data cannot be retrofitted with these unavailable facts. The
-registered development window still begins 2027-01-21 and the final holdout
-remains untouched. No forecast, return, cost, drawdown, DSR, PBO, or latency
-result was produced. **Continue research; no candidate passed.**
+The typed derived-panel boundary, independent offline raw-manifest verifier,
+and bounded public collector are complete. No real acquisition ran, and
+historical data cannot be retrofitted with these unavailable facts. The
+collector rejects bars before 2027-01-21; the registered final holdout remains
+untouched. No forecast, return, cost, drawdown, DSR, PBO, or latency result was
+produced. **Continue research; no candidate passed.**
