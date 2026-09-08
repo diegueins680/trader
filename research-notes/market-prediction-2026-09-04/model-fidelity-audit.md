@@ -70,6 +70,7 @@ Strong points:
 Material gaps:
 
 - `Features.hs` encodes many unavailable or non-finite optional external values as `0`. That is neutral for a hand-written multiplier only if zero is explicitly the neutral element, but in a fitted model it is indistinguishable from an observed economic zero unless a coverage/missingness field accompanies it.
+- The legacy Coinbase aligner forward-fills earlier venue closes without an age mask and replaces leading missing Coinbase bars with the Binance close. This is no-lookahead alignment, but it makes missing cross-venue evidence numerically identical to a zero basis. The isolated `coinbase_cross_exchange_model_features_v2` contract added on 2026-09-08 removes forward-fill, retains explicit timestamps/masks, and reproduces the legacy five formulas on complete inputs; the production source cannot use it because Coinbase candles do not carry a first-seen/publication witness.
 - Some predictor training paths drop malformed rows while returning a configured zero-weight model when training is empty. A numeric zero forecast must remain neutral and low confidence; it cannot be interpreted as observed bearish/bullish evidence.
 - `MarketContext` may use a current top-volume universe when point-in-time membership is not required. That fallback is useful operationally but unsuitable for a survivorship-controlled research claim.
 - Labels are predominantly one-step returns. The current public predictor contract does not independently version 1-, 3-, and 6-bar distributional targets.

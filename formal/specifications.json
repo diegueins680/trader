@@ -175,9 +175,9 @@
     {
       "id": "H-FEATURES",
       "title": "Predictor feature schema and ensemble evidence",
-      "features": ["feature construction", "availability-aware feature schema v2", "external feature adapter v2", "derivatives feature adapter v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
+      "features": ["feature construction", "availability-aware feature schema v2", "external feature adapter v2", "derivatives feature adapter v2", "cross-exchange feature adapter v2", "predictor result schema", "regime probabilities", "ensemble predictor routing", "sensor variance"],
       "criticality": "correctness",
-      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/SensorVariance.hs"],
+      "implementation": ["haskell/app/Trader/Predictors.hs", "haskell/app/Trader/Predictors/Types.hs", "haskell/app/Trader/Predictors/Features.hs", "haskell/app/Trader/Predictors/FeatureSchema.hs", "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs", "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs", "haskell/app/Trader/Predictors/CrossExchangeFeaturesV2.hs", "haskell/app/Trader/SensorVariance.hs"],
       "uses": ["G-FINITE", "G-CAUSAL", "G-DETERMINISTIC"],
       "dependsOn": ["H-MARKET-DATA", "H-EXTERNAL"],
       "requires": [
@@ -194,11 +194,12 @@
       ],
       "failures": [
         { "id": "H-FEATURES-F1", "statement": "Dimension, finiteness, or probability-mass failure marks predictor evidence unavailable." },
-        { "id": "H-FEATURES-F2", "statement": "Negative or incoherent timestamps, future availability, non-finite required values, empty or duplicate fields, and ambiguous field names fail closed before model input construction." }
+        { "id": "H-FEATURES-F2", "statement": "Negative or incoherent timestamps, future availability, non-finite required values, empty or duplicate fields, ambiguous field names, and structurally misaligned cross-exchange bars fail closed before model input construction." }
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testExternalDataFeatureInputs" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testExternalFeatureAdapterV2" },
+        { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testCrossExchangeFeatureAdapterV2" },
         { "level": "property", "path": "haskell/test/TestMain.hs", "contains": "testFeatureAvailabilitySchemaV2" }
       ]
     },
