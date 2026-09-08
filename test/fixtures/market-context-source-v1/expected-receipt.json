@@ -12,5 +12,5 @@
   "sourceManifestCodeCommit": "828e3cc123689165da1a15dfbbe27ec0c3be063b",
   "sourceManifestSha256": "2439fe8a03915e4e3b66cac4b160fa71bcbb120992bd684cc45ecfa85ba6f3b9",
   "verifierPath": "scripts/research/market_context_source.py",
-  "verifierSha256": "e36424eb1e40ee7bdc8e8e15ed90f28814157032e7b085f2b3829eba314bf4d5"
+  "verifierSha256": "70ac09f062fd992a5cdfe756f9170f534f343f0ec8f9f0774f1a71dbba59477e"
 }

@@ -184,6 +184,20 @@ test("market-context source verifier rejects strict-JSON and market-value failur
   result = runVerifier(join(wrongGrid, "source-manifest.json"));
   assert.equal(result.status, 1);
   assert.match(result.stderr, /peer kline grid changed/);
+
+  const wrongShape = await fixtureCopy();
+  const wrongShapeManifest = await readManifest(wrongShape);
+  const shapePath = join(wrongShape, "raw/BTCUSDT-klines.json");
+  const shapeKlines = JSON.parse(await readFile(shapePath, "utf8"));
+  shapeKlines[1].push("unexpected");
+  const shapeBytes = Buffer.from(`${JSON.stringify(shapeKlines)}\n`);
+  await writeFile(shapePath, shapeBytes);
+  wrongShapeManifest.artifacts.peerKlines[0].bytes = shapeBytes.length;
+  wrongShapeManifest.artifacts.peerKlines[0].sha256 = sha256(shapeBytes);
+  await writeManifest(wrongShape, wrongShapeManifest);
+  result = runVerifier(join(wrongShape, "source-manifest.json"));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /peer kline 1 is malformed/);
 });
 
 test("market-context source verifier cannot overwrite raw evidence or its source manifest", async () => {
