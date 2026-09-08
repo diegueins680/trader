@@ -364,6 +364,40 @@ status_failure = json.loads(
 )
 assert status_failure["state"] == "partial_failure"
 assert status_failure["failureKind"] == "collector_internal_failure"
+
+abrupt_output = root / "abrupt-stop"
+collector.URL_OPENER = Opener(successful_responses())
+collector._epoch_ms = Clock(success_clock)
+
+class AbruptStop(BaseException):
+    pass
+
+def interrupt_completion_status(path, value):
+    if value.get("state") == "complete_unverified":
+        raise AbruptStop()
+    original_write_status(path, value)
+
+collector._write_status = interrupt_completion_status
+try:
+    collector.collect_bundle(
+        abrupt_output,
+        quote="USDT",
+        interval="1h",
+        bar_open=7200000,
+        max_clock_skew_ms=0,
+        deadline_seconds=240,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except AbruptStop:
+    pass
+else:
+    raise AssertionError("abrupt completion stop must escape the exception handler")
+assert (abrupt_output / "source-manifest.json").is_file()
+abrupt_status = json.loads(
+    (abrupt_output / "collection-status.json").read_text()
+)
+assert abrupt_status["state"] == "collecting"
+assert abrupt_status["sourceManifestPublished"] is False
 `);
   assert.equal(result.status, 0, result.stderr);
 });

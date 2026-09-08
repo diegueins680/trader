@@ -81,12 +81,16 @@ configurable host.
 
 An existing or symlinked output path is never overwritten. Provenance and path
 preflight failures occur before a new output is created. After preflight, the
-collector creates a new directory and writes `source-manifest.json` last. A
-clock, deadline, transport, HTTP, redirect, response-size, content-type, JSON,
-rate-limit, eligibility, ticker, or kline failure leaves a sanitized
-`partial_failure` status and no source manifest. Any raw responses already
-accepted before that failure are preserved for diagnosis and cannot be admitted
-by the verifier without a complete source manifest.
+collector creates a new directory, writes `source-manifest.json` only after the
+complete response sequence, and marks status complete only after that atomic
+write. A clock, deadline, transport, HTTP, redirect, response-size,
+content-type, JSON, rate-limit, eligibility, ticker, or kline failure leaves a
+sanitized `partial_failure` status and no source manifest. A catchable final
+status-write failure removes the new manifest before recording partial failure;
+an abrupt stop in that narrow window can leave the manifest only alongside the
+earlier `collecting` / `sourceManifestPublished: false` status. Any raw
+responses already accepted before a failure are preserved for diagnosis and
+cannot be admitted without complete status and separate verification.
 
 ## Reproduction without network access
 
@@ -104,7 +108,9 @@ collections, pass one bundle through the independent verifier, inspect the
 exact public host/method/headers/query, and cover existing output, dirty
 provenance, pre-registration time, missing shared-IP weight, HTTP 429 circuit,
 IP redaction, and partial kline failure. The source-verifier regression also
-rejects any kline tuple that differs from the documented 12-field shape.
+rejects any kline tuple that differs from the documented 12-field shape. Final
+publication fault injection proves a catchable status failure removes the
+manifest and an abrupt stop never leaves status falsely claiming publication.
 
 The real CLI shape, for use only after the registered start, is:
 

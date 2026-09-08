@@ -884,6 +884,8 @@ def collect_bundle(
     completed_paths: list[str] = []
     active_limiter = limiter if limiter is not None else RATE_LIMITER
     previous_completion: int | None = None
+    manifest_path = output / "source-manifest.json"
+    manifest_written = False
 
     def capture(
         logical_name: str, endpoint: str, params: Mapping[str, object]
@@ -1009,7 +1011,8 @@ def collect_bundle(
             },
         }
         manifest_payload = _json_bytes(manifest)
-        manifest_path = output / "source-manifest.json"
+        _write_bytes_atomic(manifest_path, manifest_payload)
+        manifest_written = True
         _write_status(
             status_path,
             {
@@ -1022,9 +1025,13 @@ def collect_bundle(
                 "eligiblePopulationCount": len(eligible),
             },
         )
-        _write_bytes_atomic(manifest_path, manifest_payload)
         return manifest_path
     except Exception as error:
+        if manifest_written:
+            try:
+                manifest_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         try:
             _write_status(
                 status_path, _failure_status(status_base, error, completed_paths)
