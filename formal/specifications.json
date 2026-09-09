@@ -193,7 +193,7 @@
       "requires": [
         { "id": "H-FEATURES-R1", "statement": "A feature vector declares one stable ordered schema and is computed only from bars and attached observations available at its index." },
         { "id": "H-FEATURES-R2", "statement": "A feature_availability_v2 row has non-empty unique ordered field names, explicit required flags, finite dense values, parallel availability masks, and parallel event/availability witnesses bound by its schema signature." },
-        { "id": "H-FEATURES-R3", "statement": "A point-in-time market-context factor row has one exact-bar peer position per member of that row's causal liquidity selection, excludes the target before taking its declared peer count, and admits only completed returns first seen by the decision." }
+        { "id": "H-FEATURES-R3", "statement": "A point-in-time market-context factor has one exact-bar peer position per member of that row's causal liquidity selection, excludes the target before taking its declared peer count, admits only completed returns first seen by the decision, and retains its validated target, quote, selected peer identities, bar, interval, and row behind a private constructor." }
       ],
       "ensures": [
         { "id": "H-FEATURES-E1", "statement": "Feature dimension and ordering match the selected model; probability vectors are finite, non-negative, and normalized within tolerance." },
@@ -203,7 +203,7 @@
       "invariants": [
         { "id": "H-FEATURES-I1", "statement": "Prefix extension cannot alter an earlier feature row, and optional channels never shift the meaning of existing indices." },
         { "id": "H-FEATURES-I2", "statement": "The availability-aware schema is opt-in; legacy feature construction, ordering, dimensions, identifiers, saved configurations, and predictions remain unchanged." },
-        { "id": "H-FEATURES-I3", "statement": "Every market-context factor row uses that row's point-in-time membership and weights; appending or changing future selection or peer evidence cannot alter an earlier factor row, and the v2 adapter remains absent from production imports." }
+        { "id": "H-FEATURES-I3", "statement": "Every market-context factor row uses that row's point-in-time membership and weights; appending or changing future selection or peer evidence cannot alter an earlier factor row, a generic row cannot be relabeled as another factor scope, and the v2 adapter remains absent from production imports." }
       ],
       "failures": [
         { "id": "H-FEATURES-F1", "statement": "Dimension, finiteness, or probability-mass failure marks predictor evidence unavailable." },
@@ -796,12 +796,12 @@
       "requires": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-R1", "statement": "Every candidate freezes its semantic model version, feature and availability schema, target/horizon, universe, train/calibration/validation/holdout ranges, purge/embargo, baselines, complete trial budget, seeds, costs, tests, gates, and compute budget before outcome evaluation." },
         { "id": "A-MARKET-PREDICTION-RESEARCH-R2", "statement": "A persisted candidate artifact is admissible only when its versioned provenance binds source papers, code revision, data and source hashes, schema, target, universe, splits, hyperparameters, seed, runtime versions, metrics, cost model, creation time, promotion state, and compatibility version." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-R3", "statement": "A fitted market-context component consumes the complete ordered training grid, admits only exact-schema causal factor rows and horizon-specific labels available by the fit cutoff, and binds a purge covering the label horizon plus the declared embargo before validation." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-R3", "statement": "A fitted market-context component consumes the complete ordered training grid through abstract scope-bound factors, admits only exact-schema causal rows and horizon-specific labels available by the fit cutoff, and binds a purge covering the label horizon plus the declared embargo before validation." }
       ],
       "ensures": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-E1", "statement": "A missing, stale, invalid, non-finite, corrupted, incompatible, unsupported, unprovenanced, or timed-out candidate returns unavailable and cannot create an actionable signal." },
         { "id": "A-MARKET-PREDICTION-RESEARCH-E2", "statement": "Any validated winner enters only as a disabled challenger with independent metrics, rollback control, and no authority to change the champion, deployment, paper/live mode, or order authorization." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-E3", "statement": "The research-only market-context linear artifact counts unavailable factor rows without fitting their dense zeros, emits only a finite mean and positive residual variance for exact compatible post-training evidence, and otherwise returns unavailable." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-E3", "statement": "The research-only market-context linear artifact accepts no caller-supplied factor relabeling, counts unavailable factor rows without fitting their dense zeros, emits only a finite mean and positive residual variance for exact compatible post-training evidence, and otherwise returns unavailable." }
       ],
       "invariants": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-I1", "statement": "Legacy saved model identifiers retain their historical semantics; a materially different implementation requires a new explicit semantic identifier and compatibility tests." },

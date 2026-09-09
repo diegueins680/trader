@@ -342,6 +342,13 @@ import Trader.Predictors.MarketContextFeaturesV2 (
     marketContextFactorSchemaIdV2,
     marketContextFactorSchemaSignatureV2,
     marketContextFactorSchemaVersionV2,
+    marketContextFactorV2,
+    mcf2FeatureRow,
+    mcf2IntervalMs,
+    mcf2PeerSymbols,
+    mcf2Quote,
+    mcf2RequiredPeerCount,
+    mcf2TargetSymbol,
  )
 import Trader.Predictors.MarketContextLinearArtifactV1 (
     MarketContextLinearEstimateV1 (..),
@@ -8573,7 +8580,7 @@ testMarketContextLinearArtifactV1 = do
                 , mclfr1SplitManifestSha256 = digest 'd'
                 , mclfr1AcademicOrigins = ["https://doi.org/10.1111/jofi.13119"]
                 , mclfr1Symbol = "BTCUSDT"
-                , mclfr1UniverseScope = "USDT.top_liquidity.3"
+                , mclfr1Quote = "USDT"
                 , mclfr1RequiredPeerCount = 3
                 , mclfr1IntervalMs = intervalMs
                 , mclfr1HorizonBars = 1
@@ -8588,24 +8595,53 @@ testMarketContextLinearArtifactV1 = do
                 , mclfr1RuntimeVersions = ["ghc-9.4.8", "trader-test"]
                 , mclfr1CostModelId = "registered_cost_model_v1"
                 }
-        factorRow eventTime maybeValue =
+        factor targetSymbol quote peerCount factorInterval eventTime maybeValue =
             fromMaybe (error "market-context artifact factor fixture should construct") $
-                mkFeatureRowV2
-                    (eventTime + 100)
-                    [ FeatureField
-                        "market.return_1"
-                        OptionalFeature
-                        (fmap (TimedFeatureValue eventTime (eventTime + 20)) maybeValue)
+                pointInTimeUniverseSnapshotV2
+                    quote
+                    (eventTime - 100)
+                    (eventTime - 50)
+                    [ UniverseMemberV2 ("BTC" ++ quote) 1000 True
+                    , UniverseMemberV2 ("ETH" ++ quote) 900 True
+                    , UniverseMemberV2 ("SOL" ++ quote) 800 True
+                    , UniverseMemberV2 ("DOGE" ++ quote) 700 True
                     ]
+                    >>= \snapshot ->
+                        pointInTimeUniverseSelectionV2
+                            quote
+                            4
+                            factorInterval
+                            (eventTime + 100)
+                            [snapshot]
+                            >>= \selection ->
+                                marketContextFactorV2
+                                    targetSymbol
+                                    peerCount
+                                    (eventTime - factorInterval)
+                                    factorInterval
+                                    selection
+                                    ( V.fromList
+                                        [ peerReturn ("BTC" ++ quote)
+                                        , peerReturn ("ETH" ++ quote)
+                                        , peerReturn ("SOL" ++ quote)
+                                        , peerReturn ("DOGE" ++ quote)
+                                        ]
+                                    )
+          where
+            peerReturn symbol =
+                fmap
+                    ( MarketContextPeerReturnV2
+                        symbol
+                        (eventTime - factorInterval)
+                        eventTime
+                        (eventTime + 20)
+                    )
+                    maybeValue
+        factorRow = factor "BTCUSDT" "USDT" 3 intervalMs
         trainingRow eventTime maybeValue targetReturn =
             fromMaybe (error "market-context artifact training fixture should construct") $
                 mkMarketContextTrainingObservationV1
-                    "BTCUSDT"
-                    "USDT.top_liquidity.3"
-                    3
-                    intervalMs
                     (factorRow eventTime maybeValue)
-                    eventTime
                     (eventTime + intervalMs)
                     (eventTime + intervalMs + 50)
                     targetReturn
@@ -8618,23 +8654,33 @@ testMarketContextLinearArtifactV1 = do
         lateTrainingRow =
             fromMaybe (error "late market-context target fixture should construct") $
                 mkMarketContextTrainingObservationV1
-                    "BTCUSDT"
-                    "USDT.top_liquidity.3"
-                    3
-                    intervalMs
                     (factorRow 4000 (Just 0.04))
-                    4000
                     5000
                     5600
                     0.081
         close expected actual = abs (expected - actual) <= 1.0e-12
         fitted = fitMarketContextLinearArtifactV1 request rows
+        validationFactor = factorRow 7000 (Just 0.05)
+        unavailableValidationFactor = factorRow 7000 Nothing
+        wrongTargetFactor = factor "ETHUSDT" "USDT" 3 intervalMs 7000 (Just 0.05)
+        wrongQuoteFactor = factor "BTCUSD" "USD" 3 intervalMs 7000 (Just 0.05)
+        wrongPeerCountFactor = factor "BTCUSDT" "USDT" 2 intervalMs 7000 (Just 0.05)
+        wrongIntervalFactor = factor "BTCUSDT" "USDT" 3 500 7000 (Just 0.05)
     assert
         "market-context linear artifact has a distinct immutable semantic identity"
         ( marketContextLinearArtifactSchemaIdV1 == "point_in_time_market_context_linear_artifact_v1"
             && marketContextLinearArtifactSchemaVersionV1 == 1
             && marketContextLinearCompatibilityVersionV1 == 1
             && marketContextLinearSemanticModelIdV1 == "point_in_time_market_context_linear_ols_v1"
+        )
+    assert
+        "market-context factors retain their validated scope instead of accepting caller relabeling"
+        ( mcf2TargetSymbol validationFactor == "BTCUSDT"
+            && mcf2Quote validationFactor == "USDT"
+            && mcf2RequiredPeerCount validationFactor == 3
+            && mcf2PeerSymbols validationFactor == ["ETHUSDT", "SOLUSDT", "DOGEUSDT"]
+            && mcf2IntervalMs validationFactor == intervalMs
+            && frv2Values (mcf2FeatureRow validationFactor) == [0.05]
         )
     case fitted of
         Left reason -> assert ("valid market-context artifact fit failed: " ++ reason) False
@@ -8650,8 +8696,6 @@ testMarketContextLinearArtifactV1 = do
                 )
             let encoded = encodeMarketContextLinearArtifactV1 artifact
                 decoded = decodeMarketContextLinearArtifactV1 encoded
-                validationRow = factorRow 7000 (Just 0.05)
-                unavailableValidationRow = factorRow 7000 Nothing
             assert
                 "market-context component artifact round-trips with a canonical payload digest"
                 ( decoded == Right artifact
@@ -8660,22 +8704,22 @@ testMarketContextLinearArtifactV1 = do
                 )
             assert
                 "compatible post-training evidence produces only a finite distribution summary"
-                ( case predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.top_liquidity.3" 3 intervalMs 1 validationRow of
+                ( case predictMarketContextLinearV1 artifact validationFactor of
                     Just estimate ->
                         close 0.101 (mcle1ExpectedForwardReturn estimate)
                             && close 1.0e-8 (mcle1ResidualVariance estimate)
                     Nothing -> False
                 )
             assert
-                "unavailable, wrong-scope, wrong-horizon, and pre-validation inference abstain"
+                "unavailable, wrong-scope, wrong-grid, extreme, and pre-validation inference abstain"
                 ( and
-                    [ isNothing (predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.top_liquidity.3" 3 intervalMs 1 unavailableValidationRow)
-                    , isNothing (predictMarketContextLinearV1 artifact "ETHUSDT" "USDT.top_liquidity.3" 3 intervalMs 1 validationRow)
-                    , isNothing (predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.other" 3 intervalMs 1 validationRow)
-                    , isNothing (predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.top_liquidity.3" 2 intervalMs 1 validationRow)
-                    , isNothing (predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.top_liquidity.3" 3 intervalMs 3 validationRow)
-                    , isNothing (predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.top_liquidity.3" 3 intervalMs 1 (factorRow 6000 (Just 0.05)))
-                    , isNothing (predictMarketContextLinearV1 artifact "BTCUSDT" "USDT.top_liquidity.3" 3 intervalMs 1 (factorRow 7000 (Just (-0.75))))
+                    [ isNothing (predictMarketContextLinearV1 artifact unavailableValidationFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongTargetFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongQuoteFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongPeerCountFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongIntervalFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact (factorRow 6000 (Just 0.05)))
+                    , isNothing (predictMarketContextLinearV1 artifact (factorRow 7000 (Just (-0.75))))
                     ]
                 )
             case Aeson.decode encoded :: Maybe Aeson.Value of
@@ -8697,6 +8741,8 @@ testMarketContextLinearArtifactV1 = do
             [ isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows))
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1PurgeBars = 0} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Symbol = "ETHUSDT"} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Quote = "USD"} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1RequiredPeerCount = 2} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1AcademicOrigins = ["uncited"]} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows ++ [lateTrainingRow]))
             , isLeft
@@ -8714,24 +8760,14 @@ testMarketContextLinearArtifactV1 = do
         "non-finite and impossible target labels cannot enter a training observation"
         ( isNothing
             ( mkMarketContextTrainingObservationV1
-                "BTCUSDT"
-                "USDT.top_liquidity.3"
-                3
-                intervalMs
                 (factorRow 1000 (Just 0.01))
-                1000
                 2000
                 2050
                 (0 / 0)
             )
             && isNothing
                 ( mkMarketContextTrainingObservationV1
-                    "BTCUSDT"
-                    "USDT.top_liquidity.3"
-                    3
-                    intervalMs
                     (factorRow 1000 (Just 0.01))
-                    1000
                     2000
                     2050
                     (-1)

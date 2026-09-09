@@ -192,6 +192,12 @@ test("point-in-time market-context factor v2 remains isolated from production pa
     assert.doesNotMatch(productionPath, isolatedContract);
   }
   assert.doesNotMatch(adapter, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(adapter, /MarketContextFactorV2,/);
+  assert.doesNotMatch(adapter, /MarketContextFactorV2 \(\.\.\)/);
+  assert.doesNotMatch(adapter, /\{ mcf2TargetSymbol\s*::/);
+  assert.match(adapter, /mcf2TargetSymbol\s*::\s*MarketContextFactorV2\s*->\s*String/);
+  assert.match(adapter, /constructor is intentionally private/);
+  assert.match(adapter, /marketContextFactorV2[\s\S]*PointInTimeUniverseSelectionV2/);
   assert.match(adapter, /A caller that may select the target must request at least one/);
   assert.match(adapter, /no terminal membership or weight vector is\s+back-applied/);
 });
@@ -227,6 +233,11 @@ test("market-context linear artifact v1 is fail-closed and production-isolated",
     1,
   );
   assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.doesNotMatch(boundary, /mclfr1UniverseScope|mcto1UniverseScope/);
+  assert.match(
+    boundary,
+    /predictMarketContextLinearV1\s*::\s*MarketContextLinearArtifactV1\s*->\s*MarketContextFactorV2/,
+  );
   assert.match(boundary, /complete chronological fold/);
   assert.match(boundary, /Unavailable factor rows remain in the row count/);
   assert.match(boundary, /payload digest mismatch/);

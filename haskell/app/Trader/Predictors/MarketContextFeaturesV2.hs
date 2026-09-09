@@ -1,9 +1,19 @@
 module Trader.Predictors.MarketContextFeaturesV2 (
     MarketContextPeerReturnV2 (..),
+    MarketContextFactorV2,
+    mcf2TargetSymbol,
+    mcf2Quote,
+    mcf2RequiredPeerCount,
+    mcf2PeerSymbols,
+    mcf2BarOpenTimeMs,
+    mcf2EventTimeMs,
+    mcf2IntervalMs,
+    mcf2FeatureRow,
     marketContextFactorSchemaIdV2,
     marketContextFactorSchemaVersionV2,
     marketContextFactorFeatureNamesV2,
     marketContextFactorSchemaSignatureV2,
+    marketContextFactorV2,
     marketContextFactorRowV2,
     marketContextFactorRowsV2,
 ) where
@@ -40,6 +50,46 @@ data MarketContextPeerReturnV2 = MarketContextPeerReturnV2
     , mcpr2SimpleReturn :: !Double
     }
     deriving (Eq, Show)
+
+{- | A factor row plus the immutable market scope used to construct it.
+The constructor is intentionally private so callers cannot relabel a
+generic feature row as another target, quote universe, peer basket, or grid.
+-}
+data MarketContextFactorV2 = MarketContextFactorV2
+    { marketContextFactorTargetSymbolV2 :: !String
+    , marketContextFactorQuoteV2 :: !String
+    , marketContextFactorRequiredPeerCountV2 :: !Int
+    , marketContextFactorPeerSymbolsV2 :: ![String]
+    , marketContextFactorBarOpenTimeMsV2 :: !Int64
+    , marketContextFactorEventTimeMsV2 :: !Int64
+    , marketContextFactorIntervalMsV2 :: !Int64
+    , marketContextFactorFeatureRowV2 :: !FeatureRowV2
+    }
+    deriving (Eq, Show)
+
+mcf2TargetSymbol :: MarketContextFactorV2 -> String
+mcf2TargetSymbol = marketContextFactorTargetSymbolV2
+
+mcf2Quote :: MarketContextFactorV2 -> String
+mcf2Quote = marketContextFactorQuoteV2
+
+mcf2RequiredPeerCount :: MarketContextFactorV2 -> Int
+mcf2RequiredPeerCount = marketContextFactorRequiredPeerCountV2
+
+mcf2PeerSymbols :: MarketContextFactorV2 -> [String]
+mcf2PeerSymbols = marketContextFactorPeerSymbolsV2
+
+mcf2BarOpenTimeMs :: MarketContextFactorV2 -> Int64
+mcf2BarOpenTimeMs = marketContextFactorBarOpenTimeMsV2
+
+mcf2EventTimeMs :: MarketContextFactorV2 -> Int64
+mcf2EventTimeMs = marketContextFactorEventTimeMsV2
+
+mcf2IntervalMs :: MarketContextFactorV2 -> Int64
+mcf2IntervalMs = marketContextFactorIntervalMsV2
+
+mcf2FeatureRow :: MarketContextFactorV2 -> FeatureRowV2
+mcf2FeatureRow = marketContextFactorFeatureRowV2
 
 marketContextFactorSchemaIdV2 :: String
 marketContextFactorSchemaIdV2 = "point_in_time_market_context_factor_v2"
@@ -78,7 +128,22 @@ marketContextFactorRowV2 ::
     PointInTimeUniverseSelectionV2 ->
     V.Vector (Maybe MarketContextPeerReturnV2) ->
     Maybe FeatureRowV2
-marketContextFactorRowV2 targetSymbol requiredPeerCount barOpenTime intervalMs selection peers = do
+marketContextFactorRowV2 targetSymbol requiredPeerCount barOpenTime intervalMs selection peers =
+    mcf2FeatureRow
+        <$> marketContextFactorV2 targetSymbol requiredPeerCount barOpenTime intervalMs selection peers
+
+{- | Construct a factor whose target, quote universe, selected peer identities,
+and timing grid cannot be changed independently from its validated row.
+-}
+marketContextFactorV2 ::
+    String ->
+    Int ->
+    Int64 ->
+    Int64 ->
+    PointInTimeUniverseSelectionV2 ->
+    V.Vector (Maybe MarketContextPeerReturnV2) ->
+    Maybe MarketContextFactorV2
+marketContextFactorV2 targetSymbol requiredPeerCount barOpenTime intervalMs selection peers = do
     guard (validSymbolForQuote (pitSelectionQuoteV2 selection) targetSymbol)
     guard (requiredPeerCount > 0)
     eventBoundary <- barEndTime intervalMs barOpenTime
@@ -90,9 +155,21 @@ marketContextFactorRowV2 targetSymbol requiredPeerCount barOpenTime intervalMs s
     let chosen = take requiredPeerCount (filter ((/= targetSymbol) . um2Symbol . fst) (zip members (V.toList peers)))
     guard (length chosen == requiredPeerCount)
     let observation = factorObservation eventBoundary decisionTime selection chosen
-    mkFeatureRowV2
-        decisionTime
-        [FeatureField "market.return_1" OptionalFeature observation]
+    featureRow <-
+        mkFeatureRowV2
+            decisionTime
+            [FeatureField "market.return_1" OptionalFeature observation]
+    pure
+        MarketContextFactorV2
+            { marketContextFactorTargetSymbolV2 = targetSymbol
+            , marketContextFactorQuoteV2 = pitSelectionQuoteV2 selection
+            , marketContextFactorRequiredPeerCountV2 = requiredPeerCount
+            , marketContextFactorPeerSymbolsV2 = map (um2Symbol . fst) chosen
+            , marketContextFactorBarOpenTimeMsV2 = barOpenTime
+            , marketContextFactorEventTimeMsV2 = eventBoundary
+            , marketContextFactorIntervalMsV2 = intervalMs
+            , marketContextFactorFeatureRowV2 = featureRow
+            }
 
 {- | Construct an exact contiguous series. Each row has its own universe
 decision and peer witnesses; no terminal membership or weight vector is

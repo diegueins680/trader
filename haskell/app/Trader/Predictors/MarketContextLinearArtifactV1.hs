@@ -36,6 +36,10 @@ import Data.Char (isAlphaNum, isAscii, isControl, isDigit, isUpper)
 import Data.Int (Int64)
 import Data.List (foldl', isPrefixOf, nub, sort)
 
+import Trader.PointInTimeUniverseV2 (
+    pointInTimeUniverseSchemaIdV2,
+    pointInTimeUniverseSchemaVersionV2,
+ )
 import Trader.Predictors.FeatureSchema (
     FeatureRowV2,
     featureAvailabilitySchemaIdV2,
@@ -49,9 +53,17 @@ import Trader.Predictors.FeatureSchema (
     frv2Values,
  )
 import Trader.Predictors.MarketContextFeaturesV2 (
+    MarketContextFactorV2,
     marketContextFactorFeatureNamesV2,
     marketContextFactorSchemaSignatureV2,
     marketContextFactorSchemaVersionV2,
+    mcf2EventTimeMs,
+    mcf2FeatureRow,
+    mcf2IntervalMs,
+    mcf2PeerSymbols,
+    mcf2Quote,
+    mcf2RequiredPeerCount,
+    mcf2TargetSymbol,
  )
 
 -- | Immutable inputs that bind one fold-local fit to its research evidence.
@@ -63,7 +75,7 @@ data MarketContextLinearFitRequestV1 = MarketContextLinearFitRequestV1
     , mclfr1SplitManifestSha256 :: !String
     , mclfr1AcademicOrigins :: ![String]
     , mclfr1Symbol :: !String
-    , mclfr1UniverseScope :: !String
+    , mclfr1Quote :: !String
     , mclfr1RequiredPeerCount :: !Int
     , mclfr1IntervalMs :: !Int64
     , mclfr1HorizonBars :: !Int
@@ -82,12 +94,7 @@ data MarketContextLinearFitRequestV1 = MarketContextLinearFitRequestV1
 
 -- | One grid row. The explicit event time survives an unavailable factor cell.
 data MarketContextTrainingObservationV1 = MarketContextTrainingObservationV1
-    { mcto1Symbol :: !String
-    , mcto1UniverseScope :: !String
-    , mcto1RequiredPeerCount :: !Int
-    , mcto1IntervalMs :: !Int64
-    , mcto1FeatureRow :: !FeatureRowV2
-    , mcto1DecisionEventTimeMs :: !Int64
+    { mcto1Factor :: !MarketContextFactorV2
     , mcto1TargetEventTimeMs :: !Int64
     , mcto1TargetAvailabilityTimeMs :: !Int64
     , mcto1ForwardReturn :: !Double
@@ -147,33 +154,19 @@ marketContextLinearFinalHoldoutStateV1 = "untouched"
 
 -- | Construct a label-bearing row without interpreting an unavailable factor.
 mkMarketContextTrainingObservationV1 ::
-    String ->
-    String ->
-    Int ->
-    Int64 ->
-    FeatureRowV2 ->
-    Int64 ->
+    MarketContextFactorV2 ->
     Int64 ->
     Int64 ->
     Double ->
     Maybe MarketContextTrainingObservationV1
-mkMarketContextTrainingObservationV1 symbol universeScope requiredPeerCount intervalMs featureRow decisionEventTime targetEventTime targetAvailabilityTime forwardReturn = do
-    guard (validSymbol symbol)
-    guard (validLabel universeScope)
-    guard (requiredPeerCount > 0)
-    guard (validFactorRowForEvent intervalMs decisionEventTime featureRow)
-    guard (decisionEventTime >= 0)
+mkMarketContextTrainingObservationV1 factor targetEventTime targetAvailabilityTime forwardReturn = do
+    let decisionEventTime = mcf2EventTimeMs factor
     guard (targetEventTime > decisionEventTime)
     guard (targetAvailabilityTime >= targetEventTime)
     guard (forwardReturn > -1 && finite forwardReturn)
     pure
         MarketContextTrainingObservationV1
-            { mcto1Symbol = symbol
-            , mcto1UniverseScope = universeScope
-            , mcto1RequiredPeerCount = requiredPeerCount
-            , mcto1IntervalMs = intervalMs
-            , mcto1FeatureRow = featureRow
-            , mcto1DecisionEventTimeMs = decisionEventTime
+            { mcto1Factor = factor
             , mcto1TargetEventTimeMs = targetEventTime
             , mcto1TargetAvailabilityTimeMs = targetAvailabilityTime
             , mcto1ForwardReturn = forwardReturn
@@ -216,22 +209,12 @@ Missing, incompatible, pre-validation, or non-finite evidence yields 'Nothing'.
 -}
 predictMarketContextLinearV1 ::
     MarketContextLinearArtifactV1 ->
-    String ->
-    String ->
-    Int ->
-    Int64 ->
-    Int ->
-    FeatureRowV2 ->
+    MarketContextFactorV2 ->
     Maybe MarketContextLinearEstimateV1
-predictMarketContextLinearV1 artifact symbol universeScope requiredPeerCount intervalMs horizonBars row = do
+predictMarketContextLinearV1 artifact factor = do
     either (const Nothing) Just (validateArtifact artifact)
     let request = mcla1Request artifact
-    guard (symbol == mclfr1Symbol request)
-    guard (universeScope == mclfr1UniverseScope request)
-    guard (requiredPeerCount == mclfr1RequiredPeerCount request)
-    guard (intervalMs == mclfr1IntervalMs request)
-    guard (horizonBars == mclfr1HorizonBars request)
-    factorValue <- observedInferenceFactor request row
+    factorValue <- observedInferenceFactor request factor
     let expected = mcla1Intercept artifact + mcla1Beta artifact * factorValue
         residualVariance = mcla1ResidualVariance artifact
     guard (expected > -1 && finite expected && finite residualVariance && residualVariance > 0)
@@ -276,6 +259,8 @@ parsePayload digest = withObject "MarketContextLinearArtifactPayloadV1" $ \obj -
         , "featureSchemaId"
         , "featureSchemaVersion"
         , "featureSchemaSignature"
+        , "universeSchemaId"
+        , "universeSchemaVersion"
         , "targetId"
         , "fitMethod"
         , "randomSeedContract"
@@ -290,6 +275,8 @@ parsePayload digest = withObject "MarketContextLinearArtifactPayloadV1" $ \obj -
     featureSchemaId <- obj .: "featureSchemaId"
     featureSchemaVersion <- obj .: "featureSchemaVersion"
     featureSchemaSignature <- obj .: "featureSchemaSignature"
+    universeSchemaId <- obj .: "universeSchemaId"
+    universeSchemaVersion <- obj .: "universeSchemaVersion"
     targetId <- obj .: "targetId"
     fitMethod <- obj .: "fitMethod"
     randomSeedContract <- obj .: "randomSeedContract"
@@ -299,6 +286,8 @@ parsePayload digest = withObject "MarketContextLinearArtifactPayloadV1" $ \obj -
     unless (featureSchemaId == featureAvailabilitySchemaIdV2) (fail "unsupported market-context featureSchemaId")
     unless (featureSchemaVersion == marketContextFactorSchemaVersionV2) (fail "unsupported market-context featureSchemaVersion")
     unless (featureSchemaSignature == marketContextFactorSchemaSignatureV2) (fail "unsupported market-context featureSchemaSignature")
+    unless (universeSchemaId == pointInTimeUniverseSchemaIdV2) (fail "unsupported market-context universeSchemaId")
+    unless (universeSchemaVersion == pointInTimeUniverseSchemaVersionV2) (fail "unsupported market-context universeSchemaVersion")
     unless (targetId == marketContextLinearTargetIdV1) (fail "unsupported market-context targetId")
     unless (fitMethod == marketContextLinearFitMethodV1) (fail "unsupported market-context fitMethod")
     unless (randomSeedContract == marketContextLinearRandomSeedContractV1) (fail "unsupported market-context randomSeedContract")
@@ -332,7 +321,7 @@ parseRequest = withObject "MarketContextLinearFitRequestV1" $ \obj -> do
             <*> obj .: "splitManifestSha256"
             <*> obj .: "academicOrigins"
             <*> obj .: "symbol"
-            <*> obj .: "universeScope"
+            <*> obj .: "quote"
             <*> obj .: "requiredPeerCount"
             <*> obj .: "intervalMs"
             <*> obj .: "horizonBars"
@@ -412,6 +401,8 @@ payloadValue artifact =
         , "featureSchemaId" .= featureAvailabilitySchemaIdV2
         , "featureSchemaVersion" .= marketContextFactorSchemaVersionV2
         , "featureSchemaSignature" .= marketContextFactorSchemaSignatureV2
+        , "universeSchemaId" .= pointInTimeUniverseSchemaIdV2
+        , "universeSchemaVersion" .= pointInTimeUniverseSchemaVersionV2
         , "targetId" .= marketContextLinearTargetIdV1
         , "fitMethod" .= marketContextLinearFitMethodV1
         , "randomSeedContract" .= marketContextLinearRandomSeedContractV1
@@ -451,7 +442,7 @@ requestValue request =
         , "splitManifestSha256" .= mclfr1SplitManifestSha256 request
         , "academicOrigins" .= mclfr1AcademicOrigins request
         , "symbol" .= mclfr1Symbol request
-        , "universeScope" .= mclfr1UniverseScope request
+        , "quote" .= mclfr1Quote request
         , "requiredPeerCount" .= mclfr1RequiredPeerCount request
         , "intervalMs" .= mclfr1IntervalMs request
         , "horizonBars" .= mclfr1HorizonBars request
@@ -474,7 +465,7 @@ validateRequest request
     | not (all validSha256 requestDigests) = Left "market-context provenance digest is invalid"
     | null origins || not (all validAcademicOrigin origins) || length origins /= length (nub origins) = Left "market-context academicOrigins are invalid"
     | not (validSymbol (mclfr1Symbol request)) = Left "market-context symbol is invalid"
-    | not (validLabel (mclfr1UniverseScope request)) = Left "market-context universeScope is invalid"
+    | not (validSymbol (mclfr1Quote request)) = Left "market-context quote is invalid"
     | mclfr1RequiredPeerCount request <= 0 = Left "market-context requiredPeerCount must be positive"
     | interval <= 0 = Left "market-context intervalMs must be positive"
     | horizon <= 0 = Left "market-context horizonBars must be positive"
@@ -520,22 +511,24 @@ validateObservationGrid request observations
     | eventTimes /= expectedEventTimes request = Left "market-context training rows are not the exact ordered fold grid"
     | otherwise = mapM_ (validateObservation request) observations
   where
-    eventTimes = map mcto1DecisionEventTimeMs observations
+    eventTimes = map (mcf2EventTimeMs . mcto1Factor) observations
 
 validateObservation :: MarketContextLinearFitRequestV1 -> MarketContextTrainingObservationV1 -> Either String ()
 validateObservation request observation
-    | mcto1Symbol observation /= mclfr1Symbol request = Left "market-context training symbol does not match artifact scope"
-    | mcto1UniverseScope observation /= mclfr1UniverseScope request = Left "market-context training universe does not match artifact scope"
-    | mcto1RequiredPeerCount observation /= mclfr1RequiredPeerCount request = Left "market-context training peer count does not match artifact scope"
-    | mcto1IntervalMs observation /= interval = Left "market-context training interval does not match artifact scope"
+    | mcf2TargetSymbol factor /= mclfr1Symbol request = Left "market-context training symbol does not match artifact scope"
+    | mcf2Quote factor /= mclfr1Quote request = Left "market-context training quote does not match artifact scope"
+    | mcf2RequiredPeerCount factor /= mclfr1RequiredPeerCount request = Left "market-context training peer count does not match artifact scope"
+    | length (mcf2PeerSymbols factor) /= mcf2RequiredPeerCount factor = Left "market-context training peer identity count is invalid"
+    | mcf2IntervalMs factor /= interval = Left "market-context training interval does not match artifact scope"
     | not (validFactorRowForEvent interval decisionEvent featureRow) = Left "market-context factor row is malformed or causally incompatible"
     | toInteger targetEvent /= expectedTargetEvent = Left "market-context target event does not match the registered horizon"
     | targetAvailability < targetEvent || targetAvailability > mclfr1FitAvailableAtMs request = Left "market-context target was not available by the fit cutoff"
     | targetReturn <= -1 || not (finite targetReturn) = Left "market-context target return is invalid"
     | otherwise = Right ()
   where
-    featureRow = mcto1FeatureRow observation
-    decisionEvent = mcto1DecisionEventTimeMs observation
+    factor = mcto1Factor observation
+    featureRow = mcf2FeatureRow factor
+    decisionEvent = mcf2EventTimeMs factor
     targetEvent = mcto1TargetEventTimeMs observation
     targetAvailability = mcto1TargetAvailabilityTimeMs observation
     targetReturn = mcto1ForwardReturn observation
@@ -558,11 +551,17 @@ observedPair observation pairs =
         ([True], [value]) -> (value, mcto1ForwardReturn observation) : pairs
         _ -> pairs
   where
-    row = mcto1FeatureRow observation
+    row = mcf2FeatureRow (mcto1Factor observation)
 
-observedInferenceFactor :: MarketContextLinearFitRequestV1 -> FeatureRowV2 -> Maybe Double
-observedInferenceFactor request row = do
-    [Just eventTime] <- pure (frv2EventTimesMs row)
+observedInferenceFactor :: MarketContextLinearFitRequestV1 -> MarketContextFactorV2 -> Maybe Double
+observedInferenceFactor request factor = do
+    guard (mcf2TargetSymbol factor == mclfr1Symbol request)
+    guard (mcf2Quote factor == mclfr1Quote request)
+    guard (mcf2RequiredPeerCount factor == mclfr1RequiredPeerCount request)
+    guard (length (mcf2PeerSymbols factor) == mcf2RequiredPeerCount factor)
+    guard (mcf2IntervalMs factor == mclfr1IntervalMs request)
+    let eventTime = mcf2EventTimeMs factor
+        row = mcf2FeatureRow factor
     guard (eventTime >= mclfr1ValidationStartEventTimeMs request)
     guard (validFactorRowForEvent (mclfr1IntervalMs request) eventTime row)
     [True] <- pure (frv2Available row)
@@ -676,7 +675,7 @@ requestKeys =
     , "splitManifestSha256"
     , "academicOrigins"
     , "symbol"
-    , "universeScope"
+    , "quote"
     , "requiredPeerCount"
     , "intervalMs"
     , "horizonBars"
