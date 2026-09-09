@@ -801,7 +801,7 @@
       "ensures": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-E1", "statement": "A missing, stale, invalid, non-finite, corrupted, incompatible, unsupported, unprovenanced, or timed-out candidate returns unavailable and cannot create an actionable signal." },
         { "id": "A-MARKET-PREDICTION-RESEARCH-E2", "statement": "Any validated winner enters only as a disabled challenger with independent metrics, rollback control, and no authority to change the champion, deployment, paper/live mode, or order authorization." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-E3", "statement": "The research-only market-context linear artifact accepts no caller-supplied factor relabeling, counts unavailable factor rows without fitting their dense zeros, emits only a finite mean and positive residual variance for exact compatible post-training evidence, and otherwise returns unavailable." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-E3", "statement": "The research-only market-context linear artifact accepts no caller-supplied factor relabeling, counts unavailable factor rows without fitting their dense zeros, emits only a finite mean and positive residual variance for compatible post-training evidence on the exact registered grid, and otherwise returns unavailable." }
       ],
       "invariants": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-I1", "statement": "Legacy saved model identifiers retain their historical semantics; a materially different implementation requires a new explicit semantic identifier and compatibility tests." },

@@ -27,10 +27,11 @@ Unavailable factor rows remain in the grid and row count, but their dense zero
 is excluded from OLS. Fitting requires at least three observed rows and
 non-degenerate finite factor dispersion. Inference checks the factor's exact
 target, quote, peer count, interval, feature schema, causal timestamps,
-post-training boundary, payload digest, compatibility version, and finite
-positive variance. Failure returns no estimate. The artifact itself binds the
-forecast horizon. The only successful output is a conditional mean and
-residual variance; it is not an actionable signal.
+post-training boundary, exact registered grid phase, payload digest,
+compatibility version, and finite positive variance. Failure returns no
+estimate. The artifact itself binds the forecast horizon. The only successful
+output is a conditional mean and residual variance; it is not an actionable
+signal.
 
 ## Artifact and authority boundary
 

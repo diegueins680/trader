@@ -40,7 +40,8 @@ The market-context factor's private constructor binds its validated target,
 quote, selected peer identities, bar, interval, and row in one abstract value.
 The research-only linear component consumes that value directly, so generic
 feature evidence cannot be relabeled with parallel caller-supplied scope
-arguments.
+arguments. Inference also requires event-time congruence with the exact
+registered validation grid, not merely a matching interval length.
 
 The `A-RESEARCH` rate-limit refinement preserves canonical universe membership
 while deriving a separate `utc_epoch_hour_rotation_v1` request permutation.

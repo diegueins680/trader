@@ -8666,6 +8666,7 @@ testMarketContextLinearArtifactV1 = do
         wrongQuoteFactor = factor "BTCUSD" "USD" 3 intervalMs 7000 (Just 0.05)
         wrongPeerCountFactor = factor "BTCUSDT" "USDT" 2 intervalMs 7000 (Just 0.05)
         wrongIntervalFactor = factor "BTCUSDT" "USDT" 3 500 7000 (Just 0.05)
+        phaseShiftedFactor = factorRow 7500 (Just 0.05)
     assert
         "market-context linear artifact has a distinct immutable semantic identity"
         ( marketContextLinearArtifactSchemaIdV1 == "point_in_time_market_context_linear_artifact_v1"
@@ -8718,6 +8719,7 @@ testMarketContextLinearArtifactV1 = do
                     , isNothing (predictMarketContextLinearV1 artifact wrongQuoteFactor)
                     , isNothing (predictMarketContextLinearV1 artifact wrongPeerCountFactor)
                     , isNothing (predictMarketContextLinearV1 artifact wrongIntervalFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact phaseShiftedFactor)
                     , isNothing (predictMarketContextLinearV1 artifact (factorRow 6000 (Just 0.05)))
                     , isNothing (predictMarketContextLinearV1 artifact (factorRow 7000 (Just (-0.75))))
                     ]

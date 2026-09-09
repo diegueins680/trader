@@ -563,6 +563,11 @@ observedInferenceFactor request factor = do
     let eventTime = mcf2EventTimeMs factor
         row = mcf2FeatureRow factor
     guard (eventTime >= mclfr1ValidationStartEventTimeMs request)
+    guard
+        ( (toInteger eventTime - toInteger (mclfr1ValidationStartEventTimeMs request))
+            `mod` toInteger (mclfr1IntervalMs request)
+            == 0
+        )
     guard (validFactorRowForEvent (mclfr1IntervalMs request) eventTime row)
     [True] <- pure (frv2Available row)
     [value] <- pure (frv2Values row)
