@@ -74,6 +74,7 @@ executable trader-hs
                      , Trader.Predictors.FeatureSchema
                      , Trader.Predictors.CrossExchangeFeaturesV2
                      , Trader.Predictors.OhlcvInputsV2
+                     , Trader.Predictors.MissingnessAwareFeaturesV1
                      , Trader.Predictors.MarketContextFeaturesV2
                      , Trader.Predictors.MarketContextPanelSchemaV2
                      , Trader.Predictors.ExternalFeatureSchema
@@ -341,6 +342,7 @@ test-suite trader-tests
                      , Trader.Predictors.FeatureSchema
                      , Trader.Predictors.CrossExchangeFeaturesV2
                      , Trader.Predictors.OhlcvInputsV2
+                     , Trader.Predictors.MissingnessAwareFeaturesV1
                      , Trader.Predictors.MarketContextFeaturesV2
                      , Trader.Predictors.MarketContextPanelSchemaV2
                      , Trader.Predictors.ExternalFeatureSchema
@@ -467,6 +469,7 @@ benchmark trader-bench
                      , Trader.Predictors.FeatureSchema
                      , Trader.Predictors.CrossExchangeFeaturesV2
                      , Trader.Predictors.OhlcvInputsV2
+                     , Trader.Predictors.MissingnessAwareFeaturesV1
                      , Trader.Predictors.MarketContextFeaturesV2
                      , Trader.Predictors.MarketContextPanelSchemaV2
                      , Trader.Predictors.ExternalFeatureSchema

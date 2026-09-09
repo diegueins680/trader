@@ -282,11 +282,13 @@ import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel 
 import Trader.Predictors.CrossExchangeFeaturesV2 (
     CrossExchangeCloseV2 (..),
     crossExchangeFeatureRowsV2,
+    crossExchangeGridV2,
     crossExchangeInputsV2,
     crossExchangeModelFeatureNamesV2,
     crossExchangeModelFeatureSchemaIdV2,
     crossExchangeModelFeatureSchemaVersionV2,
     crossExchangeModelFeatureSignatureV2,
+    crossExchangeScopeV2,
  )
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.DerivativesFeaturesV2 (
@@ -360,6 +362,18 @@ import Trader.Predictors.MarketContextPanelSchemaV2 (
     mcps2SourceManifestSha256,
     mcps2UniverseAvailabilityTimeMs,
     mcps2UniverseEventTimeMs,
+ )
+import Trader.Predictors.MissingnessAwareFeaturesV1 (
+    MissingnessAwareFeaturePanelV1 (..),
+    missingnessAwareFeatureNamesV1,
+    missingnessAwareFeaturePanelSchemaIdV1,
+    missingnessAwareFeaturePanelSchemaVersionV1,
+    missingnessAwareFeaturePanelV1,
+    missingnessAwareFeatureSignatureV1,
+    missingnessAwareLookbackBarsV1,
+    missingnessAwarePriceFeatureNamesV1,
+    missingnessAwareRegisteredSymbolsV1,
+    missingnessAwareShortWindowBarsV1,
  )
 import Trader.Predictors.OhlcvInputsV2 (
     completeOhlcvFieldNamesV2,
@@ -846,6 +860,7 @@ main = do
     testCrossExchangeCoinbaseInputs
     testCrossExchangeFeatureAdapterV2
     testCompleteOhlcvInputsV2
+    testMissingnessAwareFeaturePanelV1
     testExternalDataFeatureInputs
     testExternalFeatureAdapterV2
     testExternalPanelSchemaV2
@@ -1051,7 +1066,12 @@ testCrossExchangeFeatureAdapterV2 = do
         )
     case crossExchangeInputsV2 "BTCUSDT" "BTC-USD" openTimes decisionTimes intervalMs binance coinbase of
         Nothing -> assert "valid exact-grid cross-exchange inputs should construct" False
-        Just inputs ->
+        Just inputs -> do
+            assert
+                "cross-exchange inputs retain validated scope and grid for downstream contamination checks"
+                ( crossExchangeScopeV2 inputs == ("BTCUSDT", "BTC-USD")
+                    && crossExchangeGridV2 inputs == (openTimes, decisionTimes, intervalMs)
+                )
             case crossExchangeFeatureRowsV2 2 inputs of
                 Nothing -> assert "valid cross-exchange inputs should produce feature rows" False
                 Just featureRows@[first, second, third, fourth] -> do
@@ -1368,6 +1388,252 @@ testCompleteOhlcvInputsV2 = do
             , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen oneDecision (V.singleton (intervalMs - 1)) intervalMs oneInputs)
             , isNothing (completeOhlcvInputsV2 "BTCUSDT" oneOpen oneDecision (V.singleton (intervalMs + 101)) intervalMs oneInputs)
             , isNothing (completeOhlcvInputsV2 "BTCUSDT" (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) intervalMs oneInputs)
+            ]
+        )
+
+testMissingnessAwareFeaturePanelV1 :: IO ()
+testMissingnessAwareFeaturePanelV1 = do
+    let intervalMs = 3600000 :: Int64
+        datasetStartMs = 1800489600000 :: Int64
+        finalHoldoutStartMs = 1821484800000 :: Int64
+        rowCount = 30
+        closes = V.generate rowCount (\index -> 100 + fromIntegral index)
+        openTimesFrom firstEvent count =
+            V.generate count (\index -> firstEvent - intervalMs + fromIntegral index * intervalMs)
+        completeInputsFor scope firstEvent closeValues =
+            let count = V.length closeValues
+                openTimes = openTimesFrom firstEvent count
+                eventTimes = V.map (+ intervalMs) openTimes
+                availabilityTimes = V.map (+ 50) eventTimes
+                decisionTimes = V.map (+ 100) eventTimes
+                opens = V.map (subtract 0.25) closeValues
+                highs = V.map (+ 1) closeValues
+                lows = V.map (subtract 1.25) closeValues
+                volumes = V.generate count (\index -> 1000 + fromIntegral index)
+             in completeOhlcvInputsV2
+                    scope
+                    openTimes
+                    decisionTimes
+                    availabilityTimes
+                    intervalMs
+                    (mkFeatureInputs closeValues (Just opens) (Just highs) (Just lows) (Just volumes))
+        observedDerivativeCell eventTime value =
+            DerivativesPanelCellV2
+                { dpc2Value = value
+                , dpc2Observed = True
+                , dpc2Fresh = True
+                , dpc2EventTimeMs = Just eventTime
+                , dpc2AvailabilityTimeMs = Just (eventTime + 1000)
+                }
+        derivativesFor scope openTimes missingOiIndex =
+            [ DerivativesPanelRowV2
+                { dpr2OpenTimeMs = openTime
+                , dpr2DecisionTimeMs = openTime + intervalMs - 1
+                , dpr2Symbol = scope
+                , dpr2Cells =
+                    Map.fromList
+                        ( [ (DerivativesFundingV2, observedDerivativeCell openTime (if even index then 0 else 0.001))
+                          , (DerivativesBasisV2, observedDerivativeCell openTime (0.0001 * fromIntegral index))
+                          , (DerivativesTakerFlowV2, observedDerivativeCell openTime (1 + 0.01 * fromIntegral index))
+                          ]
+                            ++ [ (DerivativesOpenInterestV2, observedDerivativeCell openTime (1000 + fromIntegral index))
+                               | Just index /= missingOiIndex
+                               ]
+                        )
+                }
+            | (index, openTime) <- zip [0 ..] (V.toList openTimes)
+            ]
+        crossExchangeFor binanceSymbol coinbaseProduct openTimes decisionTimes closeValues missingIndex =
+            let closeAt openTime value =
+                    CrossExchangeCloseV2
+                        { cec2BarOpenTimeMs = openTime
+                        , cec2EventTimeMs = openTime + intervalMs
+                        , cec2AvailabilityTimeMs = openTime + intervalMs + 50
+                        , cec2Close = value
+                        }
+                binance = V.zipWith closeAt openTimes closeValues
+                coinbase =
+                    V.imap
+                        ( \index close ->
+                            if Just index == missingIndex
+                                then Nothing
+                                else Just (closeAt (openTimes V.! index) (close * 1.01))
+                        )
+                        closeValues
+             in crossExchangeInputsV2
+                    binanceSymbol
+                    coinbaseProduct
+                    openTimes
+                    decisionTimes
+                    intervalMs
+                    binance
+                    coinbase
+        approximately left right = abs (left - right) < 1.0e-12
+        approximatelyValues left right =
+            length left == length right && and (zipWith approximately left right)
+        finite value = not (isNaN value || isInfinite value)
+    assert
+        "missingness-aware panel freezes a distinct versioned schema, windows, and registered universe"
+        ( missingnessAwareFeaturePanelSchemaIdV1 == "missingness_aware_calibrated_shallow_feature_panel_v1"
+            && missingnessAwareFeaturePanelSchemaVersionV1 == 1
+            && missingnessAwareLookbackBarsV1 == 24
+            && missingnessAwareShortWindowBarsV1 == 6
+            && missingnessAwareRegisteredSymbolsV1
+                == [ "BTCUSDT"
+                   , "ETHUSDT"
+                   , "SOLUSDT"
+                   , "BNBUSDT"
+                   , "XRPUSDT"
+                   , "AVAXUSDT"
+                   , "UNIUSDT"
+                   , "SUIUSDT"
+                   , "ETCUSDT"
+                   , "ADAUSDT"
+                   ]
+        )
+    case completeInputsFor "BTCUSDT" datasetStartMs closes of
+        Nothing -> assert "future complete OHLCV fixture should construct" False
+        Just completeInputs -> do
+            let (openTimes, decisionTimes, _, _) = completeOhlcvGridV2 completeInputs
+                derivatives = derivativesFor "BTCUSDT" openTimes (Just 25)
+            case crossExchangeFor "BTCUSDT" "BTC-USD" openTimes decisionTimes closes (Just 25) of
+                Nothing -> assert "future cross-exchange fixture should construct" False
+                Just crossExchange ->
+                    case missingnessAwareFeaturePanelV1 completeInputs (Just derivatives) (Just crossExchange) of
+                        Nothing -> assert "aligned registered feature sources should compose" False
+                        Just panel@MissingnessAwareFeaturePanelV1{mafp1Rows = rows} -> do
+                            assert
+                                "panel retains exact scope, grid suffix, and one row per post-lookback decision"
+                                ( mafp1Scope panel == "BTCUSDT"
+                                    && mafp1IntervalMs panel == intervalMs
+                                    && mafp1OpenTimesMs panel == V.drop missingnessAwareLookbackBarsV1 openTimes
+                                    && length rows == rowCount - missingnessAwareLookbackBarsV1
+                                )
+                            case rows of
+                                first : second : _ -> do
+                                    assert
+                                        "combined signature fixes required price values before optional derivative and spot fields"
+                                        ( missingnessAwareFeatureSignatureV1
+                                            == missingnessAwareFeaturePanelSchemaIdV1
+                                                ++ "|"
+                                                ++ featureRowSchemaSignature first
+                                            && frv2Names first == missingnessAwareFeatureNamesV1
+                                            && frv2Required first
+                                                == replicate (length missingnessAwarePriceFeatureNamesV1) True
+                                                    ++ replicate 10 False
+                                        )
+                                    assert
+                                        "price formulas are finite and use only the trailing 24 completed returns"
+                                        ( approximatelyValues
+                                            (take 4 (frv2Values first))
+                                            [124 / 123 - 1, 124 / 121 - 1, 124 / 118 - 1, 124 / 100 - 1]
+                                            && all finite (take (length missingnessAwarePriceFeatureNamesV1) (frv2Values first))
+                                        )
+                                    assert
+                                        "observed zero derivatives remain distinct from missing optional observations"
+                                        ( frv2Available first == replicate (length missingnessAwareFeatureNamesV1) True
+                                            && frv2Values first !! length missingnessAwarePriceFeatureNamesV1 == 0
+                                            && frv2Available second
+                                                == replicate (length missingnessAwarePriceFeatureNamesV1) True
+                                                    ++ [True, True, False, True, True]
+                                                    ++ replicate 5 False
+                                            && all
+                                                (== 0)
+                                                (drop (length missingnessAwarePriceFeatureNamesV1 + 5) (frv2Values second))
+                                        )
+                                _ -> assert "feature panel should contain at least two rows" False
+
+            assert
+                "entirely absent optional panels remain explicitly unavailable, never observed zero"
+                ( case missingnessAwareFeaturePanelV1 completeInputs Nothing Nothing of
+                    Just panel ->
+                        all
+                            ( (== replicate 10 False)
+                                . drop (length missingnessAwarePriceFeatureNamesV1)
+                                . frv2Available
+                            )
+                            (mafp1Rows panel)
+                    Nothing -> False
+                )
+            assert
+                "wrong symbol, source length, and later source decisions fail closed"
+                ( and
+                    [ isNothing
+                        ( missingnessAwareFeaturePanelV1
+                            completeInputs
+                            (Just (derivativesFor "ETHUSDT" openTimes Nothing))
+                            Nothing
+                        )
+                    , isNothing (missingnessAwareFeaturePanelV1 completeInputs (Just (drop 1 derivatives)) Nothing)
+                    , case crossExchangeFor "ETHUSDT" "ETH-USD" openTimes decisionTimes closes Nothing of
+                        Just wrongScope -> isNothing (missingnessAwareFeaturePanelV1 completeInputs Nothing (Just wrongScope))
+                        Nothing -> False
+                    , case crossExchangeFor "BTCUSDT" "BTC-USD" openTimes (V.map (+ 1) decisionTimes) closes Nothing of
+                        Just laterDecisions -> isNothing (missingnessAwareFeaturePanelV1 completeInputs Nothing (Just laterDecisions))
+                        Nothing -> False
+                    ]
+                )
+
+            let extendedCloses = V.snoc closes 130
+                changedLastCloses = closes V.// [(rowCount - 1, 500)]
+                completeDerivatives = derivativesFor "BTCUSDT" openTimes Nothing
+                changedLastDerivatives =
+                    [ if index == rowCount - 1
+                        then
+                            row
+                                { dpr2Cells =
+                                    Map.insert
+                                        DerivativesFundingV2
+                                        (observedDerivativeCell (dpr2OpenTimeMs row) 0.5)
+                                        (dpr2Cells row)
+                                }
+                        else row
+                    | (index, row) <- zip [0 ..] completeDerivatives
+                    ]
+            assert
+                "appending or changing future price, derivatives, or Coinbase bars cannot alter an emitted prefix"
+                ( case ( completeInputsFor "BTCUSDT" datasetStartMs extendedCloses
+                       , completeInputsFor "BTCUSDT" datasetStartMs changedLastCloses
+                       , missingnessAwareFeaturePanelV1 completeInputs Nothing Nothing
+                       , crossExchangeFor "BTCUSDT" "BTC-USD" openTimes decisionTimes closes Nothing
+                       , crossExchangeFor "BTCUSDT" "BTC-USD" openTimes decisionTimes changedLastCloses Nothing
+                       ) of
+                    ( Just extendedInputs
+                        , Just changedInputs
+                        , Just basePanel
+                        , Just completeCrossExchange
+                        , Just changedLastCrossExchange
+                        ) ->
+                            case ( missingnessAwareFeaturePanelV1 extendedInputs Nothing Nothing
+                                 , missingnessAwareFeaturePanelV1 changedInputs Nothing Nothing
+                                 , missingnessAwareFeaturePanelV1 completeInputs (Just completeDerivatives) (Just completeCrossExchange)
+                                 , missingnessAwareFeaturePanelV1 completeInputs (Just changedLastDerivatives) (Just changedLastCrossExchange)
+                                 ) of
+                                (Just extendedPanel, Just changedPanel, Just completeSourcePanel, Just changedSourcePanel) ->
+                                    take (length (mafp1Rows basePanel)) (mafp1Rows extendedPanel) == mafp1Rows basePanel
+                                        && take (length (mafp1Rows basePanel) - 1) (mafp1Rows changedPanel)
+                                            == take (length (mafp1Rows basePanel) - 1) (mafp1Rows basePanel)
+                                        && take (length (mafp1Rows completeSourcePanel) - 1) (mafp1Rows changedSourcePanel)
+                                            == take (length (mafp1Rows completeSourcePanel) - 1) (mafp1Rows completeSourcePanel)
+                                _ -> False
+                    _ -> False
+                )
+
+    assert
+        "pre-registration, holdout, unregistered-symbol, and insufficient-lookback inputs fail closed"
+        ( and
+            [ case completeInputsFor "BTCUSDT" (datasetStartMs - intervalMs) closes of
+                Just beforeStart -> isNothing (missingnessAwareFeaturePanelV1 beforeStart Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor "BTCUSDT" finalHoldoutStartMs closes of
+                Just holdout -> isNothing (missingnessAwareFeaturePanelV1 holdout Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor "DOGEUSDT" datasetStartMs closes of
+                Just unregistered -> isNothing (missingnessAwareFeaturePanelV1 unregistered Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor "BTCUSDT" datasetStartMs (V.take missingnessAwareLookbackBarsV1 closes) of
+                Just insufficient -> isNothing (missingnessAwareFeaturePanelV1 insufficient Nothing Nothing)
+                Nothing -> False
             ]
         )
 

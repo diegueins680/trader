@@ -126,6 +126,8 @@ The legacy `tcn`, `patch_tst`, and `transformer` predictor codes are compatibili
 
 The 2026-09-04 [market-prediction review](research-notes/market-prediction-2026-09-04/literature-review.md) maps 50 primary works, audits every current model family, records the [paper-to-code gaps](research-notes/market-prediction-2026-09-04/paper-to-repository-gap-matrix.md), and freezes three future-data registrations. Its decision is **no candidate passed**: no predictor, champion, combo, deployment mode, or live authorization changed. The existing historical holdout remains unopened, and the prospective funding-carry path remains metadata-only until its registered 2027 evaluation time.
 
+The isolated [`missingness_aware_calibrated_shallow_feature_panel_v1`](research-notes/market-prediction-2026-09-04/missingness-aware-feature-panel-v1.md) contract freezes the shallow candidate's exact twelve required 6/24-bar price features plus five optional derivatives and five optional exact-bar Coinbase-context features. It preserves each optional value's mask and causal witnesses, retains validated cross-exchange scope, rejects mismatched symbols/grids and all pre-registration or final-holdout rows, and performs no imputation. It is absent from predictor, optimizer, bot, API/CLI, execution, artifact-loader, deployment, and live paths. No prospective data or outcome was read, no model was fit, and the **no candidate passed** decision remains unchanged.
+
 ## CLI and API
 
 List the complete CLI surface with:
