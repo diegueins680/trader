@@ -61,11 +61,23 @@ published manifest, clean tracked provenance, and all authority fields false;
 rejects incomplete, recovery-pending, changed, malformed, or non-finite
 evidence; and checks status/manifest clocks, inventory, and population. The
 recorded Git object must be a commit whose collector, source-verifier, and
-source-license blobs match the collection evidence. Only then does the wrapper
-invoke the independent source verifier and bind its receipt and panel hashes in
-a deterministic bundle receipt. The receipt still sets research admission,
+source-license blobs match the collection evidence. The executing bundle and
+source verifiers must also be byte-identical to their versions at that commit;
+version drift therefore fails before receipt emission. Only then does the
+wrapper invoke the independent source verifier and bind its receipt and panel
+hashes in a deterministic bundle receipt. The receipt still sets research admission,
 experiment, holdout, model, promotion, deployment, order, and live authority
 to false.
+
+A saved bundle receipt has a separate offline, read-only replay boundary. The
+receipt verifier requires the exact bundle-verifier bytes stored at the
+collection commit, strict type-sensitive receipt semantics, and an archive
+containing only the status, manifest, and registered raw files. It hashes every
+archive file before and after delegated bundle/source reconstruction, compares
+the complete recomputed receipt and derived-panel digest, and fails closed on
+version drift, tampering, extra files, unsafe paths, or in-run mutation. Its
+success summary remains integrity-only and sets research admission, experiment,
+holdout, model, promotion, deployment, order, and live authority to false.
 
 The prospective collector that supplies this boundary is a separate
 `A-RESEARCH` component. It accepts an explicit aligned bar and a new output

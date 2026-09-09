@@ -250,6 +250,23 @@ def _validate_status(
     }
 
 
+def _executing_verifier_sha(
+    code_commit: str, collected_source_verifier_sha: object
+) -> str:
+    bundle_payload = Path(__file__).resolve(strict=True).read_bytes()
+    bundle_sha = _sha256(bundle_payload)
+    if bundle_sha != _sha256(_git_blob(code_commit, BUNDLE_VERIFIER_PATH)):
+        raise ValueError(
+            "executing bundle-verifier bytes disagree with the collection commit"
+        )
+    source_sha = _sha256(Path(source.__file__).resolve(strict=True).read_bytes())
+    if source_sha != collected_source_verifier_sha:
+        raise ValueError(
+            "executing source-verifier bytes disagree with the collection commit"
+        )
+    return bundle_sha
+
+
 def verify_bundle(status_path: Path) -> tuple[bytes, dict[str, object]]:
     if status_path.is_symlink():
         raise ValueError("collection status must be a regular non-symlink file")
@@ -267,6 +284,10 @@ def verify_bundle(status_path: Path) -> tuple[bytes, dict[str, object]]:
     status_evidence = _validate_status(
         status, status_payload, manifest, manifest_payload
     )
+    bundle_verifier_sha = _executing_verifier_sha(
+        status_evidence["collectionCodeCommit"],
+        status_evidence["collectedSourceVerifierSha256"],
+    )
     panel, source_receipt = source.verify_and_derive(manifest_path)
     manifest_sha = _sha256(manifest_payload)
     if (
@@ -280,9 +301,7 @@ def verify_bundle(status_path: Path) -> tuple[bytes, dict[str, object]]:
         "schemaId": BUNDLE_RECEIPT_SCHEMA_ID,
         "schemaVersion": BUNDLE_RECEIPT_SCHEMA_VERSION,
         "bundleVerifierPath": BUNDLE_VERIFIER_PATH,
-        "bundleVerifierSha256": _sha256(
-            Path(__file__).resolve(strict=True).read_bytes()
-        ),
+        "bundleVerifierSha256": bundle_verifier_sha,
         **status_evidence,
         "sourceManifestSha256": manifest_sha,
         "sourceVerificationReceiptSha256": _sha256(source_receipt_payload),
