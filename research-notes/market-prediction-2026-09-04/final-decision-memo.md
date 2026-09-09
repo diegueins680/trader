@@ -6,7 +6,7 @@ Decision date: 2026-09-04.
 
 **No candidate passed. Preserve the current champion. Do not integrate a new trading predictor.**
 
-The only production code change in this work is semantic/provenance plumbing: stable legacy sequence-predictor identifiers gain truthful versioned implementation identities and compatible aliases. This does not change a forecast, combo, saved configuration, artifact, risk threshold, deployment mode, or order path.
+The original review's only production-path code change was semantic/provenance plumbing: stable legacy sequence-predictor identifiers gained truthful versioned implementation identities and compatible aliases. A later HAR-RV component is isolated research code and is not registered or loaded by any production path. Neither change alters a forecast, combo, saved configuration, risk threshold, deployment mode, or order path.
 
 ## Why no model was integrated
 
@@ -17,6 +17,8 @@ The only production code change in this work is semantic/provenance plumbing: st
 5. `cross_sectional_funding_carry_v1` is prospective attempt 46. Its protocol forbids returns, ranks, weights, PnL, risk, and performance statistics before 2027-01-20T13:00:00Z; this work did not calculate them.
 6. The April–September 2026 tracked derivative cache overlaps controlled research time and is too short/sparse for an independent confirmation. It was hashed and inventoried, not backtested here.
 7. OFI lacks event-level L2 history and fill replay; the calibrated shallow candidate lacks explicit missingness in the production feature schema; HAR-RV needs genuinely new prospective evidence. These are research blockers, not gates to waive.
+
+The later isolated `bar_har_rv_ridge_risk_gate_v1` component closes only the in-memory fit/persistence/fail-closed prototype gap. It uses synthetic fixtures and carries no experiment, holdout, model-admission, promotion, deployment, order, or live authority. It supplies no metric and does not change this decision: HAR-RV still needs the registered future evidence and complete campaign gates.
 
 ## Candidate dispositions
 

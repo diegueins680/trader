@@ -42,7 +42,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | TRAILING-STOP-001 | A trailing-stop exit may re-enter on the same bar | MEDIUM | trader-firm-execution | CLOSED | Intrabar protective exits impose a one-event minimum cooldown, and a regression proves zero configured cooldown cannot reuse the trailing-stop exit index |
 | VOL-TARGET-001 | A stale report claimed the volatility-confidence stateful-close regression broke the Haskell suite | CRITICAL | trader-firm-cto | CLOSED | The fix predates the imported report; helper, live/backtest parity, and canonical Haskell verification witnesses pass |
 | VOL-TARGET-INVALID-001 | Malformed volatility-target configuration could bypass scaling limits | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` rejects malformed targets and bounded verification covers it |
-| ZERO-VIABLE-SIGNAL-001 | No strategy signal had met the recorded long-sample viability threshold | CRITICAL | trader-firm-research | OPEN | Preserve the champion and continue only preregistered prospective protocols; require all economic, statistical, cost, delay, and drawdown gates before promotion |
+| ZERO-VIABLE-SIGNAL-001 | No strategy signal had met the recorded long-sample viability threshold | CRITICAL | trader-firm-research | OPEN | Preserve the champion; treat the isolated HAR-RV artifact as zero-authority infrastructure with no efficacy evidence; continue only preregistered prospective protocols and require all economic, statistical, cost, delay, drawdown, robustness, ablation, and compute gates before promotion |
 
 ## Update rule
 

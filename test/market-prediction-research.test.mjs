@@ -378,6 +378,42 @@ test("market-prediction registrations retain the complete frozen protocol", asyn
   }
 });
 
+test("HAR-RV v1 artifact remains a future-only isolated risk component", async () => {
+  const registration = await readJson(registrationUrls[0]);
+  const artifact = await readFile(
+    new URL("../haskell/app/Trader/Predictors/HarRvArtifactV1.hs", import.meta.url),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Main.hs",
+      "../haskell/app/OptimizeEquityMain.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/App/Args.hs",
+      "../haskell/app/Trader/OrderExecution.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+
+  assert.match(registration.implementationInterpretation.clarificationRecordedOn, /2026-09-09.*before/);
+  assert.match(registration.implementationInterpretation.fit, /population-mean.*population-standard-deviation/);
+  assert.match(registration.implementationInterpretation.fit, /X'X plus 0\.000001/);
+  assert.match(registration.implementationInterpretation.diagnosticInterval, /uncalibrated.*cannot satisfy/i);
+  assert.equal(registration.dataset.startInclusiveUtc, "2027-01-21T00:00:00Z");
+  assert.equal(registration.promotionGates.liveAuthorization, false);
+
+  assert.match(artifact, /bar_har_rv_ridge_risk_gate_v1/);
+  assert.match(artifact, /harRvRidgeLambdaV1 = 1\.0e-6/);
+  assert.match(artifact, /harRvFinalHoldoutStateV1 = "untouched"/);
+  assert.match(artifact, /harRvPromotionStateV1 = "offline_research_only"/);
+  assert.doesNotMatch(artifact, /Trader\.Binance|Trader\.OrderExecution|Trader\.Method/);
+
+  const isolatedContract = /HarRvArtifactV1|bar_har_rv_ridge_risk_gate_v1|harRvRiskScaleV1/;
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+});
+
 test("market-prediction audit preserves sealed evidence boundaries", async () => {
   const existingCarry = await readJson(new URL("../research-notes/registrations/cross-sectional-funding-carry-v1.json", import.meta.url));
   assert.equal(existingCarry.campaign, "cross_sectional_funding_carry_v1");

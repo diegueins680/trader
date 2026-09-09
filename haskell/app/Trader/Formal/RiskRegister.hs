@@ -347,7 +347,7 @@ riskRegister =
         OPEN
         "No strategy signal had met the recorded long-sample viability threshold"
         "trader-firm-research"
-        "Preserve the champion and continue only preregistered prospective protocols; require all economic, statistical, cost, delay, and drawdown gates before promotion"
+        "Preserve the champion; treat the isolated HAR-RV artifact as zero-authority infrastructure with no efficacy evidence; continue only preregistered prospective protocols and require all economic, statistical, cost, delay, drawdown, robustness, ablation, and compute gates before promotion"
     ]
 
 -- | Lookup severity by risk ID.

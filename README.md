@@ -126,6 +126,8 @@ The legacy `tcn`, `patch_tst`, and `transformer` predictor codes are compatibili
 
 The 2026-09-04 [market-prediction review](research-notes/market-prediction-2026-09-04/literature-review.md) maps 50 primary works, audits every current model family, records the [paper-to-code gaps](research-notes/market-prediction-2026-09-04/paper-to-repository-gap-matrix.md), and freezes three future-data registrations. Its decision is **no candidate passed**: no predictor, champion, combo, deployment mode, or live authorization changed. The existing historical holdout remains unopened, and the prospective funding-carry path remains metadata-only until its registered 2027 evaluation time.
 
+The isolated [`bar_har_rv_ridge_risk_gate_v1`](research-notes/market-prediction-2026-09-04/har-rv-artifact-v1.md) Haskell artifact prototypes the registered HAR-style volatility candidate on the strict complete-OHLCV v2 boundary. It is per-symbol, fold-local, provenance-hashed, restricted to development-validation timestamps, and can only scale a frozen champion toward zero without changing direction. Missing, flat, malformed, non-finite, corrupted, incompatible, wrong-scope, off-grid, or holdout evidence produces no forecast and a zero scale. The module is deliberately absent from the predictor registry, CLI/API, optimizer, bot, execution, artifact-loader, and deployment paths. Its tests use synthetic data only; no candidate metric exists and the **no candidate passed** decision remains unchanged.
+
 ## CLI and API
 
 List the complete CLI surface with:

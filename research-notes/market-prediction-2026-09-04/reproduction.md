@@ -29,6 +29,15 @@ bash scripts/verify.sh full
 
 The full wrapper includes the web surface even though this change does not redesign the UI.
 
+The isolated HAR-RV artifact contract is exercised inside `trader-tests`. The suite uses deterministic synthetic complete-OHLCV rows only; it does not read prospective data or open either holdout:
+
+```bash
+cd haskell
+cabal test trader-tests --test-show-details=direct
+```
+
+See `har-rv-artifact-v1.md` for its frozen numerical and zero-authority boundary. Passing this test proves implementation invariants only, not predictive value, economic value, research admission, or promotion eligibility.
+
 ## Verify an alternative-data panel artifact
 
 Build every prospective alternative-data panel with `--manifest`, then verify the exact cache, bar grid, panel bytes, ordered schema, and coverage semantics before registering or fitting anything:

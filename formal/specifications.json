@@ -788,30 +788,35 @@
     {
       "id": "A-MARKET-PREDICTION-RESEARCH",
       "title": "Market-prediction research registrations and challenger isolation",
-      "features": ["academic evidence review", "paper matrix", "model-fidelity audit", "candidate preregistration", "future-data boundary", "disabled challenger lifecycle"],
+      "features": ["academic evidence review", "paper matrix", "model-fidelity audit", "candidate preregistration", "future-data boundary", "HAR-RV fold artifact", "disabled challenger lifecycle"],
       "criticality": "safety",
-      "implementation": ["research-notes/market-prediction-2026-09-04/**", "research-notes/registrations/har-rv-risk-gate-v1.json", "research-notes/registrations/depth-normalized-ofi-v1.json", "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json", "haskell/app/Trader/Predictors/Types.hs"],
+      "implementation": ["research-notes/market-prediction-2026-09-04/**", "research-notes/registrations/har-rv-risk-gate-v1.json", "research-notes/registrations/depth-normalized-ofi-v1.json", "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json", "haskell/app/Trader/Predictors/HarRvArtifactV1.hs", "haskell/app/Trader/Predictors/Types.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-CAUSAL", "G-NO-LOOKAHEAD", "G-DETERMINISTIC", "G-PROMOTION"],
       "dependsOn": ["A-RESEARCH", "H-PREDICTORS-SEQUENCE", "H-FEATURES"],
       "requires": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-R1", "statement": "Every candidate freezes its semantic model version, feature and availability schema, target/horizon, universe, train/calibration/validation/holdout ranges, purge/embargo, baselines, complete trial budget, seeds, costs, tests, gates, and compute budget before outcome evaluation." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-R2", "statement": "A persisted candidate artifact is admissible only when its versioned provenance binds source papers, code revision, data and source hashes, schema, target, universe, splits, hyperparameters, seed, runtime versions, metrics, cost model, creation time, promotion state, and compatibility version." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-R2", "statement": "A persisted candidate artifact is admissible only when its versioned provenance binds source papers, code revision, data and source hashes, schema, target, universe, splits, hyperparameters, seed, runtime versions, metrics, cost model, creation time, promotion state, and compatibility version." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-R3", "statement": "The HAR-RV v1 fold artifact accepts only one scope-bound complete-OHLCV v2 grid in the registered future date, symbol, interval, horizon, purge, embargo, and development-validation boundaries; its digest covers every ordered source value, mask, and causal clock that can affect the trailing 24-return features or forward target." }
       ],
       "ensures": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-E1", "statement": "A missing, stale, invalid, non-finite, corrupted, incompatible, unsupported, unprovenanced, or timed-out candidate returns unavailable and cannot create an actionable signal." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-E2", "statement": "Any validated winner enters only as a disabled challenger with independent metrics, rollback control, and no authority to change the champion, deployment, paper/live mode, or order authorization." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-E2", "statement": "Any validated winner enters only as a disabled challenger with independent metrics, rollback control, and no authority to change the champion, deployment, paper/live mode, or order authorization." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-E3", "statement": "A valid HAR-RV v1 estimate is finite, pre-holdout, non-directional, and carries a scale in [0,1]; applying it cannot flip the champion direction or increase absolute exposure, while unavailable or invalid evidence yields zero exposure." }
       ],
       "invariants": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-I1", "statement": "Legacy saved model identifiers retain their historical semantics; a materially different implementation requires a new explicit semantic identifier and compatibility tests." },
         { "id": "A-MARKET-PREDICTION-RESEARCH-I2", "statement": "Offline retraining may create offline or shadow evidence only; drift, bias, residual, calibration, latency, failure-rate, or cost-divergence monitoring cannot automatically promote or authorize a model." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-I3", "statement": "The registered future-data windows cannot move earlier, existing sealed holdouts cannot be opened by this work, and unavailable feature evidence cannot be reinterpreted as bullish or bearish." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-I3", "statement": "The registered future-data windows cannot move earlier, existing sealed holdouts cannot be opened by this work, and unavailable feature evidence cannot be reinterpreted as bullish or bearish." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-I4", "statement": "The HAR-RV v1 module remains absent from legacy predictor, ensemble, optimizer, bot, CLI/API, execution, artifact-loader, deployment, and live-authorization paths; its serialized safety authority flags are all false and its diagnostic interval is not calibration evidence." }
       ],
       "failures": [
-        { "id": "A-MARKET-PREDICTION-RESEARCH-F1", "statement": "Incomplete data/licensing/provenance, reused or contaminated confirmation data, failed causality/statistical/cost/risk/compute evidence, or any automatic-promotion path leaves the candidate rejected or research-only and the current champion unchanged." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-F1", "statement": "Incomplete data/licensing/provenance, reused or contaminated confirmation data, failed causality/statistical/cost/risk/compute evidence, or any automatic-promotion path leaves the candidate rejected or research-only and the current champion unchanged." },
+        { "id": "A-MARKET-PREDICTION-RESEARCH-F2", "statement": "Zero, incomplete, missing, stale, malformed, non-finite, wrong-scope, off-grid, out-of-window, holdout, corrupted, unsupported, or provenance-mismatched HAR-RV evidence produces no forecast and cannot authorize a model, promotion, deployment, order, or live action." }
       ],
       "evidence": [
         { "level": "regression", "path": "test/market-prediction-research.test.mjs", "contains": "market-prediction registrations remain future-only disabled challengers" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPredictorImplementationIdentityCompatibility" }
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPredictorImplementationIdentityCompatibility" },
+        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testHarRvArtifactV1" }
       ]
     },
     {

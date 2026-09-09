@@ -332,6 +332,31 @@ import Trader.Predictors.FeatureSchema (FeatureField (..), FeatureRequirement (.
 import Trader.Predictors.Features (ExternalFeatureInputs (..), FeatureInputs (..), FeatureSpec (..), featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs, withExternalInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
+import Trader.Predictors.HarRvArtifactV1 (
+    HarRvEstimateV1 (..),
+    HarRvFitRequestV1 (..),
+    decodeHarRvArtifactV1,
+    encodeHarRvArtifactV1,
+    fitHarRvArtifactV1,
+    harRvArtifactSchemaIdV1,
+    harRvArtifactSchemaVersionV1,
+    harRvCompatibilityVersionV1,
+    harRvFeatureNamesV1,
+    harRvRidgeLambdaV1,
+    harRvRiskScaleV1,
+    harRvSemanticModelIdV1,
+    harRvTrainingEvidenceSha256V1,
+    hra1Coefficients,
+    hra1FeatureMeans,
+    hra1FeatureScales,
+    hra1ObservedTrainingRowCount,
+    hra1PayloadSha256,
+    hra1TrainingMedianForecastVolatility,
+    hra1TrainingMse,
+    hra1TrainingRowCount,
+    predictHarRvV1,
+    scaleChampionExposureHarRvV1,
+ )
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
 import Trader.Predictors.MarketContextFeaturesV2 (
     MarketContextPeerReturnV2 (..),
@@ -846,6 +871,7 @@ main = do
     testCrossExchangeCoinbaseInputs
     testCrossExchangeFeatureAdapterV2
     testCompleteOhlcvInputsV2
+    testHarRvArtifactV1
     testExternalDataFeatureInputs
     testExternalFeatureAdapterV2
     testExternalPanelSchemaV2
@@ -1370,6 +1396,224 @@ testCompleteOhlcvInputsV2 = do
             , isNothing (completeOhlcvInputsV2 "BTCUSDT" (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) intervalMs oneInputs)
             ]
         )
+
+testHarRvArtifactV1 :: IO ()
+testHarRvArtifactV1 = do
+    let intervalMs = 3600000 :: Int64
+        datasetStartMs = 1800489600000 :: Int64
+        holdoutStartMs = 1821484800000 :: Int64
+        rowCount = 90
+        openStartMs = datasetStartMs - intervalMs
+        openTimes = V.generate rowCount (\index -> openStartMs + fromIntegral index * intervalMs)
+        eventTimes = V.map (+ intervalMs) openTimes
+        availabilityTimes = V.map (+ 50) eventTimes
+        decisionTimes = V.map (+ 100) eventTimes
+        syntheticReturn index =
+            0.001
+                + 0.00035 * sin (fromIntegral index * 0.71)
+                + 0.0002 * cos (fromIntegral index * 0.19)
+        closes =
+            V.generate
+                rowCount
+                ( \index ->
+                    100
+                        * exp
+                            ( sum
+                                [ syntheticReturn returnIndex
+                                | returnIndex <- [1 .. index]
+                                ]
+                            )
+                )
+        buildInputs scope closeValues =
+            let opens = V.map (* 0.999) closeValues
+                highs = V.map (* 1.002) closeValues
+                lows = V.map (* 0.997) closeValues
+                volumes = V.generate rowCount (\index -> 1000 + fromIntegral index)
+             in completeOhlcvInputsV2
+                    scope
+                    openTimes
+                    decisionTimes
+                    availabilityTimes
+                    intervalMs
+                    (mkFeatureInputs closeValues (Just opens) (Just highs) (Just lows) (Just volumes))
+        eventAt index = datasetStartMs + fromIntegral index * intervalMs
+        trainingStart = eventAt 24
+        trainingEnd = eventAt 55
+        validationStart = eventAt 67
+        validationEnd = eventAt 75
+        baseRequest evidenceDigest =
+            HarRvFitRequestV1
+                { hrr1RegistrationId = "har_rv_risk_gate_v1"
+                , hrr1CodeCommit = replicate 40 'a'
+                , hrr1TrainingDataSha256 = replicate 64 'b'
+                , hrr1TrainingEvidenceSha256 = evidenceDigest
+                , hrr1SourceManifestSha256 = replicate 64 'c'
+                , hrr1SplitManifestSha256 = replicate 64 'd'
+                , hrr1AcademicOrigins =
+                    [ "https://doi.org/10.1111/1468-0262.00418"
+                    , "https://doi.org/10.1093/jjfinec/nbp001"
+                    , "https://doi.org/10.1016/0304-4076(86)90063-1"
+                    ]
+                , hrr1Symbol = "BTCUSDT"
+                , hrr1IntervalMs = intervalMs
+                , hrr1HorizonBars = 3
+                , hrr1TrainingStartEventTimeMs = trainingStart
+                , hrr1TrainingEndEventTimeMs = trainingEnd
+                , hrr1ValidationStartEventTimeMs = validationStart
+                , hrr1ValidationEndEventTimeMs = validationEnd
+                , hrr1FinalHoldoutStartEventTimeMs = holdoutStartMs
+                , hrr1PurgeBars = 6
+                , hrr1EmbargoBars = 6
+                , hrr1FitAvailableAtMs = eventAt 58 + 50
+                , hrr1CreatedAtMs = eventAt 58 + 100
+                , hrr1RandomSeed = 20270904
+                , hrr1RuntimeVersions = ["ghc-9.4.8", "trader-test"]
+                , hrr1CostModelId = "registered_cost_model_v1"
+                }
+        zeroDigestRequest = baseRequest (replicate 64 '0')
+        finiteValue value = not (isNaN value || isInfinite value)
+        tamperPayloadDigest bytes =
+            case Aeson.decode bytes of
+                Just (Aeson.Object obj) ->
+                    Aeson.encode
+                        ( Aeson.Object
+                            (KM.insert "payloadSha256" (Aeson.toJSON (replicate 64 '0' :: String)) obj)
+                        )
+                _ -> bytes
+    assert
+        "HAR-RV artifact identity and frozen feature contract are explicit"
+        ( harRvArtifactSchemaIdV1 == "har_rv_risk_gate_artifact_v1"
+            && harRvArtifactSchemaVersionV1 == 1
+            && harRvCompatibilityVersionV1 == 1
+            && harRvSemanticModelIdV1 == "bar_har_rv_ridge_risk_gate_v1"
+            && harRvFeatureNamesV1
+                == ["log_rv.trailing_1_bar", "log_rv.trailing_6_bars", "log_rv.trailing_24_bars"]
+            && harRvRidgeLambdaV1 == 1.0e-6
+        )
+    case buildInputs "BTCUSDT" closes of
+        Nothing -> assert "causal complete OHLCV should construct HAR-RV test input" False
+        Just inputs ->
+            case harRvTrainingEvidenceSha256V1 zeroDigestRequest inputs of
+                Nothing -> assert "registered HAR-RV fold should produce a provenance digest" False
+                Just evidenceDigest -> do
+                    let request = baseRequest evidenceDigest
+                    case fitHarRvArtifactV1 request inputs of
+                        Left err -> assert ("HAR-RV causal ridge fit should succeed: " ++ err) False
+                        Right artifact -> do
+                            assert
+                                "HAR-RV fit records finite fixed-shape training state"
+                                ( hra1TrainingRowCount artifact == 32
+                                    && hra1ObservedTrainingRowCount artifact == 32
+                                    && length (hra1FeatureMeans artifact) == 3
+                                    && length (hra1FeatureScales artifact) == 3
+                                    && length (hra1Coefficients artifact) == 3
+                                    && all finiteValue (hra1FeatureMeans artifact ++ hra1FeatureScales artifact ++ hra1Coefficients artifact)
+                                    && all (> 0) (hra1FeatureScales artifact)
+                                    && finiteValue (hra1TrainingMse artifact)
+                                    && hra1TrainingMse artifact >= 0
+                                    && finiteValue (hra1TrainingMedianForecastVolatility artifact)
+                                    && hra1TrainingMedianForecastVolatility artifact > 0
+                                    && length (hra1PayloadSha256 artifact) == 64
+                                )
+                            case predictHarRvV1 artifact inputs validationStart of
+                                Nothing -> assert "HAR-RV validation forecast should be available" False
+                                Just estimate -> do
+                                    assert
+                                        "HAR-RV emits a finite ordered distribution and bounded risk scale"
+                                        ( hre1EventTimeMs estimate == validationStart
+                                            && hre1DecisionTimeMs estimate == validationStart + 100
+                                            && all
+                                                finiteValue
+                                                [ hre1ExpectedLogRealizedVariance estimate
+                                                , hre1ForecastVolatility estimate
+                                                , hre1Lower95Volatility estimate
+                                                , hre1Upper95Volatility estimate
+                                                , hre1RiskScale estimate
+                                                ]
+                                            && hre1ForecastVolatility estimate > 0
+                                            && hre1Lower95Volatility estimate > 0
+                                            && hre1Upper95Volatility estimate >= hre1Lower95Volatility estimate
+                                            && hre1RiskScale estimate >= 0
+                                            && hre1RiskScale estimate <= 1
+                                        )
+                                    let longExposure = scaleChampionExposureHarRvV1 artifact inputs validationStart 0.25
+                                        shortExposure = scaleChampionExposureHarRvV1 artifact inputs validationStart (-0.25)
+                                    assert
+                                        "HAR-RV can only preserve direction and reduce absolute champion exposure"
+                                        ( longExposure >= 0
+                                            && longExposure <= 0.25
+                                            && shortExposure <= 0
+                                            && shortExposure >= (-0.25)
+                                            && abs longExposure == abs shortExposure
+                                            && scaleChampionExposureHarRvV1 artifact inputs validationStart (0 / 0) == 0
+                                        )
+                            let encoded = encodeHarRvArtifactV1 artifact
+                            assert
+                                "HAR-RV artifact round-trips exactly and rejects payload corruption"
+                                ( decodeHarRvArtifactV1 encoded == Right artifact
+                                    && isLeft (decodeHarRvArtifactV1 (tamperPayloadDigest encoded))
+                                    && isLeft (decodeHarRvArtifactV1 (BL.snoc encoded 0))
+                                )
+                            assert
+                                "HAR-RV refuses training, pre-validation, post-validation, and holdout inference"
+                                ( and
+                                    [ isNothing (predictHarRvV1 artifact inputs trainingEnd)
+                                    , isNothing (predictHarRvV1 artifact inputs (validationStart + 1))
+                                    , isNothing (predictHarRvV1 artifact inputs (validationEnd + intervalMs))
+                                    , isNothing (predictHarRvV1 artifact inputs holdoutStartMs)
+                                    ]
+                                )
+                            case buildInputs "ETHUSDT" closes of
+                                Nothing -> assert "scope-mismatch input fixture should construct" False
+                                Just wrongScope ->
+                                    assert
+                                        "HAR-RV scope mismatch fails closed"
+                                        ( isNothing (predictHarRvV1 artifact wrongScope validationStart)
+                                            && harRvRiskScaleV1 artifact wrongScope validationStart == 0
+                                        )
+                            case buildInputs "BTCUSDT" (V.replicate rowCount 100) of
+                                Nothing -> assert "flat input fixture should construct" False
+                                Just flatInputs ->
+                                    assert
+                                        "zero realized variance is unavailable and produces neutral exposure"
+                                        ( isNothing (predictHarRvV1 artifact flatInputs validationStart)
+                                            && harRvRiskScaleV1 artifact flatInputs validationStart == 0
+                                            && scaleChampionExposureHarRvV1 artifact flatInputs validationStart 0.25 == 0
+                                        )
+                            let futureIndex = 80
+                                futureCloses = closes V.// [(futureIndex, (closes V.! futureIndex) * 1.05)]
+                            case buildInputs "BTCUSDT" futureCloses of
+                                Nothing -> assert "future-mutated input fixture should construct" False
+                                Just futureInputs -> do
+                                    assert
+                                        "modifying a post-validation future bar cannot alter earlier evidence or prediction"
+                                        ( harRvTrainingEvidenceSha256V1 request futureInputs == Just evidenceDigest
+                                            && predictHarRvV1 artifact futureInputs validationStart
+                                                == predictHarRvV1 artifact inputs validationStart
+                                        )
+                            let trainingMutationIndex = 40
+                                trainingCloses = closes V.// [(trainingMutationIndex, (closes V.! trainingMutationIndex) * 1.01)]
+                            case buildInputs "BTCUSDT" trainingCloses of
+                                Nothing -> assert "training-mutated input fixture should construct" False
+                                Just changedTraining ->
+                                    assert
+                                        "changing fitted evidence invalidates its digest and rejects the fit"
+                                        ( harRvTrainingEvidenceSha256V1 request changedTraining /= Just evidenceDigest
+                                            && isLeft (fitHarRvArtifactV1 request changedTraining)
+                                        )
+                    assert
+                        "malformed provenance and registration boundaries fail closed"
+                        ( and
+                            [ isLeft (fitHarRvArtifactV1 request{hrr1TrainingEvidenceSha256 = replicate 64 'f'} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1HorizonBars = 2} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1IntervalMs = 60000} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1TrainingStartEventTimeMs = trainingStart + 1} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1PurgeBars = 3} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1RandomSeed = 1} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1FinalHoldoutStartEventTimeMs = holdoutStartMs + intervalMs} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1ValidationEndEventTimeMs = holdoutStartMs - intervalMs} inputs)
+                            ]
+                        )
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do
