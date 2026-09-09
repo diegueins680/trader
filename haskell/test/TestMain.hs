@@ -360,6 +360,7 @@ import Trader.Predictors.MarketContextLinearArtifactV1 (
     marketContextLinearArtifactSchemaVersionV1,
     marketContextLinearCompatibilityVersionV1,
     marketContextLinearSemanticModelIdV1,
+    marketContextTargetReturnV1,
     mcla1Beta,
     mcla1Intercept,
     mcla1ObservedTrainingRowCount,
@@ -8599,8 +8600,8 @@ testMarketContextLinearArtifactV1 = do
             fromMaybe (error "market-context artifact factor fixture should construct") $
                 pointInTimeUniverseSnapshotV2
                     quote
-                    (eventTime - 100)
-                    (eventTime - 50)
+                    (eventTime + 10)
+                    (eventTime + 20)
                     [ UniverseMemberV2 ("BTC" ++ quote) 1000 True
                     , UniverseMemberV2 ("ETH" ++ quote) 900 True
                     , UniverseMemberV2 ("SOL" ++ quote) 800 True
@@ -8638,13 +8639,32 @@ testMarketContextLinearArtifactV1 = do
                     )
                     maybeValue
         factorRow = factor "BTCUSDT" "USDT" 3 intervalMs
+        targetReturnFor targetFactor targetSymbol eventTime targetAvailabilityTime forwardReturn = do
+            let closes = V.fromList [1, 1 + forwardReturn]
+                volumes = V.fromList [1, 1]
+                targetEventTime = eventTime + intervalMs
+                targetDecisionTime = max (targetEventTime + 100) targetAvailabilityTime
+            targetInputs <-
+                completeOhlcvInputsV2
+                    targetSymbol
+                    (V.fromList [eventTime - intervalMs, eventTime])
+                    (V.fromList [eventTime + 100, targetDecisionTime])
+                    (V.fromList [eventTime + 20, targetAvailabilityTime])
+                    intervalMs
+                    (mkFeatureInputs closes (Just closes) (Just closes) (Just closes) (Just volumes))
+            marketContextTargetReturnV1 targetFactor 1 targetInputs
         trainingRow eventTime maybeValue targetReturn =
-            fromMaybe (error "market-context artifact training fixture should construct") $
-                mkMarketContextTrainingObservationV1
-                    (factorRow eventTime maybeValue)
-                    (eventTime + intervalMs)
-                    (eventTime + intervalMs + 50)
-                    targetReturn
+            let trainingFactor = factorRow eventTime maybeValue
+                target =
+                    fromMaybe (error "market-context artifact target fixture should construct") $
+                        targetReturnFor
+                            trainingFactor
+                            "BTCUSDT"
+                            eventTime
+                            (eventTime + intervalMs + 50)
+                            targetReturn
+             in fromMaybe (error "market-context artifact training fixture should construct") $
+                    mkMarketContextTrainingObservationV1 trainingFactor target
         rows =
             [ trainingRow 1000 (Just 0) 0.001
             , trainingRow 2000 Nothing (-0.25)
@@ -8652,12 +8672,12 @@ testMarketContextLinearArtifactV1 = do
             , trainingRow 4000 (Just 0.04) 0.081
             ]
         lateTrainingRow =
-            fromMaybe (error "late market-context target fixture should construct") $
-                mkMarketContextTrainingObservationV1
-                    (factorRow 4000 (Just 0.04))
-                    5000
-                    5600
-                    0.081
+            let trainingFactor = factorRow 4000 (Just 0.04)
+                target =
+                    fromMaybe (error "late market-context target fixture should construct") $
+                        targetReturnFor trainingFactor "BTCUSDT" 4000 5600 0.081
+             in fromMaybe (error "late market-context training fixture should construct") $
+                    mkMarketContextTrainingObservationV1 trainingFactor target
         close expected actual = abs (expected - actual) <= 1.0e-12
         fitted = fitMarketContextLinearArtifactV1 request rows
         validationFactor = factorRow 7000 (Just 0.05)
@@ -8667,6 +8687,10 @@ testMarketContextLinearArtifactV1 = do
         wrongPeerCountFactor = factor "BTCUSDT" "USDT" 2 intervalMs 7000 (Just 0.05)
         wrongIntervalFactor = factor "BTCUSDT" "USDT" 3 500 7000 (Just 0.05)
         phaseShiftedFactor = factorRow 7500 (Just 0.05)
+        ethTrainingFactor = factor "ETHUSDT" "USDT" 3 intervalMs 1000 (Just 0.01)
+        ethTarget =
+            fromMaybe (error "ETH market-context target fixture should construct") $
+                targetReturnFor ethTrainingFactor "ETHUSDT" 1000 2050 0.02
     assert
         "market-context linear artifact has a distinct immutable semantic identity"
         ( marketContextLinearArtifactSchemaIdV1 == "point_in_time_market_context_linear_artifact_v1"
@@ -8682,6 +8706,8 @@ testMarketContextLinearArtifactV1 = do
             && mcf2PeerSymbols validationFactor == ["ETHUSDT", "SOLUSDT", "DOGEUSDT"]
             && mcf2IntervalMs validationFactor == intervalMs
             && frv2Values (mcf2FeatureRow validationFactor) == [0.05]
+            && frv2EventTimesMs (mcf2FeatureRow validationFactor) == [Just 7010]
+            && frv2AvailabilityTimesMs (mcf2FeatureRow validationFactor) == [Just 7020]
         )
     case fitted of
         Left reason -> assert ("valid market-context artifact fit failed: " ++ reason) False
@@ -8760,20 +8786,13 @@ testMarketContextLinearArtifactV1 = do
         )
     assert
         "non-finite and impossible target labels cannot enter a training observation"
-        ( isNothing
-            ( mkMarketContextTrainingObservationV1
-                (factorRow 1000 (Just 0.01))
-                2000
-                2050
-                (0 / 0)
-            )
+        ( isNothing (targetReturnFor (factorRow 1000 (Just 0.01)) "BTCUSDT" 1000 2050 (0 / 0))
             && isNothing
-                ( mkMarketContextTrainingObservationV1
-                    (factorRow 1000 (Just 0.01))
-                    2000
-                    2050
-                    (-1)
-                )
+                (targetReturnFor (factorRow 1000 (Just 0.01)) "BTCUSDT" 1000 2050 (-1))
+            && isNothing
+                (targetReturnFor (factorRow 1000 (Just 0.01)) "ETHUSDT" 1000 2050 0.02)
+            && isNothing
+                (mkMarketContextTrainingObservationV1 (factorRow 1000 (Just 0.01)) ethTarget)
         )
 
 testMarketContextLinearArtifactV1ProductionIsolation :: IO ()

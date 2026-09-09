@@ -234,9 +234,19 @@ test("market-context linear artifact v1 is fail-closed and production-isolated",
   );
   assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
   assert.doesNotMatch(boundary, /mclfr1UniverseScope|mcto1UniverseScope/);
+  assert.match(boundary, /MarketContextTargetReturnV1,/);
+  assert.doesNotMatch(boundary, /MarketContextTargetReturnV1 \(\.\.\)/);
   assert.match(
     boundary,
     /predictMarketContextLinearV1\s*::\s*MarketContextLinearArtifactV1\s*->\s*MarketContextFactorV2/,
+  );
+  assert.match(
+    boundary,
+    /marketContextTargetReturnV1\s*::[\s\S]*MarketContextFactorV2[\s\S]*CompleteOhlcvInputsV2/,
+  );
+  assert.match(
+    boundary,
+    /mkMarketContextTrainingObservationV1\s*::\s*MarketContextFactorV2\s*->\s*MarketContextTargetReturnV1/,
   );
   assert.match(boundary, /complete chronological fold/);
   assert.match(boundary, /Unavailable factor rows remain in the row count/);

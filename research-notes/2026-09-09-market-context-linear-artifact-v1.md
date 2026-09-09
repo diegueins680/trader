@@ -21,7 +21,12 @@ residual-variance floor, runtime versions, cost model reference, and creation
 time. Fit and inference accept only the abstract factor value produced by the
 causal builder; its private constructor binds the validated target, quote,
 selected peer identities, bar, interval, and feature row so generic evidence
-cannot be relabeled by parallel caller-supplied scope arguments.
+cannot be relabeled by parallel caller-supplied scope arguments. Realized
+targets are separate abstract values derived only from canonical
+`complete_ohlcv_feature_inputs_v2` bars. Their target asset, interval, start
+event, horizon, end event, availability, and computed simple return are bound
+before a training row can be constructed, preventing a generic scalar return
+from another asset or time from being attached to the factor.
 
 Unavailable factor rows remain in the grid and row count, but their dense zero
 is excluded from OLS. Fitting requires at least three observed rows and
@@ -29,9 +34,11 @@ non-degenerate finite factor dispersion. Inference checks the factor's exact
 target, quote, peer count, interval, feature schema, causal timestamps,
 post-training boundary, exact registered grid phase, payload digest,
 compatibility version, and finite positive variance. Failure returns no
-estimate. The artifact itself binds the forecast horizon. The only successful
-output is a conditional mean and residual variance; it is not an actionable
-signal.
+estimate. A factor's latest contributing event may be later than the peer bar
+end when the universe snapshot is causally observed after close, but must be no
+later than its decision. The artifact itself binds the forecast horizon. The
+only successful output is a conditional mean and residual variance; it is not
+an actionable signal.
 
 ## Artifact and authority boundary
 
@@ -53,7 +60,8 @@ champion, execution, and live paths.
 Synthetic tests recover a known intercept and slope, prove that an unavailable
 row with a deliberately adverse label cannot influence the fit, check exact
 round-trip bytes and scope-compatible inference, prove scope is retained by
-the abstract factor, and reject incomplete grids,
+the abstract factor and realized target, admit a causal post-close universe
+witness, and reject cross-asset target pairing, incomplete grids,
 insufficient purge, late labels, degenerate factors, non-finite targets,
 corruption, rehashed semantic drift, and rehashed live-authority escalation.
 

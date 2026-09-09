@@ -2,6 +2,7 @@
 
 module Trader.Predictors.MarketContextLinearArtifactV1 (
     MarketContextLinearFitRequestV1 (..),
+    MarketContextTargetReturnV1,
     MarketContextTrainingObservationV1,
     MarketContextLinearArtifactV1,
     MarketContextLinearEstimateV1 (..),
@@ -9,6 +10,7 @@ module Trader.Predictors.MarketContextLinearArtifactV1 (
     marketContextLinearArtifactSchemaVersionV1,
     marketContextLinearCompatibilityVersionV1,
     marketContextLinearSemanticModelIdV1,
+    marketContextTargetReturnV1,
     mkMarketContextTrainingObservationV1,
     fitMarketContextLinearArtifactV1,
     predictMarketContextLinearV1,
@@ -34,7 +36,8 @@ import qualified Data.Aeson.Types as AesonTypes
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isAscii, isControl, isDigit, isUpper)
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf, nub, sort)
+import Data.List (elemIndex, foldl', isPrefixOf, nub, sort)
+import qualified Data.Vector as V
 
 import Trader.PointInTimeUniverseV2 (
     pointInTimeUniverseSchemaIdV2,
@@ -57,6 +60,7 @@ import Trader.Predictors.MarketContextFeaturesV2 (
     marketContextFactorFeatureNamesV2,
     marketContextFactorSchemaSignatureV2,
     marketContextFactorSchemaVersionV2,
+    mcf2BarOpenTimeMs,
     mcf2EventTimeMs,
     mcf2FeatureRow,
     mcf2IntervalMs,
@@ -64,6 +68,12 @@ import Trader.Predictors.MarketContextFeaturesV2 (
     mcf2Quote,
     mcf2RequiredPeerCount,
     mcf2TargetSymbol,
+ )
+import Trader.Predictors.OhlcvInputsV2 (
+    CompleteOhlcvInputsV2,
+    completeOhlcvGridV2,
+    completeOhlcvRowsV2,
+    completeOhlcvScopeV2,
  )
 
 -- | Immutable inputs that bind one fold-local fit to its research evidence.
@@ -92,12 +102,22 @@ data MarketContextLinearFitRequestV1 = MarketContextLinearFitRequestV1
     }
     deriving (Eq, Show)
 
--- | One grid row. The explicit event time survives an unavailable factor cell.
+-- | A scope-bound realized return computed from canonical complete target bars.
+data MarketContextTargetReturnV1 = MarketContextTargetReturnV1
+    { marketContextTargetSymbolV1 :: !String
+    , marketContextTargetStartEventTimeMsV1 :: !Int64
+    , marketContextTargetEventTimeMsV1 :: !Int64
+    , marketContextTargetAvailabilityTimeMsV1 :: !Int64
+    , marketContextTargetIntervalMsV1 :: !Int64
+    , marketContextTargetHorizonBarsV1 :: !Int
+    , marketContextTargetForwardReturnV1 :: !Double
+    }
+    deriving (Eq, Show)
+
+-- | One grid row. Factor and label scope are both immutable abstract values.
 data MarketContextTrainingObservationV1 = MarketContextTrainingObservationV1
     { mcto1Factor :: !MarketContextFactorV2
-    , mcto1TargetEventTimeMs :: !Int64
-    , mcto1TargetAvailabilityTimeMs :: !Int64
-    , mcto1ForwardReturn :: !Double
+    , mcto1Target :: !MarketContextTargetReturnV1
     }
     deriving (Eq, Show)
 
@@ -152,24 +172,61 @@ marketContextLinearValidationMetricsStateV1 = "not_evaluated"
 marketContextLinearFinalHoldoutStateV1 :: String
 marketContextLinearFinalHoldoutStateV1 = "untouched"
 
--- | Construct a label-bearing row without interpreting an unavailable factor.
+{- | Compute a scope-bound realized return from two canonical complete target
+bars. The start bar must be the factor's exact target bar and must be available
+by the factor decision; the target bar is selected by the declared horizon.
+-}
+marketContextTargetReturnV1 ::
+    MarketContextFactorV2 ->
+    Int ->
+    CompleteOhlcvInputsV2 ->
+    Maybe MarketContextTargetReturnV1
+marketContextTargetReturnV1 factor horizonBars targetInputs = do
+    guard (horizonBars > 0)
+    guard (completeOhlcvScopeV2 targetInputs == mcf2TargetSymbol factor)
+    let (openTimes, _, _, intervalMs) = completeOhlcvGridV2 targetInputs
+        rows = completeOhlcvRowsV2 targetInputs
+    guard (intervalMs == mcf2IntervalMs factor)
+    guard (V.length openTimes == length rows)
+    startIndex <- V.elemIndex (mcf2BarOpenTimeMs factor) openTimes
+    let targetIndexInteger = toInteger startIndex + toInteger horizonBars
+    guard (targetIndexInteger <= toInteger (maxBound :: Int))
+    startRow <- atMay rows startIndex
+    targetRow <- atMay rows (fromInteger targetIndexInteger)
+    (startEventTime, startAvailabilityTime, startClose) <- marketCloseWitness startRow
+    (targetEventTime, targetAvailabilityTime, targetClose) <- marketCloseWitness targetRow
+    guard (startEventTime == mcf2EventTimeMs factor)
+    guard (startAvailabilityTime <= frv2DecisionTimeMs (mcf2FeatureRow factor))
+    let expectedTargetEvent =
+            toInteger startEventTime
+                + toInteger horizonBars * toInteger intervalMs
+    guard (toInteger targetEventTime == expectedTargetEvent)
+    let forwardReturn = targetClose / startClose - 1
+    guard (forwardReturn > -1 && finite forwardReturn)
+    pure
+        MarketContextTargetReturnV1
+            { marketContextTargetSymbolV1 = completeOhlcvScopeV2 targetInputs
+            , marketContextTargetStartEventTimeMsV1 = startEventTime
+            , marketContextTargetEventTimeMsV1 = targetEventTime
+            , marketContextTargetAvailabilityTimeMsV1 = targetAvailabilityTime
+            , marketContextTargetIntervalMsV1 = intervalMs
+            , marketContextTargetHorizonBarsV1 = horizonBars
+            , marketContextTargetForwardReturnV1 = forwardReturn
+            }
+
+-- | Bind a validated factor to a scope-compatible realized target.
 mkMarketContextTrainingObservationV1 ::
     MarketContextFactorV2 ->
-    Int64 ->
-    Int64 ->
-    Double ->
+    MarketContextTargetReturnV1 ->
     Maybe MarketContextTrainingObservationV1
-mkMarketContextTrainingObservationV1 factor targetEventTime targetAvailabilityTime forwardReturn = do
-    let decisionEventTime = mcf2EventTimeMs factor
-    guard (targetEventTime > decisionEventTime)
-    guard (targetAvailabilityTime >= targetEventTime)
-    guard (forwardReturn > -1 && finite forwardReturn)
+mkMarketContextTrainingObservationV1 factor target = do
+    guard (marketContextTargetSymbolV1 target == mcf2TargetSymbol factor)
+    guard (marketContextTargetStartEventTimeMsV1 target == mcf2EventTimeMs factor)
+    guard (marketContextTargetIntervalMsV1 target == mcf2IntervalMs factor)
     pure
         MarketContextTrainingObservationV1
             { mcto1Factor = factor
-            , mcto1TargetEventTimeMs = targetEventTime
-            , mcto1TargetAvailabilityTimeMs = targetAvailabilityTime
-            , mcto1ForwardReturn = forwardReturn
+            , mcto1Target = target
             }
 
 {- | Fit only after validating the complete chronological fold and every label.
@@ -521,17 +578,22 @@ validateObservation request observation
     | length (mcf2PeerSymbols factor) /= mcf2RequiredPeerCount factor = Left "market-context training peer identity count is invalid"
     | mcf2IntervalMs factor /= interval = Left "market-context training interval does not match artifact scope"
     | not (validFactorRowForEvent interval decisionEvent featureRow) = Left "market-context factor row is malformed or causally incompatible"
+    | marketContextTargetSymbolV1 target /= mcf2TargetSymbol factor = Left "market-context target symbol does not match factor scope"
+    | marketContextTargetStartEventTimeMsV1 target /= decisionEvent = Left "market-context target start does not match factor event"
+    | marketContextTargetIntervalMsV1 target /= interval = Left "market-context target interval does not match artifact scope"
+    | marketContextTargetHorizonBarsV1 target /= mclfr1HorizonBars request = Left "market-context target horizon does not match artifact scope"
     | toInteger targetEvent /= expectedTargetEvent = Left "market-context target event does not match the registered horizon"
     | targetAvailability < targetEvent || targetAvailability > mclfr1FitAvailableAtMs request = Left "market-context target was not available by the fit cutoff"
     | targetReturn <= -1 || not (finite targetReturn) = Left "market-context target return is invalid"
     | otherwise = Right ()
   where
     factor = mcto1Factor observation
+    target = mcto1Target observation
     featureRow = mcf2FeatureRow factor
     decisionEvent = mcf2EventTimeMs factor
-    targetEvent = mcto1TargetEventTimeMs observation
-    targetAvailability = mcto1TargetAvailabilityTimeMs observation
-    targetReturn = mcto1ForwardReturn observation
+    targetEvent = marketContextTargetEventTimeMsV1 target
+    targetAvailability = marketContextTargetAvailabilityTimeMsV1 target
+    targetReturn = marketContextTargetForwardReturnV1 target
     interval = mclfr1IntervalMs request
     expectedTargetEvent = toInteger decisionEvent + toInteger (mclfr1HorizonBars request) * toInteger interval
 
@@ -548,7 +610,7 @@ validateArtifact artifact = do
 observedPair :: MarketContextTrainingObservationV1 -> [(Double, Double)] -> [(Double, Double)]
 observedPair observation pairs =
     case (frv2Available row, frv2Values row) of
-        ([True], [value]) -> (value, mcto1ForwardReturn observation) : pairs
+        ([True], [value]) -> (value, marketContextTargetForwardReturnV1 (mcto1Target observation)) : pairs
         _ -> pairs
   where
     row = mcf2FeatureRow (mcto1Factor observation)
@@ -586,7 +648,7 @@ validFactorRowForEvent interval eventTime row =
         && validDecisionTime
         && case (frv2Available row, frv2Values row, frv2EventTimesMs row, frv2AvailabilityTimesMs row) of
             ([True], [value], [Just featureEvent], [Just availabilityTime]) ->
-                featureEvent == eventTime
+                featureEvent >= eventTime
                     && availabilityTime >= featureEvent
                     && availabilityTime <= frv2DecisionTimeMs row
                     && value > -1
@@ -598,6 +660,25 @@ validFactorRowForEvent interval eventTime row =
     validDecisionTime =
         decisionTime >= eventTime
             && toInteger decisionTime < toInteger eventTime + toInteger interval
+
+marketCloseWitness :: FeatureRowV2 -> Maybe (Int64, Int64, Double)
+marketCloseWitness row = do
+    closeIndex <- elemIndex "market.close" (frv2Names row)
+    True <- atMay (frv2Available row) closeIndex
+    value <- atMay (frv2Values row) closeIndex
+    Just eventTime <- atMay (frv2EventTimesMs row) closeIndex
+    Just availabilityTime <- atMay (frv2AvailabilityTimesMs row) closeIndex
+    guard (eventTime >= 0)
+    guard (availabilityTime >= eventTime && availabilityTime <= frv2DecisionTimeMs row)
+    guard (value > 0 && finite value)
+    pure (eventTime, availabilityTime, value)
+
+atMay :: [a] -> Int -> Maybe a
+atMay values index
+    | index < 0 = Nothing
+    | otherwise = case drop index values of
+        value : _ -> Just value
+        [] -> Nothing
 
 fitLinearObservedPairs :: Double -> [(Double, Double)] -> Maybe (Double, Double, Double, Double)
 fitLinearObservedPairs minimumVariance pairs = do
