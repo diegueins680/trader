@@ -42,13 +42,17 @@ function artifactPaths(manifest) {
   ];
 }
 
-async function buildBundle() {
+async function buildBundle(commitOverride) {
   const root = await mkdtemp(join(tmpdir(), "trader-market-context-bundle-"));
   const bundle = join(root, "bundle");
   await cp(fixture, bundle, { recursive: true });
   const manifestPath = join(bundle, "source-manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  const commit = git("rev-parse", "HEAD").toString("utf8").trim();
+  const commit = (
+    commitOverride === undefined
+      ? git("rev-parse", "HEAD")
+      : Buffer.from(commitOverride)
+  ).toString("utf8").trim();
   manifest.codeCommit = commit;
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(manifestPath, manifestBytes);
@@ -189,6 +193,12 @@ test("bundle verifier rejects incomplete, changed, or authorizing status", async
   result = runVerifier(boolCount.statusPath);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /eligiblePopulationCount must be/);
+
+  const previousCommit = git("rev-parse", "HEAD^").toString("utf8").trim();
+  const versionDrift = await buildBundle(previousCommit);
+  result = runVerifier(versionDrift.statusPath);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /bundle-verifier bytes disagree/);
 });
 
 test("bundle verifier enforces strict status and protects frozen inputs", async () => {
