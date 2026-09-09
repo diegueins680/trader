@@ -10,11 +10,14 @@
     "https://doi.org/10.1016/0304-4076(86)90063-1"
   ],
   "implementationInterpretation": {
-    "target": "log of the sum of squared causally completed bar returns over the registered forward horizon",
-    "features": "intercept plus log realized-variance proxies over the trailing 1, 6, and 24 same-interval completed-bar blocks; unavailable blocks make the forecast absent",
-    "fit": "per-symbol expanding-window ridge regression with lambda fixed at 0.000001 after training-only standardization",
+    "target": "natural log of the sum of squared close-to-close log returns over the next registered 1, 3, or 6 completed bars; zero or non-finite realized variance is unavailable",
+    "features": "intercept plus the natural log of summed squared close-to-close log returns over trailing 1, 6, and 24 same-interval blocks ending at the decision bar; zero, incomplete, unavailable, or non-finite blocks make the forecast absent",
+    "fit": "per-symbol expanding-window ridge regression after training-only population-mean and population-standard-deviation feature scaling; the intercept is the unpenalized training-target mean and X'X plus 0.000001 times the identity penalizes only the three standardized slopes",
     "tradingUse": "direction is copied unchanged from the frozen current champion; the candidate may only reduce absolute target exposure or abstain",
-    "riskScale": "min(1, training-only median forecast volatility / current forecast volatility), clipped to [0,1]; a missing, stale, invalid, or non-finite forecast yields scale 0"
+    "riskScale": "forecast volatility is exp(expected log realized variance / 2); scale is min(1, training-only median fitted forecast volatility / current forecast volatility), clipped to [0,1]; a missing, stale, invalid, or non-finite forecast yields scale 0",
+    "diagnosticInterval": "the implementation may report an explicitly uncalibrated Gaussian residual 95% interval on log realized variance transformed to volatility; this is diagnostic only and cannot satisfy calibration or promotion gates without out-of-sample evidence",
+    "minimumFitRows": "at least five usable rows, the mathematical minimum for an intercept and three slopes with positive residual degrees of freedom",
+    "clarificationRecordedOn": "2026-09-09 before the registered dataset start and before any outcome evaluation"
   },
   "deviationsFromPapers": [
     "Completed bar squared returns proxy high-frequency realized variance.",
