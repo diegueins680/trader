@@ -328,6 +328,13 @@ test("missingness-aware shallow feature panel is exact and production-isolated",
     ),
     "utf8",
   );
+  const preprocessor = await readFile(
+    new URL(
+      "../haskell/app/Trader/Predictors/MissingnessAwarePreprocessorV1.hs",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   const productionPaths = await Promise.all(
     [
       "../haskell/app/Trader/Predictors/Features.hs",
@@ -340,12 +347,17 @@ test("missingness-aware shallow feature panel is exact and production-isolated",
     ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
   );
   const isolatedContract =
-    /MissingnessAwareFeaturesV1|missingnessAwareFeaturePanelV1|missingness_aware_calibrated_shallow_feature_panel_v1/;
+    /MissingnessAwareFeaturesV1|MissingnessAwarePreprocessorV1|missingnessAwareFeaturePanelV1|missingness_aware_calibrated_shallow_feature_panel_v1|missingness_aware_preprocessor_artifact_v1/;
 
   for (const productionPath of productionPaths) {
     assert.doesNotMatch(productionPath, isolatedContract);
   }
   assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.doesNotMatch(preprocessor, /import Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(preprocessor, /missingness_aware_preprocessor_artifact_v1/);
+  assert.match(preprocessor, /standardized\./);
+  assert.match(preprocessor, /available\./);
+  assert.match(preprocessor, /liveTradingAuthorized/);
   assert.match(boundary, /fold-local training code must learn/);
   assert.match(boundary, /Only genuinely future, pre-holdout development rows are accepted/);
 
@@ -357,8 +369,18 @@ test("missingness-aware shallow feature panel is exact and production-isolated",
   );
   assert.equal(
     registration.status,
-    "preregistered_blocked_on_future_source_admission_and_fitted_artifact",
+    "preregistered_blocked_on_future_source_admission_and_fitted_preprocessor_and_model_artifacts",
   );
+  assert.deepEqual(registration.implementationInterpretation.preprocessorArtifact, {
+    schemaId: "missingness_aware_preprocessor_artifact_v1",
+    compatibilityVersion: 1,
+    fitScope: "one exact registered symbol interval horizon and training prefix",
+    statistics:
+      "observed-only population mean and population standard deviation per feature; constant-feature scale is one",
+    output: "22 standardized feature values followed by the ten optional availability masks",
+    authority:
+      "none; the artifact is not a return model, prediction, experiment result, promotion, deployment, order, or live authorization",
+  });
   assert.deepEqual(registration.implementationInterpretation.priceFeatureOrder, [
     "price.return_1",
     "price.return_3",

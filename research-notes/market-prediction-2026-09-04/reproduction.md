@@ -38,7 +38,7 @@ cd haskell
 cabal test trader-tests --test-show-details=direct
 ```
 
-The regression checks the exact twelve required price fields, five optional derivatives fields, five optional Coinbase-context fields, observed-zero versus unavailable masks, causal timestamps, scope/grid rejection, future-prefix invariance, the registered ten-symbol universe, exact bar-open start/development-end/holdout boundaries, and rejection of pre-registration and insufficient-lookback rows. It reads no market data and fits no model. The feature panel performs no imputation; a later versioned artifact must learn imputation means and scales on each training prefix only.
+The regression checks the exact twelve required price fields, five optional derivatives fields, five optional Coinbase-context fields, observed-zero versus unavailable masks, causal timestamps, scope/grid rejection, future-prefix invariance, the registered ten-symbol universe, exact bar-open start/development-end/holdout boundaries, and rejection of pre-registration and insufficient-lookback rows. It also fits the isolated preprocessor on synthetic rows only, verifies observed-only training statistics, standardized-neutral imputation, the 32-input order, exact training-grid/scope enforcement, deterministic round-trip, provenance digest, strict decoding, and corruption rejection. It reads no market data, label, or holdout and fits no return model.
 
 ## Verify an alternative-data panel artifact
 

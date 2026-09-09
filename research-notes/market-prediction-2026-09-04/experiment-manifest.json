@@ -79,12 +79,15 @@
     "ablation-robustness-results.md",
     "final-decision-memo.md",
     "missingness-aware-feature-panel-v1.md",
+    "missingness-aware-preprocessor-v1.md",
     "reproduction.md"
   ],
   "implementationBoundary": {
     "validatedWinnerCodeAdded": false,
     "researchFeaturePanelAdded": "missingness_aware_calibrated_shallow_feature_panel_v1",
+    "researchPreprocessorArtifactAdded": "missingness_aware_preprocessor_artifact_v1",
     "researchFeaturePanelModelFit": false,
+    "researchReturnModelFit": false,
     "researchFeaturePanelMarketDataRead": false,
     "predictorBehaviorChanged": false,
     "legacyConfigurationChanged": false,
