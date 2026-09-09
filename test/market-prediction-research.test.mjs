@@ -192,8 +192,72 @@ test("point-in-time market-context factor v2 remains isolated from production pa
     assert.doesNotMatch(productionPath, isolatedContract);
   }
   assert.doesNotMatch(adapter, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(adapter, /MarketContextFactorV2,/);
+  assert.doesNotMatch(adapter, /MarketContextFactorV2 \(\.\.\)/);
+  assert.doesNotMatch(adapter, /\{ mcf2TargetSymbol\s*::/);
+  assert.match(adapter, /mcf2TargetSymbol\s*::\s*MarketContextFactorV2\s*->\s*String/);
+  assert.match(adapter, /constructor is intentionally private/);
+  assert.match(adapter, /marketContextFactorV2[\s\S]*PointInTimeUniverseSelectionV2/);
   assert.match(adapter, /A caller that may select the target must request at least one/);
   assert.match(adapter, /no terminal membership or weight vector is\s+back-applied/);
+});
+
+test("market-context linear artifact v1 is fail-closed and production-isolated", async () => {
+  const boundary = await readFile(
+    new URL(
+      "../haskell/app/Trader/Predictors/MarketContextLinearArtifactV1.hs",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const cabal = await readFile(new URL("../haskell/trader.cabal", import.meta.url), "utf8");
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Main.hs",
+      "../haskell/app/Trader/MarketContext.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors/OnlineNeural.hs",
+      "../haskell/app/Trader/Trading.hs",
+      "../haskell/app/Trader/OrderExecution.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /MarketContextLinearArtifactV1|point_in_time_market_context_linear_ols_v1/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.equal(
+    [...cabal.matchAll(/Trader\.Predictors\.MarketContextLinearArtifactV1/g)].length,
+    1,
+  );
+  assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.doesNotMatch(boundary, /mclfr1UniverseScope|mcto1UniverseScope/);
+  assert.match(boundary, /MarketContextTargetReturnV1,/);
+  assert.doesNotMatch(boundary, /MarketContextTargetReturnV1 \(\.\.\)/);
+  assert.match(
+    boundary,
+    /predictMarketContextLinearV1\s*::\s*MarketContextLinearArtifactV1\s*->\s*MarketContextFactorV2/,
+  );
+  assert.match(
+    boundary,
+    /marketContextTargetReturnV1\s*::[\s\S]*MarketContextFactorV2[\s\S]*CompleteOhlcvInputsV2/,
+  );
+  assert.match(
+    boundary,
+    /mkMarketContextTrainingObservationV1\s*::\s*MarketContextFactorV2\s*->\s*MarketContextTargetReturnV1/,
+  );
+  assert.match(boundary, /complete chronological fold/);
+  assert.match(boundary, /Unavailable factor rows remain in the row count/);
+  assert.match(boundary, /mclfr1ValidationEndEventTimeMs/);
+  assert.match(boundary, /mclfr1FinalHoldoutStartEventTimeMs/);
+  assert.match(boundary, /validation target horizon reaches the final holdout/);
+  assert.match(boundary, /marketContextTrainingObservationsSha256V1/);
+  assert.match(boundary, /training observations do not match their provenance digest/);
+  assert.match(boundary, /payload digest mismatch/);
+  assert.match(boundary, /offline_research_only/);
+  assert.match(boundary, /liveTradingAuthorized" \.= False/);
 });
 
 test("market-context panel v2 requires external manifest proof and remains production-isolated", async () => {

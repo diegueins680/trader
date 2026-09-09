@@ -342,6 +342,7 @@ test-suite trader-tests
                      , Trader.Predictors.CrossExchangeFeaturesV2
                      , Trader.Predictors.OhlcvInputsV2
                      , Trader.Predictors.MarketContextFeaturesV2
+                     , Trader.Predictors.MarketContextLinearArtifactV1
                      , Trader.Predictors.MarketContextPanelSchemaV2
                      , Trader.Predictors.ExternalFeatureSchema
                      , Trader.Predictors.ExternalFeaturesV2

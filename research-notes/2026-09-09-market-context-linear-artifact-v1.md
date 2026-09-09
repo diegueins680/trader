@@ -1,0 +1,83 @@
+# Market-context linear artifact v1 — research infrastructure result
+
+Date: 2026-09-09.
+
+## Result
+
+`Trader.Predictors.MarketContextLinearArtifactV1` adds a pure, research-only
+fitted-component boundary between the causal
+`point_in_time_market_context_factor_v2` row and any future registered shallow
+candidate. Its distinct semantic identity is
+`point_in_time_market_context_linear_ols_v1`; it does not replace or alias the
+legacy `MarketContext` implementation.
+
+The fit requires the complete ordered training grid, a target event exactly at
+the declared horizon, target availability no later than the fit cutoff, a
+purge at least as long as that horizon, and the declared embargo before the
+first validation event. The inclusive validation start/end and the separately
+excluded final-holdout start are also immutable request fields. The complete
+forward horizon at the validation end must terminate strictly before that
+holdout boundary. The request binds the registration, code commit,
+training-data/source/split digests, a versioned SHA-256 of the exact ordered
+scope-bound factors and targets fitted by OLS, academic origins, target symbol, quote,
+peer count, point-in-time universe schema, interval and horizon,
+residual-variance floor, runtime versions, cost model reference, and creation
+time. Fit and inference accept only the abstract factor value produced by the
+causal builder; its private constructor binds the validated target, quote,
+selected peer identities, bar, interval, and feature row so generic evidence
+cannot be relabeled by parallel caller-supplied scope arguments. Realized
+targets are separate abstract values derived only from canonical
+`complete_ohlcv_feature_inputs_v2` bars. Their target asset, interval, start
+event, horizon, end event, availability, and computed simple return are bound
+before a training row can be constructed, preventing a generic scalar return
+from another asset or time from being attached to the factor.
+
+Unavailable factor rows remain in the grid and row count, but their dense zero
+is excluded from OLS. Fitting requires at least three observed rows and
+non-degenerate finite factor dispersion. Before fitting, the canonical digest
+of all factor scope, causal feature witnesses, and scope-bound targets must
+match the request; a same-grid observation sequence from different data fails.
+Inference checks the factor's exact
+target, quote, peer count, interval, feature schema, causal timestamps,
+bounded validation window, exact registered grid phase, a forecast horizon
+that terminates before the excluded final-holdout boundary, payload digest,
+compatibility version, and finite positive variance. Failure returns no
+estimate. A factor's latest contributing event may be later than the peer bar
+end when the universe snapshot is causally observed after close, but must be no
+later than its decision. The artifact itself binds the forecast horizon. The
+only successful output is a conditional mean and residual variance; it is not
+an actionable signal.
+
+## Artifact and authority boundary
+
+The strict JSON envelope stores a canonical SHA-256 of its payload. Unknown
+fields, payload corruption, semantic/schema/version drift, non-finite fit
+values, and any research-admission, experiment, holdout, model, promotion,
+deployment, order, or live-trading authority fail decoding. A future external
+candidate manifest must still bind the exact artifact bytes; the internal hash
+detects accidental corruption but is not an authenticity signature.
+
+The component explicitly records validation metrics as `not_evaluated`, the
+final holdout as `untouched`, and promotion state as
+`offline_research_only`. It is compiled only into the test component and is
+absent from the trader executable's module graph and all predictor, bot,
+champion, execution, and live paths.
+
+## Evidence and disposition
+
+Synthetic tests recover a known intercept and slope, prove that an unavailable
+row with a deliberately adverse label cannot influence the fit, check exact
+round-trip bytes and scope-compatible inference, prove scope is retained by
+the abstract factor and realized target, admit a causal post-close universe
+witness, and reject cross-asset target pairing, incomplete grids,
+insufficient purge, late labels, degenerate factors, non-finite targets,
+provenance/observation mismatch, corruption, later-fold and final-holdout inference, rehashed semantic drift,
+and rehashed live-authority escalation.
+
+No market data was acquired. No forecast or economic metric, trial, ablation,
+development result, or final-holdout result was produced. The experiment
+registry therefore receives no trial entry. No candidate passed, the current
+champion remains unchanged, and `FEATURE-MISSINGNESS-001` remains open pending
+prospective data, separate admission, remaining timestamp-preserving source
+contracts, a complete candidate artifact, production builders, and every
+registered statistical, economic, cost, risk, and operational gate.

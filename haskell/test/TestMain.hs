@@ -6,6 +6,7 @@ module Main (main) where
 
 import Control.Exception (SomeException, evaluate, toException, try)
 import Control.Monad (forM_, unless)
+import Crypto.Hash (Digest, SHA256, hash)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -341,6 +342,35 @@ import Trader.Predictors.MarketContextFeaturesV2 (
     marketContextFactorSchemaIdV2,
     marketContextFactorSchemaSignatureV2,
     marketContextFactorSchemaVersionV2,
+    marketContextFactorV2,
+    mcf2FeatureRow,
+    mcf2IntervalMs,
+    mcf2PeerSymbols,
+    mcf2Quote,
+    mcf2RequiredPeerCount,
+    mcf2TargetSymbol,
+ )
+import Trader.Predictors.MarketContextLinearArtifactV1 (
+    MarketContextLinearEstimateV1 (..),
+    MarketContextLinearFitRequestV1 (..),
+    decodeMarketContextLinearArtifactV1,
+    encodeMarketContextLinearArtifactV1,
+    fitMarketContextLinearArtifactV1,
+    marketContextLinearArtifactSchemaIdV1,
+    marketContextLinearArtifactSchemaVersionV1,
+    marketContextLinearCompatibilityVersionV1,
+    marketContextLinearSemanticModelIdV1,
+    marketContextTargetReturnV1,
+    marketContextTrainingObservationsSha256V1,
+    mcla1Beta,
+    mcla1Intercept,
+    mcla1ObservedTrainingRowCount,
+    mcla1PayloadSha256,
+    mcla1ResidualVariance,
+    mcla1TrainingMse,
+    mcla1TrainingRowCount,
+    mkMarketContextTrainingObservationV1,
+    predictMarketContextLinearV1,
  )
 import Trader.Predictors.MarketContextPanelSchemaV2 (
     decodeMarketContextPanelV2,
@@ -766,6 +796,8 @@ main = do
     testMarketContextPanelSchemaV2
     testMarketContextFactorV2
     testMarketContextFactorV2ProductionIsolation
+    testMarketContextLinearArtifactV1
+    testMarketContextLinearArtifactV1ProductionIsolation
     testMarketContextPanelV2ProductionIsolation
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
@@ -8536,6 +8568,319 @@ testMarketContextFactorV2ProductionIsolation =
                 ( not ("Trader.Predictors.MarketContextFeaturesV2" `isInfixOf` source)
                     && not (marketContextFactorSchemaIdV2 `isInfixOf` source)
                 )
+
+testMarketContextLinearArtifactV1 :: IO ()
+testMarketContextLinearArtifactV1 = do
+    let intervalMs = 1000 :: Int64
+        digest = replicate 64
+        request =
+            requestWithoutObservationDigest
+                { mclfr1TrainingObservationsSha256 = marketContextTrainingObservationsSha256V1 rows
+                }
+        requestWithoutObservationDigest =
+            MarketContextLinearFitRequestV1
+                { mclfr1RegistrationId = "missingness-aware-calibrated-shallow-v1"
+                , mclfr1CodeCommit = replicate 40 'a'
+                , mclfr1TrainingDataSha256 = digest 'b'
+                , mclfr1TrainingObservationsSha256 = digest 'e'
+                , mclfr1SourceManifestSha256 = digest 'c'
+                , mclfr1SplitManifestSha256 = digest 'd'
+                , mclfr1AcademicOrigins = ["https://doi.org/10.1111/jofi.13119"]
+                , mclfr1Symbol = "BTCUSDT"
+                , mclfr1Quote = "USDT"
+                , mclfr1RequiredPeerCount = 3
+                , mclfr1IntervalMs = intervalMs
+                , mclfr1HorizonBars = 1
+                , mclfr1TrainingStartEventTimeMs = 1000
+                , mclfr1TrainingEndEventTimeMs = 4000
+                , mclfr1ValidationStartEventTimeMs = 7000
+                , mclfr1ValidationEndEventTimeMs = 8000
+                , mclfr1FinalHoldoutStartEventTimeMs = 10000
+                , mclfr1PurgeBars = 1
+                , mclfr1EmbargoBars = 2
+                , mclfr1FitAvailableAtMs = 5500
+                , mclfr1CreatedAtMs = 6000
+                , mclfr1MinimumResidualVariance = 1.0e-8
+                , mclfr1RuntimeVersions = ["ghc-9.4.8", "trader-test"]
+                , mclfr1CostModelId = "registered_cost_model_v1"
+                }
+        factor targetSymbol quote peerCount factorInterval eventTime maybeValue =
+            fromMaybe (error "market-context artifact factor fixture should construct") $
+                pointInTimeUniverseSnapshotV2
+                    quote
+                    (eventTime + 10)
+                    (eventTime + 20)
+                    [ UniverseMemberV2 ("BTC" ++ quote) 1000 True
+                    , UniverseMemberV2 ("ETH" ++ quote) 900 True
+                    , UniverseMemberV2 ("SOL" ++ quote) 800 True
+                    , UniverseMemberV2 ("DOGE" ++ quote) 700 True
+                    ]
+                    >>= \snapshot ->
+                        pointInTimeUniverseSelectionV2
+                            quote
+                            4
+                            factorInterval
+                            (eventTime + 100)
+                            [snapshot]
+                            >>= \selection ->
+                                marketContextFactorV2
+                                    targetSymbol
+                                    peerCount
+                                    (eventTime - factorInterval)
+                                    factorInterval
+                                    selection
+                                    ( V.fromList
+                                        [ peerReturn ("BTC" ++ quote)
+                                        , peerReturn ("ETH" ++ quote)
+                                        , peerReturn ("SOL" ++ quote)
+                                        , peerReturn ("DOGE" ++ quote)
+                                        ]
+                                    )
+          where
+            peerReturn symbol =
+                fmap
+                    ( MarketContextPeerReturnV2
+                        symbol
+                        (eventTime - factorInterval)
+                        eventTime
+                        (eventTime + 20)
+                    )
+                    maybeValue
+        factorRow = factor "BTCUSDT" "USDT" 3 intervalMs
+        targetReturnFor targetFactor targetSymbol eventTime targetAvailabilityTime forwardReturn = do
+            let closes = V.fromList [1, 1 + forwardReturn]
+                volumes = V.fromList [1, 1]
+                targetEventTime = eventTime + intervalMs
+                targetDecisionTime = max (targetEventTime + 100) targetAvailabilityTime
+            targetInputs <-
+                completeOhlcvInputsV2
+                    targetSymbol
+                    (V.fromList [eventTime - intervalMs, eventTime])
+                    (V.fromList [eventTime + 100, targetDecisionTime])
+                    (V.fromList [eventTime + 20, targetAvailabilityTime])
+                    intervalMs
+                    (mkFeatureInputs closes (Just closes) (Just closes) (Just closes) (Just volumes))
+            marketContextTargetReturnV1 targetFactor 1 targetInputs
+        trainingRow eventTime maybeValue targetReturn =
+            let trainingFactor = factorRow eventTime maybeValue
+                target =
+                    fromMaybe (error "market-context artifact target fixture should construct") $
+                        targetReturnFor
+                            trainingFactor
+                            "BTCUSDT"
+                            eventTime
+                            (eventTime + intervalMs + 50)
+                            targetReturn
+             in fromMaybe (error "market-context artifact training fixture should construct") $
+                    mkMarketContextTrainingObservationV1 trainingFactor target
+        rows =
+            [ trainingRow 1000 (Just 0) 0.001
+            , trainingRow 2000 Nothing (-0.25)
+            , trainingRow 3000 (Just 0.03) 0.061
+            , trainingRow 4000 (Just 0.04) 0.081
+            ]
+        provenanceMismatchedRows =
+            trainingRow 1000 (Just 0) 0.002 : tail rows
+        lateTrainingRow =
+            let trainingFactor = factorRow 4000 (Just 0.04)
+                target =
+                    fromMaybe (error "late market-context target fixture should construct") $
+                        targetReturnFor trainingFactor "BTCUSDT" 4000 5600 0.081
+             in fromMaybe (error "late market-context training fixture should construct") $
+                    mkMarketContextTrainingObservationV1 trainingFactor target
+        close expected actual = abs (expected - actual) <= 1.0e-12
+        fitted = fitMarketContextLinearArtifactV1 request rows
+        validationFactor = factorRow 7000 (Just 0.05)
+        unavailableValidationFactor = factorRow 7000 Nothing
+        wrongTargetFactor = factor "ETHUSDT" "USDT" 3 intervalMs 7000 (Just 0.05)
+        wrongQuoteFactor = factor "BTCUSD" "USD" 3 intervalMs 7000 (Just 0.05)
+        wrongPeerCountFactor = factor "BTCUSDT" "USDT" 2 intervalMs 7000 (Just 0.05)
+        wrongIntervalFactor = factor "BTCUSDT" "USDT" 3 500 7000 (Just 0.05)
+        phaseShiftedFactor = factorRow 7500 (Just 0.05)
+        validationEndFactor = factorRow 8000 (Just 0.05)
+        laterFoldFactor = factorRow 9000 (Just 0.05)
+        finalHoldoutFactor = factorRow 10000 (Just 0.05)
+        ethTrainingFactor = factor "ETHUSDT" "USDT" 3 intervalMs 1000 (Just 0.01)
+        ethTarget =
+            fromMaybe (error "ETH market-context target fixture should construct") $
+                targetReturnFor ethTrainingFactor "ETHUSDT" 1000 2050 0.02
+    assert
+        "market-context linear artifact has a distinct immutable semantic identity"
+        ( marketContextLinearArtifactSchemaIdV1 == "point_in_time_market_context_linear_artifact_v1"
+            && marketContextLinearArtifactSchemaVersionV1 == 1
+            && marketContextLinearCompatibilityVersionV1 == 1
+            && marketContextLinearSemanticModelIdV1 == "point_in_time_market_context_linear_ols_v1"
+        )
+    assert
+        "market-context training provenance digest binds the exact ordered observations"
+        ( length (marketContextTrainingObservationsSha256V1 rows) == 64
+            && marketContextTrainingObservationsSha256V1 rows
+                /= marketContextTrainingObservationsSha256V1 provenanceMismatchedRows
+        )
+    assert
+        "market-context factors retain their validated scope instead of accepting caller relabeling"
+        ( mcf2TargetSymbol validationFactor == "BTCUSDT"
+            && mcf2Quote validationFactor == "USDT"
+            && mcf2RequiredPeerCount validationFactor == 3
+            && mcf2PeerSymbols validationFactor == ["ETHUSDT", "SOLUSDT", "DOGEUSDT"]
+            && mcf2IntervalMs validationFactor == intervalMs
+            && frv2Values (mcf2FeatureRow validationFactor) == [0.05]
+            && frv2EventTimesMs (mcf2FeatureRow validationFactor) == [Just 7010]
+            && frv2AvailabilityTimesMs (mcf2FeatureRow validationFactor) == [Just 7020]
+        )
+    case fitted of
+        Left reason -> assert ("valid market-context artifact fit failed: " ++ reason) False
+        Right artifact -> do
+            assert
+                "fold-local OLS distinguishes observed zero, excludes unavailable dense zero, and retains complete-grid counts"
+                ( mcla1TrainingRowCount artifact == 4
+                    && mcla1ObservedTrainingRowCount artifact == 3
+                    && close 0.001 (mcla1Intercept artifact)
+                    && close 2 (mcla1Beta artifact)
+                    && close 1.0e-8 (mcla1ResidualVariance artifact)
+                    && mcla1TrainingMse artifact <= 1.0e-24
+                )
+            let encoded = encodeMarketContextLinearArtifactV1 artifact
+                decoded = decodeMarketContextLinearArtifactV1 encoded
+            assert
+                "market-context component artifact round-trips with a canonical payload digest"
+                ( decoded == Right artifact
+                    && fmap encodeMarketContextLinearArtifactV1 decoded == Right encoded
+                    && length (mcla1PayloadSha256 artifact) == 64
+                )
+            assert
+                "compatible evidence through the registered validation end produces only a finite distribution summary"
+                ( ( case predictMarketContextLinearV1 artifact validationFactor of
+                        Just estimate ->
+                            close 0.101 (mcle1ExpectedForwardReturn estimate)
+                                && close 1.0e-8 (mcle1ResidualVariance estimate)
+                        Nothing -> False
+                  )
+                    && isJust (predictMarketContextLinearV1 artifact validationEndFactor)
+                )
+            assert
+                "unavailable, wrong-scope, wrong-grid, out-of-window, holdout, extreme, and pre-validation inference abstain"
+                ( and
+                    [ isNothing (predictMarketContextLinearV1 artifact unavailableValidationFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongTargetFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongQuoteFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongPeerCountFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact wrongIntervalFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact phaseShiftedFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact laterFoldFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact finalHoldoutFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact (factorRow 6000 (Just 0.05)))
+                    , isNothing (predictMarketContextLinearV1 artifact (factorRow 7000 (Just (-0.75))))
+                    ]
+                )
+            case Aeson.decode encoded :: Maybe Aeson.Value of
+                Just originalValue -> do
+                    let changedWithoutDigest = alterMarketContextPayload (setObjectField "semanticModelId" (Aeson.String "changed")) False originalValue
+                        changedAndRehashed = alterMarketContextPayload (setObjectField "semanticModelId" (Aeson.String "changed")) True originalValue
+                        authorizingAndRehashed = alterMarketContextPayload authorizeMarketContextPayload True originalValue
+                        unknownTopField = setMarketContextTopField "unexpected" Aeson.Null originalValue
+                    assert
+                        "payload corruption, unknown fields, rehashed semantic drift, and rehashed authority escalation fail closed"
+                        ( all
+                            (isLeft . decodeMarketContextLinearArtifactV1 . Aeson.encode)
+                            [changedWithoutDigest, changedAndRehashed, authorizingAndRehashed, unknownTopField]
+                        )
+                Nothing -> assert "encoded market-context artifact should decode as generic JSON" False
+    assert
+        "incomplete grids, provenance mismatch, invalid windows, insufficient purge, late labels, and degenerate observed factors reject fitting"
+        ( and
+            [ isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows))
+            , isLeft (fitMarketContextLinearArtifactV1 request provenanceMismatchedRows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1TrainingObservationsSha256 = digest 'e'} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1PurgeBars = 0} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Symbol = "ETHUSDT"} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Quote = "USD"} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1RequiredPeerCount = 2} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1AcademicOrigins = ["uncited"]} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1ValidationEndEventTimeMs = 6500} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1ValidationEndEventTimeMs = 8500} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 8000} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 9000} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 9500} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows ++ [lateTrainingRow]))
+            , isLeft
+                ( fitMarketContextLinearArtifactV1
+                    request
+                    [ trainingRow 1000 (Just 0.01) 0.02
+                    , trainingRow 2000 (Just 0.01) 0.03
+                    , trainingRow 3000 (Just 0.01) 0.04
+                    , trainingRow 4000 Nothing 0.05
+                    ]
+                )
+            ]
+        )
+    assert
+        "non-finite and impossible target labels cannot enter a training observation"
+        ( isNothing (targetReturnFor (factorRow 1000 (Just 0.01)) "BTCUSDT" 1000 2050 (0 / 0))
+            && isNothing
+                (targetReturnFor (factorRow 1000 (Just 0.01)) "BTCUSDT" 1000 2050 (-1))
+            && isNothing
+                (targetReturnFor (factorRow 1000 (Just 0.01)) "ETHUSDT" 1000 2050 0.02)
+            && isNothing
+                (mkMarketContextTrainingObservationV1 (factorRow 1000 (Just 0.01)) ethTarget)
+        )
+
+testMarketContextLinearArtifactV1ProductionIsolation :: IO ()
+testMarketContextLinearArtifactV1ProductionIsolation =
+    forM_
+        [ "app/Main.hs"
+        , "app/Trader/CrossSectionalMomentum.hs"
+        , "app/Trader/MarketContext.hs"
+        , "app/Trader/OrderExecution.hs"
+        , "app/Trader/PointInTimeUniverse.hs"
+        , "app/Trader/Predictors.hs"
+        , "app/Trader/Predictors/Features.hs"
+        , "app/Trader/Predictors/OnlineNeural.hs"
+        , "app/Trader/Trading.hs"
+        ]
+        $ \path -> do
+            source <- readFile path
+            assert
+                ("market-context linear artifact v1 remains absent from production path " ++ path)
+                ( not ("Trader.Predictors.MarketContextLinearArtifactV1" `isInfixOf` source)
+                    && not (marketContextLinearSemanticModelIdV1 `isInfixOf` source)
+                )
+
+alterMarketContextPayload :: (KM.KeyMap Aeson.Value -> KM.KeyMap Aeson.Value) -> Bool -> Aeson.Value -> Aeson.Value
+alterMarketContextPayload transform rehash original =
+    case original of
+        Aeson.Object top ->
+            case KM.lookup "payload" top of
+                Just (Aeson.Object payload) ->
+                    let changedPayload = Aeson.Object (transform payload)
+                        changedTop = KM.insert "payload" changedPayload top
+                        finalTop =
+                            if rehash
+                                then KM.insert "payloadSha256" (Aeson.String (T.pack (marketContextValueDigest changedPayload))) changedTop
+                                else changedTop
+                     in Aeson.Object finalTop
+                _ -> original
+        _ -> original
+
+setObjectField :: String -> Aeson.Value -> KM.KeyMap Aeson.Value -> KM.KeyMap Aeson.Value
+setObjectField key = KM.insert (AK.fromString key)
+
+setMarketContextTopField :: String -> Aeson.Value -> Aeson.Value -> Aeson.Value
+setMarketContextTopField key value (Aeson.Object top) = Aeson.Object (KM.insert (AK.fromString key) value top)
+setMarketContextTopField _ _ original = original
+
+authorizeMarketContextPayload :: KM.KeyMap Aeson.Value -> KM.KeyMap Aeson.Value
+authorizeMarketContextPayload payload =
+    case KM.lookup "safety" payload of
+        Just (Aeson.Object safety) ->
+            KM.insert
+                "safety"
+                (Aeson.Object (KM.insert "liveTradingAuthorized" (Aeson.Bool True) safety))
+                payload
+        _ -> payload
+
+marketContextValueDigest :: Aeson.Value -> String
+marketContextValueDigest value = show (hash (BL.toStrict (Aeson.encode value)) :: Digest SHA256)
 
 testMarketContextPanelV2ProductionIsolation :: IO ()
 testMarketContextPanelV2ProductionIsolation = do
