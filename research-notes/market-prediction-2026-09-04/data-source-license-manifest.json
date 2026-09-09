@@ -18,12 +18,14 @@
         "schema": "binance_usdm_market_context_panel_v2",
         "sourceManifestSchema": "binance_usdm_market_context_source_manifest_v1",
         "verificationReceiptSchema": "binance_usdm_market_context_verification_receipt_v1",
-        "status": "offline_verifier_implemented_collector_not_yet_implemented",
+        "collectionStatusSchema": "binance_usdm_market_context_collection_status_v1",
+        "status": "collector_and_offline_verifier_implemented_no_real_acquisition",
         "requiredRawResponses": ["GET /fapi/v1/time before and after acquisition", "GET /fapi/v1/exchangeInfo", "GET /fapi/v1/ticker/24hr without symbol", "GET /fapi/v1/klines for each retained population member and exact completed bar"],
         "manifestRequirements": ["exact raw response bytes and SHA-256", "request start and completion clocks", "server-time bracket", "HTTP status and rate-limit headers", "endpoint parameters", "complete response member counts", "eligibility predicate and excluded records", "code commit and source-license record"],
         "verificationReceiptRequirements": ["source manifest SHA-256 and source-manifest code commit", "derived panel SHA-256", "decoder schema and version", "verifier path and byte SHA-256", "explicit zero outcome, model, order, and live-authorization use"],
+        "collectionCommand": "python3 scripts/research/collect_market_context.py collect --output-dir <new-artifact-dir> --interval <interval> --bar-open-time <aligned-epoch-ms>",
         "verificationCommand": "python3 scripts/research/market_context_source.py verify --manifest <artifact-dir>/source-manifest.json --panel-output <artifact-dir>/derived-panel.csv --receipt-output <artifact-dir>/verification-receipt.json",
-        "admissionPolicy": "The independent offline verifier re-hashes and strictly decodes every frozen response, recomputes the eligible population and panel, and emits a separate receipt binding source-manifest and panel hashes. Real research use remains prohibited until the prospective collector exists and produces a complete verified acquisition."
+        "admissionPolicy": "A collector complete_unverified status is not admission, and any collecting, partial_failure, cleanup_failure, absent, or indeterminate status is inadmissible. The independent offline verifier must re-hash and strictly decode every frozen response, recompute the eligible population and panel, and emit a separate receipt binding source-manifest and panel hashes. No real acquisition has run, and research use remains prohibited before the registered prospective window and a separately reviewed data-admission decision."
       }
     },
     {

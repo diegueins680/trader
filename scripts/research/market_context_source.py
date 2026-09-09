@@ -44,6 +44,7 @@ INTERVAL_MS = {
     "2h": 7_200_000,
     "4h": 14_400_000,
     "6h": 21_600_000,
+    "8h": 28_800_000,
     "12h": 43_200_000,
     "1d": 86_400_000,
 }
@@ -312,7 +313,7 @@ def _peer_return(payload: object, symbol: str, bar_open: int, interval_ms: int) 
     expected_opens = [previous_open, bar_open]
     closes: list[Decimal] = []
     for index, raw in enumerate(payload):
-        if not isinstance(raw, list) or len(raw) < 7:
+        if not isinstance(raw, list) or len(raw) != 12:
             raise ValueError(f"{symbol} peer kline {index} is malformed")
         open_time = _timestamp(raw[0], f"{symbol} peer kline {index} openTime")
         close_time = _timestamp(raw[6], f"{symbol} peer kline {index} closeTime")
@@ -513,6 +514,13 @@ def verify_and_derive(manifest_path: Path) -> tuple[bytes, dict[str, object]]:
         if symbol not in tickers:
             raise ValueError(f"ticker24hr is missing eligible symbol {symbol}")
         ticker_evidence[symbol] = _ticker_evidence(tickers[symbol], symbol)
+    earliest_ticker_event = int(ticker_record["requestStartedAtMs"]) - max_skew
+    latest_ticker_event = int(ticker_record["responseCompletedAtMs"]) + max_skew
+    for symbol, (_, _, close_time) in ticker_evidence.items():
+        if not earliest_ticker_event <= close_time <= latest_ticker_event:
+            raise ValueError(
+                f"{symbol} ticker event exceeds the declared collection window"
+            )
     universe_event = max(close_time for _, _, close_time in ticker_evidence.values())
     if universe_event > int(ticker_record["responseCompletedAtMs"]) + max_skew:
         raise ValueError("ticker event exceeds the declared clock-skew bound")

@@ -55,6 +55,28 @@ live-authorization fields are all false. Verification cannot substitute for a
 collector, admit a dataset into an experiment, open a holdout, promote a model,
 or authorize trading.
 
+The prospective collector that supplies this boundary is a separate
+`A-RESEARCH` component. It accepts an explicit aligned bar and a new output
+directory, derives its commit from Git only when every provenance file is
+tracked and unchanged, binds the loaded provenance bytes to that captured
+commit, revalidates the exact binding at both publication boundaries, uses only
+fixed public GET endpoints, refuses redirects, and enforces response-size,
+causal-window, deadline, local request-weight, and
+observed shared-IP weight limits. It requests every contemporaneously eligible
+member, bounds each member's ticker event to the ticker request/response window,
+and writes the source manifest only after complete coverage. Blocking transport
+is bounded by the overall monotonic deadline even if response bytes continue to
+trickle without an idle timeout. Its success state is `complete_unverified`;
+any transport, provider-throttle, clock,
+provenance, response, population, peer-grid, or output failure leaves no source
+manifest and grants no downstream authority. File and directory publication is
+durably flushed and deadline-checked before successful status. If removal of a
+manifest after a final status failure is required, the collector first durably
+replaces any possibly visible success status with an indeterminate cleanup
+pending sentinel. Only a confirmed removal may advance status to unpublished
+partial failure; interruption retains the pending state and failed removal is
+recorded as an indeterminate cleanup failure when possible.
+
 The small public backtest-data path is separately fixed-window and hash-bound.
 It requires an explicit end time, accepts only exact contiguous completed bars,
 records public source/license metadata plus explicit no-randomness provenance,

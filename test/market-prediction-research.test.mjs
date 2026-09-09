@@ -241,7 +241,11 @@ test("market-context source provenance separates raw-manifest and derived-panel 
   assert.equal(contract.schema, "binance_usdm_market_context_panel_v2");
   assert.equal(
     contract.status,
-    "offline_verifier_implemented_collector_not_yet_implemented",
+    "collector_and_offline_verifier_implemented_no_real_acquisition",
+  );
+  assert.equal(
+    contract.collectionStatusSchema,
+    "binance_usdm_market_context_collection_status_v1",
   );
   assert.ok(contract.requiredRawResponses.some((item) => item.includes("exchangeInfo")));
   assert.ok(contract.requiredRawResponses.some((item) => item.includes("ticker/24hr")));
@@ -259,7 +263,10 @@ test("market-context source provenance separates raw-manifest and derived-panel 
     ),
   );
   assert.match(contract.verificationCommand, /market_context_source\.py verify/);
+  assert.match(contract.collectionCommand, /collect_market_context\.py collect/);
   assert.match(contract.admissionPolicy, /independent offline verifier/);
+  assert.match(contract.admissionPolicy, /complete_unverified status is not admission/);
+  assert.match(contract.admissionPolicy, /cleanup_failure/);
 });
 
 test("market-prediction registrations remain future-only disabled challengers", async () => {
