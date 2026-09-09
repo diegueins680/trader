@@ -67,6 +67,16 @@ a deterministic bundle receipt. The receipt still sets research admission,
 experiment, holdout, model, promotion, deployment, order, and live authority
 to false.
 
+A saved bundle receipt has a separate offline, read-only replay boundary. The
+receipt verifier requires the exact bundle-verifier bytes stored at the
+collection commit, strict type-sensitive receipt semantics, and an archive
+containing only the status, manifest, and registered raw files. It hashes every
+archive file before and after delegated bundle/source reconstruction, compares
+the complete recomputed receipt and derived-panel digest, and fails closed on
+version drift, tampering, extra files, unsafe paths, or in-run mutation. Its
+success summary remains integrity-only and sets research admission, experiment,
+holdout, model, promotion, deployment, order, and live authority to false.
+
 The prospective collector that supplies this boundary is a separate
 `A-RESEARCH` component. It accepts an explicit aligned bar and a new output
 directory, derives its commit from Git only when every provenance file is
