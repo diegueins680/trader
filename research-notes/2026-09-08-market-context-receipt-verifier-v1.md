@@ -19,7 +19,7 @@ python3 scripts/research/verify_market_context_receipt.py \
   --archive <frozen-bundle>
 ```
 
-The archive must contain exactly `collection-status.json`, `source-manifest.json`, their registered raw files, and the required directory structure. Receipts and derived panels remain outside that frozen acquisition archive. The verifier:
+The bundle verifier first refuses to produce a receipt unless both its executing file and the imported source verifier exactly match their versions at the collection commit. The archive must then contain exactly `collection-status.json`, `source-manifest.json`, their registered raw files, and the required directory structure. Receipts and derived panels remain outside that frozen acquisition archive. The replay verifier:
 
 - strictly rejects duplicate keys, non-finite constants, extra fields, type confusion, malformed hashes, unsafe symlinks, and any non-zero downstream authority;
 - requires the receipt's bundle-verifier hash to match `scripts/research/verify_market_context_bundle.py` at the collection commit and the currently executing bundle-verifier bytes;
@@ -38,6 +38,6 @@ Replay proves frozen acquisition integrity only. It does not admit the data, mod
 
 ## Evidence and remaining blockers
 
-Synthetic tests cover exact replay, determinism, raw/status/receipt tampering, extra archive files, forged verifier and panel hashes, boolean/integer confusion, authority escalation, unknown fields, duplicate/non-finite JSON, symlinked receipt/archive paths, and receipts incorrectly placed inside the archive.
+Synthetic tests cover exact replay, determinism, producer-side verifier-version drift, raw/status/receipt tampering, extra archive files, forged verifier and panel hashes, boolean/integer confusion, authority escalation, unknown fields, duplicate/non-finite JSON, symlinked receipt/archive paths, and receipts incorrectly placed inside the archive.
 
 No public endpoint was contacted. No market data, return, forecast, PnL, cost, statistical diagnostic, model, artifact, experiment, or holdout was accessed. Collection remains prohibited before 2027-01-21. Sufficient prospective history, explicit data admission, remaining timestamp-preserving inputs, and the versioned fold-local fitted-artifact boundary remain open. `.env.example` is unchanged because replay adds no configuration.

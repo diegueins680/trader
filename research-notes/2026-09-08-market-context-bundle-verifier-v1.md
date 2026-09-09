@@ -26,6 +26,7 @@ The command is offline and accepts no URL, credential, outcome, model, or tradin
 - matching status/manifest hashes, code commit, causal clocks, eligible-population count, and exact ordered raw-artifact inventory;
 - a 40-hex Git object whose type is `commit`;
 - historical collector and source-verifier blobs whose SHA-256 values match the status, plus exactly one public read-only Binance source/license record at that commit; and
+- executing bundle-verifier and source-verifier files that exactly match their versions at that same collection commit; and
 - successful independent raw-response and panel reconstruction by `market_context_source.py`, with its returned manifest commit and digest matching the status-bound bytes.
 
 `collecting`, `partial_failure`, `cleanup_pending`, `cleanup_failure`, absent, malformed, changed, authorizing, or ambiguous evidence is rejected. Requested outputs cannot overwrite the status, manifest, or raw directory.
@@ -38,6 +39,6 @@ This receipt proves only that the frozen collector and source evidence passed th
 
 ## Verification evidence
 
-The focused regression suite uses only synthetic fixture bytes and temporary directories. It proves deterministic success, status and manifest binding, historical Git provenance, independent panel reconstruction, downstream-authority rejection, all collector failure-state rejection, duplicate-key and non-finite rejection, symlink rejection, integer population semantics, incomplete inventory rejection, and frozen-input overwrite protection.
+The focused regression suite uses only synthetic fixture bytes and temporary directories. It proves deterministic success, status and manifest binding, historical Git provenance, executing-verifier version binding, independent panel reconstruction, downstream-authority rejection, all collector failure-state rejection, duplicate-key and non-finite rejection, symlink rejection, integer population semantics, incomplete inventory rejection, and frozen-input overwrite protection.
 
 No request to Binance or any other market-data provider was made. No outcome, return, model, experiment, or holdout was evaluated. `.env.example` is unchanged because the offline verifier adds no configuration.

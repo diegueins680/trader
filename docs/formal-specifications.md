@@ -61,9 +61,11 @@ published manifest, clean tracked provenance, and all authority fields false;
 rejects incomplete, recovery-pending, changed, malformed, or non-finite
 evidence; and checks status/manifest clocks, inventory, and population. The
 recorded Git object must be a commit whose collector, source-verifier, and
-source-license blobs match the collection evidence. Only then does the wrapper
-invoke the independent source verifier and bind its receipt and panel hashes in
-a deterministic bundle receipt. The receipt still sets research admission,
+source-license blobs match the collection evidence. The executing bundle and
+source verifiers must also be byte-identical to their versions at that commit;
+version drift therefore fails before receipt emission. Only then does the
+wrapper invoke the independent source verifier and bind its receipt and panel
+hashes in a deterministic bundle receipt. The receipt still sets research admission,
 experiment, holdout, model, promotion, deployment, order, and live authority
 to false.
 
