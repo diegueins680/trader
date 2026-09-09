@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cp, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 const repositoryRoot = new URL("..", import.meta.url).pathname;
@@ -20,16 +27,20 @@ function sha256(payload) {
   return createHash("sha256").update(payload).digest("hex");
 }
 
-function git(...args) {
-  return execFileSync("git", args, { cwd: repositoryRoot });
+function gitAt(root, ...args) {
+  return execFileSync("git", args, { cwd: root });
+}
+
+function runVerifierAt(verifier, root, status, ...args) {
+  return spawnSync(
+    "python3",
+    [verifier, "verify", "--status", status, ...args],
+    { cwd: root, encoding: "utf8" },
+  );
 }
 
 function runVerifier(status, ...args) {
-  return spawnSync(
-    "python3",
-    [script, "verify", "--status", status, ...args],
-    { cwd: repositoryRoot, encoding: "utf8" },
-  );
+  return runVerifierAt(script, repositoryRoot, status, ...args);
 }
 
 function artifactPaths(manifest) {
@@ -42,7 +53,7 @@ function artifactPaths(manifest) {
   ];
 }
 
-async function buildBundle(commitOverride) {
+async function buildBundle(commitOverride, gitRoot = repositoryRoot) {
   const root = await mkdtemp(join(tmpdir(), "trader-market-context-bundle-"));
   const bundle = join(root, "bundle");
   await cp(fixture, bundle, { recursive: true });
@@ -50,7 +61,7 @@ async function buildBundle(commitOverride) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const commit = (
     commitOverride === undefined
-      ? git("rev-parse", "HEAD")
+      ? gitAt(gitRoot, "rev-parse", "HEAD")
       : Buffer.from(commitOverride)
   ).toString("utf8").trim();
   manifest.codeCommit = commit;
@@ -65,11 +76,19 @@ async function buildBundle(commitOverride) {
     provenanceTrackedClean: true,
     collectorPath: "scripts/research/collect_market_context.py",
     collectorSha256: sha256(
-      git("show", `${commit}:scripts/research/collect_market_context.py`),
+      gitAt(
+        gitRoot,
+        "show",
+        `${commit}:scripts/research/collect_market_context.py`,
+      ),
     ),
     verifierPath: "scripts/research/market_context_source.py",
     verifierSha256: sha256(
-      git("show", `${commit}:scripts/research/market_context_source.py`),
+      gitAt(
+        gitRoot,
+        "show",
+        `${commit}:scripts/research/market_context_source.py`,
+      ),
     ),
     runtime: { python: "3.13.7" },
     outcomeUse: false,
@@ -194,16 +213,51 @@ test("bundle verifier rejects incomplete, changed, or authorizing status", async
   assert.equal(result.status, 1);
   assert.match(result.stderr, /eligiblePopulationCount must be/);
 
-  const verifierHistory = git(
-    "log",
-    "--format=%H",
-    "--",
+  const driftRoot = await mkdtemp(join(tmpdir(), "trader-bundle-drift-repo-"));
+  const trackedPaths = [
+    "scripts/research/collect_market_context.py",
+    "scripts/research/market_context_source.py",
     "scripts/research/verify_market_context_bundle.py",
-  ).toString("utf8").trim().split("\n");
-  assert.ok(verifierHistory.length >= 2);
-  const previousCommit = verifierHistory[1];
-  const versionDrift = await buildBundle(previousCommit);
-  result = runVerifier(versionDrift.statusPath);
+    "research-notes/market-prediction-2026-09-04/data-source-license-manifest.json",
+  ];
+  for (const path of trackedPaths) {
+    const destination = join(driftRoot, path);
+    await mkdir(dirname(destination), { recursive: true });
+    await cp(join(repositoryRoot, path), destination);
+  }
+  gitAt(driftRoot, "init", "--quiet");
+  gitAt(driftRoot, "add", ...trackedPaths);
+  gitAt(
+    driftRoot,
+    "-c",
+    "commit.gpgsign=false",
+    "-c",
+    "user.name=CI Fixture",
+    "-c",
+    "user.email=ci-fixture@example.invalid",
+    "commit",
+    "--quiet",
+    "-m",
+    "fixture",
+  );
+  const collectionCommit = gitAt(driftRoot, "rev-parse", "HEAD");
+  const driftScript = join(
+    driftRoot,
+    "scripts/research/verify_market_context_bundle.py",
+  );
+  await writeFile(
+    driftScript,
+    Buffer.concat([
+      await readFile(driftScript),
+      Buffer.from("\n# simulated post-collection verifier drift\n"),
+    ]),
+  );
+  const versionDrift = await buildBundle(collectionCommit, driftRoot);
+  result = runVerifierAt(
+    driftScript,
+    driftRoot,
+    versionDrift.statusPath,
+  );
   assert.equal(result.status, 1);
   assert.match(result.stderr, /bundle-verifier bytes disagree/);
 });
