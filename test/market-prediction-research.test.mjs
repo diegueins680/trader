@@ -241,7 +241,7 @@ test("market-context source provenance separates raw-manifest and derived-panel 
   assert.equal(contract.schema, "binance_usdm_market_context_panel_v2");
   assert.equal(
     contract.status,
-    "collector_and_offline_verifier_implemented_no_real_acquisition",
+    "collector_source_and_bundle_verifiers_implemented_no_real_acquisition",
   );
   assert.equal(
     contract.collectionStatusSchema,
@@ -263,10 +263,30 @@ test("market-context source provenance separates raw-manifest and derived-panel 
     ),
   );
   assert.match(contract.verificationCommand, /market_context_source\.py verify/);
+  assert.equal(
+    contract.bundleReceiptSchema,
+    "binance_usdm_market_context_bundle_receipt_v1",
+  );
+  assert.ok(
+    contract.bundleReceiptRequirements.some((item) =>
+      item.includes("exact complete_unverified collection-status SHA-256"),
+    ),
+  );
+  assert.ok(
+    contract.bundleReceiptRequirements.some((item) =>
+      item.includes("zero research-admission"),
+    ),
+  );
+  assert.match(
+    contract.bundleVerificationCommand,
+    /verify_market_context_bundle\.py verify/,
+  );
   assert.match(contract.collectionCommand, /collect_market_context\.py collect/);
-  assert.match(contract.admissionPolicy, /independent offline verifier/);
+  assert.match(contract.admissionPolicy, /offline bundle verifier/);
   assert.match(contract.admissionPolicy, /complete_unverified status is not admission/);
+  assert.match(contract.admissionPolicy, /cleanup_pending/);
   assert.match(contract.admissionPolicy, /cleanup_failure/);
+  assert.match(contract.admissionPolicy, /grants no research admission/);
 });
 
 test("market-prediction registrations remain future-only disabled challengers", async () => {

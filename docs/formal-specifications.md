@@ -55,6 +55,18 @@ live-authorization fields are all false. Verification cannot substitute for a
 collector, admit a dataset into an experiment, open a holdout, promote a model,
 or authorize trading.
 
+Collector-produced evidence additionally passes through the offline bundle
+verifier. It accepts only the exact `complete_unverified` status with a
+published manifest, clean tracked provenance, and all authority fields false;
+rejects incomplete, recovery-pending, changed, malformed, or non-finite
+evidence; and checks status/manifest clocks, inventory, and population. The
+recorded Git object must be a commit whose collector, source-verifier, and
+source-license blobs match the collection evidence. Only then does the wrapper
+invoke the independent source verifier and bind its receipt and panel hashes in
+a deterministic bundle receipt. The receipt still sets research admission,
+experiment, holdout, model, promotion, deployment, order, and live authority
+to false.
+
 The prospective collector that supplies this boundary is a separate
 `A-RESEARCH` component. It accepts an explicit aligned bar and a new output
 directory, derives its commit from Git only when every provenance file is
