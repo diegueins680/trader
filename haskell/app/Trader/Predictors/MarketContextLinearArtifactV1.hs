@@ -92,6 +92,8 @@ data MarketContextLinearFitRequestV1 = MarketContextLinearFitRequestV1
     , mclfr1TrainingStartEventTimeMs :: !Int64
     , mclfr1TrainingEndEventTimeMs :: !Int64
     , mclfr1ValidationStartEventTimeMs :: !Int64
+    , mclfr1ValidationEndEventTimeMs :: !Int64
+    , mclfr1FinalHoldoutStartEventTimeMs :: !Int64
     , mclfr1PurgeBars :: !Int
     , mclfr1EmbargoBars :: !Int
     , mclfr1FitAvailableAtMs :: !Int64
@@ -262,7 +264,7 @@ fitMarketContextLinearArtifactV1 request observations = do
     pure artifact
 
 {- | Produce a non-actionable distribution summary only for the exact fitted scope.
-Missing, incompatible, pre-validation, or non-finite evidence yields 'Nothing'.
+Missing, incompatible, out-of-validation, or non-finite evidence yields 'Nothing'.
 -}
 predictMarketContextLinearV1 ::
     MarketContextLinearArtifactV1 ->
@@ -385,6 +387,8 @@ parseRequest = withObject "MarketContextLinearFitRequestV1" $ \obj -> do
             <*> obj .: "trainingStartEventTimeMs"
             <*> obj .: "trainingEndEventTimeMs"
             <*> obj .: "validationStartEventTimeMs"
+            <*> obj .: "validationEndEventTimeMs"
+            <*> obj .: "finalHoldoutStartEventTimeMs"
             <*> obj .: "purgeBars"
             <*> obj .: "embargoBars"
             <*> obj .: "fitAvailableAtMs"
@@ -506,6 +510,8 @@ requestValue request =
         , "trainingStartEventTimeMs" .= mclfr1TrainingStartEventTimeMs request
         , "trainingEndEventTimeMs" .= mclfr1TrainingEndEventTimeMs request
         , "validationStartEventTimeMs" .= mclfr1ValidationStartEventTimeMs request
+        , "validationEndEventTimeMs" .= mclfr1ValidationEndEventTimeMs request
+        , "finalHoldoutStartEventTimeMs" .= mclfr1FinalHoldoutStartEventTimeMs request
         , "purgeBars" .= mclfr1PurgeBars request
         , "embargoBars" .= mclfr1EmbargoBars request
         , "fitAvailableAtMs" .= mclfr1FitAvailableAtMs request
@@ -533,6 +539,10 @@ validateRequest request
     | rowCountInteger > toInteger (maxBound :: Int) = Left "market-context training event grid is too large"
     | validationStart <= endTime = Left "market-context validation must follow training"
     | (toInteger validationStart - toInteger startTime) `mod` toInteger interval /= 0 = Left "market-context validation start is off grid"
+    | validationEnd < validationStart = Left "market-context validation event range is invalid"
+    | (toInteger validationEnd - toInteger validationStart) `mod` toInteger interval /= 0 = Left "market-context validation end is off grid"
+    | finalHoldoutStart <= validationEnd = Left "market-context final holdout must follow validation"
+    | (toInteger finalHoldoutStart - toInteger validationStart) `mod` toInteger interval /= 0 = Left "market-context final holdout start is off grid"
     | toInteger validationStart - toInteger endTime < gapMs = Left "market-context purge and embargo gap is insufficient"
     | toInteger fitAvailableAt < lastTargetEvent || fitAvailableAt > validationStart = Left "market-context fit availability crosses its causal fold boundary"
     | createdAt < fitAvailableAt = Left "market-context artifact creation predates fit availability"
@@ -554,6 +564,8 @@ validateRequest request
     startTime = mclfr1TrainingStartEventTimeMs request
     endTime = mclfr1TrainingEndEventTimeMs request
     validationStart = mclfr1ValidationStartEventTimeMs request
+    validationEnd = mclfr1ValidationEndEventTimeMs request
+    finalHoldoutStart = mclfr1FinalHoldoutStartEventTimeMs request
     fitAvailableAt = mclfr1FitAvailableAtMs request
     createdAt = mclfr1CreatedAtMs request
     minimumVariance = mclfr1MinimumResidualVariance request
@@ -625,6 +637,8 @@ observedInferenceFactor request factor = do
     let eventTime = mcf2EventTimeMs factor
         row = mcf2FeatureRow factor
     guard (eventTime >= mclfr1ValidationStartEventTimeMs request)
+    guard (eventTime <= mclfr1ValidationEndEventTimeMs request)
+    guard (eventTime < mclfr1FinalHoldoutStartEventTimeMs request)
     guard
         ( (toInteger eventTime - toInteger (mclfr1ValidationStartEventTimeMs request))
             `mod` toInteger (mclfr1IntervalMs request)
@@ -768,6 +782,8 @@ requestKeys =
     , "trainingStartEventTimeMs"
     , "trainingEndEventTimeMs"
     , "validationStartEventTimeMs"
+    , "validationEndEventTimeMs"
+    , "finalHoldoutStartEventTimeMs"
     , "purgeBars"
     , "embargoBars"
     , "fitAvailableAtMs"

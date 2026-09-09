@@ -41,7 +41,8 @@ quote, selected peer identities, bar, interval, and row in one abstract value.
 The research-only linear component consumes that value directly, so generic
 feature evidence cannot be relabeled with parallel caller-supplied scope
 arguments. Inference also requires event-time congruence with the exact
-registered validation grid, not merely a matching interval length. Observed
+registered validation grid, the inclusive registered validation range, and
+strict precedence to the separately bound final-holdout start. Observed
 factor witnesses may occur causally after the peer bar end and no later than
 the factor decision. Training labels are abstract scope-bound returns computed
 only from canonical complete target bars whose start event matches the factor;

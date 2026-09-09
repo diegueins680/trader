@@ -14,7 +14,8 @@ legacy `MarketContext` implementation.
 The fit requires the complete ordered training grid, a target event exactly at
 the declared horizon, target availability no later than the fit cutoff, a
 purge at least as long as that horizon, and the declared embargo before the
-first validation event. The request binds the registration, code commit,
+first validation event. The inclusive validation start/end and the separately
+excluded final-holdout start are also immutable request fields. The request binds the registration, code commit,
 training-data/source/split digests, academic origins, target symbol, quote,
 peer count, point-in-time universe schema, interval and horizon,
 residual-variance floor, runtime versions, cost model reference, and creation
@@ -32,7 +33,8 @@ Unavailable factor rows remain in the grid and row count, but their dense zero
 is excluded from OLS. Fitting requires at least three observed rows and
 non-degenerate finite factor dispersion. Inference checks the factor's exact
 target, quote, peer count, interval, feature schema, causal timestamps,
-post-training boundary, exact registered grid phase, payload digest,
+bounded validation window, exact registered grid phase, excluded final-holdout
+boundary, payload digest,
 compatibility version, and finite positive variance. Failure returns no
 estimate. A factor's latest contributing event may be later than the peer bar
 end when the universe snapshot is causally observed after close, but must be no
@@ -63,7 +65,8 @@ round-trip bytes and scope-compatible inference, prove scope is retained by
 the abstract factor and realized target, admit a causal post-close universe
 witness, and reject cross-asset target pairing, incomplete grids,
 insufficient purge, late labels, degenerate factors, non-finite targets,
-corruption, rehashed semantic drift, and rehashed live-authority escalation.
+corruption, later-fold and final-holdout inference, rehashed semantic drift,
+and rehashed live-authority escalation.
 
 No market data was acquired. No forecast or economic metric, trial, ablation,
 development result, or final-holdout result was produced. The experiment

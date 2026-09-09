@@ -8588,6 +8588,8 @@ testMarketContextLinearArtifactV1 = do
                 , mclfr1TrainingStartEventTimeMs = 1000
                 , mclfr1TrainingEndEventTimeMs = 4000
                 , mclfr1ValidationStartEventTimeMs = 7000
+                , mclfr1ValidationEndEventTimeMs = 8000
+                , mclfr1FinalHoldoutStartEventTimeMs = 10000
                 , mclfr1PurgeBars = 1
                 , mclfr1EmbargoBars = 2
                 , mclfr1FitAvailableAtMs = 5500
@@ -8687,6 +8689,9 @@ testMarketContextLinearArtifactV1 = do
         wrongPeerCountFactor = factor "BTCUSDT" "USDT" 2 intervalMs 7000 (Just 0.05)
         wrongIntervalFactor = factor "BTCUSDT" "USDT" 3 500 7000 (Just 0.05)
         phaseShiftedFactor = factorRow 7500 (Just 0.05)
+        validationEndFactor = factorRow 8000 (Just 0.05)
+        laterFoldFactor = factorRow 9000 (Just 0.05)
+        finalHoldoutFactor = factorRow 10000 (Just 0.05)
         ethTrainingFactor = factor "ETHUSDT" "USDT" 3 intervalMs 1000 (Just 0.01)
         ethTarget =
             fromMaybe (error "ETH market-context target fixture should construct") $
@@ -8730,15 +8735,17 @@ testMarketContextLinearArtifactV1 = do
                     && length (mcla1PayloadSha256 artifact) == 64
                 )
             assert
-                "compatible post-training evidence produces only a finite distribution summary"
-                ( case predictMarketContextLinearV1 artifact validationFactor of
-                    Just estimate ->
-                        close 0.101 (mcle1ExpectedForwardReturn estimate)
-                            && close 1.0e-8 (mcle1ResidualVariance estimate)
-                    Nothing -> False
+                "compatible evidence through the registered validation end produces only a finite distribution summary"
+                ( ( case predictMarketContextLinearV1 artifact validationFactor of
+                        Just estimate ->
+                            close 0.101 (mcle1ExpectedForwardReturn estimate)
+                                && close 1.0e-8 (mcle1ResidualVariance estimate)
+                        Nothing -> False
+                  )
+                    && isJust (predictMarketContextLinearV1 artifact validationEndFactor)
                 )
             assert
-                "unavailable, wrong-scope, wrong-grid, extreme, and pre-validation inference abstain"
+                "unavailable, wrong-scope, wrong-grid, out-of-window, holdout, extreme, and pre-validation inference abstain"
                 ( and
                     [ isNothing (predictMarketContextLinearV1 artifact unavailableValidationFactor)
                     , isNothing (predictMarketContextLinearV1 artifact wrongTargetFactor)
@@ -8746,6 +8753,8 @@ testMarketContextLinearArtifactV1 = do
                     , isNothing (predictMarketContextLinearV1 artifact wrongPeerCountFactor)
                     , isNothing (predictMarketContextLinearV1 artifact wrongIntervalFactor)
                     , isNothing (predictMarketContextLinearV1 artifact phaseShiftedFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact laterFoldFactor)
+                    , isNothing (predictMarketContextLinearV1 artifact finalHoldoutFactor)
                     , isNothing (predictMarketContextLinearV1 artifact (factorRow 6000 (Just 0.05)))
                     , isNothing (predictMarketContextLinearV1 artifact (factorRow 7000 (Just (-0.75))))
                     ]
@@ -8772,6 +8781,10 @@ testMarketContextLinearArtifactV1 = do
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Quote = "USD"} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1RequiredPeerCount = 2} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1AcademicOrigins = ["uncited"]} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1ValidationEndEventTimeMs = 6500} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1ValidationEndEventTimeMs = 8500} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 8000} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 9500} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows ++ [lateTrainingRow]))
             , isLeft
                 ( fitMarketContextLinearArtifactV1

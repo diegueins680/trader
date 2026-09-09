@@ -250,6 +250,8 @@ test("market-context linear artifact v1 is fail-closed and production-isolated",
   );
   assert.match(boundary, /complete chronological fold/);
   assert.match(boundary, /Unavailable factor rows remain in the row count/);
+  assert.match(boundary, /mclfr1ValidationEndEventTimeMs/);
+  assert.match(boundary, /mclfr1FinalHoldoutStartEventTimeMs/);
   assert.match(boundary, /payload digest mismatch/);
   assert.match(boundary, /offline_research_only/);
   assert.match(boundary, /liveTradingAuthorized" \.= False/);
