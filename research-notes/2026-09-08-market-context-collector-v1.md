@@ -96,14 +96,16 @@ deadline and causal wall-clock boundary after serializing and flushing their
 temporary bytes. A clock, deadline, transport, HTTP, redirect, response-size,
 content-type, JSON, rate-limit, eligibility, ticker, or kline failure leaves a
 sanitized `partial_failure` status and no source manifest. A catchable final
-status-write failure removes and flushes the new manifest before recording
-partial failure. If that cleanup itself cannot be durably confirmed, status is
-instead `cleanup_failure`, publication is explicitly indeterminate rather than
-false, and manual cleanup is required. An abrupt stop in the narrow final-status
-window can leave the manifest only alongside the earlier `collecting` /
-`sourceManifestPublished: false` status. Any raw responses already accepted
-before a failure are preserved for diagnosis and cannot be admitted without
-complete status and separate verification.
+status-write failure first durably replaces any possibly visible success status
+with `cleanup_pending` and an indeterminate publication value. Only then may it
+remove and flush the manifest, after which it can record `partial_failure`. A
+removal error advances to `cleanup_failure` when possible; an abrupt stop retains
+the indeterminate pending sentinel. Interruption therefore cannot leave a
+visible success status after the manifest has been removed. If even the sentinel
+cannot be confirmed, the manifest is preserved and collection raises
+`publication_recovery_failed`. Any raw responses already accepted before a
+failure are preserved for diagnosis and cannot be admitted without complete
+status and separate verification.
 
 Each blocking public transport exchange runs behind the same absolute
 monotonic deadline as the overall collection. The caller therefore fails
@@ -130,10 +132,11 @@ provenance, pre-registration time, missing shared-IP weight, HTTP 429 circuit,
 IP redaction, and partial kline failure. The source-verifier regression also
 rejects any kline tuple that differs from the documented 12-field shape. Final
 publication fault injection proves a catchable status failure removes the
-manifest and an abrupt stop never leaves status falsely claiming publication.
+manifest, a post-replace failure durably publishes `cleanup_pending` before
+deletion, and an abrupt stop never leaves status falsely claiming publication.
 The source test also pins the directory-flush barriers required before final
 publication, both pre-rename deadline guards, and the explicit indeterminate
-state when manifest cleanup fails.
+states during interrupted or failed manifest cleanup.
 
 The real CLI shape, for use only after the registered start, is:
 

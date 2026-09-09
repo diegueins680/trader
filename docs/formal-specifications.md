@@ -71,9 +71,11 @@ any transport, provider-throttle, clock,
 provenance, response, population, peer-grid, or output failure leaves no source
 manifest and grants no downstream authority. File and directory publication is
 durably flushed and deadline-checked before successful status. If removal of a
-manifest after a final status failure cannot itself be confirmed, the status
-records an indeterminate cleanup failure rather than falsely asserting that the
-manifest is unpublished.
+manifest after a final status failure is required, the collector first durably
+replaces any possibly visible success status with an indeterminate cleanup
+pending sentinel. Only a confirmed removal may advance status to unpublished
+partial failure; interruption retains the pending state and failed removal is
+recorded as an indeterminate cleanup failure when possible.
 
 The small public backtest-data path is separately fixed-window and hash-bound.
 It requires an explicit end time, accepts only exact contiguous completed bars,

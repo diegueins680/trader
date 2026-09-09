@@ -112,6 +112,7 @@ success_clock = [
     10800230, 10800240,
     10800250, 10800260, 10800270, 10800280, 10800290,
 ]
+recovery_clock = [*success_clock, 10800300, 10800310, 10800320, 10800330]
 
 def collect_at(output, responses, clock):
     collector.REGISTERED_COLLECTION_START_MS = 0
@@ -410,7 +411,7 @@ assert stale_status["failedEndpoint"] == "/fapi/v1/ticker/24hr"
 
 provenance_output = root / "provenance-moved"
 collector.URL_OPENER = Opener(successful_responses())
-collector._epoch_ms = Clock(success_clock)
+collector._epoch_ms = Clock(recovery_clock)
 provenance_checks = 0
 
 def move_head_before_publication(_commit):
@@ -443,7 +444,7 @@ collector._provenance_tracked_clean = lambda _commit: True
 
 status_failure_output = root / "status-failure"
 collector.URL_OPENER = Opener(successful_responses())
-collector._epoch_ms = Clock(success_clock)
+collector._epoch_ms = Clock(recovery_clock)
 original_write_status = collector._write_status
 
 def fail_completion_status(path, value, **kwargs):
@@ -473,10 +474,52 @@ status_failure = json.loads(
 assert status_failure["state"] == "partial_failure"
 assert status_failure["failureKind"] == "collector_internal_failure"
 
+class AbruptStop(BaseException):
+    pass
+
+post_replace_output = root / "post-replace-status-failure"
+collector.URL_OPENER = Opener(successful_responses())
+collector._epoch_ms = Clock(recovery_clock)
+original_remove_manifest = collector._remove_manifest
+
+def publish_success_then_fail(path, value, **kwargs):
+    original_write_status(path, value, **kwargs)
+    if value.get("state") == "complete_unverified":
+        raise OSError("injected post-replace status failure")
+
+def remove_then_stop(manifest_path, output_dir):
+    original_remove_manifest(manifest_path, output_dir)
+    raise AbruptStop()
+
+collector._write_status = publish_success_then_fail
+collector._remove_manifest = remove_then_stop
+try:
+    collector.collect_bundle(
+        post_replace_output,
+        quote="USDT",
+        interval="1h",
+        bar_open=7200000,
+        max_clock_skew_ms=0,
+        deadline_seconds=240,
+        limiter=collector.RequestWeightLimiter(),
+    )
+except AbruptStop:
+    pass
+else:
+    raise AssertionError("abrupt cleanup stop must escape the exception handler")
+assert not (post_replace_output / "source-manifest.json").exists()
+post_replace_status = json.loads(
+    (post_replace_output / "collection-status.json").read_text()
+)
+assert post_replace_status["state"] == "cleanup_pending"
+assert post_replace_status["sourceManifestPublished"] is None
+assert post_replace_status["sourceManifestState"] == "indeterminate_during_cleanup"
+assert post_replace_status["manifestCleanupRequired"] is True
+collector._remove_manifest = original_remove_manifest
+
 cleanup_failure_output = root / "cleanup-failure"
 collector.URL_OPENER = Opener(successful_responses())
-collector._epoch_ms = Clock(success_clock)
-original_remove_manifest = collector._remove_manifest
+collector._epoch_ms = Clock(recovery_clock)
 
 def fail_manifest_cleanup(_manifest_path, _output_dir):
     raise OSError("injected manifest cleanup failure")
@@ -512,7 +555,7 @@ collector._remove_manifest = original_remove_manifest
 
 deadline_output = root / "publication-deadline"
 collector.URL_OPENER = Opener(successful_responses())
-collector._epoch_ms = Clock(success_clock)
+collector._epoch_ms = Clock(recovery_clock)
 collector._write_status = original_write_status
 original_publication_window = collector._require_publication_window
 publication_checks = 0
@@ -551,10 +594,7 @@ collector._require_publication_window = original_publication_window
 
 abrupt_output = root / "abrupt-stop"
 collector.URL_OPENER = Opener(successful_responses())
-collector._epoch_ms = Clock(success_clock)
-
-class AbruptStop(BaseException):
-    pass
+collector._epoch_ms = Clock(recovery_clock)
 
 def interrupt_completion_status(path, value, **kwargs):
     if value.get("state") == "complete_unverified":

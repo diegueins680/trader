@@ -962,8 +962,7 @@ def _cleanup_failure_status(
     original_error: Exception,
     completed_paths: list[str],
 ) -> dict[str, object]:
-    status = _failure_status(base, original_error, completed_paths)
-    original_failure_kind = status["failureKind"]
+    status = _cleanup_pending_status(base, original_error, completed_paths)
     return {
         **status,
         "state": "cleanup_failure",
@@ -971,9 +970,27 @@ def _cleanup_failure_status(
         "failureMessage": (
             "source-manifest cleanup could not be confirmed; bundle state is indeterminate"
         ),
+        "sourceManifestState": "indeterminate_after_cleanup_failure",
+    }
+
+
+def _cleanup_pending_status(
+    base: Mapping[str, object],
+    original_error: Exception,
+    completed_paths: list[str],
+) -> dict[str, object]:
+    status = _failure_status(base, original_error, completed_paths)
+    original_failure_kind = status["failureKind"]
+    return {
+        **status,
+        "state": "cleanup_pending",
+        "failureKind": "manifest_cleanup_pending",
+        "failureMessage": (
+            "source-manifest cleanup must complete before publication is known"
+        ),
         "originalFailureKind": original_failure_kind,
         "sourceManifestPublished": None,
-        "sourceManifestState": "indeterminate_after_cleanup_failure",
+        "sourceManifestState": "indeterminate_during_cleanup",
         "manifestCleanupRequired": True,
     }
 
@@ -1239,30 +1256,41 @@ def collect_bundle(
         )
         return manifest_path
     except Exception as error:
-        cleanup_error: OSError | None = None
         if manifest_written:
-            try:
-                _remove_manifest(manifest_path, output)
-            except OSError as removal_error:
-                cleanup_error = removal_error
-        if cleanup_error is not None:
             try:
                 _write_status(
                     status_path,
-                    _cleanup_failure_status(status_base, error, completed_paths),
+                    _cleanup_pending_status(status_base, error, completed_paths),
                 )
-            except Exception:
-                pass
-            raise CollectionFailure(
-                "manifest_cleanup_failed",
-                "source-manifest cleanup failed; bundle state is indeterminate",
-            ) from cleanup_error
+            except Exception as status_error:
+                raise CollectionFailure(
+                    "publication_recovery_failed",
+                    "could not establish indeterminate status; manifest was preserved",
+                ) from status_error
+            try:
+                _remove_manifest(manifest_path, output)
+            except OSError as cleanup_error:
+                try:
+                    _write_status(
+                        status_path,
+                        _cleanup_failure_status(status_base, error, completed_paths),
+                    )
+                except Exception:
+                    pass
+                raise CollectionFailure(
+                    "manifest_cleanup_failed",
+                    "source-manifest cleanup failed; bundle state is indeterminate",
+                ) from cleanup_error
         try:
             _write_status(
                 status_path, _failure_status(status_base, error, completed_paths)
             )
-        except Exception:
-            pass
+        except Exception as status_error:
+            if manifest_written:
+                raise CollectionFailure(
+                    "failure_status_write_failed",
+                    "manifest cleanup completed but failure status could not be finalized",
+                ) from status_error
         raise
 
 
