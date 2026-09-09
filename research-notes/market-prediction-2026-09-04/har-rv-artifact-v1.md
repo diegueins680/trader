@@ -4,7 +4,7 @@
 
 `bar_har_rv_ridge_risk_gate_v1` is an isolated offline prototype of the preregistered `har_rv_risk_gate_v1` candidate. It is not a production predictor, an admitted research model, a champion challenger, or evidence of predictive or economic value. No market outcome, development result, final holdout, order path, deployment setting, credential, or live authorization was read or changed while implementing it. The registered data start remains `2027-01-21T00:00:00Z`; the final holdout remains untouched.
 
-The Haskell module consumes only the abstract `complete_ohlcv_feature_inputs_v2` boundary for one exact symbol and registered interval. It remains absent from the legacy predictor registry, ensemble, optimizer, bot, API, CLI, artifact loader, execution, and deployment paths. Synthetic deterministic fixtures are the only fitted data in its tests.
+The Haskell module consumes only the abstract `complete_ohlcv_feature_inputs_v2` boundary for one exact symbol and registered interval. It accepts only the registration's exact ten Binance USD-M symbols; any syntactically valid symbol outside that frozen universe fails before evidence hashing or fitting. It remains absent from the legacy predictor registry, ensemble, optimizer, bot, API, CLI, artifact loader, execution, and deployment paths. Synthetic deterministic fixtures are the only fitted data in its tests.
 
 ## Frozen interpretation
 

@@ -9,6 +9,7 @@ module Trader.Predictors.HarRvArtifactV1 (
     harRvCompatibilityVersionV1,
     harRvSemanticModelIdV1,
     harRvFeatureNamesV1,
+    harRvRegisteredSymbolsV1,
     harRvRidgeLambdaV1,
     harRvTrainingEvidenceSha256V1,
     fitHarRvArtifactV1,
@@ -38,7 +39,7 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Aeson.Types as AesonTypes
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAlphaNum, isAscii, isControl, isDigit, isUpper)
+import Data.Char (isAlphaNum, isAscii, isControl, isDigit)
 import Data.Int (Int64)
 import Data.List (elemIndex, foldl', nub, sort, sortOn)
 import qualified Data.Vector as V
@@ -193,6 +194,20 @@ registeredAcademicOriginsV1 =
     [ "https://doi.org/10.1111/1468-0262.00418"
     , "https://doi.org/10.1093/jjfinec/nbp001"
     , "https://doi.org/10.1016/0304-4076(86)90063-1"
+    ]
+
+harRvRegisteredSymbolsV1 :: [String]
+harRvRegisteredSymbolsV1 =
+    [ "BTCUSDT"
+    , "ETHUSDT"
+    , "SOLUSDT"
+    , "BNBUSDT"
+    , "XRPUSDT"
+    , "AVAXUSDT"
+    , "UNIUSDT"
+    , "SUIUSDT"
+    , "ETCUSDT"
+    , "ADAUSDT"
     ]
 
 {- | Hash the exact ordered complete-OHLCV slice that can affect this fit.
@@ -766,7 +781,7 @@ validateRequest request
     | not (validCommit (hrr1CodeCommit request)) = Left "HAR-RV codeCommit is invalid"
     | not (all validSha256 requestDigests) = Left "HAR-RV provenance digest is invalid"
     | hrr1AcademicOrigins request /= registeredAcademicOriginsV1 = Left "HAR-RV academic origins do not match the registration"
-    | not (validSymbol (hrr1Symbol request)) = Left "HAR-RV symbol is invalid"
+    | hrr1Symbol request `notElem` harRvRegisteredSymbolsV1 = Left "HAR-RV symbol is outside the registered universe"
     | hrr1IntervalMs request `notElem` [3600000, 14400000, 28800000] = Left "HAR-RV interval is outside the registered set"
     | hrr1HorizonBars request `notElem` [1, 3, 6] = Left "HAR-RV horizon is outside the registered set"
     | hrr1PurgeBars request /= 6 || hrr1EmbargoBars request /= 6 = Left "HAR-RV purge and embargo must match the registration"
@@ -943,9 +958,6 @@ validSha256 value = length value == 64 && all isLowerHex value
 
 isLowerHex :: Char -> Bool
 isLowerHex character = isAscii character && (isDigit character || character >= 'a' && character <= 'f')
-
-validSymbol :: String -> Bool
-validSymbol value = not (null value) && all (\character -> isAscii character && (isUpper character || isDigit character)) value
 
 validLabel :: String -> Bool
 validLabel value =

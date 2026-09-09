@@ -342,6 +342,7 @@ import Trader.Predictors.HarRvArtifactV1 (
     harRvArtifactSchemaVersionV1,
     harRvCompatibilityVersionV1,
     harRvFeatureNamesV1,
+    harRvRegisteredSymbolsV1,
     harRvRidgeLambdaV1,
     harRvRiskScaleV1,
     harRvSemanticModelIdV1,
@@ -1488,6 +1489,8 @@ testHarRvArtifactV1 = do
             && harRvSemanticModelIdV1 == "bar_har_rv_ridge_risk_gate_v1"
             && harRvFeatureNamesV1
                 == ["log_rv.trailing_1_bar", "log_rv.trailing_6_bars", "log_rv.trailing_24_bars"]
+            && harRvRegisteredSymbolsV1
+                == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "AVAXUSDT", "UNIUSDT", "SUIUSDT", "ETCUSDT", "ADAUSDT"]
             && harRvRidgeLambdaV1 == 1.0e-6
         )
     case buildInputs "BTCUSDT" closes of
@@ -1605,6 +1608,7 @@ testHarRvArtifactV1 = do
                         "malformed provenance and registration boundaries fail closed"
                         ( and
                             [ isLeft (fitHarRvArtifactV1 request{hrr1TrainingEvidenceSha256 = replicate 64 'f'} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1Symbol = "DOGEUSDT"} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1HorizonBars = 2} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1IntervalMs = 60000} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1TrainingStartEventTimeMs = trainingStart + 1} inputs)
