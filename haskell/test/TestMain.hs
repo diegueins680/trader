@@ -1395,14 +1395,15 @@ testMissingnessAwareFeaturePanelV1 :: IO ()
 testMissingnessAwareFeaturePanelV1 = do
     let intervalMs = 3600000 :: Int64
         datasetStartMs = 1800489600000 :: Int64
+        developmentEndMs = 1821481200000 :: Int64
         finalHoldoutStartMs = 1821484800000 :: Int64
         rowCount = 30
         closes = V.generate rowCount (\index -> 100 + fromIntegral index)
-        openTimesFrom firstEvent count =
-            V.generate count (\index -> firstEvent - intervalMs + fromIntegral index * intervalMs)
-        completeInputsFor scope firstEvent closeValues =
+        openTimesFrom firstOpen count =
+            V.generate count (\index -> firstOpen + fromIntegral index * intervalMs)
+        completeInputsFor scope firstOpen closeValues =
             let count = V.length closeValues
-                openTimes = openTimesFrom firstEvent count
+                openTimes = openTimesFrom firstOpen count
                 eventTimes = V.map (+ intervalMs) openTimes
                 availabilityTimes = V.map (+ 50) eventTimes
                 decisionTimes = V.map (+ 100) eventTimes
@@ -1620,10 +1621,17 @@ testMissingnessAwareFeaturePanelV1 = do
                 )
 
     assert
-        "pre-registration, holdout, unregistered-symbol, and insufficient-lookback inputs fail closed"
+        "registered bar-open boundaries are exact while invalid scope and lookback fail closed"
         ( and
             [ case completeInputsFor "BTCUSDT" (datasetStartMs - intervalMs) closes of
                 Just beforeStart -> isNothing (missingnessAwareFeaturePanelV1 beforeStart Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor
+                "BTCUSDT"
+                (developmentEndMs - fromIntegral (rowCount - 1) * intervalMs)
+                closes of
+                Just endingAtDevelopmentBoundary ->
+                    isJust (missingnessAwareFeaturePanelV1 endingAtDevelopmentBoundary Nothing Nothing)
                 Nothing -> False
             , case completeInputsFor "BTCUSDT" finalHoldoutStartMs closes of
                 Just holdout -> isNothing (missingnessAwareFeaturePanelV1 holdout Nothing Nothing)

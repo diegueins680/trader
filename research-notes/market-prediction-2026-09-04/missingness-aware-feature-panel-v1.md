@@ -14,7 +14,7 @@ The Haskell boundary `missingness_aware_calibrated_shallow_feature_panel_v1` com
 2. optional `binance_derivatives_model_features_v2` evidence; and
 3. optional `coinbase_cross_exchange_model_features_v2` evidence.
 
-It accepts only the ten registered Binance USD-M symbols and the registered 1h, 4h, and 8h intervals. Every present optional panel must match the exact target symbol and bar grid and must have been decided no later than the primary OHLCV decision. The first 24 bars are causal lookback only. Rows before the registered start or at/after the final-holdout boundary are rejected.
+It accepts only the ten registered Binance USD-M symbols and the registered 1h, 4h, and 8h intervals. Every present optional panel must match the exact target symbol and bar grid and must have been decided no later than the primary OHLCV decision. The first 24 bars are causal lookback only. Registration bounds and phase alignment apply to the grid's exact bar-open timestamps: opens before the registered start or at/after the final-holdout boundary are rejected, while the final registered development open is admitted.
 
 ## Exact feature order
 

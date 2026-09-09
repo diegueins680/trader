@@ -159,8 +159,7 @@ missingnessAwareFeaturePanelV1 ohlcvInputs maybeDerivatives maybeCrossExchange =
     guard (intervalMs `elem` registeredIntervalsMsV1)
     guard (rowCount == V.length decisionTimes && rowCount == length ohlcvRows)
     guard (rowCount > missingnessAwareLookbackBarsV1)
-    eventTimes <- traverse (fmap tfvEventTimeMs . marketCloseWitness) ohlcvRows
-    guard (validRegisteredEventTimes intervalMs eventTimes)
+    guard (validRegisteredOpenTimes intervalMs (V.toList openTimes))
     priceRows <-
         traverse
             (priceFeatureRowV1 ohlcvRows)
@@ -349,16 +348,16 @@ marketCloseWitness row = do
         )
     pure (TimedFeatureValue eventTime availabilityTime value)
 
-validRegisteredEventTimes :: Int64 -> [Int64] -> Bool
-validRegisteredEventTimes intervalMs eventTimes =
-    not (null eventTimes)
+validRegisteredOpenTimes :: Int64 -> [Int64] -> Bool
+validRegisteredOpenTimes intervalMs openTimes =
+    not (null openTimes)
         && all
-            ( \eventTime ->
-                eventTime >= registeredDatasetStartMsV1
-                    && eventTime <= registeredDevelopmentEndMsV1
-                    && gridAligned registeredDatasetStartMsV1 intervalMs eventTime
+            ( \openTime ->
+                openTime >= registeredDatasetStartMsV1
+                    && openTime <= registeredDevelopmentEndMsV1
+                    && gridAligned registeredDatasetStartMsV1 intervalMs openTime
             )
-            eventTimes
+            openTimes
 
 gridAligned :: Int64 -> Int64 -> Int64 -> Bool
 gridAligned anchor intervalMs value =
