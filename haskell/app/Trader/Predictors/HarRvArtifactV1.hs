@@ -798,7 +798,7 @@ validateRequest request
     | validationLastTargetEvent >= toInteger holdoutStart = Left "HAR-RV validation target horizon reaches the final holdout"
     | toInteger validationStart - toInteger trainingEnd < gapMs = Left "HAR-RV purge and embargo gap is insufficient"
     | toInteger fitAvailableAt < lastTrainingTargetEvent || fitAvailableAt > validationStart = Left "HAR-RV fit availability crosses its causal fold boundary"
-    | createdAt < fitAvailableAt = Left "HAR-RV artifact creation predates fit availability"
+    | createdAt < fitAvailableAt || createdAt > validationStart = Left "HAR-RV artifact creation crosses its causal fold boundary"
     | hrr1RandomSeed request /= 20270904 = Left "HAR-RV random seed does not match the registration"
     | null runtimes || not (all validText runtimes) || length runtimes /= length (nub runtimes) = Left "HAR-RV runtimeVersions are invalid"
     | not (validLabel (hrr1CostModelId request)) = Left "HAR-RV costModelId is invalid"

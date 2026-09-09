@@ -1614,6 +1614,7 @@ testHarRvArtifactV1 = do
                             , isLeft (fitHarRvArtifactV1 request{hrr1TrainingStartEventTimeMs = trainingStart + 1} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1PurgeBars = 3} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1RandomSeed = 1} inputs)
+                            , isLeft (fitHarRvArtifactV1 request{hrr1CreatedAtMs = validationStart + 1} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1FinalHoldoutStartEventTimeMs = holdoutStartMs + intervalMs} inputs)
                             , isLeft (fitHarRvArtifactV1 request{hrr1ValidationEndEventTimeMs = holdoutStartMs - intervalMs} inputs)
                             ]
