@@ -88,6 +88,12 @@ The three new registration files define start time `2027-01-21T00:00:00Z`. Do no
 6. Open the final holdout once. An interruption consumes it.
 7. A pass permits only a disabled challenger; it never changes live authorization or auto-promotes.
 
+The research-only market-context fitted-component contract is exercised by
+`testMarketContextLinearArtifactV1` inside the canonical Haskell suite. It uses
+synthetic rows only; running that test neither admits a source bundle nor
+creates an experiment, candidate artifact, holdout result, deployment, or
+order authorization.
+
 ## Data handling
 
 Do not commit downloaded market archives or trained artifacts. Store them outside Git with source/terms, retrieval command, schema, point-in-time rules, content hashes, split manifest, and deterministic expected hashes where possible. Never commit credentials or paper PDFs.
