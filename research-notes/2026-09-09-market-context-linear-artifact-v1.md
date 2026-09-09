@@ -15,7 +15,9 @@ The fit requires the complete ordered training grid, a target event exactly at
 the declared horizon, target availability no later than the fit cutoff, a
 purge at least as long as that horizon, and the declared embargo before the
 first validation event. The inclusive validation start/end and the separately
-excluded final-holdout start are also immutable request fields. The request binds the registration, code commit,
+excluded final-holdout start are also immutable request fields. The complete
+forward horizon at the validation end must terminate strictly before that
+holdout boundary. The request binds the registration, code commit,
 training-data/source/split digests, a versioned SHA-256 of the exact ordered
 scope-bound factors and targets fitted by OLS, academic origins, target symbol, quote,
 peer count, point-in-time universe schema, interval and horizon,
@@ -37,8 +39,8 @@ of all factor scope, causal feature witnesses, and scope-bound targets must
 match the request; a same-grid observation sequence from different data fails.
 Inference checks the factor's exact
 target, quote, peer count, interval, feature schema, causal timestamps,
-bounded validation window, exact registered grid phase, excluded final-holdout
-boundary, payload digest,
+bounded validation window, exact registered grid phase, a forecast horizon
+that terminates before the excluded final-holdout boundary, payload digest,
 compatibility version, and finite positive variance. Failure returns no
 estimate. A factor's latest contributing event may be later than the peer bar
 end when the universe snapshot is causally observed after close, but must be no

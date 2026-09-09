@@ -8800,6 +8800,7 @@ testMarketContextLinearArtifactV1 = do
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1ValidationEndEventTimeMs = 6500} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1ValidationEndEventTimeMs = 8500} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 8000} rows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 9000} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1FinalHoldoutStartEventTimeMs = 9500} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows ++ [lateTrainingRow]))
             , isLeft

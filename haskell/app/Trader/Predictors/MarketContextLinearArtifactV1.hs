@@ -560,6 +560,7 @@ validateRequest request
     | (toInteger validationEnd - toInteger validationStart) `mod` toInteger interval /= 0 = Left "market-context validation end is off grid"
     | finalHoldoutStart <= validationEnd = Left "market-context final holdout must follow validation"
     | (toInteger finalHoldoutStart - toInteger validationStart) `mod` toInteger interval /= 0 = Left "market-context final holdout start is off grid"
+    | validationLastTargetEvent >= toInteger finalHoldoutStart = Left "market-context validation target horizon reaches the final holdout"
     | toInteger validationStart - toInteger endTime < gapMs = Left "market-context purge and embargo gap is insufficient"
     | toInteger fitAvailableAt < lastTargetEvent || fitAvailableAt > validationStart = Left "market-context fit availability crosses its causal fold boundary"
     | createdAt < fitAvailableAt = Left "market-context artifact creation predates fit availability"
@@ -591,6 +592,7 @@ validateRequest request
     rowCountInteger = (toInteger endTime - toInteger startTime) `div` toInteger interval + 1
     gapMs = (toInteger purge + toInteger embargo) * toInteger interval
     lastTargetEvent = toInteger endTime + toInteger horizon * toInteger interval
+    validationLastTargetEvent = toInteger validationEnd + toInteger horizon * toInteger interval
 
 validateObservationGrid :: MarketContextLinearFitRequestV1 -> [MarketContextTrainingObservationV1] -> Either String ()
 validateObservationGrid request observations
@@ -657,6 +659,11 @@ observedInferenceFactor request factor = do
     guard (eventTime >= mclfr1ValidationStartEventTimeMs request)
     guard (eventTime <= mclfr1ValidationEndEventTimeMs request)
     guard (eventTime < mclfr1FinalHoldoutStartEventTimeMs request)
+    guard
+        ( toInteger eventTime
+            + toInteger (mclfr1HorizonBars request) * toInteger (mclfr1IntervalMs request)
+            < toInteger (mclfr1FinalHoldoutStartEventTimeMs request)
+        )
     guard
         ( (toInteger eventTime - toInteger (mclfr1ValidationStartEventTimeMs request))
             `mod` toInteger (mclfr1IntervalMs request)
