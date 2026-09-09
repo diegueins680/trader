@@ -194,7 +194,14 @@ test("bundle verifier rejects incomplete, changed, or authorizing status", async
   assert.equal(result.status, 1);
   assert.match(result.stderr, /eligiblePopulationCount must be/);
 
-  const previousCommit = git("rev-parse", "HEAD^").toString("utf8").trim();
+  const verifierHistory = git(
+    "log",
+    "--format=%H",
+    "--",
+    "scripts/research/verify_market_context_bundle.py",
+  ).toString("utf8").trim().split("\n");
+  assert.ok(verifierHistory.length >= 2);
+  const previousCommit = verifierHistory[1];
   const versionDrift = await buildBundle(previousCommit);
   result = runVerifier(versionDrift.statusPath);
   assert.equal(result.status, 1);
