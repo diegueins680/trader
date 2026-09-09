@@ -796,7 +796,7 @@
       "requires": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-R1", "statement": "Every candidate freezes its semantic model version, feature and availability schema, target/horizon, universe, train/calibration/validation/holdout ranges, purge/embargo, baselines, complete trial budget, seeds, costs, tests, gates, and compute budget before outcome evaluation." },
         { "id": "A-MARKET-PREDICTION-RESEARCH-R2", "statement": "A persisted candidate artifact is admissible only when its versioned provenance binds source papers, code revision, data and source hashes, schema, target, universe, splits, hyperparameters, seed, runtime versions, metrics, cost model, creation time, promotion state, and compatibility version." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-R3", "statement": "A fitted market-context component consumes the complete ordered training grid through abstract scope-bound factors, derives scope-bound horizon returns only from canonical complete target bars, admits only exact-schema causal rows and labels available by the fit cutoff, and binds a purge covering the label horizon plus the declared embargo, an inclusive validation window, and the later final-holdout start." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-R3", "statement": "A fitted market-context component consumes the complete ordered training grid through abstract scope-bound factors, derives scope-bound horizon returns only from canonical complete target bars, requires a versioned canonical digest of the exact ordered factors, causal witnesses, and targets, admits only exact-schema causal rows and labels available by the fit cutoff, and binds separate upstream provenance plus a purge covering the label horizon, declared embargo, inclusive validation window, and later final-holdout start." }
       ],
       "ensures": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-E1", "statement": "A missing, stale, invalid, non-finite, corrupted, incompatible, unsupported, unprovenanced, or timed-out candidate returns unavailable and cannot create an actionable signal." },
@@ -811,7 +811,7 @@
       ],
       "failures": [
         { "id": "A-MARKET-PREDICTION-RESEARCH-F1", "statement": "Incomplete data/licensing/provenance, reused or contaminated confirmation data, failed causality/statistical/cost/risk/compute evidence, or any automatic-promotion path leaves the candidate rejected or research-only and the current champion unchanged." },
-        { "id": "A-MARKET-PREDICTION-RESEARCH-F2", "statement": "An incomplete or off-grid fold, invalid validation/holdout boundary, inference outside the bound validation window, unavailable or late label, insufficient purge/embargo, fewer than three observed factor rows, degenerate or non-finite fit, schema/scope/version mismatch, payload corruption, or authorizing safety state yields no fitted component or no estimate." }
+        { "id": "A-MARKET-PREDICTION-RESEARCH-F2", "statement": "An incomplete or off-grid fold, fitted-observation provenance mismatch, invalid validation/holdout boundary, inference outside the bound validation window, unavailable or late label, insufficient purge/embargo, fewer than three observed factor rows, degenerate or non-finite fit, schema/scope/version mismatch, payload corruption, or authorizing safety state yields no fitted component or no estimate." }
       ],
       "evidence": [
         { "level": "regression", "path": "test/market-prediction-research.test.mjs", "contains": "market-prediction registrations remain future-only disabled challengers" },

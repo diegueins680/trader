@@ -46,7 +46,10 @@ strict precedence to the separately bound final-holdout start. Observed
 factor witnesses may occur causally after the peer bar end and no later than
 the factor decision. Training labels are abstract scope-bound returns computed
 only from canonical complete target bars whose start event matches the factor;
-a caller cannot pair a generic return scalar with another asset's factor.
+a caller cannot pair a generic return scalar with another asset's factor. A
+versioned canonical digest over every ordered factor scope, feature value and
+availability witness, and target must match the immutable fit request before
+OLS; upstream data, source-manifest, and split digests remain separate.
 
 The `A-RESEARCH` rate-limit refinement preserves canonical universe membership
 while deriving a separate `utc_epoch_hour_rotation_v1` request permutation.

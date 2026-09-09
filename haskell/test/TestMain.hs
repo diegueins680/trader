@@ -361,6 +361,7 @@ import Trader.Predictors.MarketContextLinearArtifactV1 (
     marketContextLinearCompatibilityVersionV1,
     marketContextLinearSemanticModelIdV1,
     marketContextTargetReturnV1,
+    marketContextTrainingObservationsSha256V1,
     mcla1Beta,
     mcla1Intercept,
     mcla1ObservedTrainingRowCount,
@@ -8573,10 +8574,15 @@ testMarketContextLinearArtifactV1 = do
     let intervalMs = 1000 :: Int64
         digest = replicate 64
         request =
+            requestWithoutObservationDigest
+                { mclfr1TrainingObservationsSha256 = marketContextTrainingObservationsSha256V1 rows
+                }
+        requestWithoutObservationDigest =
             MarketContextLinearFitRequestV1
                 { mclfr1RegistrationId = "missingness-aware-calibrated-shallow-v1"
                 , mclfr1CodeCommit = replicate 40 'a'
                 , mclfr1TrainingDataSha256 = digest 'b'
+                , mclfr1TrainingObservationsSha256 = digest 'e'
                 , mclfr1SourceManifestSha256 = digest 'c'
                 , mclfr1SplitManifestSha256 = digest 'd'
                 , mclfr1AcademicOrigins = ["https://doi.org/10.1111/jofi.13119"]
@@ -8673,6 +8679,8 @@ testMarketContextLinearArtifactV1 = do
             , trainingRow 3000 (Just 0.03) 0.061
             , trainingRow 4000 (Just 0.04) 0.081
             ]
+        provenanceMismatchedRows =
+            trainingRow 1000 (Just 0) 0.002 : tail rows
         lateTrainingRow =
             let trainingFactor = factorRow 4000 (Just 0.04)
                 target =
@@ -8702,6 +8710,12 @@ testMarketContextLinearArtifactV1 = do
             && marketContextLinearArtifactSchemaVersionV1 == 1
             && marketContextLinearCompatibilityVersionV1 == 1
             && marketContextLinearSemanticModelIdV1 == "point_in_time_market_context_linear_ols_v1"
+        )
+    assert
+        "market-context training provenance digest binds the exact ordered observations"
+        ( length (marketContextTrainingObservationsSha256V1 rows) == 64
+            && marketContextTrainingObservationsSha256V1 rows
+                /= marketContextTrainingObservationsSha256V1 provenanceMismatchedRows
         )
     assert
         "market-context factors retain their validated scope instead of accepting caller relabeling"
@@ -8773,9 +8787,11 @@ testMarketContextLinearArtifactV1 = do
                         )
                 Nothing -> assert "encoded market-context artifact should decode as generic JSON" False
     assert
-        "incomplete grids, insufficient purge, late labels, and degenerate observed factors reject fitting"
+        "incomplete grids, provenance mismatch, invalid windows, insufficient purge, late labels, and degenerate observed factors reject fitting"
         ( and
             [ isLeft (fitMarketContextLinearArtifactV1 request (take 3 rows))
+            , isLeft (fitMarketContextLinearArtifactV1 request provenanceMismatchedRows)
+            , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1TrainingObservationsSha256 = digest 'e'} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1PurgeBars = 0} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Symbol = "ETHUSDT"} rows)
             , isLeft (fitMarketContextLinearArtifactV1 request{mclfr1Quote = "USD"} rows)

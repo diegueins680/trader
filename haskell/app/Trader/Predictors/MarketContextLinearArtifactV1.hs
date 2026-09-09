@@ -10,6 +10,7 @@ module Trader.Predictors.MarketContextLinearArtifactV1 (
     marketContextLinearArtifactSchemaVersionV1,
     marketContextLinearCompatibilityVersionV1,
     marketContextLinearSemanticModelIdV1,
+    marketContextTrainingObservationsSha256V1,
     marketContextTargetReturnV1,
     mkMarketContextTrainingObservationV1,
     fitMarketContextLinearArtifactV1,
@@ -81,6 +82,7 @@ data MarketContextLinearFitRequestV1 = MarketContextLinearFitRequestV1
     { mclfr1RegistrationId :: !String
     , mclfr1CodeCommit :: !String
     , mclfr1TrainingDataSha256 :: !String
+    , mclfr1TrainingObservationsSha256 :: !String
     , mclfr1SourceManifestSha256 :: !String
     , mclfr1SplitManifestSha256 :: !String
     , mclfr1AcademicOrigins :: ![String]
@@ -174,6 +176,16 @@ marketContextLinearValidationMetricsStateV1 = "not_evaluated"
 marketContextLinearFinalHoldoutStateV1 :: String
 marketContextLinearFinalHoldoutStateV1 = "untouched"
 
+marketContextLinearTrainingObservationsSchemaIdV1 :: String
+marketContextLinearTrainingObservationsSchemaIdV1 = "point_in_time_market_context_linear_training_observations_v1"
+
+marketContextLinearTrainingObservationsSchemaVersionV1 :: Int
+marketContextLinearTrainingObservationsSchemaVersionV1 = 1
+
+-- | Canonical digest of the exact ordered, scope-bound evidence fitted by OLS.
+marketContextTrainingObservationsSha256V1 :: [MarketContextTrainingObservationV1] -> String
+marketContextTrainingObservationsSha256V1 = digestValue . trainingObservationsValue
+
 {- | Compute a scope-bound realized return from two canonical complete target
 bars. The start bar must be the factor's exact target bar and must be available
 by the factor decision; the target bar is selected by the declared horizon.
@@ -241,6 +253,9 @@ fitMarketContextLinearArtifactV1 ::
 fitMarketContextLinearArtifactV1 request observations = do
     validateRequest request
     validateObservationGrid request observations
+    unless
+        (mclfr1TrainingObservationsSha256 request == marketContextTrainingObservationsSha256V1 observations)
+        (Left "market-context training observations do not match their provenance digest")
     let observedPairs = foldr observedPair [] observations
     (intercept, beta, residualVariance, trainingMse) <-
         maybe
@@ -376,6 +391,7 @@ parseRequest = withObject "MarketContextLinearFitRequestV1" $ \obj -> do
             <$> obj .: "registrationId"
             <*> obj .: "codeCommit"
             <*> obj .: "trainingDataSha256"
+            <*> obj .: "trainingObservationsSha256"
             <*> obj .: "sourceManifestSha256"
             <*> obj .: "splitManifestSha256"
             <*> obj .: "academicOrigins"
@@ -499,6 +515,7 @@ requestValue request =
         [ "registrationId" .= mclfr1RegistrationId request
         , "codeCommit" .= mclfr1CodeCommit request
         , "trainingDataSha256" .= mclfr1TrainingDataSha256 request
+        , "trainingObservationsSha256" .= mclfr1TrainingObservationsSha256 request
         , "sourceManifestSha256" .= mclfr1SourceManifestSha256 request
         , "splitManifestSha256" .= mclfr1SplitManifestSha256 request
         , "academicOrigins" .= mclfr1AcademicOrigins request
@@ -553,6 +570,7 @@ validateRequest request
   where
     requestDigests =
         [ mclfr1TrainingDataSha256 request
+        , mclfr1TrainingObservationsSha256 request
         , mclfr1SourceManifestSha256 request
         , mclfr1SplitManifestSha256 request
         ]
@@ -757,6 +775,59 @@ expectedEventTimes request =
 payloadDigest :: MarketContextLinearArtifactV1 -> String
 payloadDigest = digestValue . payloadValue
 
+trainingObservationsValue :: [MarketContextTrainingObservationV1] -> Value
+trainingObservationsValue observations =
+    object
+        [ "schemaId" .= marketContextLinearTrainingObservationsSchemaIdV1
+        , "schemaVersion" .= marketContextLinearTrainingObservationsSchemaVersionV1
+        , "observations" .= map trainingObservationValue observations
+        ]
+
+trainingObservationValue :: MarketContextTrainingObservationV1 -> Value
+trainingObservationValue observation =
+    object
+        [ "factor" .= factorValue (mcto1Factor observation)
+        , "target" .= targetValue (mcto1Target observation)
+        ]
+
+factorValue :: MarketContextFactorV2 -> Value
+factorValue factor =
+    object
+        [ "targetSymbol" .= mcf2TargetSymbol factor
+        , "quote" .= mcf2Quote factor
+        , "requiredPeerCount" .= mcf2RequiredPeerCount factor
+        , "peerSymbols" .= mcf2PeerSymbols factor
+        , "barOpenTimeMs" .= mcf2BarOpenTimeMs factor
+        , "eventTimeMs" .= mcf2EventTimeMs factor
+        , "intervalMs" .= mcf2IntervalMs factor
+        , "featureRow" .= featureRowValue (mcf2FeatureRow factor)
+        ]
+
+featureRowValue :: FeatureRowV2 -> Value
+featureRowValue row =
+    object
+        [ "schemaId" .= frv2SchemaId row
+        , "names" .= frv2Names row
+        , "values" .= frv2Values row
+        , "available" .= frv2Available row
+        , "eventTimesMs" .= frv2EventTimesMs row
+        , "availabilityTimesMs" .= frv2AvailabilityTimesMs row
+        , "required" .= frv2Required row
+        , "decisionTimeMs" .= frv2DecisionTimeMs row
+        ]
+
+targetValue :: MarketContextTargetReturnV1 -> Value
+targetValue target =
+    object
+        [ "symbol" .= marketContextTargetSymbolV1 target
+        , "startEventTimeMs" .= marketContextTargetStartEventTimeMsV1 target
+        , "targetEventTimeMs" .= marketContextTargetEventTimeMsV1 target
+        , "availabilityTimeMs" .= marketContextTargetAvailabilityTimeMsV1 target
+        , "intervalMs" .= marketContextTargetIntervalMsV1 target
+        , "horizonBars" .= marketContextTargetHorizonBarsV1 target
+        , "forwardReturn" .= marketContextTargetForwardReturnV1 target
+        ]
+
 digestValue :: Value -> String
 digestValue value = show (hash (BL.toStrict (Aeson.encode value)) :: Digest SHA256)
 
@@ -771,6 +842,7 @@ requestKeys =
     [ "registrationId"
     , "codeCommit"
     , "trainingDataSha256"
+    , "trainingObservationsSha256"
     , "sourceManifestSha256"
     , "splitManifestSha256"
     , "academicOrigins"
