@@ -92,7 +92,7 @@
       "registeredBaselineConfigurations": 81,
       "totalBudget": 117,
       "executedConfigurations": 0,
-      "status": "blocked_on_feature_schema_v2_and_future_data"
+      "status": "blocked_on_future_source_admission_and_fitted_preprocessor_and_model_artifacts"
     }
   ],
   "auditRun": {

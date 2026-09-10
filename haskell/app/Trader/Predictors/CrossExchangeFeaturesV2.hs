@@ -6,6 +6,8 @@ module Trader.Predictors.CrossExchangeFeaturesV2 (
     crossExchangeModelFeatureNamesV2,
     crossExchangeModelFeatureSignatureV2,
     crossExchangeInputsV2,
+    crossExchangeScopeV2,
+    crossExchangeGridV2,
     crossExchangeFeatureRowsV2,
 ) where
 
@@ -35,7 +37,9 @@ data CrossExchangeCloseV2 = CrossExchangeCloseV2
     deriving (Eq, Show)
 
 data CrossExchangeInputsV2 = CrossExchangeInputsV2
-    { cei2OpenTimesMs :: !(V.Vector Int64)
+    { cei2BinanceSymbol :: !String
+    , cei2CoinbaseProduct :: !String
+    , cei2OpenTimesMs :: !(V.Vector Int64)
     , cei2DecisionTimesMs :: !(V.Vector Int64)
     , cei2IntervalMs :: !Int64
     , cei2BinanceCloses :: !(V.Vector CrossExchangeCloseV2)
@@ -112,7 +116,9 @@ crossExchangeInputsV2 binanceSymbol coinbaseProduct openTimes decisionTimes inte
         )
     pure
         CrossExchangeInputsV2
-            { cei2OpenTimesMs = openTimes
+            { cei2BinanceSymbol = binanceSymbol
+            , cei2CoinbaseProduct = coinbaseProduct
+            , cei2OpenTimesMs = openTimes
             , cei2DecisionTimesMs = decisionTimes
             , cei2IntervalMs = intervalMs
             , cei2BinanceCloses = binanceCloses
@@ -121,6 +127,15 @@ crossExchangeInputsV2 binanceSymbol coinbaseProduct openTimes decisionTimes inte
   where
     exactBar openTime close = cec2BarOpenTimeMs close == openTime
     optionalExactBar openTime = maybe True ((== openTime) . cec2BarOpenTimeMs)
+
+-- | Preserve the validated exchange scope for downstream cross-symbol checks.
+crossExchangeScopeV2 :: CrossExchangeInputsV2 -> (String, String)
+crossExchangeScopeV2 inputs = (cei2BinanceSymbol inputs, cei2CoinbaseProduct inputs)
+
+-- | Expose only the immutable validated grid, not its source vectors.
+crossExchangeGridV2 :: CrossExchangeInputsV2 -> (V.Vector Int64, V.Vector Int64, Int64)
+crossExchangeGridV2 inputs =
+    (cei2OpenTimesMs inputs, cei2DecisionTimesMs inputs, cei2IntervalMs inputs)
 
 {- | Build the availability-aware form of the five legacy same-asset
 cross-exchange features. All formulas match the legacy block on complete

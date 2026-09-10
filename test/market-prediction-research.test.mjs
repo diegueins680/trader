@@ -320,6 +320,117 @@ test("market-prediction registrations remain future-only disabled challengers", 
   }
 });
 
+test("missingness-aware shallow feature panel is exact and production-isolated", async () => {
+  const boundary = await readFile(
+    new URL(
+      "../haskell/app/Trader/Predictors/MissingnessAwareFeaturesV1.hs",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const preprocessor = await readFile(
+    new URL(
+      "../haskell/app/Trader/Predictors/MissingnessAwarePreprocessorV1.hs",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const productionPaths = await Promise.all(
+    [
+      "../haskell/app/Trader/Predictors/Features.hs",
+      "../haskell/app/Trader/Predictors.hs",
+      "../haskell/app/Trader/Optimizer/Optimize.hs",
+      "../haskell/app/Trader/Trading.hs",
+      "../haskell/app/Trader/OrderExecution.hs",
+      "../haskell/app/Trader/App/Runtime.hs",
+      "../haskell/app/Main.hs",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+  );
+  const isolatedContract =
+    /MissingnessAwareFeaturesV1|MissingnessAwarePreprocessorV1|missingnessAwareFeaturePanelV1|missingness_aware_calibrated_shallow_feature_panel_v1|missingness_aware_preprocessor_artifact_v1/;
+
+  for (const productionPath of productionPaths) {
+    assert.doesNotMatch(productionPath, isolatedContract);
+  }
+  assert.doesNotMatch(boundary, /Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.doesNotMatch(preprocessor, /import Trader\.(Trading|OrderExecution|App\.Runtime)/);
+  assert.match(preprocessor, /missingness_aware_preprocessor_artifact_v1/);
+  assert.match(preprocessor, /standardized\./);
+  assert.match(preprocessor, /available\./);
+  assert.match(preprocessor, /liveTradingAuthorized/);
+  assert.match(boundary, /fold-local training code must learn/);
+  assert.match(boundary, /Only genuinely future, pre-holdout development rows are accepted/);
+
+  const registration = await readJson(
+    new URL(
+      "../research-notes/registrations/missingness-aware-calibrated-shallow-v1.json",
+      import.meta.url,
+    ),
+  );
+  assert.equal(
+    registration.status,
+    "preregistered_blocked_on_future_source_admission_and_fitted_preprocessor_and_model_artifacts",
+  );
+  assert.deepEqual(registration.implementationInterpretation.preprocessorArtifact, {
+    schemaId: "missingness_aware_preprocessor_artifact_v1",
+    compatibilityVersion: 1,
+    fitScope: "one exact registered symbol interval horizon and training prefix",
+    fitTiming:
+      "persist the latest training decision; fit availability is no earlier than that decision or the final training bar end and remains before validation",
+    statistics:
+      "observed-only population mean and population standard deviation per feature; constant-feature scale is one",
+    output: "22 standardized feature values followed by the ten optional availability masks",
+    authority:
+      "none; the artifact is not a return model, prediction, experiment result, promotion, deployment, order, or live authorization",
+  });
+  assert.deepEqual(registration.implementationInterpretation.priceFeatureOrder, [
+    "price.return_1",
+    "price.return_3",
+    "price.return_6",
+    "price.return_24",
+    "price.mean_return_6",
+    "price.return_volatility_6",
+    "price.mean_return_24",
+    "price.return_volatility_24",
+    "price.return_spread_6_24",
+    "price.mean_reversion_1_6",
+    "price.volatility_ratio_6_24",
+    "price.trend_slope_6_24",
+  ]);
+  assert.equal(registration.implementationInterpretation.lookbackBars, 24);
+  assert.equal(registration.implementationInterpretation.shortWindowBars, 6);
+  assert.match(
+    registration.implementationInterpretation.outcomeBlindClarification,
+    /No market outcome/,
+  );
+  assert.deepEqual(
+    {
+      gbdtTrees: registration.hyperparameterSearch.gbdtTrees,
+      gbdtLearningRate: registration.hyperparameterSearch.gbdtLearningRate,
+      decisionTreeMaxDepth: registration.hyperparameterSearch.decisionTreeMaxDepth,
+      decisionTreeMinLeafSize: registration.hyperparameterSearch.decisionTreeMinLeafSize,
+      quantileEpochs: registration.hyperparameterSearch.quantileEpochs,
+      quantileLearningRate: registration.hyperparameterSearch.quantileLearningRate,
+      quantileL2: registration.hyperparameterSearch.quantileL2,
+      splitConformalAlpha: registration.hyperparameterSearch.splitConformalAlpha,
+      splitConformalCalibrationFraction:
+        registration.hyperparameterSearch.splitConformalCalibrationFraction,
+    },
+    {
+      gbdtTrees: 60,
+      gbdtLearningRate: 0.1,
+      decisionTreeMaxDepth: 6,
+      decisionTreeMinLeafSize: 12,
+      quantileEpochs: 20,
+      quantileLearningRate: 0.05,
+      quantileL2: 0.001,
+      splitConformalAlpha: 0.2,
+      splitConformalCalibrationFraction: 0.2,
+    },
+  );
+  assert.equal(registration.hyperparameterSearch.totalExperimentBudget, 117);
+});
+
 test("market-prediction registrations retain the complete frozen protocol", async () => {
   const registrations = await Promise.all(registrationUrls.map(readJson));
 

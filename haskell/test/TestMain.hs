@@ -282,11 +282,13 @@ import Trader.Predictors.Conformal (AdaptiveConformalState (..), ConformalModel 
 import Trader.Predictors.CrossExchangeFeaturesV2 (
     CrossExchangeCloseV2 (..),
     crossExchangeFeatureRowsV2,
+    crossExchangeGridV2,
     crossExchangeInputsV2,
     crossExchangeModelFeatureNamesV2,
     crossExchangeModelFeatureSchemaIdV2,
     crossExchangeModelFeatureSchemaVersionV2,
     crossExchangeModelFeatureSignatureV2,
+    crossExchangeScopeV2,
  )
 import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.DerivativesFeaturesV2 (
@@ -360,6 +362,39 @@ import Trader.Predictors.MarketContextPanelSchemaV2 (
     mcps2SourceManifestSha256,
     mcps2UniverseAvailabilityTimeMs,
     mcps2UniverseEventTimeMs,
+ )
+import Trader.Predictors.MissingnessAwareFeaturesV1 (
+    MissingnessAwareFeaturePanelV1 (..),
+    missingnessAwareFeatureNamesV1,
+    missingnessAwareFeaturePanelSchemaIdV1,
+    missingnessAwareFeaturePanelSchemaVersionV1,
+    missingnessAwareFeaturePanelV1,
+    missingnessAwareFeatureSignatureV1,
+    missingnessAwareLookbackBarsV1,
+    missingnessAwarePriceFeatureNamesV1,
+    missingnessAwareRegisteredSymbolsV1,
+    missingnessAwareShortWindowBarsV1,
+ )
+import Trader.Predictors.MissingnessAwarePreprocessorV1 (
+    MissingnessAwarePreparedRowV1 (..),
+    MissingnessAwarePreprocessorArtifactV1,
+    MissingnessAwarePreprocessorFitRequestV1 (..),
+    decodeMissingnessAwarePreprocessorV1,
+    encodeMissingnessAwarePreprocessorV1,
+    fitMissingnessAwarePreprocessorV1,
+    mappa1FeatureMeans,
+    mappa1FeatureScales,
+    mappa1LatestTrainingDecisionTimeMs,
+    mappa1ObservationCounts,
+    mappa1PayloadSha256,
+    mappa1TrainingRowCount,
+    missingnessAwarePreprocessorCompatibilityVersionV1,
+    missingnessAwarePreprocessorInputNamesV1,
+    missingnessAwarePreprocessorInputSignatureV1,
+    missingnessAwarePreprocessorSchemaIdV1,
+    missingnessAwarePreprocessorSchemaVersionV1,
+    missingnessAwareTrainingPanelSha256V1,
+    transformMissingnessAwarePanelV1,
  )
 import Trader.Predictors.OhlcvInputsV2 (
     completeOhlcvFieldNamesV2,
@@ -846,6 +881,7 @@ main = do
     testCrossExchangeCoinbaseInputs
     testCrossExchangeFeatureAdapterV2
     testCompleteOhlcvInputsV2
+    testMissingnessAwareFeaturePanelV1
     testExternalDataFeatureInputs
     testExternalFeatureAdapterV2
     testExternalPanelSchemaV2
@@ -1051,7 +1087,12 @@ testCrossExchangeFeatureAdapterV2 = do
         )
     case crossExchangeInputsV2 "BTCUSDT" "BTC-USD" openTimes decisionTimes intervalMs binance coinbase of
         Nothing -> assert "valid exact-grid cross-exchange inputs should construct" False
-        Just inputs ->
+        Just inputs -> do
+            assert
+                "cross-exchange inputs retain validated scope and grid for downstream contamination checks"
+                ( crossExchangeScopeV2 inputs == ("BTCUSDT", "BTC-USD")
+                    && crossExchangeGridV2 inputs == (openTimes, decisionTimes, intervalMs)
+                )
             case crossExchangeFeatureRowsV2 2 inputs of
                 Nothing -> assert "valid cross-exchange inputs should produce feature rows" False
                 Just featureRows@[first, second, third, fourth] -> do
@@ -1370,6 +1411,467 @@ testCompleteOhlcvInputsV2 = do
             , isNothing (completeOhlcvInputsV2 "BTCUSDT" (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) (V.singleton (maxBound :: Int64)) intervalMs oneInputs)
             ]
         )
+
+testMissingnessAwareFeaturePanelV1 :: IO ()
+testMissingnessAwareFeaturePanelV1 = do
+    let intervalMs = 3600000 :: Int64
+        datasetStartMs = 1800489600000 :: Int64
+        developmentEndMs = 1821481200000 :: Int64
+        finalHoldoutStartMs = 1821484800000 :: Int64
+        rowCount = 30
+        closes = V.generate rowCount (\index -> 100 + fromIntegral index)
+        openTimesFrom firstOpen count =
+            V.generate count (\index -> firstOpen + fromIntegral index * intervalMs)
+        completeInputsFor scope firstOpen closeValues =
+            let count = V.length closeValues
+                openTimes = openTimesFrom firstOpen count
+                eventTimes = V.map (+ intervalMs) openTimes
+                availabilityTimes = V.map (+ 50) eventTimes
+                decisionTimes = V.map (+ 100) eventTimes
+                opens = V.map (subtract 0.25) closeValues
+                highs = V.map (+ 1) closeValues
+                lows = V.map (subtract 1.25) closeValues
+                volumes = V.generate count (\index -> 1000 + fromIntegral index)
+             in completeOhlcvInputsV2
+                    scope
+                    openTimes
+                    decisionTimes
+                    availabilityTimes
+                    intervalMs
+                    (mkFeatureInputs closeValues (Just opens) (Just highs) (Just lows) (Just volumes))
+        observedDerivativeCell eventTime value =
+            DerivativesPanelCellV2
+                { dpc2Value = value
+                , dpc2Observed = True
+                , dpc2Fresh = True
+                , dpc2EventTimeMs = Just eventTime
+                , dpc2AvailabilityTimeMs = Just (eventTime + 1000)
+                }
+        derivativesFor scope openTimes missingOiIndex =
+            [ DerivativesPanelRowV2
+                { dpr2OpenTimeMs = openTime
+                , dpr2DecisionTimeMs = openTime + intervalMs - 1
+                , dpr2Symbol = scope
+                , dpr2Cells =
+                    Map.fromList
+                        ( [ (DerivativesFundingV2, observedDerivativeCell openTime (if even index then 0 else 0.001))
+                          , (DerivativesBasisV2, observedDerivativeCell openTime (0.0001 * fromIntegral index))
+                          , (DerivativesTakerFlowV2, observedDerivativeCell openTime (1 + 0.01 * fromIntegral index))
+                          ]
+                            ++ [ (DerivativesOpenInterestV2, observedDerivativeCell openTime (1000 + fromIntegral index))
+                               | Just index /= missingOiIndex
+                               ]
+                        )
+                }
+            | (index, openTime) <- zip [0 ..] (V.toList openTimes)
+            ]
+        crossExchangeFor binanceSymbol coinbaseProduct openTimes decisionTimes closeValues missingIndex =
+            let closeAt openTime value =
+                    CrossExchangeCloseV2
+                        { cec2BarOpenTimeMs = openTime
+                        , cec2EventTimeMs = openTime + intervalMs
+                        , cec2AvailabilityTimeMs = openTime + intervalMs + 50
+                        , cec2Close = value
+                        }
+                binance = V.zipWith closeAt openTimes closeValues
+                coinbase =
+                    V.imap
+                        ( \index close ->
+                            if Just index == missingIndex
+                                then Nothing
+                                else Just (closeAt (openTimes V.! index) (close * 1.01))
+                        )
+                        closeValues
+             in crossExchangeInputsV2
+                    binanceSymbol
+                    coinbaseProduct
+                    openTimes
+                    decisionTimes
+                    intervalMs
+                    binance
+                    coinbase
+        approximately left right = abs (left - right) < 1.0e-12
+        approximatelyValues left right =
+            length left == length right && and (zipWith approximately left right)
+        finite value = not (isNaN value || isInfinite value)
+    assert
+        "missingness-aware panel freezes a distinct versioned schema, windows, and registered universe"
+        ( missingnessAwareFeaturePanelSchemaIdV1 == "missingness_aware_calibrated_shallow_feature_panel_v1"
+            && missingnessAwareFeaturePanelSchemaVersionV1 == 1
+            && missingnessAwareLookbackBarsV1 == 24
+            && missingnessAwareShortWindowBarsV1 == 6
+            && missingnessAwareRegisteredSymbolsV1
+                == [ "BTCUSDT"
+                   , "ETHUSDT"
+                   , "SOLUSDT"
+                   , "BNBUSDT"
+                   , "XRPUSDT"
+                   , "AVAXUSDT"
+                   , "UNIUSDT"
+                   , "SUIUSDT"
+                   , "ETCUSDT"
+                   , "ADAUSDT"
+                   ]
+        )
+    case completeInputsFor "BTCUSDT" datasetStartMs closes of
+        Nothing -> assert "future complete OHLCV fixture should construct" False
+        Just completeInputs -> do
+            let (openTimes, decisionTimes, _, _) = completeOhlcvGridV2 completeInputs
+                derivatives = derivativesFor "BTCUSDT" openTimes (Just 25)
+            case crossExchangeFor "BTCUSDT" "BTC-USD" openTimes decisionTimes closes (Just 25) of
+                Nothing -> assert "future cross-exchange fixture should construct" False
+                Just crossExchange ->
+                    case missingnessAwareFeaturePanelV1 completeInputs (Just derivatives) (Just crossExchange) of
+                        Nothing -> assert "aligned registered feature sources should compose" False
+                        Just panel@MissingnessAwareFeaturePanelV1{mafp1Rows = rows} -> do
+                            assert
+                                "panel retains exact scope, grid suffix, and one row per post-lookback decision"
+                                ( mafp1Scope panel == "BTCUSDT"
+                                    && mafp1IntervalMs panel == intervalMs
+                                    && mafp1OpenTimesMs panel == V.drop missingnessAwareLookbackBarsV1 openTimes
+                                    && length rows == rowCount - missingnessAwareLookbackBarsV1
+                                )
+                            case rows of
+                                first : second : _ -> do
+                                    assert
+                                        "combined signature fixes required price values before optional derivative and spot fields"
+                                        ( missingnessAwareFeatureSignatureV1
+                                            == missingnessAwareFeaturePanelSchemaIdV1
+                                                ++ "|"
+                                                ++ featureRowSchemaSignature first
+                                            && frv2Names first == missingnessAwareFeatureNamesV1
+                                            && frv2Required first
+                                                == replicate (length missingnessAwarePriceFeatureNamesV1) True
+                                                    ++ replicate 10 False
+                                        )
+                                    assert
+                                        "price formulas are finite and use only the trailing 24 completed returns"
+                                        ( approximatelyValues
+                                            (take 4 (frv2Values first))
+                                            [124 / 123 - 1, 124 / 121 - 1, 124 / 118 - 1, 124 / 100 - 1]
+                                            && all finite (take (length missingnessAwarePriceFeatureNamesV1) (frv2Values first))
+                                        )
+                                    assert
+                                        "observed zero derivatives remain distinct from missing optional observations"
+                                        ( frv2Available first == replicate (length missingnessAwareFeatureNamesV1) True
+                                            && frv2Values first !! length missingnessAwarePriceFeatureNamesV1 == 0
+                                            && frv2Available second
+                                                == replicate (length missingnessAwarePriceFeatureNamesV1) True
+                                                    ++ [True, True, False, True, True]
+                                                    ++ replicate 5 False
+                                            && all
+                                                (== 0)
+                                                (drop (length missingnessAwarePriceFeatureNamesV1 + 5) (frv2Values second))
+                                        )
+                                _ -> assert "feature panel should contain at least two rows" False
+                            testMissingnessAwarePreprocessorV1 panel
+
+            assert
+                "entirely absent optional panels remain explicitly unavailable, never observed zero"
+                ( case missingnessAwareFeaturePanelV1 completeInputs Nothing Nothing of
+                    Just panel ->
+                        all
+                            ( (== replicate 10 False)
+                                . drop (length missingnessAwarePriceFeatureNamesV1)
+                                . frv2Available
+                            )
+                            (mafp1Rows panel)
+                    Nothing -> False
+                )
+            assert
+                "wrong symbol, source length, and later source decisions fail closed"
+                ( and
+                    [ isNothing
+                        ( missingnessAwareFeaturePanelV1
+                            completeInputs
+                            (Just (derivativesFor "ETHUSDT" openTimes Nothing))
+                            Nothing
+                        )
+                    , isNothing (missingnessAwareFeaturePanelV1 completeInputs (Just (drop 1 derivatives)) Nothing)
+                    , case crossExchangeFor "ETHUSDT" "ETH-USD" openTimes decisionTimes closes Nothing of
+                        Just wrongScope -> isNothing (missingnessAwareFeaturePanelV1 completeInputs Nothing (Just wrongScope))
+                        Nothing -> False
+                    , case crossExchangeFor "BTCUSDT" "BTC-USD" openTimes (V.map (+ 1) decisionTimes) closes Nothing of
+                        Just laterDecisions -> isNothing (missingnessAwareFeaturePanelV1 completeInputs Nothing (Just laterDecisions))
+                        Nothing -> False
+                    ]
+                )
+
+            let extendedCloses = V.snoc closes 130
+                changedLastCloses = closes V.// [(rowCount - 1, 500)]
+                completeDerivatives = derivativesFor "BTCUSDT" openTimes Nothing
+                changedLastDerivatives =
+                    [ if index == rowCount - 1
+                        then
+                            row
+                                { dpr2Cells =
+                                    Map.insert
+                                        DerivativesFundingV2
+                                        (observedDerivativeCell (dpr2OpenTimeMs row) 0.5)
+                                        (dpr2Cells row)
+                                }
+                        else row
+                    | (index, row) <- zip [0 ..] completeDerivatives
+                    ]
+            assert
+                "appending or changing future price, derivatives, or Coinbase bars cannot alter an emitted prefix"
+                ( case ( completeInputsFor "BTCUSDT" datasetStartMs extendedCloses
+                       , completeInputsFor "BTCUSDT" datasetStartMs changedLastCloses
+                       , missingnessAwareFeaturePanelV1 completeInputs Nothing Nothing
+                       , crossExchangeFor "BTCUSDT" "BTC-USD" openTimes decisionTimes closes Nothing
+                       , crossExchangeFor "BTCUSDT" "BTC-USD" openTimes decisionTimes changedLastCloses Nothing
+                       ) of
+                    ( Just extendedInputs
+                        , Just changedInputs
+                        , Just basePanel
+                        , Just completeCrossExchange
+                        , Just changedLastCrossExchange
+                        ) ->
+                            case ( missingnessAwareFeaturePanelV1 extendedInputs Nothing Nothing
+                                 , missingnessAwareFeaturePanelV1 changedInputs Nothing Nothing
+                                 , missingnessAwareFeaturePanelV1 completeInputs (Just completeDerivatives) (Just completeCrossExchange)
+                                 , missingnessAwareFeaturePanelV1 completeInputs (Just changedLastDerivatives) (Just changedLastCrossExchange)
+                                 ) of
+                                (Just extendedPanel, Just changedPanel, Just completeSourcePanel, Just changedSourcePanel) ->
+                                    take (length (mafp1Rows basePanel)) (mafp1Rows extendedPanel) == mafp1Rows basePanel
+                                        && take (length (mafp1Rows basePanel) - 1) (mafp1Rows changedPanel)
+                                            == take (length (mafp1Rows basePanel) - 1) (mafp1Rows basePanel)
+                                        && take (length (mafp1Rows completeSourcePanel) - 1) (mafp1Rows changedSourcePanel)
+                                            == take (length (mafp1Rows completeSourcePanel) - 1) (mafp1Rows completeSourcePanel)
+                                _ -> False
+                    _ -> False
+                )
+
+    assert
+        "registered bar-open boundaries are exact while invalid scope and lookback fail closed"
+        ( and
+            [ case completeInputsFor "BTCUSDT" (datasetStartMs - intervalMs) closes of
+                Just beforeStart -> isNothing (missingnessAwareFeaturePanelV1 beforeStart Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor
+                "BTCUSDT"
+                (developmentEndMs - fromIntegral (rowCount - 1) * intervalMs)
+                closes of
+                Just endingAtDevelopmentBoundary ->
+                    isJust (missingnessAwareFeaturePanelV1 endingAtDevelopmentBoundary Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor "BTCUSDT" finalHoldoutStartMs closes of
+                Just holdout -> isNothing (missingnessAwareFeaturePanelV1 holdout Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor "DOGEUSDT" datasetStartMs closes of
+                Just unregistered -> isNothing (missingnessAwareFeaturePanelV1 unregistered Nothing Nothing)
+                Nothing -> False
+            , case completeInputsFor "BTCUSDT" datasetStartMs (V.take missingnessAwareLookbackBarsV1 closes) of
+                Just insufficient -> isNothing (missingnessAwareFeaturePanelV1 insufficient Nothing Nothing)
+                Nothing -> False
+            ]
+        )
+
+testMissingnessAwarePreprocessorV1 :: MissingnessAwareFeaturePanelV1 -> IO ()
+testMissingnessAwarePreprocessorV1 panel = do
+    let opens = V.toList (mafp1OpenTimesMs panel)
+        intervalMs = mafp1IntervalMs panel
+        trainingStart = fromMaybe 0 (listToMaybe opens)
+        trainingEnd = fromMaybe 0 (listToMaybe (reverse opens))
+        fitAvailableAt = trainingEnd + intervalMs + 100
+        validationStart = trainingEnd + 7 * intervalMs
+        request =
+            MissingnessAwarePreprocessorFitRequestV1
+                { mapfr1RegistrationId = "missingness_aware_calibrated_shallow_v1"
+                , mapfr1CodeCommit = replicate 40 'a'
+                , mapfr1TrainingDataSha256 = replicate 64 'b'
+                , mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 panel
+                , mapfr1SourceManifestSha256 = replicate 64 'c'
+                , mapfr1SplitManifestSha256 = replicate 64 'd'
+                , mapfr1AcademicOrigins =
+                    [ "https://doi.org/10.1093/rfs/hhaa009"
+                    , "https://doi.org/10.1214/aos/1013203451"
+                    , "https://proceedings.neurips.cc/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html"
+                    ]
+                , mapfr1Symbol = mafp1Scope panel
+                , mapfr1IntervalMs = intervalMs
+                , mapfr1HorizonBars = 1
+                , mapfr1TrainingStartOpenTimeMs = trainingStart
+                , mapfr1TrainingEndOpenTimeMs = trainingEnd
+                , mapfr1ValidationStartOpenTimeMs = validationStart
+                , mapfr1ValidationEndOpenTimeMs = validationStart + intervalMs
+                , mapfr1FinalHoldoutStartOpenTimeMs = 1821484800000
+                , mapfr1PurgeBars = 1
+                , mapfr1EmbargoBars = 6
+                , mapfr1FitAvailableAtMs = fitAvailableAt
+                , mapfr1CreatedAtMs = fitAvailableAt
+                , mapfr1RandomSeed = 20270904
+                , mapfr1RuntimeVersions = ["ghc-9.4.8"]
+                , mapfr1CostModelId = "registered_cost_v1"
+                }
+    assert
+        "preprocessor freezes distinct source/output schema identities"
+        ( missingnessAwarePreprocessorSchemaIdV1 == "missingness_aware_preprocessor_artifact_v1"
+            && missingnessAwarePreprocessorSchemaVersionV1 == 1
+            && missingnessAwarePreprocessorCompatibilityVersionV1 == 1
+            && length missingnessAwarePreprocessorInputNamesV1 == length missingnessAwareFeatureNamesV1 + 10
+            && missingnessAwarePreprocessorInputSignatureV1
+                == missingnessAwarePreprocessorSchemaIdV1 ++ "|" ++ intercalate "," missingnessAwarePreprocessorInputNamesV1
+        )
+    case fitMissingnessAwarePreprocessorV1 request panel of
+        Left err -> assert ("valid missingness-aware preprocessor should fit: " ++ err) False
+        Right artifact -> do
+            assert
+                "fit records observed-only finite training statistics and a payload digest"
+                ( mappa1TrainingRowCount artifact == length (mafp1Rows panel)
+                    && mappa1LatestTrainingDecisionTimeMs artifact == maximum (map frv2DecisionTimeMs (mafp1Rows panel))
+                    && length (mappa1ObservationCounts artifact) == length missingnessAwareFeatureNamesV1
+                    && all (> 0) (mappa1ObservationCounts artifact)
+                    && all (<= length (mafp1Rows panel)) (mappa1ObservationCounts artifact)
+                    && all finite (mappa1FeatureMeans artifact)
+                    && all (\value -> finite value && value > 0) (mappa1FeatureScales artifact)
+                    && length (mappa1PayloadSha256 artifact) == 64
+                )
+            assert
+                "nonconstant low-variance training columns retain their population scale"
+                (lowVarianceScalePreserved request panel)
+            case transformMissingnessAwarePanelV1 artifact panel of
+                Nothing -> assert "scope-compatible panel should transform" False
+                Just prepared -> do
+                    assert "preprocessor preserves one row per panel row" (length prepared == length (mafp1Rows panel))
+                    case drop 1 prepared of
+                        second : _ -> do
+                            let values = mapr1Inputs second
+                                valueCount = length missingnessAwareFeatureNamesV1
+                            assert
+                                "training-mean imputation standardizes missing values to neutral zero and appends optional masks only"
+                                ( length values == length missingnessAwarePreprocessorInputNamesV1
+                                    && listToMaybe (drop (length missingnessAwarePriceFeatureNamesV1 + 2) values) == Just 0
+                                    && all (== 0) (take 5 (drop (length missingnessAwarePriceFeatureNamesV1 + 5) values))
+                                    && drop valueCount values == [1, 1, 0, 1, 1, 0, 0, 0, 0, 0]
+                                )
+                        _ -> assert "preprocessor fixture should have a second row" False
+            let encoded = encodeMissingnessAwarePreprocessorV1 artifact
+            assert "artifact serialization is deterministic and round-trips exactly" (decodeMissingnessAwarePreprocessorV1 encoded == Right artifact && encodeMissingnessAwarePreprocessorV1 artifact == encoded)
+            assert
+                "wrong scope, off-grid opens, replayed or mutated training rows, stale optional cells, missing registered lookback, changed evidence digest, and insufficient purge fail closed"
+                ( isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1Scope = "ETHUSDT"})
+                    && isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1OpenTimesMs = V.map (+ 1) (mafp1OpenTimesMs panel)})
+                    && replayedRowsFailClosed artifact request panel
+                    && mutatedTrainingPanelFailsClosed artifact panel
+                    && staleCoinbaseCellsFailClosed artifact request panel
+                    && staleDerivativeCellsFailClosed artifact request panel
+                    && backdatedLookbackFailsClosed request panel
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1FitAvailableAtMs = trainingEnd, mapfr1CreatedAtMs = trainingEnd} panel)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
+                )
+            case Aeson.decode encoded of
+                Just (Aeson.Object objectValue) -> do
+                    let corrupted = Aeson.encode (Aeson.Object (KM.insert "payloadSha256" (Aeson.String (T.replicate 64 "0")) objectValue))
+                        unknownField = Aeson.encode (Aeson.Object (KM.insert "unexpected" Aeson.Null objectValue))
+                    assert
+                        "digest corruption and unknown artifact fields are rejected"
+                        (isLeft (decodeMissingnessAwarePreprocessorV1 corrupted) && isLeft (decodeMissingnessAwarePreprocessorV1 unknownField))
+                _ -> assert "encoded preprocessor artifact should be a JSON object" False
+  where
+    finite value = not (isNaN value || isInfinite value)
+
+lowVarianceScalePreserved :: MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+lowVarianceScalePreserved request panel =
+    let replaceFirst index row =
+            row
+                { frv2Values =
+                    case frv2Values row of
+                        [] -> []
+                        _ : values -> fromIntegral index * 1.0e-13 : values
+                }
+        lowVariancePanel = panel{mafp1Rows = zipWith replaceFirst [0 :: Int ..] (mafp1Rows panel)}
+        lowVarianceRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 lowVariancePanel}
+     in case fitMissingnessAwarePreprocessorV1 lowVarianceRequest lowVariancePanel of
+            Right lowVarianceArtifact ->
+                case mappa1FeatureScales lowVarianceArtifact of
+                    firstScale : _ -> firstScale > 0 && firstScale < 1.0e-12
+                    [] -> False
+            Left _ -> False
+
+replayedRowsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+replayedRowsFailClosed artifact request panel =
+    case reverse (mafp1Rows panel) of
+        [] -> False
+        laterRow : _ ->
+            let replayed = panel{mafp1Rows = replicate (length (mafp1Rows panel)) laterRow}
+                replayedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 replayed}
+             in isNothing (transformMissingnessAwarePanelV1 artifact replayed)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 replayedRequest replayed)
+
+mutatedTrainingPanelFailsClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+mutatedTrainingPanelFailsClosed artifact panel =
+    case mafp1Rows panel of
+        [] -> False
+        firstRow : remainingRows ->
+            case frv2Values firstRow of
+                [] -> False
+                firstValue : remainingValues ->
+                    let mutatedRow = firstRow{frv2Values = firstValue + 0.25 : remainingValues}
+                        mutated = panel{mafp1Rows = mutatedRow : remainingRows}
+                     in isNothing (transformMissingnessAwarePanelV1 artifact mutated)
+
+staleCoinbaseCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+staleCoinbaseCellsFailClosed artifact request panel =
+    case mafp1Rows panel of
+        sourceRow : targetRow : remainingRows ->
+            let offset = length missingnessAwareFeatureNamesV1 - length crossExchangeModelFeatureNamesV2
+                copySuffix accessor = take offset (accessor targetRow) ++ drop offset (accessor sourceRow)
+                forgedRow =
+                    targetRow
+                        { frv2Values = copySuffix frv2Values
+                        , frv2Available = copySuffix frv2Available
+                        , frv2EventTimesMs = copySuffix frv2EventTimesMs
+                        , frv2AvailabilityTimesMs = copySuffix frv2AvailabilityTimesMs
+                        }
+                forged = panel{mafp1Rows = sourceRow : forgedRow : remainingRows}
+                forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
+             in isNothing (transformMissingnessAwarePanelV1 artifact forged)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
+        _ -> False
+
+staleDerivativeCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+staleDerivativeCellsFailClosed artifact request panel =
+    case (mafp1Rows panel, reverse (mafp1Rows panel)) of
+        (sourceRow : _, targetRow : reversedPrefix) ->
+            let start = length missingnessAwarePriceFeatureNamesV1
+                end = start + length derivativesModelFeatureNamesV2
+                copyDerivativeSlice accessor = take start (accessor targetRow) ++ take (end - start) (drop start (accessor sourceRow)) ++ drop end (accessor targetRow)
+                forgedRow =
+                    targetRow
+                        { frv2Values = copyDerivativeSlice frv2Values
+                        , frv2Available = copyDerivativeSlice frv2Available
+                        , frv2EventTimesMs = copyDerivativeSlice frv2EventTimesMs
+                        , frv2AvailabilityTimesMs = copyDerivativeSlice frv2AvailabilityTimesMs
+                        }
+                forged = panel{mafp1Rows = reverse reversedPrefix ++ [forgedRow]}
+                forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
+             in isNothing (transformMissingnessAwarePanelV1 artifact forged)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
+        _ -> False
+
+backdatedLookbackFailsClosed :: MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+backdatedLookbackFailsClosed request panel =
+    let shift = fromIntegral missingnessAwareLookbackBarsV1 * mafp1IntervalMs panel
+        shiftRow row =
+            row
+                { frv2DecisionTimeMs = frv2DecisionTimeMs row - shift
+                , frv2EventTimesMs = map (fmap (subtract shift)) (frv2EventTimesMs row)
+                , frv2AvailabilityTimesMs = map (fmap (subtract shift)) (frv2AvailabilityTimesMs row)
+                }
+        backdated =
+            panel
+                { mafp1OpenTimesMs = V.map (subtract shift) (mafp1OpenTimesMs panel)
+                , mafp1Rows = map shiftRow (mafp1Rows panel)
+                }
+        backdatedRequest =
+            request
+                { mapfr1TrainingStartOpenTimeMs = mapfr1TrainingStartOpenTimeMs request - shift
+                , mapfr1TrainingEndOpenTimeMs = mapfr1TrainingEndOpenTimeMs request - shift
+                , mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 backdated
+                }
+     in isLeft (fitMissingnessAwarePreprocessorV1 backdatedRequest backdated)
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do
