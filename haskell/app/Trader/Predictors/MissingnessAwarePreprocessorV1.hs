@@ -36,6 +36,7 @@ import Data.List (intercalate, nub, sort, transpose)
 import Data.Maybe (catMaybes, isNothing, mapMaybe)
 import qualified Data.Vector as V
 
+import Trader.Predictors.CrossExchangeFeaturesV2 (crossExchangeModelFeatureNamesV2)
 import Trader.Predictors.FeatureSchema (
     FeatureRowV2,
     featureAvailabilitySchemaIdV2,
@@ -257,6 +258,13 @@ validPanelRow intervalMs openTime row =
             && decisionTime >= barEnd
             && decisionTime < barEnd + toInteger intervalMs
             && all (== Just (fromInteger barEnd)) (take requiredCount (frv2EventTimesMs row))
+            && and
+                ( zipWith
+                    (\available eventTime -> not available || eventTime == Just (fromInteger barEnd))
+                    (drop crossExchangeOffset (frv2Available row))
+                    (drop crossExchangeOffset (frv2EventTimesMs row))
+                )
+    crossExchangeOffset = featureCount - length crossExchangeModelFeatureNamesV2
     lengths =
         [ length (frv2Values row)
         , length (frv2Available row)

@@ -1744,10 +1744,11 @@ testMissingnessAwarePreprocessorV1 panel = do
             let encoded = encodeMissingnessAwarePreprocessorV1 artifact
             assert "artifact serialization is deterministic and round-trips exactly" (decodeMissingnessAwarePreprocessorV1 encoded == Right artifact && encodeMissingnessAwarePreprocessorV1 artifact == encoded)
             assert
-                "wrong scope, off-grid opens, replayed later rows, changed evidence digest, and insufficient purge fail closed"
+                "wrong scope, off-grid opens, replayed later rows, stale exact-bar Coinbase cells, changed evidence digest, and insufficient purge fail closed"
                 ( isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1Scope = "ETHUSDT"})
                     && isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1OpenTimesMs = V.map (+ 1) (mafp1OpenTimesMs panel)})
                     && replayedRowsFailClosed artifact request panel
+                    && staleCoinbaseCellsFailClosed artifact request panel
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
                 )
@@ -1771,6 +1772,25 @@ replayedRowsFailClosed artifact request panel =
                 replayedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 replayed}
              in isNothing (transformMissingnessAwarePanelV1 artifact replayed)
                     && isLeft (fitMissingnessAwarePreprocessorV1 replayedRequest replayed)
+
+staleCoinbaseCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+staleCoinbaseCellsFailClosed artifact request panel =
+    case mafp1Rows panel of
+        sourceRow : targetRow : remainingRows ->
+            let offset = length missingnessAwareFeatureNamesV1 - length crossExchangeModelFeatureNamesV2
+                copySuffix accessor = take offset (accessor targetRow) ++ drop offset (accessor sourceRow)
+                forgedRow =
+                    targetRow
+                        { frv2Values = copySuffix frv2Values
+                        , frv2Available = copySuffix frv2Available
+                        , frv2EventTimesMs = copySuffix frv2EventTimesMs
+                        , frv2AvailabilityTimesMs = copySuffix frv2AvailabilityTimesMs
+                        }
+                forged = panel{mafp1Rows = sourceRow : forgedRow : remainingRows}
+                forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
+             in isNothing (transformMissingnessAwarePanelV1 artifact forged)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
+        _ -> False
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do
