@@ -1744,12 +1744,14 @@ testMissingnessAwarePreprocessorV1 panel = do
             let encoded = encodeMissingnessAwarePreprocessorV1 artifact
             assert "artifact serialization is deterministic and round-trips exactly" (decodeMissingnessAwarePreprocessorV1 encoded == Right artifact && encodeMissingnessAwarePreprocessorV1 artifact == encoded)
             assert
-                "wrong scope, off-grid opens, replayed later rows, stale exact-bar Coinbase or derivatives cells, changed evidence digest, and insufficient purge fail closed"
+                "wrong scope, off-grid opens, replayed or mutated training rows, stale optional cells, missing registered lookback, changed evidence digest, and insufficient purge fail closed"
                 ( isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1Scope = "ETHUSDT"})
                     && isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1OpenTimesMs = V.map (+ 1) (mafp1OpenTimesMs panel)})
                     && replayedRowsFailClosed artifact request panel
+                    && mutatedTrainingPanelFailsClosed artifact panel
                     && staleCoinbaseCellsFailClosed artifact request panel
                     && staleDerivativeCellsFailClosed artifact request panel
+                    && backdatedLookbackFailsClosed request panel
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
                 )
@@ -1773,6 +1775,18 @@ replayedRowsFailClosed artifact request panel =
                 replayedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 replayed}
              in isNothing (transformMissingnessAwarePanelV1 artifact replayed)
                     && isLeft (fitMissingnessAwarePreprocessorV1 replayedRequest replayed)
+
+mutatedTrainingPanelFailsClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+mutatedTrainingPanelFailsClosed artifact panel =
+    case mafp1Rows panel of
+        [] -> False
+        firstRow : remainingRows ->
+            case frv2Values firstRow of
+                [] -> False
+                firstValue : remainingValues ->
+                    let mutatedRow = firstRow{frv2Values = firstValue + 0.25 : remainingValues}
+                        mutated = panel{mafp1Rows = mutatedRow : remainingRows}
+                     in isNothing (transformMissingnessAwarePanelV1 artifact mutated)
 
 staleCoinbaseCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
 staleCoinbaseCellsFailClosed artifact request panel =
@@ -1812,6 +1826,28 @@ staleDerivativeCellsFailClosed artifact request panel =
              in isNothing (transformMissingnessAwarePanelV1 artifact forged)
                     && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
         _ -> False
+
+backdatedLookbackFailsClosed :: MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+backdatedLookbackFailsClosed request panel =
+    let shift = fromIntegral missingnessAwareLookbackBarsV1 * mafp1IntervalMs panel
+        shiftRow row =
+            row
+                { frv2DecisionTimeMs = frv2DecisionTimeMs row - shift
+                , frv2EventTimesMs = map (fmap (subtract shift)) (frv2EventTimesMs row)
+                , frv2AvailabilityTimesMs = map (fmap (subtract shift)) (frv2AvailabilityTimesMs row)
+                }
+        backdated =
+            panel
+                { mafp1OpenTimesMs = V.map (subtract shift) (mafp1OpenTimesMs panel)
+                , mafp1Rows = map shiftRow (mafp1Rows panel)
+                }
+        backdatedRequest =
+            request
+                { mapfr1TrainingStartOpenTimeMs = mapfr1TrainingStartOpenTimeMs request - shift
+                , mapfr1TrainingEndOpenTimeMs = mapfr1TrainingEndOpenTimeMs request - shift
+                , mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 backdated
+                }
+     in isLeft (fitMissingnessAwarePreprocessorV1 backdatedRequest backdated)
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do

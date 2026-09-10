@@ -56,6 +56,7 @@ import Trader.Predictors.MissingnessAwareFeaturesV1 (
     missingnessAwareFeaturePanelSchemaIdV1,
     missingnessAwareFeaturePanelSchemaVersionV1,
     missingnessAwareFeatureSignatureV1,
+    missingnessAwareLookbackBarsV1,
     missingnessAwarePriceFeatureNamesV1,
     missingnessAwareRegisteredSymbolsV1,
  )
@@ -181,10 +182,12 @@ transformMissingnessAwarePanelV1 artifact panel = do
     let request = mappa1Request artifact
         opens = V.toList (mafp1OpenTimesMs panel)
         rows = mafp1Rows panel
+        trainingGrid = grid (mapfr1TrainingStartOpenTimeMs request) (mapfr1TrainingEndOpenTimeMs request) (mapfr1IntervalMs request)
     guard (mafp1Scope panel == mapfr1Symbol request)
     guard (mafp1IntervalMs panel == mapfr1IntervalMs request)
     guard (length opens == length rows && not (null rows))
     guard (validTransformGrid request opens)
+    guard (opens /= trainingGrid || missingnessAwareTrainingPanelSha256V1 panel == mapfr1TrainingPanelSha256 request)
     guard (and (zipWith (validPanelRow (mafp1IntervalMs panel)) opens rows))
     traverse (prepareRow artifact) (zip opens rows)
 
@@ -327,7 +330,7 @@ validateRequest request
     | interval `notElem` [3600000, 14400000, 28800000] = Left "missingness-aware interval is outside the registered set"
     | horizon `notElem` [1, 3, 6] = Left "missingness-aware horizon is outside the registered set"
     | mapfr1PurgeBars request /= horizon || mapfr1EmbargoBars request /= 6 = Left "missingness-aware purge or embargo does not match the registration"
-    | trainingStart < registeredDatasetStartMsV1 || trainingEnd < trainingStart = Left "missingness-aware training range is invalid"
+    | toInteger trainingStart < minimumTrainingStart || trainingEnd < trainingStart = Left "missingness-aware training range does not retain the registered lookback"
     | not (gridAligned registeredDatasetStartMsV1 interval trainingStart && gridAligned trainingStart interval trainingEnd) = Left "missingness-aware training range is off grid"
     | validationStart <= trainingEnd || validationEnd < validationStart || validationEnd > registeredDevelopmentEndMsV1 = Left "missingness-aware validation range is invalid"
     | not (gridAligned trainingStart interval validationStart && gridAligned validationStart interval validationEnd) = Left "missingness-aware validation range is off grid"
@@ -349,6 +352,7 @@ validateRequest request
     validationStart = mapfr1ValidationStartOpenTimeMs request
     validationEnd = mapfr1ValidationEndOpenTimeMs request
     runtimes = mapfr1RuntimeVersions request
+    minimumTrainingStart = toInteger registeredDatasetStartMsV1 + toInteger missingnessAwareLookbackBarsV1 * toInteger interval
 
 validateArtifact :: MissingnessAwarePreprocessorArtifactV1 -> Either String ()
 validateArtifact artifact = do
