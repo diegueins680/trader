@@ -384,6 +384,7 @@ import Trader.Predictors.MissingnessAwarePreprocessorV1 (
     fitMissingnessAwarePreprocessorV1,
     mappa1FeatureMeans,
     mappa1FeatureScales,
+    mappa1LatestTrainingDecisionTimeMs,
     mappa1ObservationCounts,
     mappa1PayloadSha256,
     mappa1TrainingRowCount,
@@ -1718,6 +1719,7 @@ testMissingnessAwarePreprocessorV1 panel = do
             assert
                 "fit records observed-only finite training statistics and a payload digest"
                 ( mappa1TrainingRowCount artifact == length (mafp1Rows panel)
+                    && mappa1LatestTrainingDecisionTimeMs artifact == maximum (map frv2DecisionTimeMs (mafp1Rows panel))
                     && length (mappa1ObservationCounts artifact) == length missingnessAwareFeatureNamesV1
                     && all (> 0) (mappa1ObservationCounts artifact)
                     && all (<= length (mafp1Rows panel)) (mappa1ObservationCounts artifact)
@@ -1753,6 +1755,7 @@ testMissingnessAwarePreprocessorV1 panel = do
                     && staleDerivativeCellsFailClosed artifact request panel
                     && backdatedLookbackFailsClosed request panel
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1FitAvailableAtMs = trainingEnd, mapfr1CreatedAtMs = trainingEnd} panel)
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
                 )
             case Aeson.decode encoded of

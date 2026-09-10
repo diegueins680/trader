@@ -375,6 +375,8 @@ test("missingness-aware shallow feature panel is exact and production-isolated",
     schemaId: "missingness_aware_preprocessor_artifact_v1",
     compatibilityVersion: 1,
     fitScope: "one exact registered symbol interval horizon and training prefix",
+    fitTiming:
+      "persist the latest training decision; fit availability is no earlier than that decision or the final training bar end and remains before validation",
     statistics:
       "observed-only population mean and population standard deviation per feature; constant-feature scale is one",
     output: "22 standardized feature values followed by the ten optional availability masks",

@@ -16,6 +16,7 @@ module Trader.Predictors.MissingnessAwarePreprocessorV1 (
     decodeMissingnessAwarePreprocessorV1,
     mappa1Request,
     mappa1TrainingRowCount,
+    mappa1LatestTrainingDecisionTimeMs,
     mappa1ObservationCounts,
     mappa1FeatureMeans,
     mappa1FeatureScales,
@@ -90,6 +91,7 @@ data MissingnessAwarePreprocessorFitRequestV1 = MissingnessAwarePreprocessorFitR
 data MissingnessAwarePreprocessorArtifactV1 = MissingnessAwarePreprocessorArtifactV1
     { mappa1Request :: !MissingnessAwarePreprocessorFitRequestV1
     , mappa1TrainingRowCount :: !Int
+    , mappa1LatestTrainingDecisionTimeMs :: !Int64
     , mappa1ObservationCounts :: ![Int]
     , mappa1FeatureMeans :: ![Double]
     , mappa1FeatureScales :: ![Double]
@@ -156,6 +158,7 @@ fitMissingnessAwarePreprocessorV1 request panel = do
         columns = transpose (map rowCells rows)
         observedColumns = map (mapMaybe observedCell) columns
         observationCounts = map length observedColumns
+        latestDecisionTime = maximum (map frv2DecisionTimeMs rows)
     unless (length columns == length missingnessAwareFeatureNamesV1) (Left "missingness-aware training panel has the wrong feature shape")
     unless (all (> 0) observationCounts) (Left "missingness-aware training feature has no observed training value")
     let means = map mean observedColumns
@@ -164,6 +167,7 @@ fitMissingnessAwarePreprocessorV1 request panel = do
             MissingnessAwarePreprocessorArtifactV1
                 { mappa1Request = request
                 , mappa1TrainingRowCount = length rows
+                , mappa1LatestTrainingDecisionTimeMs = latestDecisionTime
                 , mappa1ObservationCounts = observationCounts
                 , mappa1FeatureMeans = means
                 , mappa1FeatureScales = scales
@@ -337,6 +341,7 @@ validateRequest request
     | mapfr1FinalHoldoutStartOpenTimeMs request /= registeredFinalHoldoutStartMsV1 = Left "missingness-aware holdout boundary does not match the registration"
     | toInteger validationEnd + toInteger horizon * toInteger interval >= toInteger registeredFinalHoldoutStartMsV1 = Left "missingness-aware validation label reaches the final holdout"
     | toInteger validationStart - toInteger trainingEnd < toInteger (horizon + 6) * toInteger interval = Left "missingness-aware purge and embargo gap is insufficient"
+    | toInteger (mapfr1FitAvailableAtMs request) < minimumFitAvailable = Left "missingness-aware fit availability predates the final training bar"
     | mapfr1FitAvailableAtMs request > validationStart = Left "missingness-aware fit availability crosses validation"
     | mapfr1CreatedAtMs request < mapfr1FitAvailableAtMs request || mapfr1CreatedAtMs request > validationStart = Left "missingness-aware artifact creation crosses validation"
     | mapfr1RandomSeed request /= 20270904 = Left "missingness-aware random seed does not match the registration"
@@ -353,12 +358,15 @@ validateRequest request
     validationEnd = mapfr1ValidationEndOpenTimeMs request
     runtimes = mapfr1RuntimeVersions request
     minimumTrainingStart = toInteger registeredDatasetStartMsV1 + toInteger missingnessAwareLookbackBarsV1 * toInteger interval
+    minimumFitAvailable = toInteger trainingEnd + toInteger interval
 
 validateArtifact :: MissingnessAwarePreprocessorArtifactV1 -> Either String ()
 validateArtifact artifact = do
     validateRequest (mappa1Request artifact)
     let featureCount = length missingnessAwareFeatureNamesV1
         rowCount = mappa1TrainingRowCount artifact
+        latestDecision = mappa1LatestTrainingDecisionTimeMs artifact
+        finalBarEnd = toInteger (mapfr1TrainingEndOpenTimeMs request) + toInteger (mapfr1IntervalMs request)
     unless (rowCount == length (grid (mapfr1TrainingStartOpenTimeMs request) (mapfr1TrainingEndOpenTimeMs request) (mapfr1IntervalMs request))) (Left "missingness-aware artifact row count is invalid")
     unless
         ( length (mappa1ObservationCounts artifact) == featureCount
@@ -367,6 +375,12 @@ validateArtifact artifact = do
         )
         (Left "missingness-aware artifact fit shape is invalid")
     unless (all (\count -> count > 0 && count <= rowCount) (mappa1ObservationCounts artifact)) (Left "missingness-aware artifact observation count is invalid")
+    unless
+        ( toInteger latestDecision >= finalBarEnd
+            && toInteger latestDecision < finalBarEnd + toInteger (mapfr1IntervalMs request)
+            && latestDecision <= mapfr1FitAvailableAtMs request
+        )
+        (Left "missingness-aware artifact training decision or fit time is invalid")
     unless (all finite (mappa1FeatureMeans artifact ++ mappa1FeatureScales artifact) && all (> 0) (mappa1FeatureScales artifact)) (Left "missingness-aware artifact fit value is invalid")
     unless (validSha256 (mappa1PayloadSha256 artifact) && mappa1PayloadSha256 artifact == payloadDigest artifact) (Left "missingness-aware artifact payload digest is invalid")
   where
@@ -400,9 +414,9 @@ parsePayload digest = withObject "MissingnessAwarePreprocessorPayloadV1" $ \obj 
     unless (compatibility == missingnessAwarePreprocessorCompatibilityVersionV1) (fail "unsupported missingness-aware compatibilityVersion")
     unless (sourceSchemaId == missingnessAwareFeaturePanelSchemaIdV1 && sourceSchemaVersion == missingnessAwareFeaturePanelSchemaVersionV1 && sourceSignature == missingnessAwareFeatureSignatureV1) (fail "missingness-aware source feature schema mismatch")
     unless (outputSignature == missingnessAwarePreprocessorInputSignatureV1) (fail "missingness-aware output signature mismatch")
-    (rowCount, counts, means, scales) <- parseFit fit
+    (rowCount, latestDecision, counts, means, scales) <- parseFit fit
     parseSafety safety
-    pure (MissingnessAwarePreprocessorArtifactV1 request rowCount counts means scales digest)
+    pure (MissingnessAwarePreprocessorArtifactV1 request rowCount latestDecision counts means scales digest)
 
 parseRequest :: Value -> AesonTypes.Parser MissingnessAwarePreprocessorFitRequestV1
 parseRequest = withObject "MissingnessAwarePreprocessorFitRequestV1" $ \obj -> do
@@ -431,10 +445,10 @@ parseRequest = withObject "MissingnessAwarePreprocessorFitRequestV1" $ \obj -> d
         <*> obj .: "runtimeVersions"
         <*> obj .: "costModelId"
 
-parseFit :: Value -> AesonTypes.Parser (Int, [Int], [Double], [Double])
+parseFit :: Value -> AesonTypes.Parser (Int, Int64, [Int], [Double], [Double])
 parseFit = withObject "MissingnessAwarePreprocessorFitV1" $ \obj -> do
-    exactKeys "missingness-aware fit" ["trainingRowCount", "observationCounts", "featureMeans", "featureScales"] obj
-    (,,,) <$> obj .: "trainingRowCount" <*> obj .: "observationCounts" <*> obj .: "featureMeans" <*> obj .: "featureScales"
+    exactKeys "missingness-aware fit" ["trainingRowCount", "latestTrainingDecisionTimeMs", "observationCounts", "featureMeans", "featureScales"] obj
+    (,,,,) <$> obj .: "trainingRowCount" <*> obj .: "latestTrainingDecisionTimeMs" <*> obj .: "observationCounts" <*> obj .: "featureMeans" <*> obj .: "featureScales"
 
 parseSafety :: Value -> AesonTypes.Parser ()
 parseSafety = withObject "MissingnessAwarePreprocessorSafetyV1" $ \obj -> do
@@ -460,7 +474,7 @@ payloadValue artifact =
         , "sourceFeatureSignature" .= missingnessAwareFeatureSignatureV1
         , "outputSignature" .= missingnessAwarePreprocessorInputSignatureV1
         , "request" .= requestValue (mappa1Request artifact)
-        , "fit" .= object ["trainingRowCount" .= mappa1TrainingRowCount artifact, "observationCounts" .= mappa1ObservationCounts artifact, "featureMeans" .= mappa1FeatureMeans artifact, "featureScales" .= mappa1FeatureScales artifact]
+        , "fit" .= object ["trainingRowCount" .= mappa1TrainingRowCount artifact, "latestTrainingDecisionTimeMs" .= mappa1LatestTrainingDecisionTimeMs artifact, "observationCounts" .= mappa1ObservationCounts artifact, "featureMeans" .= mappa1FeatureMeans artifact, "featureScales" .= mappa1FeatureScales artifact]
         , "safety" .= object [Key.fromString key .= False | key <- safetyKeys]
         ]
 
