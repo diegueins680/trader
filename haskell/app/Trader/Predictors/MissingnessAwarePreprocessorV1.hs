@@ -37,6 +37,7 @@ import Data.Maybe (catMaybes, isNothing, mapMaybe)
 import qualified Data.Vector as V
 
 import Trader.Predictors.CrossExchangeFeaturesV2 (crossExchangeModelFeatureNamesV2)
+import Trader.Predictors.DerivativesFeaturesV2 (derivativesModelFeatureNamesV2)
 import Trader.Predictors.FeatureSchema (
     FeatureRowV2,
     featureAvailabilitySchemaIdV2,
@@ -259,12 +260,33 @@ validPanelRow intervalMs openTime row =
             && decisionTime < barEnd + toInteger intervalMs
             && all (== Just (fromInteger barEnd)) (take requiredCount (frv2EventTimesMs row))
             && and
+                ( zipWith3
+                    validDerivativeTiming
+                    derivativesModelFeatureNamesV2
+                    (take derivativeCount (drop requiredCount (frv2Available row)))
+                    ( take derivativeCount (drop requiredCount (zip (frv2EventTimesMs row) (frv2AvailabilityTimesMs row)))
+                    )
+                )
+            && and
                 ( zipWith
                     (\available eventTime -> not available || eventTime == Just (fromInteger barEnd))
                     (drop crossExchangeOffset (frv2Available row))
                     (drop crossExchangeOffset (frv2EventTimesMs row))
                 )
     crossExchangeOffset = featureCount - length crossExchangeModelFeatureNamesV2
+    derivativeCount = length derivativesModelFeatureNamesV2
+    derivativeDecision = barEnd - 1
+    validDerivativeTiming name available (eventTime, availabilityTime)
+        | not available = True
+        | otherwise =
+            case (eventTime, availabilityTime) of
+                (Just event, Just observedAt) ->
+                    toInteger observedAt <= derivativeDecision
+                        && derivativeDecision - toInteger event <= freshnessLimit name
+                _ -> False
+    freshnessLimit name
+        | name `elem` take 2 derivativesModelFeatureNamesV2 = 9 * 60 * 60 * 1000
+        | otherwise = 2 * toInteger intervalMs
     lengths =
         [ length (frv2Values row)
         , length (frv2Available row)

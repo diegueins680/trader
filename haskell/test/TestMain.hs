@@ -1744,11 +1744,12 @@ testMissingnessAwarePreprocessorV1 panel = do
             let encoded = encodeMissingnessAwarePreprocessorV1 artifact
             assert "artifact serialization is deterministic and round-trips exactly" (decodeMissingnessAwarePreprocessorV1 encoded == Right artifact && encodeMissingnessAwarePreprocessorV1 artifact == encoded)
             assert
-                "wrong scope, off-grid opens, replayed later rows, stale exact-bar Coinbase cells, changed evidence digest, and insufficient purge fail closed"
+                "wrong scope, off-grid opens, replayed later rows, stale exact-bar Coinbase or derivatives cells, changed evidence digest, and insufficient purge fail closed"
                 ( isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1Scope = "ETHUSDT"})
                     && isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1OpenTimesMs = V.map (+ 1) (mafp1OpenTimesMs panel)})
                     && replayedRowsFailClosed artifact request panel
                     && staleCoinbaseCellsFailClosed artifact request panel
+                    && staleDerivativeCellsFailClosed artifact request panel
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
                 )
@@ -1787,6 +1788,26 @@ staleCoinbaseCellsFailClosed artifact request panel =
                         , frv2AvailabilityTimesMs = copySuffix frv2AvailabilityTimesMs
                         }
                 forged = panel{mafp1Rows = sourceRow : forgedRow : remainingRows}
+                forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
+             in isNothing (transformMissingnessAwarePanelV1 artifact forged)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
+        _ -> False
+
+staleDerivativeCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+staleDerivativeCellsFailClosed artifact request panel =
+    case (mafp1Rows panel, reverse (mafp1Rows panel)) of
+        (sourceRow : _, targetRow : reversedPrefix) ->
+            let start = length missingnessAwarePriceFeatureNamesV1
+                end = start + length derivativesModelFeatureNamesV2
+                copyDerivativeSlice accessor = take start (accessor targetRow) ++ take (end - start) (drop start (accessor sourceRow)) ++ drop end (accessor targetRow)
+                forgedRow =
+                    targetRow
+                        { frv2Values = copyDerivativeSlice frv2Values
+                        , frv2Available = copyDerivativeSlice frv2Available
+                        , frv2EventTimesMs = copyDerivativeSlice frv2EventTimesMs
+                        , frv2AvailabilityTimesMs = copyDerivativeSlice frv2AvailabilityTimesMs
+                        }
+                forged = panel{mafp1Rows = reverse reversedPrefix ++ [forgedRow]}
                 forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
              in isNothing (transformMissingnessAwarePanelV1 artifact forged)
                     && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
