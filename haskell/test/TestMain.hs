@@ -1727,6 +1727,9 @@ testMissingnessAwarePreprocessorV1 panel = do
                     && all (\value -> finite value && value > 0) (mappa1FeatureScales artifact)
                     && length (mappa1PayloadSha256 artifact) == 64
                 )
+            assert
+                "nonconstant low-variance training columns retain their population scale"
+                (lowVarianceScalePreserved request panel)
             case transformMissingnessAwarePanelV1 artifact panel of
                 Nothing -> assert "scope-compatible panel should transform" False
                 Just prepared -> do
@@ -1768,6 +1771,24 @@ testMissingnessAwarePreprocessorV1 panel = do
                 _ -> assert "encoded preprocessor artifact should be a JSON object" False
   where
     finite value = not (isNaN value || isInfinite value)
+
+lowVarianceScalePreserved :: MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+lowVarianceScalePreserved request panel =
+    let replaceFirst index row =
+            row
+                { frv2Values =
+                    case frv2Values row of
+                        [] -> []
+                        _ : values -> fromIntegral index * 1.0e-13 : values
+                }
+        lowVariancePanel = panel{mafp1Rows = zipWith replaceFirst [0 :: Int ..] (mafp1Rows panel)}
+        lowVarianceRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 lowVariancePanel}
+     in case fitMissingnessAwarePreprocessorV1 lowVarianceRequest lowVariancePanel of
+            Right lowVarianceArtifact ->
+                case mappa1FeatureScales lowVarianceArtifact of
+                    firstScale : _ -> firstScale > 0 && firstScale < 1.0e-12
+                    [] -> False
+            Left _ -> False
 
 replayedRowsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
 replayedRowsFailClosed artifact request panel =

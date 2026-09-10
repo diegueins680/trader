@@ -524,7 +524,7 @@ scaleAround :: Double -> [Double] -> Double
 scaleAround location values =
     let variance = sum [(value - location) * (value - location) | value <- values] / fromIntegral (length values)
         scale = sqrt (max 0 variance)
-     in if scale <= 1.0e-12 then 1 else scale
+     in if scale == 0 then 1 else scale
 
 grid :: Int64 -> Int64 -> Int64 -> [Int64]
 grid start end intervalMs
