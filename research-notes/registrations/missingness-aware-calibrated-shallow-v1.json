@@ -2,7 +2,7 @@
   "registrationVersion": 1,
   "campaign": "missingness_aware_calibrated_shallow_v1",
   "registeredOn": "2026-09-04",
-  "status": "preregistered_blocked_on_future_source_admission_and_fitted_artifact",
+  "status": "preregistered_blocked_on_future_source_admission_and_fitted_preprocessor_and_model_artifacts",
   "hypothesis": "An explicitly missingness-aware shallow model of price and derivatives features can improve net out-of-sample performance by producing calibrated return distributions and abstaining when edge does not exceed costs or evidence is unavailable.",
   "academicOrigin": ["https://doi.org/10.1093/rfs/hhaa009", "https://doi.org/10.1214/aos/1013203451", "https://proceedings.neurips.cc/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html"],
   "implementationInterpretation": {
@@ -27,7 +27,16 @@
     "shortWindowBars": 6,
     "sourceRequirements": "complete OHLCV is required; dataset bounds and interval phase apply to exact bar-open timestamps; derivatives and exact-bar same-symbol Coinbase context are optional whole panels whose individual unavailable values retain false masks; all present panels must match the exact symbol and grid and must have been decided no later than the primary decision",
     "imputation": "the feature panel performs no imputation; each fold learns means and scales on its training prefix only, imputes an unavailable optional value to that training mean, then appends the unchanged availability masks; inference without a compatible fitted preprocessor abstains",
-    "outcomeBlindClarification": "Frozen on 2026-09-09 before registered collection: exact feature order, return/window formulas, bar-open boundary convention, source-scope checks, training-only imputation rule, and numeric repository-default model parameters. No market outcome, development result, or holdout was read; the total experiment budget and promotion gates are unchanged.",
+    "preprocessorArtifact": {
+      "schemaId": "missingness_aware_preprocessor_artifact_v1",
+      "compatibilityVersion": 1,
+      "fitScope": "one exact registered symbol interval horizon and training prefix",
+      "fitTiming": "persist the latest training decision; fit availability is no earlier than that decision or the final training bar end and remains before validation",
+      "statistics": "observed-only population mean and population standard deviation per feature; constant-feature scale is one",
+      "output": "22 standardized feature values followed by the ten optional availability masks",
+      "authority": "none; the artifact is not a return model, prediction, experiment result, promotion, deployment, order, or live authorization"
+    },
+    "outcomeBlindClarification": "Frozen on 2026-09-09 before registered collection: exact feature order, return/window formulas, bar-open boundary convention, source-scope checks, training-only imputation rule and 32-input preprocessor artifact contract, and numeric repository-default model parameters. No market outcome, development result, or holdout was read; the total experiment budget and promotion gates are unchanged.",
     "models": ["ridge conditional mean with residual empirical quantiles", "linear q10/q50/q90 pinball models", "current depth-one GBDT with split-conformal interval", "current decision tree with split-conformal interval"],
     "decision": "take normalized 0.25 gross directional exposure only when the entire calibrated interval clears the frozen all-in cost floor; otherwise abstain",
     "failure": "a required feature unavailable/stale, malformed shape, non-finite value/output, calibration failure, incompatible artifact, or timeout yields abstention"

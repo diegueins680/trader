@@ -17,7 +17,7 @@ Only three new ideas are shortlisted:
 
 1. `har_rv_risk_gate_v1` — a volatility/uncertainty challenger, never a directional signal by itself.
 2. `depth_normalized_ofi_v1` — preregistered but blocked until causally complete, lawfully licensed L2 data and replay infrastructure exist.
-3. `missingness_aware_calibrated_shallow_v1` — a small probabilistic challenger whose isolated feature panel now has an exact masked schema, but which still requires admitted new data and a fold-local fitted-artifact boundary.
+3. `missingness_aware_calibrated_shallow_v1` — a small probabilistic challenger whose isolated feature panel and strict fold-local preprocessor artifact now freeze an exact masked 32-input schema, but which still requires admitted new data and fitted return-model artifacts.
 
 The previously registered `cross_sectional_funding_carry_v1` is not counted as a new candidate or modified here. Its one-shot path and trial count remain exactly as registered.
 

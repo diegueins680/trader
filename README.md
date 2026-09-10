@@ -128,6 +128,8 @@ The 2026-09-04 [market-prediction review](research-notes/market-prediction-2026-
 
 The isolated [`missingness_aware_calibrated_shallow_feature_panel_v1`](research-notes/market-prediction-2026-09-04/missingness-aware-feature-panel-v1.md) contract freezes the shallow candidate's exact twelve required 6/24-bar price features plus five optional derivatives and five optional exact-bar Coinbase-context features. It preserves each optional value's mask and causal witnesses, retains validated cross-exchange scope, rejects mismatched symbols/grids and all pre-registration or final-holdout rows, and performs no imputation. It is absent from predictor, optimizer, bot, API/CLI, execution, artifact-loader, deployment, and live paths. No prospective data or outcome was read, no model was fit, and the **no candidate passed** decision remains unchanged.
 
+The separate [`missingness_aware_preprocessor_artifact_v1`](research-notes/market-prediction-2026-09-04/missingness-aware-preprocessor-v1.md) contract is also research-only. It fits observed-only means and scales on one exact registered training prefix, maps unavailable optional values to standardized zero, and appends ten availability masks for an exact 32-input output. Strict decoding binds the feature schema, scope, split/data/source/code/runtime provenance, compatibility version, and payload digest, and all downstream authority flags are false. It neither fits nor loads a return model, reads no outcome or holdout, and is not imported by production paths.
+
 ## CLI and API
 
 List the complete CLI surface with:

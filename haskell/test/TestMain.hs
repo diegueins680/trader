@@ -375,6 +375,27 @@ import Trader.Predictors.MissingnessAwareFeaturesV1 (
     missingnessAwareRegisteredSymbolsV1,
     missingnessAwareShortWindowBarsV1,
  )
+import Trader.Predictors.MissingnessAwarePreprocessorV1 (
+    MissingnessAwarePreparedRowV1 (..),
+    MissingnessAwarePreprocessorArtifactV1,
+    MissingnessAwarePreprocessorFitRequestV1 (..),
+    decodeMissingnessAwarePreprocessorV1,
+    encodeMissingnessAwarePreprocessorV1,
+    fitMissingnessAwarePreprocessorV1,
+    mappa1FeatureMeans,
+    mappa1FeatureScales,
+    mappa1LatestTrainingDecisionTimeMs,
+    mappa1ObservationCounts,
+    mappa1PayloadSha256,
+    mappa1TrainingRowCount,
+    missingnessAwarePreprocessorCompatibilityVersionV1,
+    missingnessAwarePreprocessorInputNamesV1,
+    missingnessAwarePreprocessorInputSignatureV1,
+    missingnessAwarePreprocessorSchemaIdV1,
+    missingnessAwarePreprocessorSchemaVersionV1,
+    missingnessAwareTrainingPanelSha256V1,
+    transformMissingnessAwarePanelV1,
+ )
 import Trader.Predictors.OhlcvInputsV2 (
     completeOhlcvFieldNamesV2,
     completeOhlcvGridV2,
@@ -1543,6 +1564,7 @@ testMissingnessAwareFeaturePanelV1 = do
                                                 (drop (length missingnessAwarePriceFeatureNamesV1 + 5) (frv2Values second))
                                         )
                                 _ -> assert "feature panel should contain at least two rows" False
+                            testMissingnessAwarePreprocessorV1 panel
 
             assert
                 "entirely absent optional panels remain explicitly unavailable, never observed zero"
@@ -1644,6 +1666,212 @@ testMissingnessAwareFeaturePanelV1 = do
                 Nothing -> False
             ]
         )
+
+testMissingnessAwarePreprocessorV1 :: MissingnessAwareFeaturePanelV1 -> IO ()
+testMissingnessAwarePreprocessorV1 panel = do
+    let opens = V.toList (mafp1OpenTimesMs panel)
+        intervalMs = mafp1IntervalMs panel
+        trainingStart = fromMaybe 0 (listToMaybe opens)
+        trainingEnd = fromMaybe 0 (listToMaybe (reverse opens))
+        fitAvailableAt = trainingEnd + intervalMs + 100
+        validationStart = trainingEnd + 7 * intervalMs
+        request =
+            MissingnessAwarePreprocessorFitRequestV1
+                { mapfr1RegistrationId = "missingness_aware_calibrated_shallow_v1"
+                , mapfr1CodeCommit = replicate 40 'a'
+                , mapfr1TrainingDataSha256 = replicate 64 'b'
+                , mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 panel
+                , mapfr1SourceManifestSha256 = replicate 64 'c'
+                , mapfr1SplitManifestSha256 = replicate 64 'd'
+                , mapfr1AcademicOrigins =
+                    [ "https://doi.org/10.1093/rfs/hhaa009"
+                    , "https://doi.org/10.1214/aos/1013203451"
+                    , "https://proceedings.neurips.cc/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html"
+                    ]
+                , mapfr1Symbol = mafp1Scope panel
+                , mapfr1IntervalMs = intervalMs
+                , mapfr1HorizonBars = 1
+                , mapfr1TrainingStartOpenTimeMs = trainingStart
+                , mapfr1TrainingEndOpenTimeMs = trainingEnd
+                , mapfr1ValidationStartOpenTimeMs = validationStart
+                , mapfr1ValidationEndOpenTimeMs = validationStart + intervalMs
+                , mapfr1FinalHoldoutStartOpenTimeMs = 1821484800000
+                , mapfr1PurgeBars = 1
+                , mapfr1EmbargoBars = 6
+                , mapfr1FitAvailableAtMs = fitAvailableAt
+                , mapfr1CreatedAtMs = fitAvailableAt
+                , mapfr1RandomSeed = 20270904
+                , mapfr1RuntimeVersions = ["ghc-9.4.8"]
+                , mapfr1CostModelId = "registered_cost_v1"
+                }
+    assert
+        "preprocessor freezes distinct source/output schema identities"
+        ( missingnessAwarePreprocessorSchemaIdV1 == "missingness_aware_preprocessor_artifact_v1"
+            && missingnessAwarePreprocessorSchemaVersionV1 == 1
+            && missingnessAwarePreprocessorCompatibilityVersionV1 == 1
+            && length missingnessAwarePreprocessorInputNamesV1 == length missingnessAwareFeatureNamesV1 + 10
+            && missingnessAwarePreprocessorInputSignatureV1
+                == missingnessAwarePreprocessorSchemaIdV1 ++ "|" ++ intercalate "," missingnessAwarePreprocessorInputNamesV1
+        )
+    case fitMissingnessAwarePreprocessorV1 request panel of
+        Left err -> assert ("valid missingness-aware preprocessor should fit: " ++ err) False
+        Right artifact -> do
+            assert
+                "fit records observed-only finite training statistics and a payload digest"
+                ( mappa1TrainingRowCount artifact == length (mafp1Rows panel)
+                    && mappa1LatestTrainingDecisionTimeMs artifact == maximum (map frv2DecisionTimeMs (mafp1Rows panel))
+                    && length (mappa1ObservationCounts artifact) == length missingnessAwareFeatureNamesV1
+                    && all (> 0) (mappa1ObservationCounts artifact)
+                    && all (<= length (mafp1Rows panel)) (mappa1ObservationCounts artifact)
+                    && all finite (mappa1FeatureMeans artifact)
+                    && all (\value -> finite value && value > 0) (mappa1FeatureScales artifact)
+                    && length (mappa1PayloadSha256 artifact) == 64
+                )
+            assert
+                "nonconstant low-variance training columns retain their population scale"
+                (lowVarianceScalePreserved request panel)
+            case transformMissingnessAwarePanelV1 artifact panel of
+                Nothing -> assert "scope-compatible panel should transform" False
+                Just prepared -> do
+                    assert "preprocessor preserves one row per panel row" (length prepared == length (mafp1Rows panel))
+                    case drop 1 prepared of
+                        second : _ -> do
+                            let values = mapr1Inputs second
+                                valueCount = length missingnessAwareFeatureNamesV1
+                            assert
+                                "training-mean imputation standardizes missing values to neutral zero and appends optional masks only"
+                                ( length values == length missingnessAwarePreprocessorInputNamesV1
+                                    && listToMaybe (drop (length missingnessAwarePriceFeatureNamesV1 + 2) values) == Just 0
+                                    && all (== 0) (take 5 (drop (length missingnessAwarePriceFeatureNamesV1 + 5) values))
+                                    && drop valueCount values == [1, 1, 0, 1, 1, 0, 0, 0, 0, 0]
+                                )
+                        _ -> assert "preprocessor fixture should have a second row" False
+            let encoded = encodeMissingnessAwarePreprocessorV1 artifact
+            assert "artifact serialization is deterministic and round-trips exactly" (decodeMissingnessAwarePreprocessorV1 encoded == Right artifact && encodeMissingnessAwarePreprocessorV1 artifact == encoded)
+            assert
+                "wrong scope, off-grid opens, replayed or mutated training rows, stale optional cells, missing registered lookback, changed evidence digest, and insufficient purge fail closed"
+                ( isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1Scope = "ETHUSDT"})
+                    && isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1OpenTimesMs = V.map (+ 1) (mafp1OpenTimesMs panel)})
+                    && replayedRowsFailClosed artifact request panel
+                    && mutatedTrainingPanelFailsClosed artifact panel
+                    && staleCoinbaseCellsFailClosed artifact request panel
+                    && staleDerivativeCellsFailClosed artifact request panel
+                    && backdatedLookbackFailsClosed request panel
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1FitAvailableAtMs = trainingEnd, mapfr1CreatedAtMs = trainingEnd} panel)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
+                )
+            case Aeson.decode encoded of
+                Just (Aeson.Object objectValue) -> do
+                    let corrupted = Aeson.encode (Aeson.Object (KM.insert "payloadSha256" (Aeson.String (T.replicate 64 "0")) objectValue))
+                        unknownField = Aeson.encode (Aeson.Object (KM.insert "unexpected" Aeson.Null objectValue))
+                    assert
+                        "digest corruption and unknown artifact fields are rejected"
+                        (isLeft (decodeMissingnessAwarePreprocessorV1 corrupted) && isLeft (decodeMissingnessAwarePreprocessorV1 unknownField))
+                _ -> assert "encoded preprocessor artifact should be a JSON object" False
+  where
+    finite value = not (isNaN value || isInfinite value)
+
+lowVarianceScalePreserved :: MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+lowVarianceScalePreserved request panel =
+    let replaceFirst index row =
+            row
+                { frv2Values =
+                    case frv2Values row of
+                        [] -> []
+                        _ : values -> fromIntegral index * 1.0e-13 : values
+                }
+        lowVariancePanel = panel{mafp1Rows = zipWith replaceFirst [0 :: Int ..] (mafp1Rows panel)}
+        lowVarianceRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 lowVariancePanel}
+     in case fitMissingnessAwarePreprocessorV1 lowVarianceRequest lowVariancePanel of
+            Right lowVarianceArtifact ->
+                case mappa1FeatureScales lowVarianceArtifact of
+                    firstScale : _ -> firstScale > 0 && firstScale < 1.0e-12
+                    [] -> False
+            Left _ -> False
+
+replayedRowsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+replayedRowsFailClosed artifact request panel =
+    case reverse (mafp1Rows panel) of
+        [] -> False
+        laterRow : _ ->
+            let replayed = panel{mafp1Rows = replicate (length (mafp1Rows panel)) laterRow}
+                replayedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 replayed}
+             in isNothing (transformMissingnessAwarePanelV1 artifact replayed)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 replayedRequest replayed)
+
+mutatedTrainingPanelFailsClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+mutatedTrainingPanelFailsClosed artifact panel =
+    case mafp1Rows panel of
+        [] -> False
+        firstRow : remainingRows ->
+            case frv2Values firstRow of
+                [] -> False
+                firstValue : remainingValues ->
+                    let mutatedRow = firstRow{frv2Values = firstValue + 0.25 : remainingValues}
+                        mutated = panel{mafp1Rows = mutatedRow : remainingRows}
+                     in isNothing (transformMissingnessAwarePanelV1 artifact mutated)
+
+staleCoinbaseCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+staleCoinbaseCellsFailClosed artifact request panel =
+    case mafp1Rows panel of
+        sourceRow : targetRow : remainingRows ->
+            let offset = length missingnessAwareFeatureNamesV1 - length crossExchangeModelFeatureNamesV2
+                copySuffix accessor = take offset (accessor targetRow) ++ drop offset (accessor sourceRow)
+                forgedRow =
+                    targetRow
+                        { frv2Values = copySuffix frv2Values
+                        , frv2Available = copySuffix frv2Available
+                        , frv2EventTimesMs = copySuffix frv2EventTimesMs
+                        , frv2AvailabilityTimesMs = copySuffix frv2AvailabilityTimesMs
+                        }
+                forged = panel{mafp1Rows = sourceRow : forgedRow : remainingRows}
+                forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
+             in isNothing (transformMissingnessAwarePanelV1 artifact forged)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
+        _ -> False
+
+staleDerivativeCellsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+staleDerivativeCellsFailClosed artifact request panel =
+    case (mafp1Rows panel, reverse (mafp1Rows panel)) of
+        (sourceRow : _, targetRow : reversedPrefix) ->
+            let start = length missingnessAwarePriceFeatureNamesV1
+                end = start + length derivativesModelFeatureNamesV2
+                copyDerivativeSlice accessor = take start (accessor targetRow) ++ take (end - start) (drop start (accessor sourceRow)) ++ drop end (accessor targetRow)
+                forgedRow =
+                    targetRow
+                        { frv2Values = copyDerivativeSlice frv2Values
+                        , frv2Available = copyDerivativeSlice frv2Available
+                        , frv2EventTimesMs = copyDerivativeSlice frv2EventTimesMs
+                        , frv2AvailabilityTimesMs = copyDerivativeSlice frv2AvailabilityTimesMs
+                        }
+                forged = panel{mafp1Rows = reverse reversedPrefix ++ [forgedRow]}
+                forgedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 forged}
+             in isNothing (transformMissingnessAwarePanelV1 artifact forged)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 forgedRequest forged)
+        _ -> False
+
+backdatedLookbackFailsClosed :: MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+backdatedLookbackFailsClosed request panel =
+    let shift = fromIntegral missingnessAwareLookbackBarsV1 * mafp1IntervalMs panel
+        shiftRow row =
+            row
+                { frv2DecisionTimeMs = frv2DecisionTimeMs row - shift
+                , frv2EventTimesMs = map (fmap (subtract shift)) (frv2EventTimesMs row)
+                , frv2AvailabilityTimesMs = map (fmap (subtract shift)) (frv2AvailabilityTimesMs row)
+                }
+        backdated =
+            panel
+                { mafp1OpenTimesMs = V.map (subtract shift) (mafp1OpenTimesMs panel)
+                , mafp1Rows = map shiftRow (mafp1Rows panel)
+                }
+        backdatedRequest =
+            request
+                { mapfr1TrainingStartOpenTimeMs = mapfr1TrainingStartOpenTimeMs request - shift
+                , mapfr1TrainingEndOpenTimeMs = mapfr1TrainingEndOpenTimeMs request - shift
+                , mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 backdated
+                }
+     in isLeft (fitMissingnessAwarePreprocessorV1 backdatedRequest backdated)
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do
