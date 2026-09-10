@@ -195,7 +195,7 @@
         { "id": "H-FEATURES-R2", "statement": "A feature_availability_v2 row has non-empty unique ordered field names, explicit required flags, finite dense values, parallel availability masks, and parallel event/availability witnesses bound by its schema signature." },
         { "id": "H-FEATURES-R3", "statement": "A point-in-time market-context factor row has one exact-bar peer position per member of that row's causal liquidity selection, excludes the target before taking its declared peer count, and admits only completed returns first seen by the decision." },
         { "id": "H-FEATURES-R4", "statement": "The missingness-aware shallow panel accepts only registered future pre-holdout complete-OHLCV rows plus optional exact-scope derivatives and Coinbase panels on the same grid; every source decision is no later than its primary decision." },
-        { "id": "H-FEATURES-R5", "statement": "The missingness-aware preprocessor fits finite observed-only location and scale statistics on one exact registered training prefix and emits exactly 22 standardized values followed by ten optional availability masks." }
+        { "id": "H-FEATURES-R5", "statement": "The missingness-aware preprocessor binds every row to its declared completed bar through exact required-price event times and a one-interval decision window, fits finite observed-only location and scale statistics on one exact registered training prefix, and emits exactly 22 standardized values followed by ten optional availability masks." }
       ],
       "ensures": [
         { "id": "H-FEATURES-E1", "statement": "Feature dimension and ordering match the selected model; probability vectors are finite, non-negative, and normalized within tolerance." },
@@ -216,7 +216,7 @@
         { "id": "H-FEATURES-F2", "statement": "Negative or incoherent timestamps, future availability, missing or non-finite required values, invalid complete-case OHLCV, empty or duplicate fields, ambiguous field names, and structurally misaligned cross-exchange bars fail closed before model input construction." },
         { "id": "H-FEATURES-F3", "statement": "Malformed market-context scope, grid, count, shape, symbol, bar identity, overflow, or decision timing yields no row; unusable selected peer evidence yields finite neutral value with availability false rather than a directional signal." },
         { "id": "H-FEATURES-F4", "statement": "Unregistered scope/interval, insufficient lookback, pre-registration or holdout time, mismatched source scope/grid/decision, or malformed required evidence yields no shallow panel; missing optional evidence remains explicitly unavailable." },
-        { "id": "H-FEATURES-F5", "statement": "An empty observed training column, off-grid panel, mismatched scope, non-finite fit, future-dependent fit, unknown field, incompatible schema, corrupted digest, or asserted authority makes the preprocessor artifact or transformation unavailable." }
+        { "id": "H-FEATURES-F5", "statement": "An empty observed training column, off-grid or row-replayed panel, mismatched scope, non-finite fit, future-dependent fit, unknown field, incompatible schema, corrupted digest, or asserted authority makes the preprocessor artifact or transformation unavailable." }
       ],
       "evidence": [
         { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testMissingnessAwarePreprocessorV1" },

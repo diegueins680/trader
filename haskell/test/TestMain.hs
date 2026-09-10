@@ -377,6 +377,7 @@ import Trader.Predictors.MissingnessAwareFeaturesV1 (
  )
 import Trader.Predictors.MissingnessAwarePreprocessorV1 (
     MissingnessAwarePreparedRowV1 (..),
+    MissingnessAwarePreprocessorArtifactV1,
     MissingnessAwarePreprocessorFitRequestV1 (..),
     decodeMissingnessAwarePreprocessorV1,
     encodeMissingnessAwarePreprocessorV1,
@@ -1743,9 +1744,10 @@ testMissingnessAwarePreprocessorV1 panel = do
             let encoded = encodeMissingnessAwarePreprocessorV1 artifact
             assert "artifact serialization is deterministic and round-trips exactly" (decodeMissingnessAwarePreprocessorV1 encoded == Right artifact && encodeMissingnessAwarePreprocessorV1 artifact == encoded)
             assert
-                "wrong scope, changed evidence digest, and insufficient purge fail closed"
+                "wrong scope, off-grid opens, replayed later rows, changed evidence digest, and insufficient purge fail closed"
                 ( isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1Scope = "ETHUSDT"})
                     && isNothing (transformMissingnessAwarePanelV1 artifact panel{mafp1OpenTimesMs = V.map (+ 1) (mafp1OpenTimesMs panel)})
+                    && replayedRowsFailClosed artifact request panel
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1TrainingPanelSha256 = replicate 64 '0'} panel)
                     && isLeft (fitMissingnessAwarePreprocessorV1 request{mapfr1ValidationStartOpenTimeMs = trainingEnd + intervalMs} panel)
                 )
@@ -1759,6 +1761,16 @@ testMissingnessAwarePreprocessorV1 panel = do
                 _ -> assert "encoded preprocessor artifact should be a JSON object" False
   where
     finite value = not (isNaN value || isInfinite value)
+
+replayedRowsFailClosed :: MissingnessAwarePreprocessorArtifactV1 -> MissingnessAwarePreprocessorFitRequestV1 -> MissingnessAwareFeaturePanelV1 -> Bool
+replayedRowsFailClosed artifact request panel =
+    case reverse (mafp1Rows panel) of
+        [] -> False
+        laterRow : _ ->
+            let replayed = panel{mafp1Rows = replicate (length (mafp1Rows panel)) laterRow}
+                replayedRequest = request{mapfr1TrainingPanelSha256 = missingnessAwareTrainingPanelSha256V1 replayed}
+             in isNothing (transformMissingnessAwarePanelV1 artifact replayed)
+                    && isLeft (fitMissingnessAwarePreprocessorV1 replayedRequest replayed)
 
 testExternalDataFeatureInputs :: IO ()
 testExternalDataFeatureInputs = do

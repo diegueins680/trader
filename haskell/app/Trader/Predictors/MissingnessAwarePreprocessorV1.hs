@@ -244,11 +244,19 @@ validPanelRow intervalMs openTime row =
         && frv2Required row == replicate requiredCount True ++ replicate optionalCount False
         && all (== featureCount) lengths
         && and (zipWith5 validCell (frv2Values row) (frv2Available row) (frv2Required row) (frv2EventTimesMs row) (frv2AvailabilityTimesMs row))
-        && toInteger (frv2DecisionTimeMs row) >= toInteger openTime + toInteger intervalMs
+        && validBarTiming
   where
     featureCount = length missingnessAwareFeatureNamesV1
     requiredCount = length missingnessAwarePriceFeatureNamesV1
     optionalCount = featureCount - requiredCount
+    barEnd = toInteger openTime + toInteger intervalMs
+    decisionTime = toInteger (frv2DecisionTimeMs row)
+    validBarTiming =
+        intervalMs > 0
+            && barEnd <= toInteger (maxBound :: Int64)
+            && decisionTime >= barEnd
+            && decisionTime < barEnd + toInteger intervalMs
+            && all (== Just (fromInteger barEnd)) (take requiredCount (frv2EventTimesMs row))
     lengths =
         [ length (frv2Values row)
         , length (frv2Available row)

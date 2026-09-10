@@ -8,7 +8,7 @@
 
 For each of the feature panel's 22 ordered values, fitting uses only finite observations whose availability mask is true in the exact registered training prefix. It records the population mean and population standard deviation; a constant column uses scale 1. At transformation time an unavailable optional value is replaced by its training mean, so its standardized value is exactly zero. The ten optional availability masks are then appended unchanged. The output is therefore exactly 32 finite inputs: 22 `standardized.*` values followed by ten `available.*` masks.
 
-Missing required evidence is already rejected by the source feature-panel contract. A feature with no observed training value, a non-finite statistic, a mismatched symbol or interval, a non-contiguous or off-calendar grid, a source row decided before its completed bar, or training evidence first seen after the declared fit time fails closed.
+Missing required evidence is already rejected by the source feature-panel contract. Every accepted row must bind all twelve required price event witnesses to its declared bar end and place its decision in the following one-interval window, so replaying a later row at earlier opens fails closed. A feature with no observed training value, a non-finite statistic, a mismatched symbol or interval, a non-contiguous or off-calendar grid, or training evidence first seen after the declared fit time also fails closed.
 
 ## Artifact and provenance
 
