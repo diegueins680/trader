@@ -167,3 +167,22 @@ Haskell CI additionally forces every Boolean and state-count field in the execut
 Every production feature change must update the matching registry clauses/evidence when behavior changes. A new implementation file must either refine an existing feature family or add a new specification. User-visible behavior changes still require `README.md` and `CHANGELOG.md` updates.
 
 Open conformance gaps and the exact repairs made during the repository-wide audit are recorded in [`formal-verification-audit-2026-07-12.md`](formal-verification-audit-2026-07-12.md).
+
+## Offline sequential-policy boundary (2026-09-17)
+
+`A-SEQUENTIAL-RESEARCH` binds the registered offline environment, causal prefixes,
+finite bounded proposals, inventory/reward/terminal accounting, training isolation,
+artifact provenance, default-disabled behavior and no promotion/order authority.
+`Trader.Research.PolicyProposalV1` is isolated from executables: its constructor
+is private, all deterministic evidence guards precede admission, and accepted
+proposals still have `orderAuthorized == False`. The test suite exhaustively
+checks 2,688 combinations; Python fixtures cover replay/accounting/causality and
+three learning paradigms. This is executable contract evidence, not a proof that
+markets cannot gap through risk limits or that observations identify an MDP.
+
+`RL-OFFLINE-001` remains HIGH/OPEN because simulator fidelity, joint state–action
+support, live behavior propensities, complete statistical comparison and fresh
+holdout evidence are missing. Every candidate is rejected. Research does not
+alter existing production risk gates, ownership, caps, champion semantics or
+order permissions. See the [decision memo](../research-notes/sequential-control-2026-09-17/final-decision-memo.md)
+and [environment contract](../research-notes/sequential-control-2026-09-17/environment-contract.md).

@@ -305,6 +305,8 @@ test-suite trader-tests
                      , Trader.Formal.Execution
                      , Trader.Formal.Risk
                      , Trader.Formal.RiskRegister
+                     , Trader.Research.PolicyProposalV1
+                     , Trader.Test.ResearchPolicy
                      , Trader.GateTelemetry
                      , Trader.Http
                      , Trader.KalmanFusion

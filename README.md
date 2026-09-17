@@ -17,6 +17,22 @@ Trader is a Haskell trading research and execution system with a React operation
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example](.env.example) for the complete runtime configuration surface.
 
+## Offline sequential-control research
+
+The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)
+adds a 50-paper literature update, current predictor-fidelity audit and a
+preregistered simulated PPO/Double-DQN/CQL comparison. No candidate passed.
+All seeds and failed paths are retained; reused development data is explicitly
+contaminated, and protected holdouts remain unopened. No champion or live setting
+changes. Existing TCN/PatchTST/Transformer identifiers retain their documented
+ridge/similarity proxy semantics and existing accurate aliases.
+
+The research runner requires `--run-registered-development-v1` and exact approved
+development-file hashes. Its default-disabled, non-authorizing Haskell proposal
+boundary has no production caller. See [reproduction and dependencies](research-notes/sequential-control-2026-09-17/reproduction.md)
+and [unmet acceptance conditions](research-notes/sequential-control-2026-09-17/deliverables-index.md).
+No environment variable or production service is added.
+
 ## Toolchain
 
 The checked-in versions are authoritative:
