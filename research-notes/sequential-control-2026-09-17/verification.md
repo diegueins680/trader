@@ -54,3 +54,37 @@ No market data, protected holdout or financial experiment was opened or rerun.
 The original GitHub PR head `db0343a5` separately passed Haskell, web and automation
 CI in run 35273616526; Docker/deployment jobs were skipped. That remote result is
 not represented as verification of a later pushed commit.
+
+## Follow-up: OPE and evidence audit
+
+Implementation/evidence head `36d51d16` passed
+`bash scripts/verify.sh full` from `/private/tmp/trader-sequential-audit-20260917`,
+**exit 0**, after an outside-sandbox retry. This receipt is a subsequent
+documentation-only commit, not a financial rerun.
+
+- Haskell build, Fourmolu, HLint, smoke and test suite: passed.
+- Web typecheck, 241 tests and build: passed, no failures or skips.
+- Automation: 185 tests passed, no failures or skips.
+- Python sequential tests: 28 passed, including invalid OPE domains/overflow
+  and enumerated off-policy IS/PDIS/WIS/DR identities.
+- Targeted `bash scripts/verify.sh automation`: passed outside sandbox.
+- Formal registry: 39 specs, 349 features, 294 clauses, 304 implementation
+  files, 130 evidence links and 33 canonical risks.
+- Archive exporter: all seven compact files reproduced byte-for-byte from the
+  verified archive; hashes in `audit-receipt.json`. No financial trial or
+  protected-holdout read was performed.
+
+The initial `npm --workspaces=false --prefix haskell/web ci` failed with
+`getaddrinfo ENOTFOUND registry.npmjs.org` while fetching `csstype`. The same
+locked install outside the sandbox passed and reported zero vulnerabilities.
+The initial `bash scripts/verify.sh automation` and first
+`bash scripts/verify.sh full` failed three local HTTP fixtures with
+`listen EPERM: operation not permitted 127.0.0.1`; the first full run had
+already passed Haskell and web. Both complete commands were retried outside
+the sandbox and passed. No test or threshold was weakened or skipped.
+
+Final full log: `/private/tmp/trader-sequential-audit-full-retry.log`.
+SHA-256: `2f1d49239d7140f72615dbdb135b41914338110c43866e96618091a5c2b54008`.
+The prior remote checks belong to earlier PR heads; these results are local
+verification of the audit. Research acceptance remains incomplete and
+RL-OFFLINE-001 stays HIGH/OPEN.
