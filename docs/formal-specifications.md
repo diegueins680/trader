@@ -186,3 +186,10 @@ holdout evidence are missing. Every candidate is rejected. Research does not
 alter existing production risk gates, ownership, caps, champion semantics or
 order permissions. See the [decision memo](../research-notes/sequential-control-2026-09-17/final-decision-memo.md)
 and [environment contract](../research-notes/sequential-control-2026-09-17/environment-contract.md).
+
+The sequential-policy provenance boundary additionally rejects malformed required
+metadata even when a caller supplies its matching digest and matching expected
+object. Digest syntax and exact integer/family/horizon domains are checked before
+save or load; finite JSON applies to additional metadata. The matching-hash
+negative regression and 108-artifact compatibility receipt establish this narrow
+repair. They do not authenticate an untrusted caller or satisfy economic gates.

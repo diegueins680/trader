@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import re
 import time
 import numpy as np
 from sequential_env import ACTIONS, ENVIRONMENT, FEATURE_COUNT, OBSERVATION, Execution, collect
@@ -166,10 +167,32 @@ def infer(net: Network, observation: np.ndarray | None, *, enabled: bool = False
     return float(ACTIONS[int(np.argmax(out))]), elapsed
 
 
-def save_policy(path: Path, net: Network, provenance: dict) -> str:
+def validate_provenance(provenance: dict) -> None:
+    """A matching digest proves bytes, not that their provenance is meaningful."""
     required = {"codeCommit", "registrationSha256", "dataSha256", "seed", "horizon", "algorithm", "fold"}
-    if not required <= provenance.keys():
+    if not isinstance(provenance, dict) or not required <= provenance.keys():
         raise ValueError("missing provenance")
+    hashes = {"codeCommit": 40, "registrationSha256": 64, "dataSha256": 64}
+    if "fundingSha256" in provenance:
+        hashes["fundingSha256"] = 64
+    for key, length in hashes.items():
+        value = provenance[key]
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{" + str(length) + "}", value) is None:
+            raise ValueError("invalid provenance hash")
+    for key in ("seed", "horizon", "fold"):
+        if type(provenance[key]) is not int or provenance[key] < 0:
+            raise ValueError("invalid provenance integer")
+    if (provenance["horizon"] not in (1, 3, 6) or
+        provenance["algorithm"] not in ("ppo", "double_dqn", "cql", "cql_no_inventory_penalty")):
+        raise ValueError("unsupported policy provenance")
+    try:
+        json.dumps(provenance, sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid provenance JSON") from exc
+
+
+def save_policy(path: Path, net: Network, provenance: dict) -> str:
+    validate_provenance(provenance)
     value = {"schema": "offline_policy_v1", "environment": ENVIRONMENT,
              "observation": OBSERVATION, "actions": ACTIONS.tolist(),
              "promotion": "rejected_research_only", "enabled": False,
@@ -183,6 +206,7 @@ def save_policy(path: Path, net: Network, provenance: dict) -> str:
 
 
 def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> Network:
+    validate_provenance(expected_provenance)
     with path.open("rb") as stream:
         raw = stream.read(65537)
     if len(raw) > 65536:
@@ -203,6 +227,7 @@ def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> 
         any(type(v) not in (int, float) for v in a["actions"]) or
         not isinstance(a["provenance"], dict) or not isinstance(a["parameters"], dict)):
         raise ValueError("artifact types")
+    validate_provenance(a["provenance"])
     if (a["schema"] != "offline_policy_v1" or a["environment"] != ENVIRONMENT or
         a["observation"] != OBSERVATION or a["actions"] != ACTIONS.tolist() or
         a["promotion"] != "rejected_research_only" or a["enabled"] is not False or

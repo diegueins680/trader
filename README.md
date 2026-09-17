@@ -31,7 +31,9 @@ The research runner requires `--run-registered-development-v1` and exact approve
 development-file hashes. Its default-disabled, non-authorizing Haskell proposal
 boundary has no production caller. See [reproduction and dependencies](research-notes/sequential-control-2026-09-17/reproduction.md)
 and [unmet acceptance conditions](research-notes/sequential-control-2026-09-17/deliverables-index.md).
-No environment variable or production service is added.
+Policy artifacts require typed provenance and valid source/data digests as well as
+a matching content hash; incomplete metadata fails closed. No environment
+variable or production service is added.
 
 ## Toolchain
 

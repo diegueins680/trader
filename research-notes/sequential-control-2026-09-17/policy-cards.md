@@ -20,7 +20,8 @@ bar and funding hashes, scaler, seed, split and cadence accompany each artifact.
 Runtime/library versions and dates are bound by the shared experiment manifest.
 No hidden production model ID, pickle, ONNX service, GPU dependency or model
 autoload path exists. The strict JSON loader verifies hash, exact fields,
-versions, expected provenance, finite numeric shapes and bounded size; it never
+versions, typed required provenance, expected provenance equality, finite numeric
+shapes and bounded size; it never
 activates a model. Loading remains offline. Post-run hardening rejects numeric strings/booleans, bounds the artifact read,
 and records blocked replays after training exceptions. Training and inference
 results remain bound to the original frozen source commit.
@@ -53,3 +54,12 @@ failures, costs and safety interventions. These are requirements, not implemente
 production monitors in this branch. Rollback here is to stop the explicitly
 invoked offline process; default-disabled proposal/inference behavior preserves
 the champion. Any future real-capital trial needs a separate human decision.
+
+A follow-up regression reproduced 14 malformed-provenance admissions despite
+matching hashes and matching caller metadata. Save and load now reject missing
+required fields, malformed digest strings, Boolean/float/negative integer fields,
+unsupported horizons/families and non-finite JSON. All 108 original artifacts
+remain compatible; [provenance-validation.json](provenance-validation.json) binds
+the validator bytes and archive index. This validates metadata structure and
+expected identity, not independent authenticity of caller-supplied evidence.
+No market observations or policy performance were evaluated in this check.

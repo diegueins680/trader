@@ -234,6 +234,28 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_development(p, p, json.loads(REGISTRATION.read_text()))
 
+    def test_artifact_rejects_invalid_provenance_even_with_matching_hash(self):
+        valid = {"codeCommit": "a"*40, "registrationSha256": "b"*64, "dataSha256": "c"*64,
+                 "seed": 11, "horizon": 1, "algorithm": "ppo", "fold": 0}
+        invalid = [{}, *[{**valid, k:v} for k,v in [
+            ("codeCommit","not-a-commit"), ("registrationSha256","z"*64),
+            ("dataSha256",None), ("seed",True), ("seed",-1), ("seed",1.0),
+            ("horizon",True), ("horizon",2), ("algorithm","unknown"),
+            ("fold",False), ("fold",-1), ("fold",1.0),
+            ("fundingSha256","unbound"), ("extra",float("inf"))]]]
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/"policy.json"; save_policy(p,Network(11),valid)
+            artifact=json.loads(p.read_text())
+            for metadata in invalid:
+                with self.subTest(metadata=metadata):
+                    artifact["provenance"]=metadata
+                    p.write_text(json.dumps(artifact))
+                    sha=hashlib.sha256(p.read_bytes()).hexdigest()
+                    with self.assertRaises(ValueError): load_policy(p,sha,metadata)
+                    target=Path(td)/"invalid-output.json"
+                    with self.assertRaises(ValueError): save_policy(target,Network(11),metadata)
+                    self.assertFalse(target.exists())
+
     def test_training_failure_retains_every_planned_replay_and_export(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -1,0 +1,12 @@
+{
+  "archiveIndexSha256": "764fd123a1570c6b31ecc7e0729ef5dcc1fe19a39c29aee48efc1614c289974b",
+  "artifactsChecked": 108,
+  "failures": 0,
+  "financialExperimentsRun": false,
+  "holdoutOpened": false,
+  "liveAuthorization": false,
+  "marketDataRead": false,
+  "promotionAllowed": false,
+  "schema": "policy_provenance_validation_receipt_v1",
+  "validatorSha256": "2b71af9d729e67543212479e8713aa051bb84c6a1b66e7d8d924212dd8a81725"
+}

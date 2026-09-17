@@ -100,6 +100,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R2",
           "statement": "Observations contain only trailing completed closes and explicit inventory, equity, drawdown, pending target/delay and remaining episode state. Training prefixes physically bound scaler and replay construction."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R3",
+          "statement": "Policy save/load requires nonempty typed provenance: canonical source/data digest strings, exact non-negative integer seed/fold, a supported integer horizon and policy family, and finite JSON metadata. Matching bytes and caller expectations alone do not admit missing or mistyped provenance."
         }
       ],
       "ensures": [
