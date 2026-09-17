@@ -3,8 +3,8 @@
 The strongest transferable lesson is to separate a forecast, a decision policy,
 and permission to execute. None of the sources establishes an economic advantage
 for this repository's current instruments under its actual execution constraints.
-The [50-row focused matrix](paper-matrix.csv) combines 18 established prediction
-and validation references with 32 sequential-learning, evaluation and recent
+The [51-row focused matrix](paper-matrix.csv) combines 18 established prediction
+and validation references with 33 sequential-learning, evaluation and recent
 benchmark references. The [earlier 50-paper review](../market-prediction-2026-09-04/literature-review.md)
 remains the full map of classical prediction, factors and alternative data.
 These are overlapping maps, not 100 independent pieces of trading evidence.
@@ -109,7 +109,7 @@ meta-learning and continual-learning trading add scope without supplying that
 missing evidence and are deferred.
 
 Recent [FQL](https://seohong.me/projects/fql/) is an ICML 2025 contribution;
-[BFQ](https://arxiv.org/abs/2606.10613) is a June 2026 preprint proposing efficient
+[BFQ](https://arxiv.org/abs/2606.10613) has an author-reported ICML 2026 journal reference and proposes efficient
 single-step flow policies. [SafeFQL](https://arxiv.org/abs/2603.15136) was accepted at
 RLC 2026 according to its July revision and studies reachability-inspired safety.
 These are credible monitoring items. Their control benchmarks and learned safety
@@ -294,3 +294,18 @@ supervised policy or deterministic optimizer in these markets. The screen retain
 those comparisons and forbids promotion regardless of development ranking.
 Unavailable independent confirmation is an explicit evidence gap, not a null
 hypothesis rejection and not a completed production validation.
+
+## Audit source refresh
+
+[JumpStart (Omi et al., submitted 2026-09-12)](https://arxiv.org/abs/2609.13730v1)
+reports more than 160,000 trained policies over 114 offline datasets. Algorithm
+ordering changes with tuning and benchmark composition; no method dominates
+across all reported environments. This new preprint supports comprehensive
+trial accounting, with independent replication and release completeness still
+unverified. It does not validate a cryptocurrency policy, justify retuning the
+rejected screen, or provide fresh financial confirmation. Its disposition is
+Monitor. This audit refreshed primary sources, not every earlier matrix detail.
+
+The [BFQ primary record](https://arxiv.org/abs/2606.10613) now identifies ICML 2026
+in its author-supplied journal reference. The matrix distinguishes that report
+from independent proceedings verification. Its economic disposition is unchanged.
