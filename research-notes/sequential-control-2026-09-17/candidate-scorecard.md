@@ -93,3 +93,5 @@ These judgments select research priority; they are not estimates of alpha.
 | Sequential policies / PPO, Double DQN, CQL | 4 4 4 3 2 2 0 0 0 1 3 4 4 4 2 3 4 2 1 3 | 62.5 | Joint support, calibrated simulator, matched champion and fresh evidence |
 
 Method-only RL papers score zero on financial costs/impact: benchmark replication is not replication of trading efficacy. No score overrides a missing promotion gate. Source-specific limitations, unavailable identifiers and dispositions remain in the paper matrix.
+
+Final disposition after the registered screen: PPO, Double DQN and CQL configurations are rejected. Selection scores above record pre-experiment research priority, not post-hoc promotion scores; see [decision memo](final-decision-memo.md).

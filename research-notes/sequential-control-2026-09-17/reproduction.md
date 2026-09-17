@@ -36,9 +36,9 @@ python3 scripts/research/run_sequential_screen.py \
 Both hashes must match before parsing. Output must not already exist. The runner
 checks its four source modules and registration against its recorded Git commit;
 uncommitted experimental changes are rejected. Return paths and policy parameters
-stay outside Git. The original output is `/private/tmp/trader-sequential-evidence-v1`
-on the research host (about 1.1 GiB); it is not a public download or durable
-external archive. Loss of this archive requires rerunning from the exact allowed
+stay outside Git. The original output is `/Users/diegosaa/GitHub/trader/.tmp/research/sequential-control-screen-v1`
+in ignored local research storage (about 1.1 GiB); it is not a public download
+or off-host backup. Loss of this archive requires rerunning from the exact allowed
 inputs. Policy/economic determinism is tested within a fixed runtime, but runtime
 timing, timestamps, elapsed durations and BLAS differences prevent promising
 whole-run output hash identity. Two original timeout failures are retained even
@@ -53,7 +53,7 @@ before exporting any evidence and requires a new output directory:
 
 ```sh
 python3 scripts/research/summarize_sequential_screen.py \
-  --source /private/tmp/trader-sequential-evidence-v1 \
+  --source /Users/diegosaa/GitHub/trader/.tmp/research/sequential-control-screen-v1 \
   --output /private/tmp/trader-sequential-review-copy \
   --rss-unit bytes \
   --platform macOS-14.7.7-x86_64-i386-64bit-Mach-O \

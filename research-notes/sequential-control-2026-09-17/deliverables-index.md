@@ -46,3 +46,5 @@ These omissions do not turn a failed candidate into an inconclusive promotion:
 the observed hard failures already reject these configurations. They do prevent
 claiming completion of the user's full confirmation program or rejecting RL as
 a universal method. No new challenger proceeds beyond offline research.
+
+Actual targeted and full verification commands, results and environmental retries are recorded in [verification.md](verification.md). Passing checks do not remove the unmet research acceptance conditions above.
