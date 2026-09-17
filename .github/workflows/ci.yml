@@ -68,6 +68,11 @@ jobs:
         with:
           node-version: "20"
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - run: python3 -m pip install -r scripts/research/sequential-requirements.txt
       - run: bash scripts/verify.sh automation
 
   build-docker:

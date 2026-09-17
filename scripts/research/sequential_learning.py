@@ -183,9 +183,10 @@ def save_policy(path: Path, net: Network, provenance: dict) -> str:
 
 
 def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> Network:
-    if path.stat().st_size > 65536:
+    with path.open("rb") as stream:
+        raw = stream.read(65537)
+    if len(raw) > 65536:
         raise ValueError("artifact too large")
-    raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected_sha256:
         raise ValueError("artifact hash mismatch")
     def unique(pairs):
@@ -196,8 +197,12 @@ def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> 
             d[k] = v
         return d
     a = json.loads(raw, object_pairs_hook=unique, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("non-finite artifact")))
-    if set(a) != {"schema", "environment", "observation", "actions", "promotion", "enabled", "provenance", "parameters"}:
+    if not isinstance(a, dict) or set(a) != {"schema", "environment", "observation", "actions", "promotion", "enabled", "provenance", "parameters"}:
         raise ValueError("artifact fields")
+    if (not isinstance(a["actions"], list) or
+        any(type(v) not in (int, float) for v in a["actions"]) or
+        not isinstance(a["provenance"], dict) or not isinstance(a["parameters"], dict)):
+        raise ValueError("artifact types")
     if (a["schema"] != "offline_policy_v1" or a["environment"] != ENVIRONMENT or
         a["observation"] != OBSERVATION or a["actions"] != ACTIONS.tolist() or
         a["promotion"] != "rejected_research_only" or a["enabled"] is not False or
@@ -206,7 +211,11 @@ def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> 
     net = Network(0)
     if set(a["parameters"]) != set(net.p):
         raise ValueError("parameter fields")
+    def numeric(value):
+        return all(numeric(v) for v in value) if isinstance(value, list) else type(value) in (int, float)
     for k, template in net.p.items():
+        if not numeric(a["parameters"][k]):
+            raise ValueError("non-numeric parameter")
         arr = np.asarray(a["parameters"][k], dtype=float)
         if arr.shape != template.shape or not np.isfinite(arr).all():
             raise ValueError("invalid parameters")

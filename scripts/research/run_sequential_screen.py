@@ -137,7 +137,7 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
     # Complete planned roster is persisted before the first training or evaluation.
     planned = []
     for h in registration["data"]["decisionHorizonBars"]:
-        for fold in range(3):
+        for fold in range(len(registration["validation"]["outerFolds"])):
             for alg in (*ALGORITHMS, *Baselines.names):
                 seeds = registration["seeds"] if alg in ALGORITHMS else [20260917]
                 for seed in seeds:
@@ -190,7 +190,16 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                 ope.append({"id": trial, "result": ope_result})
                             except Exception as exc:
                                 event({"id": trial, "status": "failed", "reason": type(exc).__name__ + ": " + str(exc)})
-                                training.append({"id": trial, "status": "failed", "reason": str(exc)})
+                                training.append({"id": trial, "status": "failed", "reason": str(exc),
+                                                 "algorithm": alg, "seed": seed, "fold": fi, "horizon": h})
+                                for stress in STRESSES:
+                                    for symbol in sorted(prices):
+                                        replay_id = f"{trial}/{stress}/{symbol}"
+                                        result = {"status": "failed", "reason": "training_failed", "observations": 0}
+                                        records.append({"id": replay_id, "algorithm": alg, "seed": seed,
+                                                        "fold": fi, "horizon": h, "symbol": symbol,
+                                                        "stress": stress, "result": result})
+                                        event({"id": replay_id, **result})
                                 continue
                         for stress, cfg in STRESSES.items():
                             if alg == "cql_no_inventory_penalty":

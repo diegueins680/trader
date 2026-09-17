@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Export small review evidence from a hash-verified completed offline screen.
+
+No market input is read and no policy is trained, selected or promoted.
+"""
+import argparse
+from collections import Counter
+import csv
+import hashlib
+import json
+from pathlib import Path
+
+
+def digest(path):
+    h = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1048576), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
+    if digest(source / 'evidence-index.json') != expected_index_sha256:
+        raise ValueError('external evidence index hash mismatch')
+    index = json.loads((source / 'evidence-index.json').read_text())
+    actual = {str(p.relative_to(source)) for p in source.rglob('*') if p.is_file()}
+    if actual != set(index) | {'evidence-index.json'}:
+        raise ValueError('external evidence file inventory mismatch')
+    for name, sha in index.items():
+        p = source / name
+        if not p.resolve().is_relative_to(source.resolve()) or digest(p) != sha:
+            raise ValueError('external evidence hash/path mismatch')
+    read = lambda name: json.loads((source / name).read_text())
+    manifest, summary = read('manifest.json'), read('summary.json')
+    if manifest['promotionAllowed'] or manifest['holdoutOpened'] or manifest['liveAuthorization']:
+        raise ValueError('authorizing or protected evidence')
+    records, training, planned = read('evaluation.json'), read('training.json'), read('planned-registry.json')
+    terminal = {}
+    for line in (source / 'events.jsonl').read_text().splitlines():
+        event = json.loads(line)
+        if event['status'] in ('complete', 'failed'):
+            if event['id'] in terminal:
+                raise ValueError('duplicate terminal event')
+            terminal[event['id']] = event
+    if set(terminal) != {r['id'] for r in planned}:
+        raise ValueError('incomplete experiment registry')
+    output.mkdir(parents=True, exist_ok=False)
+    def js(name, value):
+        (output / name).write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False)+'\n')
+    def csvfile(name, rows, fields):
+        with (output / name).open('w', newline='') as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
+            writer.writeheader(); writer.writerows(rows)
+    reasons = sorted({r.get('reason') for r in terminal.values() if r.get('reason')})
+    codes = {reason: i+1 for i, reason in enumerate(reasons)}
+    csvfile('experiment-registry.csv', [dict(id=p['id'], kind=p['kind'], status=terminal[p['id']]['status'],
+        reasonCode=codes.get(terminal[p['id']].get('reason'), 0), observations=terminal[p['id']].get('observations',''))
+        for p in planned], ['id','kind','status','reasonCode','observations'])
+    groups = summary.pop('groups')
+    csvfile('all-seed-results.csv', groups, sorted(groups[0]))
+    fields = ['algorithm','horizon','seed','fold','symbol','status','reason','observations','netReturn','sharpe',
+              'maxDrawdown','expectedShortfall95','oodObservationRate','latencyP99Ms']
+    csvfile('symbol-fold-base-results.csv', [{k: ({**r, **r['result']}).get(k) for k in fields}
+            for r in records if r['stress']=='base'], fields)
+    compact = []
+    for info in training:
+        t = {k:v for k,v in info.items() if k not in ('episodes','losses')}
+        episodes = info.get('episodes',[])
+        t['trainingEpisodes'] = len(episodes)
+        t['trainingFailures'] = dict(Counter(e.get('failure') or 'complete' for e in episodes))
+        values = sorted(e['return'] for e in episodes)
+        t['trainingEpisodeReturns'] = {'min':min(values), 'mean':sum(values)/len(values), 'max':max(values)} if values else None
+        losses=info.get('losses',[])
+        t['initialAndFinalLoss'] = [losses[0],losses[-1]] if losses else []
+        compact.append(t)
+    js('multi-seed-training.json',compact)
+    js('ope-report.json',read('ope.json'))
+    rl = [r for r in records if r['algorithm'] in ('ppo','double_dqn','cql','cql_no_inventory_penalty')]
+    values = [r['result'] for r in rl if 'netReturn' in r['result']]
+    sizes = [t['artifactBytes'] for t in training if 'artifactBytes' in t]
+    summary.update(trainingSecondsSum=sum(t.get('seconds',0) for t in training),
+        artifactByteRange=[min(sizes),max(sizes)] if sizes else None,
+        rlAllPathsMaxDrawdown=max((v['maxDrawdown'] for v in values),default=None),
+        rlAllPathsWorstES95=max((v['expectedShortfall95'] for v in values),default=None),
+        rlObservedMaxP99InferenceMs=max((v['latencyP99Ms'] for v in values),default=None),
+        rlOodObservationRateRange=[min(v['oodObservationRate'] for v in values),max(v['oodObservationRate'] for v in values)] if values else None,
+        totalFailuresByReason=dict(Counter(r['result'].get('reason') or 'complete' for r in records)),
+        rlBaseFailuresByReason=dict(Counter(r['result'].get('reason') or 'complete' for r in rl if r['stress']=='base')))
+    summary['rlStressFailures']={stress:dict(failed=sum(r['result']['status']!='complete' for r in rl if r['stress']==stress),
+        total=sum(r['stress']==stress for r in rl)) for stress in sorted({r['stress'] for r in rl})}
+    # Explicit run-host units; never infer them from this export host.
+    summary['platform']=platform_label
+    summary['peakResidentMemoryMiB']=summary['processPeakRssPlatformUnits']/(1048576 if rss_unit=='bytes' else 1024)
+    js('evaluation-summary.json',summary)
+    manifest.update(externalEvidenceFiles=index,externalEvidenceIndexSha256=digest(source/'evidence-index.json'),
+        registryReasonCodes={str(v):k for k,v in codes.items()},registryRows=len(planned),allPlannedEntriesTerminal=True,
+        policyParametersNotCommitted=True,sourceDataNotCommitted=True,
+        priorTrialAccounting=dict(earlierResidualFundingAttempts=46,
+        thisScreenSeededCandidateTrials=len({(t["algorithm"],t["horizon"],t["seed"]) for t in training}),
+        thisScreenOuterCandidateFits=len(training),
+        thisScreenBaselineHorizonConfigurations=len({(r["algorithm"],r["horizon"]) for r in records if r["algorithm"] not in ("ppo","double_dqn","cql","cql_no_inventory_penalty")}),
+        baselineOuterRefits=len({(r["horizon"],r["fold"]) for r in records if r["algorithm"] not in ("ppo","double_dqn","cql","cql_no_inventory_penalty")}),replayPaths=len(records)))
+    js('experiment-manifest.json',manifest)
+
+
+if __name__ == '__main__':
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source',type=Path,required=True)
+    parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--rss-unit',choices=['bytes','kib'],required=True)
+    parser.add_argument('--platform',required=True)
+    parser.add_argument('--expected-index-sha256',required=True)
+    args=parser.parse_args()
+    export(args.source,args.output,rss_unit=args.rss_unit,platform_label=args.platform,
+           expected_index_sha256=args.expected_index_sha256)

@@ -1,10 +1,12 @@
 """Deterministic engineering fixtures; no protected market data or network."""
 import hashlib
+import csv
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/research"))
@@ -12,6 +14,8 @@ from sequential_env import ACTIONS, Execution, Replay, Scale, collect, market_fe
 from sequential_learning import Network, advantages, bellman_gradient, infer, load_policy, ppo_gradient, save_policy, train_ppo, train_q
 from sequential_evaluation import economic, ope_estimates
 from run_sequential_screen import REGISTRATION, load_development
+import run_sequential_screen as runner
+from summarize_sequential_screen import export
 
 
 class SequentialContracts(unittest.TestCase):
@@ -207,11 +211,59 @@ class SequentialContracts(unittest.TestCase):
         self.assertEqual(unsupported["effectiveSampleSize"], 0)
         self.assertFalse(unsupported["reliable"])
 
+    def test_artifact_types_and_size_fail_closed(self):
+        meta = {"codeCommit": "a"*40, "registrationSha256": "b"*64, "dataSha256": "c"*64,
+                "seed": 11, "horizon": 1, "algorithm": "ppo", "fold": 0}
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)/"policy.json"
+            save_policy(p, Network(11), meta)
+            original = json.loads(p.read_text())
+            for bad in ["0", True, None, {"value": 0}]:
+                a = json.loads(json.dumps(original)); a["parameters"]["b2"][0] = bad
+                p.write_text(json.dumps(a))
+                with self.assertRaises(ValueError): load_policy(p, hashlib.sha256(p.read_bytes()).hexdigest(), meta)
+            for bad in [[], None, "schema", {"schema": "offline_policy_v1"}]:
+                p.write_text(json.dumps(bad))
+                with self.assertRaises(ValueError): load_policy(p, hashlib.sha256(p.read_bytes()).hexdigest(), meta)
+            p.write_bytes(b" " * 65537)
+            with self.assertRaises(ValueError): load_policy(p, hashlib.sha256(p.read_bytes()).hexdigest(), meta)
+
     def test_data_admission_rejects_unregistered_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td)/"x.csv"; p.write_text("not registered data")
             with self.assertRaises(ValueError):
                 load_development(p, p, json.loads(REGISTRATION.read_text()))
+
+    def test_training_failure_retains_every_planned_replay_and_export(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "input.csv"; source.write_text("fixture-only")
+            registration = json.loads(REGISTRATION.read_text())
+            registration["data"]["decisionHorizonBars"] = [1]
+            registration["seeds"] = [11]
+            registration["validation"]["outerFolds"] = [{"trainStop":160,"testStart":166,"testStop":240}]
+            reg = root / "registration.json"; reg.write_text(json.dumps(registration))
+            with patch.object(runner,"REGISTRATION",reg), patch.object(runner,"source_commit",return_value="a"*40), \
+                 patch.object(runner,"load_development",return_value=({"x":self.p},{"x":self.f},np.array([0,1]))), \
+                 patch.object(runner,"ALGORITHMS",("ppo",)), patch.object(runner,"Baselines") as controls, \
+                 patch.object(runner,"train_ppo",side_effect=ValueError("fixture training failure")):
+                controls.names = ()
+                runner.run(source,source,root/"run")
+            planned=json.loads((root/"run/planned-registry.json").read_text())
+            events=[json.loads(line) for line in (root/"run/events.jsonl").read_text().splitlines()]
+            terminal=[e for e in events if e["status"] in ("complete","failed")]
+            self.assertEqual({e["id"] for e in terminal},{p["id"] for p in planned})
+            self.assertEqual(len(terminal),10)
+            self.assertTrue(all(e["status"]=="failed" for e in terminal))
+            index_sha = hashlib.sha256((root/"run/evidence-index.json").read_bytes()).hexdigest()
+            export(root/"run",root/"review",rss_unit="bytes",platform_label="fixture",expected_index_sha256=index_sha)
+            result=json.loads((root/"review/evaluation-summary.json").read_text())
+            self.assertIsNone(result["rlAllPathsMaxDrawdown"])
+            self.assertFalse(result["promotionAllowed"])
+            (root/"run/evaluation.json").write_text("[]")
+            with self.assertRaises(ValueError):
+                export(root/"run",root/"tampered",rss_unit="bytes",platform_label="fixture",expected_index_sha256=index_sha)
+            self.assertFalse((root/"tampered").exists())
 
     def test_registered_separation_and_no_final_holdout(self):
         r = json.loads(REGISTRATION.read_text())
@@ -220,6 +272,32 @@ class SequentialContracts(unittest.TestCase):
             self.assertLess(split["testStop"], r["data"]["rowsPerSymbol"])
         self.assertFalse(r["promotionGates"]["screenPromotionPermitted"])
         self.assertEqual(r["seeds"], [11,23,47])
+
+    def test_committed_evidence_retains_all_trials_and_seeds(self):
+        root = Path(__file__).resolve().parents[1]
+        evidence = root / "research-notes/sequential-control-2026-09-17"
+        with (evidence/"experiment-registry.csv").open() as stream:
+            registry = list(csv.DictReader(stream))
+        self.assertEqual(len(registry),19548)
+        self.assertEqual(len({r["id"] for r in registry}),19548)
+        self.assertTrue(all(r["status"] in ("complete","failed") for r in registry))
+        fits=[r for r in registry if r["kind"]=="training"]
+        self.assertEqual(len(fits),108)
+        for algorithm in ["ppo","double_dqn","cql","cql_no_inventory_penalty"]:
+            for horizon in [1,3,6]:
+                for fold in range(3):
+                    for seed in [11,23,47]:
+                        self.assertIn(f"{algorithm}/h{horizon}/f{fold}/s{seed}",{r["id"] for r in fits})
+        result=json.loads((evidence/"evaluation-summary.json").read_text())
+        self.assertFalse(result["holdoutOpened"])
+        self.assertFalse(result["promotionAllowed"])
+        self.assertEqual(result["rlStressFailures"]["base"],{"failed":686,"total":1080})
+
+    def test_haskell_proposal_boundary_has_no_production_caller(self):
+        app=Path(__file__).resolve().parents[1]/"haskell/app"
+        for p in app.rglob("*.hs"):
+            if p.name != "PolicyProposalV1.hs":
+                self.assertNotIn("import Trader.Research.PolicyProposalV1",p.read_text(),str(p))
 
 
 if __name__ == "__main__":
