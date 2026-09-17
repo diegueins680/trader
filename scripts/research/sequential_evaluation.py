@@ -140,11 +140,34 @@ def ope_estimates(rewards, actions, behavior_prob, target_prob, q, v, gamma: flo
     q[i,t] is Q_hat(s_t, logged a_t); v includes final zero bootstrap.
     Exact logged propensities are mandatory. ESS is trajectory-weight ESS.
     """
-    r, b, pi = map(np.asarray, (rewards, behavior_prob, target_prob))
-    if r.ndim != 2 or b.shape != r.shape or pi.shape != r.shape or q.shape != r.shape or v.shape != (r.shape[0], r.shape[1] + 1):
-        raise ValueError("OPE shape mismatch")
-    if not all(np.isfinite(x).all() for x in (r, b, pi, q, v)) or np.any(b <= 0) or np.any(b > 1) or np.any(pi < 0) or np.any(pi > 1):
-        raise ValueError("invalid OPE probabilities or values")
+    arrays = [np.asarray(x) for x in (rewards, actions, behavior_prob, target_prob, q, v)]
+    r, a, b, pi, q, v = arrays
+    if (r.ndim != 2 or 0 in r.shape or any(x.shape != r.shape for x in (a, b, pi, q)) or
+        v.shape != (r.shape[0], r.shape[1] + 1)):
+        raise ValueError("OPE shape mismatch or empty episodes")
+    if (any(x.dtype.kind not in "iuf" for x in arrays) or
+        not all(np.isfinite(x).all() for x in arrays)):
+        raise ValueError("non-numeric or non-finite OPE input")
+    if a.dtype.kind not in "iu" or np.any(a < 0) or np.any(a >= len(ACTIONS)):
+        raise ValueError("invalid logged OPE action")
+    if (isinstance(gamma, (bool, np.bool_)) or not isinstance(gamma, (int, float, np.integer, np.floating)) or
+        not np.isfinite(gamma) or not 0 <= gamma <= 1):
+        raise ValueError("invalid OPE discount")
+    if np.any(b <= 0) or np.any(b > 1) or np.any(pi < 0) or np.any(pi > 1):
+        raise ValueError("invalid OPE probabilities")
+    if np.any(v[:, -1] != 0):
+        raise ValueError("nonzero terminal OPE bootstrap")
+    # Finite inputs can still overflow ratios, accumulated weights, moments or
+    # bootstrap means. Reject the batch; never clip weights to manufacture ESS.
+    try:
+        with np.errstate(over="raise", invalid="raise", divide="raise"):
+            return _ope_estimates(r.astype(float), b.astype(float), pi.astype(float),
+                                  q.astype(float), v.astype(float), float(gamma))
+    except FloatingPointError as exc:
+        raise ValueError("non-finite OPE arithmetic") from exc
+
+
+def _ope_estimates(r, b, pi, q, v, gamma):
     weights = np.cumprod(pi / b, axis=1)
     discount = gamma ** np.arange(r.shape[1])
     returns = r @ discount

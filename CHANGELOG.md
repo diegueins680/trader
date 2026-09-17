@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/OPE Audit: reject invalid discounts, logged actions, empty trajectories, terminal bootstraps and overflowing importance-weight arithmetic; add exact enumerated-policy and malformed-input regressions. Preserve the frozen experiment archive, every rejected seed and all protected holdouts.
+
 - Research/Policy Provenance: reject empty or mistyped policy metadata even when caller expectations and artifact hashes match. Validate required source/data digest syntax, exact integer seed/fold/horizon fields, supported policy families and finite JSON before saving or loading; retain compatibility with all 108 frozen research artifacts without rerunning financial experiments or changing their rejected disposition.
 
 - Research/Sequential Control: add a preregistered, disabled-by-default offline inventory replay and original CPU PPO, Double-DQN and discrete CQL prototypes, with all 108 seeded fits and 19,440 replay paths recorded. Reject every candidate, preserve the champion and protected holdouts, and document contaminated development evidence, constraint failures, invalid OPE, missing confirmation and simulator limits. Add a primary-source literature update, predictor-fidelity/gap audit, strict non-authorizing Haskell proposal boundary, causal/accounting/artifact tests, pinned existing research dependencies in CI, and an open formal risk; no live authorization, production model semantics, deployment or fleet setting changes.

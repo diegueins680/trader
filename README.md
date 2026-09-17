@@ -144,6 +144,8 @@ The legacy `tcn`, `patch_tst`, and `transformer` predictor codes are compatibili
 
 The 2026-09-04 [market-prediction review](research-notes/market-prediction-2026-09-04/literature-review.md) maps 50 primary works, audits every current model family, records the [paper-to-code gaps](research-notes/market-prediction-2026-09-04/paper-to-repository-gap-matrix.md), and freezes three future-data registrations. Its decision is **no candidate passed**: no predictor, champion, combo, deployment mode, or live authorization changed. The existing historical holdout remains unopened, and the prospective funding-carry path remains metadata-only until its registered 2027 evaluation time.
 
+The offline sequential OPE helper rejects empty or malformed trajectories, invalid discounts or action indices, nonzero terminal bootstraps, and non-finite weight/estimate arithmetic. It never clips importance weights to rescue an estimate. The [draft audit](research-notes/sequential-control-2026-09-17/audit-followup.md) records the reproduced defects, deterministic estimator checks and unchanged negative evidence.
+
 ## CLI and API
 
 List the complete CLI surface with:

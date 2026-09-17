@@ -202,14 +202,59 @@ class SequentialContracts(unittest.TestCase):
     def test_ope_known_policy_and_no_support(self):
         r = np.array([[1., 2.], [3., 4.]])
         probs = np.ones_like(r)
-        result = ope_estimates(r, r.astype(int), probs, probs, np.zeros_like(r), np.zeros((2,3)), 1)
+        result = ope_estimates(r, np.zeros_like(r, dtype=int), probs, probs, np.zeros_like(r), np.zeros((2,3)), 1)
         for k in ["ordinaryIS", "weightedIS", "perDecisionIS", "doublyRobust"]:
             self.assertEqual(result[k], 5)
         self.assertEqual(result["effectiveSampleSize"], 2)
-        unsupported = ope_estimates(r, r.astype(int), probs, np.zeros_like(r), np.zeros_like(r), np.zeros((2,3)), 1)
+        unsupported = ope_estimates(r, np.zeros_like(r, dtype=int), probs, np.zeros_like(r), np.zeros_like(r), np.zeros((2,3)), 1)
         self.assertIsNone(unsupported["weightedIS"])
         self.assertEqual(unsupported["effectiveSampleSize"], 0)
         self.assertFalse(unsupported["reliable"])
+
+    def test_ope_rejects_invalid_domains_and_overflow(self):
+        valid = dict(rewards=np.ones((2, 2)), actions=np.zeros((2, 2), dtype=int),
+                     behavior_prob=np.ones((2, 2)), target_prob=np.ones((2, 2)),
+                     q=np.zeros((2, 2)), v=np.zeros((2, 3)), gamma=1.)
+        invalid = [("gamma", x) for x in [np.nan, np.inf, -1., 1.01, True, "0.99"]]
+        invalid += [("actions", x) for x in [np.zeros((2, 1), dtype=int),
+                    np.zeros((2, 2)), np.full((2, 2), -1), np.full((2, 2), 3),
+                    np.zeros((2, 2), dtype=bool)]]
+        invalid += [("rewards", np.full((2, 2), "1")), ("rewards", np.full((2, 2), np.inf)),
+                    ("behavior_prob", np.zeros((2, 2))), ("target_prob", np.full((2, 2), 1.1)),
+                    ("v", np.ones((2, 3))),
+                    ("behavior_prob", np.full((2, 2), 1e-300)),
+                    ("behavior_prob", np.full((2, 2), 1e-80)),
+                    ("rewards", np.full((2, 2), 1e308))]
+        for key, value in invalid:
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(ValueError):
+                    ope_estimates(**{**valid, key:value})
+        for shape in [(0, 2), (2, 0)]:
+            with self.subTest(shape=shape), self.assertRaises(ValueError):
+                ope_estimates(np.zeros(shape), np.zeros(shape, dtype=int), np.ones(shape),
+                              np.ones(shape), np.zeros(shape), np.zeros((shape[0], shape[1]+1)), 1.)
+
+    def test_ope_matches_enumerated_behavior_tree(self):
+        # Enumerate all length-two trajectories of a uniform two-action policy.
+        # The deterministic target selects action zero twice and earns 1 + .5*3.
+        actions = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+        rewards = np.array([[1., 3.], [1., 4.], [2., 3.], [2., 4.]])
+        target = (actions == 0).astype(float)
+        q = np.zeros_like(rewards)
+        v = np.zeros((4, 3))
+        result = ope_estimates(rewards, actions, np.full((4, 2), .5), target, q, v, .5)
+        for name in ["ordinaryIS", "perDecisionIS", "weightedIS", "doublyRobust"]:
+            self.assertAlmostEqual(result[name], 2.5)
+        self.assertEqual(result["effectiveSampleSize"], 1.)
+        self.assertEqual(result["maxTrajectoryWeight"], 4.)
+        # With exact Q/V, every DR trajectory equals the target value, even
+        # trajectories disagreeing with its first action (zero cumulative weight).
+        q[:, 0] = rewards[:, 0] + 1.5
+        q[:, 1] = rewards[:, 1]
+        v[:, 0] = 2.5; v[:, 1] = 3.
+        exact = ope_estimates(rewards, actions, np.full((4, 2), .5), target, q, v, .5)
+        self.assertEqual(exact["conditionalBootstrap95"]["DR"], [2.5, 2.5])
+        self.assertFalse(exact["reliable"])
 
     def test_artifact_types_and_size_fail_closed(self):
         meta = {"codeCommit": "a"*40, "registrationSha256": "b"*64, "dataSha256": "c"*64,

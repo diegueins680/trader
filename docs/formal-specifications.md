@@ -193,3 +193,11 @@ object. Digest syntax and exact integer/family/horizon domains are checked befor
 save or load; finite JSON applies to additional metadata. The matching-hash
 negative regression and 108-artifact compatibility receipt establish this narrow
 repair. They do not authenticate an untrusted caller or satisfy economic gates.
+
+The OPE boundary requires nonempty aligned trajectories, finite numeric inputs,
+valid integer logged actions, probability/discount domains and zero terminal
+bootstrap. Floating-point overflow in weights, moments, estimates or bootstrap
+means invalidates the batch rather than emitting NaN/Infinity or clipping weights.
+Zero target support remains ESS zero with absent WIS. An enumerated two-action,
+two-decision fixture independently checks IS, PDIS, WIS and DR; finite estimates
+still grant no promotion authority. `RL-OFFLINE-001` remains HIGH/OPEN.

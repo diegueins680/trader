@@ -104,6 +104,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R3",
           "statement": "Policy save/load requires nonempty typed provenance: canonical source/data digest strings, exact non-negative integer seed/fold, a supported integer horizon and policy family, and finite JSON metadata. Matching bytes and caller expectations alone do not admit missing or mistyped provenance."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R4",
+          "statement": "OPE requires nonempty aligned finite numeric trajectories, valid integer logged action indices, behavior probabilities in (0,1], target probabilities in [0,1], a finite numeric discount in [0,1], and zero terminal value bootstrap."
         }
       ],
       "ensures": [
@@ -138,6 +142,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-F2",
           "statement": "Missing independent data, champion parity, state-action coverage, reliable OPE, statistical tests or realistic fills fails promotion completeness; it is never interpreted as zero risk."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-F3",
+          "statement": "Malformed OPE input or non-finite importance-weight, moment, estimate or bootstrap arithmetic raises an explicit invalid-batch error; weights are never clipped to manufacture support. Zero target support retains ESS zero and absent WIS. A finite estimate never grants promotion authority."
         }
       ],
       "evidence": [
@@ -145,6 +153,16 @@
           "level": "regression",
           "path": "test/sequential-screen.test.mjs",
           "contains": "offline sequential contracts"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_rejects_invalid_domains_and_overflow"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_matches_enumerated_behavior_tree"
         },
         {
           "level": "bounded-exhaustive",
