@@ -7,7 +7,7 @@ Future protected registrations cannot be completed by opening them early.
 
 | Requested artifacts | Location / status |
 |---|---|
-| 1–3 Literature, matrix, fidelity audit | literature-review.md; paper-matrix.csv (50 rows); model-fidelity-audit.md; prior full financial review linked |
+| 1–3 Literature, matrix, fidelity audit | literature-review.md; paper-matrix.csv (51 rows after audit source refresh); model-fidelity-audit.md; prior full financial review linked |
 | 4–6 Gap matrix, selection, preregistration | model-fidelity-audit.md; candidate-scorecard.md; ../registrations/sequential-control-screen-v1.json |
 | 7–10 Manifests, full registry, data/license, costs | experiment-manifest.json; experiment-registry.csv (19,548 terminal entries); data-source-license-manifest.json; cost-execution-and-robustness.md |
 | 11–13 Ablation, robustness, decision | cost-execution-and-robustness.md; all-seed-results.csv; final-decision-memo.md; only registered inventory ablation trained |
@@ -48,3 +48,5 @@ claiming completion of the user's full confirmation program or rejecting RL as
 a universal method. No new challenger proceeds beyond offline research.
 
 Actual targeted and full verification commands, results and environmental retries are recorded in [verification.md](verification.md). Passing checks do not remove the unmet research acceptance conditions above.
+
+The [follow-up audit](audit-followup.md) verifies the original export and hardens OPE numerical admission. It does not complete or waive any unmet financial acceptance condition above.
