@@ -165,6 +165,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R18",
           "statement": "OPE admission rejects NumPy masked arrays in rewards, logged actions, behavior probabilities, target probabilities, Q estimates and V estimates before array coercion can discard the mask. Partial, full and all-false masks are rejected without imputation, row deletion or caller mutation. Ordinary supported unmasked arrays and array-like inputs retain existing estimates. The runner records rejection as an explicit failed OPE outcome while retaining the completed fit; compact reports preserve the failure and remain non-authorizing. This does not establish behavior support, estimator reliability or market generalization."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R19",
+          "statement": "Offline baselines validate the fitted scalar/vector/matrix parameters used by each selected rule: finite real values, exact coefficient shapes, no boolean/object/complex/masked representations, and an allowed behavior-clone action. Forecast/action arithmetic rejects overflow and non-finite intermediate values before logistic clipping, argmax or utility selection. Failed computations return absence; replay shielding rejects absence without a fill. Valid formulas, tie-breaking, finite-logit clipping and RNG behavior remain unchanged; unrelated invalid fitted components do not disable independent constant/uniform rules. This does not establish parameter provenance, calibration, timeout guarantees or economic value."
         }
       ],
       "ensures": [
@@ -517,6 +521,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_runner_records_masked_ope_failure_without_losing_fit"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baselines_reject_invalid_fitted_parameters"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baselines_reject_nonfinite_intermediate_arithmetic"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baseline_numerical_failures_reach_shield_as_absence"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baseline_numeric_admission_preserves_independent_rules"
         },
         {
           "level": "bounded-exhaustive",

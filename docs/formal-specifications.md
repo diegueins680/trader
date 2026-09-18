@@ -372,3 +372,11 @@ witnesses cover partial/full/all-false masks, unchanged ordinary array-like
 estimates, and runner/export propagation of explicit failure without discarding
 the completed fit. There is no imputation or trajectory exclusion. This does not
 make OPE reliable or resolve behavior-support and simulator limitations.
+
+
+`A-SEQUENTIAL-RESEARCH-R19` checks fitted baseline parameters and arithmetic before
+forecast/action selection. Four witnesses cover malformed coefficients/scalars,
+overflow before clipping/argmax, replay rejection of absent results, and independent
+fixed rules plus finite-logit compatibility. The existing exact valid-baseline
+fixture remains applicable. No provenance, calibration, execution-time or economic
+claim follows from numerical validity.

@@ -132,3 +132,9 @@ before conversion can discard missingness, including all-false masks, consistent
 with the other research boundaries. Do not fill missing observations or drop
 trajectories to force admission. Runner/export records retain explicit failures.
 See the [OPE mask-admission audit](ope-mask-admission-audit.md).
+
+Baseline numerical admission validates the fitted parameters needed by the selected
+rule and rejects non-finite intermediate scores before clipping or action selection.
+Failures return absence, not a zero-position request. Valid formulas, finite-logit
+clipping and RNG semantics remain unchanged. See the
+[baseline-numerics audit](baseline-numerics-audit.md).
