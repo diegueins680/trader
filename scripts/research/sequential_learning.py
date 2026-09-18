@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import time
 import numpy as np
-from sequential_env import ACTIONS, ENVIRONMENT, FEATURE_COUNT, OBSERVATION, Execution, collect
+from sequential_env import ACTIONS, ENVIRONMENT, FEATURE_COUNT, OBSERVATION, Execution, _integer, collect
 
 
 def softmax(z: np.ndarray) -> np.ndarray:
@@ -85,7 +85,16 @@ def advantages(data: dict, value: Network, gamma: float) -> tuple[np.ndarray, np
     return adv, targets
 
 
+def _training_indices(horizon: int, seed: int, steps: int) -> tuple[int, int, int]:
+    if (not all(_integer(v) for v in (horizon, seed, steps)) or
+        horizon not in (1, 3, 6) or seed < 0 or steps <= 0):
+        raise ValueError("invalid training horizon, seed or step budget")
+    # Convert before seed offsets and batch arithmetic to avoid fixed-width wrapping.
+    return int(horizon), int(seed), int(steps)
+
+
 def train_ppo(prices, funding, scale, horizon: int, seed: int, steps: int = 4096):
+    horizon, seed, steps = _training_indices(horizon, seed, steps)
     net, value = Network(seed), Network(seed + 1, 1)
     episodes, losses = [], []
     for batch in range((steps + 255) // 256):
@@ -120,9 +129,12 @@ def bellman_gradient(q: np.ndarray, actions: np.ndarray, targets: np.ndarray,
 
 def train_q(prices, funding, scale, horizon: int, seed: int,
             *, offline: bool, risk_penalty: float = 0.01, steps: int = 4096):
+    horizon, seed, steps = _training_indices(horizon, seed, steps)
+    if type(offline) is not bool:
+        raise ValueError("offline training mode must be boolean")
+    cfg = Execution(risk_penalty=risk_penalty)
     net, target = Network(seed), Network(seed)
     rng = np.random.default_rng(seed + 2)
-    cfg = Execution(risk_penalty=risk_penalty)
     episodes, losses = [], []
     buffer = None
     if offline:
