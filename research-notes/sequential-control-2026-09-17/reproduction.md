@@ -108,3 +108,9 @@ omit. This covers the admitted index, every report snapshot and each JSONL event
 Do not rewrite ambiguous archives automatically to obtain acceptance; investigate
 the source. Valid legacy report bytes are unchanged. See the
 [JSON-admission audit](evidence-json-admission-audit.md).
+
+Choose a new report directory outside the source archive. Exporting below the
+archive would add unindexed files and invalidate its inventory, so same/descendant
+destinations now fail before evidence reads or directory creation. The exporter
+resolves and pins source/output aliases at admission and keeps existing external
+destinations exclusive. See the [destination-isolation audit](export-destination-audit.md).

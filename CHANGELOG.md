@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Export Destination: resolve and pin source/output paths before reading evidence, rejecting report destinations equal to or beneath the source archive. Cover nested paths, symlink aliases and alias retargeting; preserve valid external report bytes, archive inventory and exclusive no-overwrite behavior.
+
 - Research/Evidence JSON: reject duplicate keys, escaped-key collisions, non-finite constants and overflowing float literals in the verified index, report snapshots and JSONL events before report output. Validate even omitted fields while preserving valid values, snapshot provenance and legacy report bytes.
 
 - Research/Evidence Publication: stop the offline runner on terminal-ledger write/flush or return-path publication errors. Keep those operations outside model/replay exception handlers, preventing duplicate outcomes and false completion of an internally inconsistent archive; preserve computational failed-trial accounting and successful outputs.

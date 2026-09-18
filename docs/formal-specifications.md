@@ -338,3 +338,12 @@ Three witnesses cover all input routes, nested/escaped collisions, discarded los
 values and valid-number/text compatibility. Existing exact legacy-report and
 snapshot-replacement tests remain applicable. This does not prove evidence truth,
 require canonical JSON encoding or add an input-size limit.
+
+
+`A-SEQUENTIAL-RESEARCH-R15` isolates exported reports from their source archive.
+Source and destination aliases resolve once before evidence reads; same/descendant
+destinations are rejected and later retargeting of the original destination alias
+cannot redirect publication. Three witnesses cover direct/nested/aliased paths,
+alias retargeting, exact external report compatibility and no-overwrite behavior.
+Resolved directory ancestors must remain stable; this is not inode locking or
+atomic publication.
