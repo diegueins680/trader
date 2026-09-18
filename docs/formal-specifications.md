@@ -320,3 +320,12 @@ episode return. Four executable witnesses cover terminal timing, trainer
 aggregation, export rejection of inconsistent/unsupported metadata and exact legacy
 report bytes. Count reconciliation establishes internal consistency, not financial
 significance or complete coverage inside an aborted training call.
+
+
+`A-SEQUENTIAL-RESEARCH-R13` separates terminal-ledger and return-path publication
+from model/replay exception handling. Three executable witnesses inject terminal
+write/flush faults and early/partial CSV faults, and verify one terminal per trial
+on a successful runner-to-export path. Publication errors propagate before final
+summary/index creation; partial files remain incomplete evidence. Existing
+computational-failure accounting is retained. This is not an atomic-write, durable
+commit or crash-recovery protocol.

@@ -71,6 +71,11 @@ Terminal losses are recorded even on the final training sample; truncated episod
 do not receive fabricated liquidation returns. Legacy reports retain their original
 coverage. See the [episode-accounting audit](research-notes/sequential-control-2026-09-17/episode-accounting-v2-audit.md).
 
+The offline runner aborts on terminal-ledger or return-path write failures before
+publishing its final summary/index. It preserves partial files for investigation;
+those files are incomplete evidence. Computational failures retain their failed-trial
+records. See the [publication-boundary audit](research-notes/sequential-control-2026-09-17/publication-boundary-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
