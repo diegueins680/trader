@@ -41,7 +41,8 @@ lock paths or promise that the external archive stays immutable after export.
 CLI arguments, report schemas, original evidence, registrations, policy semantics
 and promotion rules are unchanged. No new dependency is needed. The canonical
 `RL-OFFLINE-001` remains HIGH/OPEN; its mitigation now explicitly includes verified
-evidence snapshots. Formal contracts `A-SEQUENTIAL-RESEARCH-R5/E4` connect the
+evidence snapshots in both Markdown and typed Haskell projections, with the prior
+OPE mitigation text synchronized as well. Formal contracts `A-SEQUENTIAL-RESEARCH-R5/E4` connect the
 repair to executable regression evidence.
 
 ## Original-archive reproduction and memory
