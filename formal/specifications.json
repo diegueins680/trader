@@ -116,7 +116,7 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R6",
-          "statement": "Before creating report output, the exporter reconciles unique supplied roster IDs, start/terminal lifecycle (only failed-fit cascades may omit starts), training/replay identities and seed/fold metadata, statuses/reasons/observation counts, successful-fit artifact digests, OPE fit coverage, total/group counts and descriptive return/risk/cost aggregates. Evaluated RL rows require finite nonnegative latency p99 and OOD rates in [0,1], using the same family classification as reporting. Contradictory, missing, duplicated or malformed evidence in these fields is rejected."
+          "statement": "Before creating report output, the exporter reconciles unique supplied roster IDs, start/terminal lifecycle (only failed-fit cascades may omit starts), training/replay identities and seed/fold metadata, statuses/reasons/observation counts, successful-fit artifact digests, OPE fit coverage, total/group counts and descriptive return/risk/cost aggregates. Evaluated RL rows require finite nonnegative latency p99 and OOD rates in [0,1], using the same family classification as reporting. Peak-memory metadata must be finite and nonnegative. All compact reports are rendered before output creation, so field and serialization errors cannot leave partial reports; filesystem write failures are not atomic. Contradictory, missing, duplicated or malformed evidence in these fields is rejected."
         }
       ],
       "ensures": [

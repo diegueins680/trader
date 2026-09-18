@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Report Preparation: validate finite nonnegative peak-memory metadata and prepare every compact report before creating output, so malformed training/report fields or serialization errors cannot leave partial reports. Filesystem write failures remain explicit.
+
 - Research/Evidence Disposition: reject terminal and replay status/reason contradictions, reserved failure labels, and summary promotion, holdout or statistical claims outside the v1 contaminated-development contract before export. Require boolean false authorization flags in the manifest; retain the original negative-result reports unchanged.
 
 - Research/Registry Review: require start events for fits and evaluated replays while retaining failed-fit cascades, and validate required RL latency/OOD metrics before creating reports. Share RL family classification between validation and export; add missing-start and missing-metric regressions.

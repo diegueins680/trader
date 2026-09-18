@@ -154,6 +154,8 @@ Before writing reports, it reconciles the supplied trial roster, terminal events
 
 The exporter also rejects contradictory failure reasons and summary promotion, holdout or statistical claims outside the v1 contaminated-development contract before creating reports.
 
+All compact reports are prepared before the output directory is created; invalid memory metadata, malformed report fields and serialization failures leave no partial report. Filesystem write errors still require operator cleanup.
+
 ## CLI and API
 
 List the complete CLI surface with:

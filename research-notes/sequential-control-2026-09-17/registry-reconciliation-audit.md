@@ -109,6 +109,22 @@ the repair was applied and failed its Python contract suite. This is not a passi
 verification result. The associated PR records a fresh full run on frozen code,
 its final result, log hash and CI evidence before merge.
 
+## Report-preparation review
+
+A later review found that the unconditionally consumed peak-memory field could
+fail after partial output creation. Missing, nonnumeric, nonfinite and negative
+RSS fixtures plus malformed training-episode and training-seconds fixtures
+reproduced two assertion failures and four exceptions before repair. RSS now
+requires a finite nonnegative number, and all compact reports are rendered before
+creating the output directory. This prevents field and serialization failures
+from leaving partial reports without accumulating the large return-path archive.
+Filesystem write failures are still explicit and may require cleanup; publication
+is not claimed to be atomic against disk failure.
+
+Full verification and CI passed at predecessor `be0ff9f1` before this later
+repair. The PR records a new full run and CI on the final commit; predecessor
+passes do not substitute for final verification.
+
 ## Limits and decision
 
 This is consistency against the **supplied roster**, not proof that the roster

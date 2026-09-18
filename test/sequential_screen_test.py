@@ -432,6 +432,12 @@ class SequentialContracts(unittest.TestCase):
             values["summary.json"]["groups"] = runner.summary(values["evaluation.json"])
 
         mutations = {
+            "missing RSS": lambda v: v["summary.json"].pop("processPeakRssPlatformUnits"),
+            "nonnumeric RSS": lambda v: v["summary.json"].update(processPeakRssPlatformUnits="bad"),
+            "nonfinite RSS": lambda v: v["summary.json"].update(processPeakRssPlatformUnits=float("nan")),
+            "negative RSS": lambda v: v["summary.json"].update(processPeakRssPlatformUnits=-1),
+            "malformed training episode": lambda v: v["training.json"][0].update(episodes=[{}]),
+            "malformed training seconds": lambda v: v["training.json"][0].update(seconds="bad"),
             "failed with null reason": lambda v: set_outcome(v, "failed", None),
             "failed with empty reason": lambda v: set_outcome(v, "failed", ""),
             "failed with blank reason": lambda v: set_outcome(v, "failed", " "),

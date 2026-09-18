@@ -239,3 +239,8 @@ Terminal and replay failures require nonblank reasons other than the reserved
 must retain the v1 contaminated-development disposition, false promotion/holdout
 flags and absent promotion statistics. Contradictory disposition fields fail
 before output creation; these checks confer no production authorization.
+
+Peak-memory metadata must be finite and nonnegative. Every compact JSON/CSV report
+is rendered before output creation, so field/serialization errors leave no partial
+report directory. This does not promise atomic publication across filesystem
+failures during the subsequent writes.

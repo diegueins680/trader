@@ -7,6 +7,7 @@ import argparse
 from collections import Counter
 import csv
 import hashlib
+import io
 import json
 from pathlib import Path
 from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition
@@ -57,15 +58,26 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
     try:
         reconcile_disposition(manifest, summary)
         terminal = reconcile(planned, events, training, records, ope, summary, index)
+        reports = render_reports(manifest, summary, records, training, planned, terminal, ope, index,
+                                 rss_unit, platform_label, expected_index_sha256)
     except (KeyError, TypeError, OverflowError) as exc:
         raise ValueError('malformed registry evidence') from exc
     output.mkdir(parents=True, exist_ok=False)
+    for name, content in reports.items():
+        (output / name).write_text(content)
+
+
+def render_reports(manifest, summary, records, training, planned, terminal, ope, index,
+                   rss_unit, platform_label, expected_index_sha256):
+    """Prepare every compact report before creating output; no filesystem IO."""
+    reports = {}
     def js(name, value):
-        (output / name).write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False)+'\n')
+        reports[name] = json.dumps(value, sort_keys=True, indent=2, allow_nan=False)+'\n'
     def csvfile(name, rows, fields):
-        with (output / name).open('w', newline='') as stream:
+        with io.StringIO(newline='') as stream:
             writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
             writer.writeheader(); writer.writerows(rows)
+            reports[name] = stream.getvalue()
     reasons = sorted({r.get('reason') for r in terminal.values() if r.get('reason')})
     codes = {reason: i+1 for i, reason in enumerate(reasons)}
     csvfile('experiment-registry.csv', [dict(id=p['id'], kind=p['kind'], status=terminal[p['id']]['status'],
@@ -116,6 +128,7 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         thisScreenBaselineHorizonConfigurations=len({(r["algorithm"],r["horizon"]) for r in records if r["algorithm"] not in RL_FAMILIES}),
         baselineOuterRefits=len({(r["horizon"],r["fold"]) for r in records if r["algorithm"] not in RL_FAMILIES}),replayPaths=len(records)))
     js('experiment-manifest.json',manifest)
+    return reports
 
 
 if __name__ == '__main__':

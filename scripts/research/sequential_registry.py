@@ -60,6 +60,7 @@ def equal_metric(actual, expected):
 
 def reconcile_disposition(manifest, summary):
     """This v1 development screen cannot publish promotion inference."""
+    require(number(summary['processPeakRssPlatformUnits']) >= 0, 'invalid process peak RSS')
     for key in ('promotionAllowed', 'holdoutOpened', 'liveAuthorization'):
         require(manifest[key] is False, 'authorizing or invalid manifest ' + key)
     for key in ('promotionAllowed', 'holdoutOpened'):
