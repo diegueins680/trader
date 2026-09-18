@@ -13,7 +13,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/research"))
 from sequential_env import ACTIONS, Execution, Replay, Scale, collect, market_features, shield
 from sequential_learning import Network, advantages, bellman_gradient, infer, load_policy, ppo_gradient, save_policy, train_ppo, train_q
-from sequential_evaluation import Baselines, economic, ope_estimates, replay_policy
+from sequential_evaluation import Baselines, economic, ope_estimates, replay_policy, short_ope
 from run_sequential_screen import REGISTRATION, load_development
 import run_sequential_screen as runner
 from summarize_sequential_screen import export
@@ -954,6 +954,70 @@ class SequentialContracts(unittest.TestCase):
                    expected_index_sha256=runner.digest(root/"run/evidence-index.json"))
             self.assertEqual(json.loads((root/"review/ope-report.json").read_bytes()), ope)
             self.assertFalse(json.loads((root/"review/evaluation-summary.json").read_bytes())["promotionAllowed"])
+
+    def short_ope_fixture(self, net, **overrides):
+        p = np.full(128, 100.)
+        args = dict(prices={"x":p}, funding={"x":np.zeros_like(p)}, scale=Scale.fit([p[:60]]),
+                    horizon=1, start=30, stop=80, net=net, seed=0, episodes=1)
+        return short_ope(**{**args, **overrides})
+
+    def test_short_ope_rejects_invalid_outputs_before_transition(self):
+        invalid = (None, [0., 1., 0.], np.ones(3, dtype=bool), np.ones(3, dtype=complex),
+                   np.ones(3, dtype=object), np.ones(2), np.ones((1, 3)),
+                   np.full(3, np.nan), np.full(3, np.inf),
+                   np.ma.array(np.ones(3), mask=[True, False, False]))
+        for phase in ("logged", "direct"):
+            for value in invalid:
+                net = Network(11)
+                calls = 0
+                def forward(obs):
+                    nonlocal calls
+                    calls += 1
+                    return value if phase == "logged" or calls > 6 else np.array([0., 1., 0.])
+                with self.subTest(phase=phase, value=repr(value)), patch.object(net, "forward", side_effect=forward), \
+                     patch.object(Replay, "step", autospec=True, side_effect=Replay.step) as step:
+                    with self.assertRaisesRegex(ValueError, "invalid OPE policy output"):
+                        self.short_ope_fixture(net)
+                    self.assertEqual(step.call_count, 0 if phase == "logged" else 6)
+
+    def test_short_ope_rejects_invalid_observation_before_forward(self):
+        net = Network(11)
+        for obs in (None, np.full(12, np.nan), np.ones(11), np.ones(12, dtype=bool),
+                    np.ma.array(np.ones(12), mask=True)):
+            with self.subTest(obs=repr(obs)), patch.object(Replay, "observation", return_value=obs), \
+                 patch.object(net, "forward", return_value=np.array([0., 1., 0.])) as forward, \
+                 patch.object(Replay, "step") as step:
+                with self.assertRaisesRegex(ValueError, "invalid OPE policy observation"):
+                    self.short_ope_fixture(net)
+                forward.assert_not_called()
+                step.assert_not_called()
+
+    def test_short_ope_valid_policy_retains_action_trace(self):
+        net = Network(11)
+        with patch.object(net, "forward", return_value=np.array([0., 1., 0.])), \
+             patch.object(Replay, "step", autospec=True, side_effect=Replay.step) as step:
+            result = self.short_ope_fixture(net)
+        trace = [(call.args[0].start, float(call.args[1])) for call in step.call_args_list]
+        actual = hashlib.sha256(json.dumps(trace).encode()).hexdigest()
+        self.assertEqual(actual, "f104f3cd18e1919ded7ca5bbb242e70b046491d5b7e59d3a24b4e0af64db4e4a")
+        self.assertEqual(len(trace), 12)
+        self.assertEqual([action for _, action in trace[6:]], [0.]*6)
+        self.assertEqual(result["directSimulatorValue"], 0.)
+        self.assertFalse(result["reliable"])
+        self.assertEqual(result["liveStateActionSupport"], "unavailable")
+
+    def test_short_ope_retains_failed_episode_accounting(self):
+        net = Network(11)
+        with patch.object(net, "forward", return_value=np.array([0., 1., 0.])):
+            result = self.short_ope_fixture(net, seed=11)
+        self.assertEqual(result, {"status":"invalid", "failedEpisodes":1,
+                                 "reason":"No failed episodes may be silently excluded from OPE."})
+
+    def test_short_ope_forward_failure_is_explicit(self):
+        net = Network(11)
+        with patch.object(net, "forward", side_effect=RuntimeError("fixture inference failure")):
+            with self.assertRaisesRegex(RuntimeError, "fixture inference failure"):
+                self.short_ope_fixture(net)
 
     def test_ope_matches_enumerated_behavior_tree(self):
         # Enumerate all length-two trajectories of a uniform two-action policy.
