@@ -30,6 +30,17 @@ price or future label is visible. Future price perturbation must leave the
 observation at t unchanged. The remaining fraction intentionally exposes the
 known terminal obligation; episode-boundary generalization is not established.
 
+Scaler construction requires six-component real unmasked finite mean, deviation
+and support-bound vectors, strictly positive deviations and ordered lower/upper
+bounds. It copies parameters into immutable float64 backing bytes; mutable caller
+arrays and NumPy write-flag changes cannot alter the snapshots. Fitting accepts a
+nonempty list/tuple of supplied prefixes, each with at least 25 real unmasked
+prices. It rejects incomplete prefixes rather than omitting them. Transform and
+support queries require finite real unmasked six-component features. Normalization
+uses checked float64 arithmetic; invalid inputs or non-finite results raise.
+Malformed support queries return false. Replay turns normalization errors into
+absent observations before fills. See the [normalization audit](normalization-admission-audit.md).
+
 Coordinate-wise training ranges are a weak out-of-distribution check. They do
 not prove joint market-state support or inventory-state/action support. At an
 unsupported but otherwise valid market state, evaluation proposes a zero target

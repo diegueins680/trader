@@ -287,3 +287,12 @@ accounted risk-triggered terminal losses remain admissible learning samples;
 they remain failures for economic promotion. Executable witnesses cover missing
 funding, partial decision intervals, insolvency, malformed successors, normal
 terminal padding and update isolation across PPO, Double DQN and CQL seeds.
+
+`A-SEQUENTIAL-RESEARCH-R9` validates normalization parameters and snapshots them
+onto immutable float64 backing bytes. It rejects incomplete supplied prefixes,
+malformed feature/support vectors, nonpositive deviations, inverted support bounds
+and non-finite normalized outputs. Replay maps normalization errors to absent
+observations before fills. Four executable witnesses cover constructor admission,
+array aliasing/write flags, integer-wraparound and overflow, and prefix coverage.
+These checks do not prove that supplied parameters came from an authentic
+training dataset or that coordinate-wise support implies joint policy coverage.

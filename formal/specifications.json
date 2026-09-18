@@ -125,6 +125,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R8",
           "statement": "Collection admits a learning transition only after finite reward/equity and causal time progress are checked. Nonterminal samples require a real unmasked finite 12-component successor and the complete decision interval. Terminal samples require absent successor, zero inventory, no pending target and a normal episode endpoint or an accounted capital-floor, drawdown, exposure or turnover stop. Invalid-market, invalid-observation, permission and insolvency failures abort collection instead of becoming zero-reward terminals or fabricated successor vectors; the call returns no partial batch. Fully accounted risk losses remain training samples."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R9",
+          "statement": "Scale construction snapshots six-component real unmasked parameter vectors onto immutable float64 backing bytes, rejects non-finite values, nonpositive deviations and inverted support bounds, and cannot alias mutable caller arrays. Fitting requires nonempty list/tuple prefixes with at least 25 real unmasked prices each and never silently drops short supplied prefixes. Transform and support queries require finite real unmasked six-component vectors; unsupported input returns false and invalid or overflowing normalization raises instead of returning a directional/non-finite value. Replay converts normalization ValueError into an absent observation before new fills. Existing valid fitted float64 semantics and JSON provenance fields are unchanged."
         }
       ],
       "ensures": [
@@ -217,6 +221,26 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_collection_keeps_accounted_risk_terminals"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_scale_rejects_invalid_parameters"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_scale_snapshots_cannot_be_mutated_through_arrays"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_scale_queries_require_finite_real_feature_vectors"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_scale_fit_rejects_incomplete_prefixes"
         },
         {
           "level": "regression",

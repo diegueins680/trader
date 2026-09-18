@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Normalization Admission: validate and snapshot scaler parameters into immutable float64 arrays, preventing caller aliasing, writable-flag reactivation and integer subtraction wraparound. Reject invalid feature/support vectors, nonpositive deviations, inverted bounds, short supplied prefixes and non-finite normalized outputs; preserve valid fitted results and fail replay closed on normalization errors.
+
 - Research/Transition Admission: abort an offline collection batch on incomplete market transitions, insolvency without terminal accounting or malformed successor observations. Preserve fully accounted risk losses, valid terminal padding and existing valid-input replay/collection bytes; add all-seed PPO/Double-DQN/CQL update-isolation regressions.
 
 - Research/Episode Admission: reject fractional/boolean replay indices, horizons and collection budgets before they can stall an episode or exceed a transition budget. Validate real unmasked series, aligned symbol histories, behavior probabilities and real execution assumptions; preserve causal transition-time value checks and valid-input replay/collection behavior.
