@@ -94,3 +94,10 @@ before creating output. Internally contradictory archives are rejected even with
 matching hashes. See [registry-reconciliation-audit.md](registry-reconciliation-audit.md)
 for compatibility, rounding tolerance and the distinction from independent
 registration completeness or per-bar economic reconstruction.
+
+Terminal-ledger write/flush failures and return-path publication failures now abort
+the runner before final summary/index creation. Do not infer run completion from a
+terminal line alone or manually index an interrupted directory. Preserve partial
+files for investigation and use a new output directory for an explicitly authorized
+repeat; there is no automatic resume or recovery. Computational trial failures still
+remain in the registry. See the [publication-boundary audit](publication-boundary-audit.md).

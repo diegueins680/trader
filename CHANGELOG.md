@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Evidence Publication: stop the offline runner on terminal-ledger write/flush or return-path publication errors. Keep those operations outside model/replay exception handlers, preventing duplicate outcomes and false completion of an internally inconsistent archive; preserve computational failed-trial accounting and successful outputs.
+
 - Research/Episode Accounting: record final-sample terminal episodes, including accounted risk losses, and add `episodeAccountingV2` counts distinguishing completed episodes from budget truncation. Aggregate counts across training collections and reconcile them before report export; preserve legacy report bytes and learning updates.
 
 - Research/Training Admission: reject zero/negative or malformed budgets, seeds and horizons before PPO/Q model initialization. Require a boolean offline mode, validate risk coefficients before initialization and normalize NumPy integers before offset/batch arithmetic; preserve registered learning behavior and valid training outputs.
