@@ -388,3 +388,11 @@ malformed output vectors, observation rejection before inference, a preserved
 valid action trace, explicit forward exceptions and retained failed-episode accounting. Existing failed-OPE archive
 and export tests remain applicable. Finite policy values are not calibrated Q
 estimates; neither inference deadlines nor OPE reliability follow from this check.
+
+
+`A-SEQUENTIAL-RESEARCH-R21` admits complete short-OPE requests before RNG creation.
+Four witnesses cover invalid controls, full-universe series coverage, native/NumPy
+integer compatibility with unused values left unread, and the smallest valid
+six-decision windows at horizons 1/3/6. Types and lengths are checked up front;
+market values remain checked when replay consumes them. Budget registration,
+data provenance and estimator reliability remain separate requirements.
