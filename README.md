@@ -116,6 +116,10 @@ Economic reports require stopped replays. Successful completion also requires th
 final bar, flat inventory, no pending action, full bar coverage and matching final
 equity. Explicit failure reports retain stopped losses. See the [economic-completion audit](research-notes/sequential-control-2026-09-17/economic-completion-audit.md).
 
+Economic metrics also require contiguous finite bar ledgers and per-bar return,
+equity, P&L and cost reconciliation. Invalid ledger evidence fails before reporting;
+valid stopped losses remain reportable. See the [ledger-admission audit](research-notes/sequential-control-2026-09-17/ledger-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

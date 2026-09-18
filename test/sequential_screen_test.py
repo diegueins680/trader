@@ -398,6 +398,66 @@ class SequentialContracts(unittest.TestCase):
         actual = hashlib.sha256(json.dumps(reports, sort_keys=True).encode()).hexdigest()
         self.assertEqual(actual, "e4c2a5f1da24364904426b42b94817524b42aa0ef2bde1f3bde31b707c7df6bb")
 
+    def completed_economic_fixture(self, horizon=1):
+        env = self.economic_fixture(horizon)
+        while not env.done: env.step(0.)
+        return env
+
+    def test_economic_rejects_disconnected_bar_returns(self):
+        env = self.completed_economic_fixture()
+        for i, row in enumerate(env.rows): row["net"] = .001 + i * .0001
+        with self.assertRaisesRegex(ValueError, "ledger"): economic(env)
+
+    def test_economic_rejects_invalid_bar_ledger(self):
+        cases = [(field, value) for field, values in (
+            ("net", (False, np.nan, np.inf, "0")), ("equity", (True, np.nan, .99)),
+            ("gross", (False, np.nan)), ("funding", (False, np.inf)),
+            ("exposure", (False, np.nan)), ("turnover", (-.01, False, np.inf)),
+            ("fee", (-.01, False, np.nan)), ("spread", (-.01, False)),
+            ("slippage", (-.01, False)), ("impact", (-.01, False)),
+            ("t", (31, 33, 32., True))) for value in values]
+        for field, value in cases:
+            with self.subTest(field=field, value=repr(value)):
+                env = self.completed_economic_fixture()
+                env.rows[1][field] = value
+                with self.assertRaisesRegex(ValueError, "ledger"): economic(env)
+        for mutation in ("missing", "object", "cancelled_gross", "cancelled_cost"):
+            with self.subTest(mutation=mutation):
+                env = self.completed_economic_fixture()
+                if mutation == "missing": del env.rows[1]["net"]
+                elif mutation == "object": env.rows[1] = None
+                elif mutation == "cancelled_gross":
+                    env.rows[1]["gross"] = .01; env.rows[2]["gross"] = -.01
+                else:
+                    env.rows[1]["fee"] = .01; env.rows[2]["fee"] = -.01
+                with self.assertRaisesRegex(ValueError, "ledger"): economic(env)
+
+    def test_economic_preserves_exhausted_and_partial_ledger_losses(self):
+        env = self.economic_fixture(); env.step(-.25)
+        env.prices[env.t + 1] = 1000.
+        env.step(0.)
+        report = economic(env)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["reason"], "equity_exhausted")
+        self.assertLess(report["netReturn"], -1.)
+        self.assertNotEqual(env.units, 0.)
+        partial = self.economic_fixture(); partial.step(.25); partial.step(None)
+        report = economic(partial)
+        self.assertEqual(report["reason"], "invalid_action")
+        self.assertLess(report["netReturn"], 0.)
+
+    def test_economic_nonzero_ledger_report_parity(self):
+        reports = []
+        for horizon in (1, 3, 6):
+            p = 100. + .05 * np.arange(80)
+            env = Replay(p, np.full(80, .005), 30, 50, horizon,
+                         Scale.fit([p[:30]]), Execution(impact_bps=2.), enabled=True)
+            while not env.done: env.step(.25)
+            self.assertIsNone(env.failure)
+            reports.append(economic(env))
+        actual = hashlib.sha256(json.dumps(reports, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(actual, "35ddd6f259ca53167ca707787af972b888878db9cdad8bc8f604d0dbe9036606")
+
     def test_delay_prevents_same_bar_profit(self):
         p = np.full(65, 100.0); p[31:] = 200
         e = Replay(p, np.zeros(65), 30, 34, 1, Scale.fit([np.full(65, 100.0)]), enabled=True)

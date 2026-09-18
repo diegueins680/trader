@@ -153,3 +153,8 @@ Call economic reporting only after replay stops. A successful report requires
 complete terminal accounting state; a failed stopped path keeps its failure and
 recorded losses. Unfinished paths cannot be labeled complete. See the
 [economic-completion audit](economic-completion-audit.md).
+
+Economic reporting also validates contiguous ledger rows and reconciles every bar
+return with its equity change and every equity change with P&L and costs. See the
+[ledger-admission audit](ledger-admission-audit.md); failed paths are retained when
+their recorded ledger is internally consistent.

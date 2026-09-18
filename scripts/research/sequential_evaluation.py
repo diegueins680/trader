@@ -14,12 +14,38 @@ def sharpe(r: np.ndarray) -> float | None:
     return finite(np.mean(r) / np.std(r, ddof=1) * np.sqrt(1095)) if len(r) > 1 and np.std(r) > 1e-14 else None
 
 
+def _admit_economic_ledger(env: Replay) -> None:
+    """Reconcile recorded bars; does not reconstruct fills or inspect market data."""
+    costs = ("fee", "spread", "slippage", "impact")
+    fields = ("net", "equity", "gross", "funding", "exposure", "turnover", *costs)
+    rows = env.rows
+    if (not isinstance(rows, list) or not _integer(env.t) or
+        not env.start <= env.t < env.stop or len(rows) != env.t - env.start):
+        raise ValueError("invalid economic ledger coverage")
+    previous = 1.0
+    for index, row in enumerate(rows, env.start + 1):
+        if (not isinstance(row, dict) or not _integer(row.get("t")) or row["t"] != index or
+            not all(_finite_real(row.get(k)) for k in fields) or
+            any(row[k] < 0 for k in ("turnover", *costs)) or previous <= 0):
+            raise ValueError("invalid economic ledger row")
+        equity = float(row["equity"])
+        expected = previous + float(row["gross"]) + float(row["funding"]) - sum(float(row[k]) for k in costs)
+        expected_return = equity / previous - 1
+        if (not math.isclose(equity, expected, rel_tol=1e-10, abs_tol=1e-10) or
+            not math.isclose(float(row["net"]), expected_return, rel_tol=1e-12, abs_tol=1e-12)):
+            raise ValueError("economic ledger bar does not reconcile")
+        previous = equity
+    if not _finite_real(env.equity) or env.equity != previous:
+        raise ValueError("economic ledger final equity mismatch")
+
+
 def economic(env: Replay) -> dict:
     if env.done is not True:
         raise ValueError("economic report requires a stopped replay")
     if env.failure is not None and (not isinstance(env.failure, str) or
                                    not env.failure.strip() or env.failure.strip() == "complete"):
         raise ValueError("invalid replay failure reason")
+    _admit_economic_ledger(env)
     rows = env.rows
     if env.failure is None and (
         env.t != env.stop - 1 or not _finite_real(env.units) or env.units != 0 or env.pending is not None or
