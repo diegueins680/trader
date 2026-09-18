@@ -258,3 +258,6 @@ OPE fit coverage requires a nonempty valid v1 payload: failed/invalid outcomes o
 conditional estimates with finite metrics, support counts and interval bounds,
 and explicit unreliability. A matching fit ID alone is insufficient. These
 structural checks do not reproduce estimates or establish behavior-policy support.
+
+Prepared reports are encoded as UTF-8 and written as bytes, preserving explicit
+LF terminators without platform text-mode newline translation.

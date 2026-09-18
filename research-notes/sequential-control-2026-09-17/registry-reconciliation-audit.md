@@ -161,6 +161,15 @@ This is structural validation, not replication of the OPE estimates or evidence
 that their behavior-policy support is adequate. All original invalid OPE batches
 remain invalid and are not relabeled as successful.
 
+## Output-byte portability
+
+The prepared-report writer now uses explicit UTF-8 bytes, preserving LF CSV
+terminators even on platforms that translate text-mode newlines. A regression
+rejects any use of text-mode output, checks all seven UTF-8/LF reports and retains
+a non-ASCII platform label. The test failed before repair and passed afterward.
+This checks the binary-writing contract; it is not a claim of native Windows CI.
+The PR records a fresh final full-wrapper result after this last output change.
+
 ## Limits and decision
 
 This is consistency against the **supplied roster**, not proof that the roster

@@ -60,11 +60,12 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         terminal = reconcile(planned, events, training, records, ope, summary, index)
         reports = render_reports(manifest, summary, records, training, planned, terminal, ope, index,
                                  rss_unit, platform_label, expected_index_sha256)
+        reports = {name: content.encode('utf-8') for name, content in reports.items()}
     except (KeyError, TypeError, OverflowError) as exc:
         raise ValueError('malformed registry evidence') from exc
     output.mkdir(parents=True, exist_ok=False)
     for name, content in reports.items():
-        (output / name).write_text(content)
+        (output / name).write_bytes(content)
 
 
 def render_reports(manifest, summary, records, training, planned, terminal, ope, index,

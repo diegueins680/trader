@@ -619,6 +619,27 @@ class SequentialContracts(unittest.TestCase):
                        platform_label="fixture", expected_index_sha256=sha)
             self.assertFalse((root/"review").exists())
 
+    def test_prepared_reports_use_utf8_bytes_without_newline_translation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sha, _ = self.export_fixture(root/"archive")
+            with patch.object(Path, "write_text", side_effect=AssertionError("text-mode newline translation")):
+                export(root/"archive", root/"review", rss_unit="bytes", platform_label="fixture-caf\u00e9",
+                       expected_index_sha256=sha)
+            files = list((root/"review").iterdir())
+            self.assertEqual(len(files), 7)
+            for path in files:
+                raw = path.read_bytes()
+                self.assertNotIn(b"\r\n", raw)
+                self.assertTrue(raw.endswith(b"\n"))
+                self.assertEqual(raw.decode("utf-8").encode("utf-8"), raw)
+            self.assertEqual(json.loads((root/"review/evaluation-summary.json").read_bytes())["platform"], "fixture-caf\u00e9")
+            with patch.object(exporter, "render_reports", return_value={"invalid.csv": "\ud800"}):
+                with self.assertRaises(UnicodeEncodeError):
+                    export(root/"archive", root/"bad-encoding", rss_unit="bytes", platform_label="fixture",
+                           expected_index_sha256=sha)
+            self.assertFalse((root/"bad-encoding").exists())
+
     def test_run_provenance_keeps_admitted_hashes_after_input_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

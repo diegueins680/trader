@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Report Bytes: write prepared reports as UTF-8 bytes, preserving explicit LF terminators across platform newline settings; add a text-translation rejection fixture.
+
 - Research/OPE Evidence: require complete v1 failure or conditional-estimate payloads for successful fits, including finite estimator/support fields and valid intervals. Reject ID-only placeholders and unsupported reliability claims before output; schema checks do not validate estimator truth.
 
 - Research/Training Outcomes: require failed-fit reasons to agree with terminal events and reject reasons on completed fits. Preserve status-omitted successful v1 records; conflicting older failure records require investigation rather than automatic rewriting.
