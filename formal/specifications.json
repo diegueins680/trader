@@ -181,6 +181,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R22",
           "statement": "Economic reporting requires an explicitly stopped replay and, when present, a nonblank string failure reason distinct from complete. Successful completion requires the final outcome bar, finite zero inventory, no pending action, finite positive equity equal to the final row, and the full expected bar count. Unfinished or inconsistent successful paths fail before metric computation. Explicitly failed stopped paths retain their failure identity and recorded losses, including zero-row and unliquidated partial paths. Valid completed report bytes are preserved. This checks completion state, not every ledger field or the recoverability/liquidation value of failed inventory."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R23",
+          "statement": "Economic reporting admits contiguous recorded bars from start+1 through the stopped replay index, finite real metric inputs excluding booleans, and nonnegative turnover and cost buckets. Each equity transition reconciles prior equity plus gross P&L and funding less costs within relative/absolute tolerance 1e-10; each net return reconciles equity/prior equity minus one within 1e-12. Prior equity is positive; a finite nonpositive final equity remains reportable for an explicitly failed path. Final recorded equity equals replay equity. Invalid evidence raises before metric computation; valid report bytes and failed-path losses are preserved. This is internal ledger consistency, not fill reconstruction, market-data authenticity, action-counter validation or economic confirmation."
         }
       ],
       "ensures": [
@@ -618,6 +622,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_economic_completed_reports_retain_exact_bytes"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_economic_rejects_disconnected_bar_returns"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_economic_rejects_invalid_bar_ledger"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_economic_preserves_exhausted_and_partial_ledger_losses"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_economic_nonzero_ledger_report_parity"
         },
         {
           "level": "bounded-exhaustive",

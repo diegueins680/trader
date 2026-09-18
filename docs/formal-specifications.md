@@ -404,3 +404,11 @@ coverage and matching positive finite equity. Four witnesses cover unfinished
 paths, corrupted completion state, preservation of explicit failed paths and exact
 completed-report bytes. Failed unliquidated paths remain failures; these checks
 do not estimate their recoverable value or validate every ledger field.
+
+
+`A-SEQUENTIAL-RESEARCH-R23` checks contiguous stopped-path ledgers and finite real
+inputs before economic metrics. Each bar reconciles equity, P&L, funding and costs
+at relative/absolute tolerance 1e-10 and net returns at 1e-12. Four witnesses cover
+corrupted returns/ledgers, failed losses beyond initial equity and exact nonzero
+report parity. These checks do not reconstruct fills, certify market data or
+establish statistical significance. `RL-OFFLINE-001` remains HIGH/OPEN.
