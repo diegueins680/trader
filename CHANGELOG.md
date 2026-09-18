@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Formal/Risk Register: synchronize the typed Haskell `RL-OFFLINE-001` mitigation with its Markdown projection, including verified evidence snapshots and invalid OPE rejection. Severity and lifecycle remain HIGH/OPEN.
+
+- Research/Evidence Export: bind compact sequential reports to verified archive-index and report-input byte snapshots; retain the admitted index hash after path replacement while continuing bounded streaming verification of large return paths. Add replacement and tampering regressions. All seven historical compact reports reproduce byte-for-byte; no financial trial or production behavior changes.
+
 - Research/Input Admission: parse the offline sequential screen's exact hash-verified CSV byte snapshots instead of reopening mutable paths; retain admitted data hashes in run manifests and policy artifacts if source files change later. Add replacement-race and provenance regressions using synthetic fixtures. Frozen financial results, registrations, holdouts and production behavior remain unchanged.
 
 - Research/OPE Audit: reject invalid discounts, logged actions, empty trajectories, terminal bootstraps and overflowing importance-weight arithmetic; add exact enumerated-policy and malformed-input regressions. Preserve the frozen experiment archive, every rejected seed and all protected holdouts.

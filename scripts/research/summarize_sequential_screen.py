@@ -11,6 +11,10 @@ import json
 from pathlib import Path
 
 
+REPORT_INPUTS = frozenset({'manifest.json', 'summary.json', 'evaluation.json',
+                          'training.json', 'planned-registry.json', 'events.jsonl', 'ope.json'})
+
+
 def digest(path):
     h = hashlib.sha256()
     with path.open('rb') as stream:
@@ -20,23 +24,37 @@ def digest(path):
 
 
 def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
-    if digest(source / 'evidence-index.json') != expected_index_sha256:
+    index_bytes = (source / 'evidence-index.json').read_bytes()
+    if hashlib.sha256(index_bytes).hexdigest() != expected_index_sha256:
         raise ValueError('external evidence index hash mismatch')
-    index = json.loads((source / 'evidence-index.json').read_text())
+    index = json.loads(index_bytes)
+    if not isinstance(index, dict) or not REPORT_INPUTS <= index.keys():
+        raise ValueError('external evidence index missing report inputs')
     actual = {str(p.relative_to(source)) for p in source.rglob('*') if p.is_file()}
     if actual != set(index) | {'evidence-index.json'}:
         raise ValueError('external evidence file inventory mismatch')
+    snapshots = {}
     for name, sha in index.items():
         p = source / name
-        if not p.resolve().is_relative_to(source.resolve()) or digest(p) != sha:
+        if not p.resolve().is_relative_to(source.resolve()):
             raise ValueError('external evidence hash/path mismatch')
-    read = lambda name: json.loads((source / name).read_text())
+        # Keep only report inputs in memory. Large return paths and policy
+        # artifacts are still hash-verified with bounded streaming reads.
+        if name in REPORT_INPUTS:
+            raw = p.read_bytes()
+            actual_sha = hashlib.sha256(raw).hexdigest()
+            snapshots[name] = raw
+        else:
+            actual_sha = digest(p)
+        if actual_sha != sha:
+            raise ValueError('external evidence hash/path mismatch')
+    read = lambda name: json.loads(snapshots.pop(name))
     manifest, summary = read('manifest.json'), read('summary.json')
     if manifest['promotionAllowed'] or manifest['holdoutOpened'] or manifest['liveAuthorization']:
         raise ValueError('authorizing or protected evidence')
     records, training, planned = read('evaluation.json'), read('training.json'), read('planned-registry.json')
     terminal = {}
-    for line in (source / 'events.jsonl').read_text().splitlines():
+    for line in snapshots.pop('events.jsonl').splitlines():
         event = json.loads(line)
         if event['status'] in ('complete', 'failed'):
             if event['id'] in terminal:
@@ -92,7 +110,7 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
     summary['platform']=platform_label
     summary['peakResidentMemoryMiB']=summary['processPeakRssPlatformUnits']/(1048576 if rss_unit=='bytes' else 1024)
     js('evaluation-summary.json',summary)
-    manifest.update(externalEvidenceFiles=index,externalEvidenceIndexSha256=digest(source/'evidence-index.json'),
+    manifest.update(externalEvidenceFiles=index,externalEvidenceIndexSha256=expected_index_sha256,
         registryReasonCodes={str(v):k for k,v in codes.items()},registryRows=len(planned),allPlannedEntriesTerminal=True,
         policyParametersNotCommitted=True,sourceDataNotCommitted=True,
         priorTrialAccounting=dict(earlierResidualFundingAttempts=46,

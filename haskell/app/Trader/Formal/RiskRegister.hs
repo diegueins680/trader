@@ -300,7 +300,7 @@ riskRegister =
         OPEN
         "Simulator policies can exploit costs, coverage, episode boundaries or contaminated history"
         "trader-firm-research"
-        "Keep sequential-control v1 offline and non-authorizing; require fresh data, matched champion, credible OPE, complete risk-safe paths and separate human review before any integration"
+        "Keep sequential-control v1 offline and non-authorizing; parse verified evidence snapshots and preserve their admitted hashes; reject malformed or overflowing OPE evidence without weight clipping; require fresh data, matched champion, credible OPE, complete risk-safe paths and separate human review before any integration"
     , riskEntry
         SCHEMA_001
         CRITICAL
