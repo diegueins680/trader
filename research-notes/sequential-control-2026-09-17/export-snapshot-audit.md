@@ -66,7 +66,25 @@ time, 6.28 seconds user CPU and 1.40 seconds system CPU, with 185,888,768 bytes
 inference benchmark. Report inputs occupy about 41 MiB before JSON decoding;
 arbitrarily large report JSON is not promised constant-memory support.
 
-The 33 deterministic Python tests pass after the repair. Full-wrapper results
-are recorded below after verification. The unchanged financial decision is
-**no candidate passed**. No independent confirmation or new statistical evidence
-is claimed.
+The unchanged financial decision is **no candidate passed**. No independent
+confirmation or new statistical evidence is claimed.
+
+## Verification receipt
+
+At implementation commit `a8c1aa6e9b71c804871ea54f3e986de9e3a5b7ca`:
+
+| Command | Result |
+|---|---|
+| `python3 -m unittest discover -s test -p sequential_screen_test.py` | Exit 0; 33 tests passed |
+| `bash scripts/verify.sh automation` | Exit 0; 185 tests passed, including the 33 Python contracts |
+| `bash scripts/verify.sh full` | Exit 0; Haskell build/format/lint/smoke/tests, web checks and 185 automation tests passed |
+
+The full-wrapper log is local at
+`/private/tmp/trader-export-full-20260917.log`, SHA-256
+`f2fbae002102a6b8298fba9fb96c04332d9662a7cd7d8bba9f5673006041a98a`.
+The before-repair log has SHA-256
+`44106358810a22fae33cfed7b2cde727947ac7ac79e9c606598aa7d60a886d0f`;
+the benchmark log has SHA-256
+`958664c30c09750c84d0c7a3f55e4231bf0b7dfa6daf1f37e9de1f15ee0e86b5`.
+These logs are not committed or independently hosted. Remote check results and
+the final review state are recorded in [PR #258](https://github.com/diegueins680/trader/pull/258).
