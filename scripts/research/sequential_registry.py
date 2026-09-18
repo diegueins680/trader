@@ -159,6 +159,33 @@ def reconcile_groups(summary, records, training_count, planned_count):
     require(seen == set(grouped), 'missing summary groups')
 
 
+def reconcile_episode_accounting(fit, status):
+    fields = {'collections', 'started', 'completed', 'truncated', 'decisions'}
+    require(all(key == 'episodeAccountingV2' for key in fit if key.startswith('episodeAccounting')),
+            'unsupported episode accounting version')
+    if 'episodeAccountingV2' not in fit:
+        return  # Legacy records retain their original, potentially incomplete coverage.
+    counts, episodes = fit['episodeAccountingV2'], fit.get('episodes')
+    require(status == 'complete' and isinstance(counts, dict) and set(counts) == fields and
+            all(integer(v) for v in counts.values()), 'invalid v2 episode accounting')
+    require(isinstance(episodes, list) and integer(fit.get('steps')) and fit['steps'] > 0 and
+            fit['algorithm'] in RL_FAMILIES,
+            'invalid v2 episode records or budget')
+    expected_collections = 1 if fit['algorithm'].startswith('cql') else (fit['steps'] + 255) // 256
+    require(counts['decisions'] == fit['steps'] and
+            counts['collections'] == expected_collections and
+            0 < counts['collections'] <= counts['started'] <= counts['decisions'] and
+            counts['started'] == counts['completed'] + counts['truncated'] and
+            counts['truncated'] <= counts['collections'] and counts['completed'] == len(episodes),
+            'v2 episode counts do not reconcile')
+    for episode in episodes:
+        require(isinstance(episode, dict) and set(episode) == {'return', 'failure'},
+                'invalid v2 terminal episode')
+        require(number(episode['return']) > -1 and episode['failure'] in
+                (None, 'capital_floor', 'drawdown_limit', 'endpoint_exposure', 'turnover_limit'),
+                'unaccounted v2 terminal episode')
+
+
 def reconcile(planned, events, training, records, ope, summary, index):
     """Return terminal events only after all cross-file checks pass."""
     roster = unique(planned, 'planned')
@@ -192,6 +219,7 @@ def reconcile(planned, events, training, records, ope, summary, index):
         require(status in ('complete', 'failed') and status == terminal[key]['status'], 'training status')
         require_outcome_reason(status, fit.get('reason'))
         require(fit.get('reason') == terminal[key].get('reason'), 'training reason')
+        reconcile_episode_accounting(fit, status)
         if status == 'complete':
             artifact = 'policies/' + key.replace('/', '_') + '.json'
             require(isinstance(fit['artifactSha256'], str) and
