@@ -13,7 +13,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/research"))
 from sequential_env import ACTIONS, Execution, Replay, Scale, collect, market_features, shield
 from sequential_learning import Network, advantages, bellman_gradient, infer, load_policy, ppo_gradient, save_policy, train_ppo, train_q
-from sequential_evaluation import economic, ope_estimates
+from sequential_evaluation import Baselines, economic, ope_estimates, replay_policy
 from run_sequential_screen import REGISTRATION, load_development
 import run_sequential_screen as runner
 from summarize_sequential_screen import export
@@ -201,6 +201,70 @@ class SequentialContracts(unittest.TestCase):
                 with patch("sequential_learning.time.perf_counter_ns", side_effect=[0, elapsed_ns]):
                     proposal, _ = infer(net, np.zeros(12), enabled=True)
                     self.assertEqual(proposal, .25 if elapsed_ns == 20_000_000 else None)
+
+    def baseline_fixture(self):
+        controls = Baselines.__new__(Baselines)
+        controls.scale = Scale(np.zeros(6), np.ones(6), np.full(6, -10.), np.full(6, 10.))
+        controls.horizon = 1
+        controls.mean = .125
+        controls.ridge = np.arange(7, dtype=float) / 16
+        controls.logistic = np.arange(7, dtype=float) / 8
+        controls.bandit = np.arange(39, dtype=float).reshape(13, 3) / 16
+        controls.clone_action = -.25
+        return controls
+
+    def test_baselines_reject_invalid_observations_before_computation(self):
+        controls = self.baseline_fixture()
+        invalid = (None, [0.]*12, np.zeros(11), np.zeros((1, 12)),
+                   np.zeros(12, dtype=bool), np.zeros(12, dtype=complex),
+                   np.zeros(12, dtype=object), np.full(12, np.nan), np.full(12, np.inf),
+                   np.ma.array(np.zeros(12), mask=[True]+[False]*11))
+        for obs in invalid:
+            for name in Baselines.names:
+                with self.subTest(name=name, observation=repr(obs)):
+                    rng = np.random.default_rng(11)
+                    state = json.dumps(rng.bit_generator.state, sort_keys=True)
+                    self.assertIsNone(controls.action(name, obs, rng))
+                    self.assertEqual(json.dumps(rng.bit_generator.state, sort_keys=True), state)
+            for name in ("historical_mean", "last_return", "momentum", "reversal", "ridge_optimizer"):
+                with self.subTest(forecast=name, observation=repr(obs)):
+                    self.assertIsNone(controls.forecast(name, obs))
+
+    def test_baselines_reject_unknown_names(self):
+        controls = self.baseline_fixture()
+        for name in ("ridge_optmizer", "", None, 1):
+            with self.subTest(name=name):
+                rng = np.random.default_rng(11)
+                state = json.dumps(rng.bit_generator.state, sort_keys=True)
+                self.assertIsNone(controls.action(name, np.zeros(12), rng))
+                self.assertIsNone(controls.forecast(name, np.zeros(12)))
+                self.assertEqual(json.dumps(rng.bit_generator.state, sort_keys=True), state)
+        for name in set(Baselines.names) - {"historical_mean", "last_return", "momentum", "reversal", "ridge_optimizer"}:
+            self.assertIsNone(controls.forecast(name, np.zeros(12)))
+
+    def test_baseline_absence_is_rejected_by_replay_shield(self):
+        controls = self.baseline_fixture()
+        def choose(obs):
+            return controls.action("ridge_optmizer", obs, np.random.default_rng(11)), 0.
+        env, result = replay_policy(self.p, self.f, 30, 61, 1, self.scale, choose)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "invalid_action")
+        self.assertEqual(result["observations"], 0)
+        self.assertEqual(env.fills, 0)
+        self.assertEqual(env.actions, [])
+        self.assertEqual(env.equity, 1.)
+        self.assertEqual(env.rejections, 1)
+
+    def test_valid_baselines_retain_exact_actions_and_forecasts(self):
+        controls = self.baseline_fixture()
+        rng = np.random.default_rng(11)
+        rows = []
+        for obs in (np.zeros(12), np.ones(12), -np.ones(12), np.arange(12, dtype=float) / 16):
+            rows.append({"actions": [controls.action(name, obs, rng) for name in Baselines.names],
+                         "forecasts": [controls.forecast(name, obs) for name in
+                                       ("historical_mean", "last_return", "momentum", "reversal", "ridge_optimizer")]})
+        actual = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(actual, "1866180923c03a7716705d8dc021ccbac977c77992586f63acf697f5ffc2dc35")
 
     def test_delay_prevents_same_bar_profit(self):
         p = np.full(65, 100.0); p[31:] = 200

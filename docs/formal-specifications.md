@@ -356,3 +356,11 @@ units must be explicitly `bytes` or `kib` before evidence reads. Three integrati
 witnesses cover malformed/contradictory fields, API units, and valid measurements.
 Legacy missing fields and exact report bytes remain compatible. These are domain
 and consistency checks, not proof of measurement accuracy or completeness.
+
+
+`A-SEQUENTIAL-RESEARCH-R17` gives offline baselines explicit input admission.
+All twelve action rules and five forecasting rules reject invalid representations,
+shapes, non-finite observations and unknown names with absence before computation
+or RNG use. Four witnesses cover the input matrix, name admission, replay shield
+precedence and exact valid-output compatibility. Fitted-parameter validity,
+timeouts and simulator adequacy remain separate concerns.

@@ -157,6 +157,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R16",
           "statement": "Before compact report publication, any supplied training duration in a fit or its terminal event must be a finite nonnegative real JSON number, excluding booleans; if both supply durations they must agree exactly. Supplied artifact byte counts must be positive JSON integers, excluding booleans. Missing legacy fields remain optional. Export admits only explicit bytes or kib RSS units before evidence reads. Valid measurements and legacy report bytes retain their semantics. This validates metadata domains and cross-record agreement, not measurement accuracy, completeness or artifact byte-count identity."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R17",
+          "statement": "Offline baseline action and forecast entry points admit only recognized names and unmasked, one-dimensional, 12-element finite real NumPy observations, excluding boolean, complex and object representations. Invalid observations or unknown names return absence before rule computation or random sampling. Forecast names are limited to the five implemented forecasting rules. A rejected action remains absent, not a request to flatten, and replay shielding rejects it without a fill. Valid baseline outputs and RNG semantics are preserved. This is input admission, not fitted-parameter validation, a timeout guarantee or a complete simulator/OPE audit."
         }
       ],
       "ensures": [
@@ -474,6 +478,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_export_preserves_valid_resource_measurements"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baselines_reject_invalid_observations_before_computation"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baselines_reject_unknown_names"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_baseline_absence_is_rejected_by_replay_shield"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_valid_baselines_retain_exact_actions_and_forecasts"
         },
         {
           "level": "bounded-exhaustive",

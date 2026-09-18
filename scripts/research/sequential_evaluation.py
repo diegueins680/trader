@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
-from sequential_env import ACTIONS, Execution, Replay, collect, market_features
+from sequential_env import ACTIONS, FEATURE_COUNT, Execution, Replay, _real_series, collect, market_features
 
 
 def finite(value):
@@ -83,7 +83,16 @@ class Baselines:
         self.clone_action = float(ACTIONS[int(np.argmax(counts))])
         self.behavior_counts = counts.tolist()
 
-    def forecast(self, name: str, obs: np.ndarray) -> float:
+    @staticmethod
+    def _valid_observation(obs: np.ndarray | None) -> bool:
+        return (_real_series(obs) and obs.shape == (FEATURE_COUNT,) and
+                bool(np.isfinite(obs).all()))
+
+    def forecast(self, name: str, obs: np.ndarray | None) -> float | None:
+        if (not isinstance(name, str) or name not in
+            ("historical_mean", "last_return", "momentum", "reversal", "ridge_optimizer") or
+            not self._valid_observation(obs)):
+            return None
         raw = obs[:6] * self.scale.std + self.scale.mean
         if name == "historical_mean":
             return self.mean
@@ -93,7 +102,9 @@ class Baselines:
             return float(raw[1] * (-1 if name == "reversal" else 1))
         return float(np.r_[obs[:6], 1.0] @ self.ridge)
 
-    def action(self, name: str, obs: np.ndarray, rng: np.random.Generator) -> float:
+    def action(self, name: str, obs: np.ndarray | None, rng: np.random.Generator) -> float | None:
+        if not isinstance(name, str) or name not in self.names or not self._valid_observation(obs):
+            return None
         if name in ("cash", "constant_long", "constant_short", "behavior_clone"):
             return {"cash": 0.0, "constant_long": 0.25, "constant_short": -0.25,
                     "behavior_clone": self.clone_action}[name]
