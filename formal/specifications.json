@@ -76,6 +76,7 @@
         "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
         "scripts/research/summarize_sequential_screen.py",
+        "scripts/research/sequential_registry.py",
         "research-notes/registrations/sequential-control-screen-v1.json",
         "research-notes/sequential-control-2026-09-17/**"
       ],
@@ -112,6 +113,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R5",
           "statement": "Compact evidence export verifies the expected index hash against the exact index bytes parsed, requires every report input, and verifies the complete indexed inventory before output creation. Report JSON and event records are parsed only from their verified byte snapshots; large return paths and policy artifacts remain stream-verified."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R6",
+          "statement": "Before creating report output, the exporter reconciles unique supplied roster IDs, start/terminal lifecycle (only failed-fit cascades may omit starts), training/replay identities and seed/fold metadata, statuses/reasons/observation counts, successful-fit artifact digests, OPE fit coverage, total/group counts and descriptive return/risk/cost aggregates. Evaluated RL rows require finite nonnegative latency p99 and OOD rates in [0,1], using the same family classification as reporting. Peak-memory metadata must be finite and nonnegative. All compact reports are rendered before output creation and written as UTF-8 bytes with explicit LF terminators, so field and serialization errors cannot leave partial reports or trigger platform newline translation; filesystem write failures are not atomic. Contradictory, missing, duplicated or malformed evidence in these fields is rejected."
         }
       ],
       "ensures": [
@@ -130,6 +135,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-E4",
           "statement": "Archive path replacement after successful verification cannot change exported report inputs or the admitted external index identity. Unchanged archived evidence produces byte-identical compact reports. This preserves evidence identity without granting promotion authority or asserting that source paths remain immutable."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E5",
+          "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows or malformed v1 OPE outcome payloads for successful fits. OPE schema checks require nonempty failed/invalid outcomes or complete finite conditional-estimate/support/interval fields with reliability false; they do not establish estimator truth. Nested result fields cannot shadow validated trial identity in exported CSVs. Failed training/terminal/replay outcomes require nonblank non-reserved reasons and complete outcomes have no reason; training-row reasons must match terminal-event reasons. The runner records exception class names in training/OPE/replay failure reasons, including empty or reserved messages, so these failures remain exportable without losing trials. Manifest and summary dispositions must remain non-authorizing contaminated development with no candidate passed, no opened holdout and null v1 promotion statistics before output creation. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
         }
       ],
       "invariants": [
@@ -195,6 +204,36 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_export_rejects_tampered_streamed_returns_before_output"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_inconsistent_hash_valid_registry"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_exception_failures_remain_exportable_without_losing_trials"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_payload_contract"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_prepared_reports_use_utf8_bytes_without_newline_translation"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_group_reconciliation_matches_hand_calculated_outcomes"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_missing_evaluated_policy_report_metrics"
         },
         {
           "level": "bounded-exhaustive",

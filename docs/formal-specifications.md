@@ -216,3 +216,48 @@ admitted snapshots even if paths are subsequently replaced. This is evidence
 identity, not a lock on the source archive or a new promotion gate pass. Synthetic
 replacement regressions and byte-identical reproduction of seven original reports
 support `A-SEQUENTIAL-RESEARCH-R5/E4`; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+`A-SEQUENTIAL-RESEARCH-R6/E5` adds cross-file reconciliation before output creation.
+Unique roster IDs, event lifecycle, fit/replay metadata and outcomes, verified
+successful-fit artifact identities, OPE fit coverage, counts and descriptive group
+metrics must agree. Counts are exact integers; finite aggregate comparisons allow
+only `1e-12` absolute/relative rounding tolerance. Failed/stopped paths remain in
+the aggregates. Deterministic contradictory-archive fixtures and a hand-calculated
+mixed-outcome example exercise this boundary. It does not prove the supplied
+roster matches an external registration, reconstruct per-bar P&L or make OPE
+reliable. Original successful v1 fits without explicit status are supported only
+with terminal completion and a matching verified artifact digest.
+
+Every fit and normally evaluated replay must have its producer-defined start
+event; only explicit failed-fit cascades may omit it. Evaluated RL rows must also
+provide finite nonnegative latency p99 and an OOD observation rate in `[0,1]`
+before any output directory is created. Validator and exporter share the same RL
+family classification, preventing report-only field requirements from diverging.
+
+Terminal and replay failures require nonblank reasons other than the reserved
+`complete` label; completion has no failure reason. Both manifest and summary
+must retain the v1 contaminated-development disposition, false promotion/holdout
+flags and absent promotion statistics. Contradictory disposition fields fail
+before output creation; these checks confer no production authorization.
+
+Peak-memory metadata must be finite and nonnegative. Every compact JSON/CSV report
+is rendered before output creation, so field/serialization errors leave no partial
+report directory. This does not promise atomic publication across filesystem
+failures during the subsequent writes.
+
+The runner includes the exception class in training, OPE and replay failure
+records, so empty or reserved exception messages cannot produce blank reasons
+or completion labels. Synthetic producer-to-export replay tests retain all
+failed paths while keeping promotion disabled.
+
+Training-row reasons obey the same status semantics and must match terminal-event
+reasons. Conflicting older failure records are rejected for investigation; no
+archive is rewritten to manufacture consistency.
+
+OPE fit coverage requires a nonempty valid v1 payload: failed/invalid outcomes or
+conditional estimates with finite metrics, support counts and interval bounds,
+and explicit unreliability. A matching fit ID alone is insufficient. These
+structural checks do not reproduce estimates or establish behavior-policy support.
+
+Prepared reports are encoded as UTF-8 and written as bytes, preserving explicit
+LF terminators without platform text-mode newline translation.

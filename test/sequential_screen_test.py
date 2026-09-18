@@ -17,6 +17,7 @@ from run_sequential_screen import REGISTRATION, load_development
 import run_sequential_screen as runner
 from summarize_sequential_screen import export
 import summarize_sequential_screen as exporter
+from sequential_registry import reconcile_groups
 
 
 class SequentialContracts(unittest.TestCase):
@@ -361,29 +362,208 @@ class SequentialContracts(unittest.TestCase):
                 export(root/"run",root/"tampered",rss_unit="bytes",platform_label="fixture",expected_index_sha256=index_sha)
             self.assertFalse((root/"tampered").exists())
 
-    def export_fixture(self, root):
-        """Small failed-run archive; no market data, training or policy artifact."""
+    def export_fixture(self, root, *, evaluated_rl=False):
+        """Synthetic archive; optional untrained policy artifact, never market data."""
         trial = "ppo/h1/f0/s11"
+        failed = {"id": trial+"/base/x", "algorithm": "ppo", "horizon": 1,
+                  "fold": 0, "seed": 11, "stress": "base", "symbol": "x",
+                  "result": {"status": "failed", "reason": "training_failed", "observations": 0}}
+        cash = {"id": "cash/h1/f0/s20260917/base/x", "algorithm": "cash", "horizon": 1,
+                "fold": 0, "seed": 20260917, "stress": "base", "symbol": "x",
+                "result": {"status": "complete", "reason": None, "observations": 1,
+                           "netReturn": 0., "maxDrawdown": 0., "expectedShortfall95": 0.,
+                           "sharpe": None, "costsOverInitialEquity": {"fee": 0.},
+                           "fundingPnlOverInitialEquity": 0.}}
+        planned = [{"id": trial, "kind": "training", "status": "planned"},
+                   *[{"id": r["id"], "kind": "replay", "status": "planned"} for r in (failed, cash)]]
+        events = [{"id": trial, "status": "started"},
+                  {"id": trial, "status": "failed", "reason": "fixture"},
+                  {"id": failed["id"], **failed["result"]},
+                  {"id": cash["id"], "status": "started"},
+                  {"id": cash["id"], **{k: cash["result"][k] for k in ("status", "reason", "observations")}}]
         values = {
             "manifest.json": {"promotionAllowed": False, "holdoutOpened": False,
-                              "liveAuthorization": False},
-            "summary.json": {"groups": [{"algorithm": "ppo", "seed": 11}],
+                              "liveAuthorization": False, "evidenceClass": "contaminated_development_only"},
+            "summary.json": {"groups": runner.summary([failed, cash]),
+                             "promotionAllowed": False, "holdoutOpened": False,
+                             "decision": "no_candidate_passed", "evidenceClass": "contaminated_development_only",
+                             "statistics": {"DSR": None, "PBO": None, "SPA": None, "pairedConfidence": None},
+                             "trainingFits": 1, "replayPaths": 2, "plannedEntries": 3,
                              "processPeakRssPlatformUnits": 0},
-            "evaluation.json": [],
+            "evaluation.json": [failed, cash],
             "training.json": [{"id": trial, "algorithm": "ppo", "horizon": 1,
-                               "seed": 11, "status": "failed"}],
-            "planned-registry.json": [{"id": trial, "kind": "training"}],
-            "events.jsonl": {"id": trial, "status": "failed", "reason": "fixture"},
+                               "fold": 0, "seed": 11, "status": "failed", "reason": "fixture"}],
+            "planned-registry.json": planned,
+            "events.jsonl": events,
             "ope.json": [],
         }
         root.mkdir()
+        policy_index = {}
+        if evaluated_rl:
+            artifact = root/"policies/ppo_h1_f0_s11.json"
+            artifact.parent.mkdir()
+            sha = save_policy(artifact, Network(11), {"codeCommit": "a"*40,
+                "registrationSha256": "b"*64, "dataSha256": "c"*64,
+                "algorithm": "ppo", "seed": 11, "horizon": 1, "fold": 0})
+            policy_index[str(artifact.relative_to(root))] = sha
+            fit = values["training.json"][0]
+            fit.pop("status")
+            fit.pop("reason")
+            fit.update(artifactSha256=sha, artifactBytes=artifact.stat().st_size)
+            events[1] = {"id": trial, "status": "complete", "artifactSha256": sha}
+            failed["result"] = {**cash["result"], "latencyP99Ms": .1, "oodObservationRate": 0.}
+            events[2] = {"id": failed["id"], "status": "complete", "reason": None, "observations": 1}
+            events.insert(2, {"id": failed["id"], "status": "started"})
+            values["ope.json"] = [{"id": trial, "result": {"status": "invalid", "failedEpisodes": 1, "reason": "fixture"}}]
+            values["summary.json"]["groups"] = runner.summary([failed, cash])
         for name, value in values.items():
-            (root/name).write_text(json.dumps(value)+"\n")
+            (root/name).write_text("".join(json.dumps(e)+"\n" for e in value)
+                                   if name == "events.jsonl" else json.dumps(value)+"\n")
         # Last index entry deliberately exercises the streaming-only path.
         (root/"returns.csv").write_text("trial,symbol,outcomeIndex,netReturn\n")
         index = {name: runner.digest(root/name) for name in (*values, "returns.csv")}
+        index.update(policy_index)
         (root/"evidence-index.json").write_text(json.dumps(index)+"\n")
         return runner.digest(root/"evidence-index.json"), values
+
+    def test_export_rejects_inconsistent_hash_valid_registry(self):
+        def set_outcome(values, status, reason):
+            values["evaluation.json"][1]["result"].update(status=status, reason=reason)
+            values["events.jsonl"][-1].update(status=status, reason=reason)
+            values["summary.json"]["groups"] = runner.summary(values["evaluation.json"])
+
+        mutations = {
+            "missing RSS": lambda v: v["summary.json"].pop("processPeakRssPlatformUnits"),
+            "nonnumeric RSS": lambda v: v["summary.json"].update(processPeakRssPlatformUnits="bad"),
+            "nonfinite RSS": lambda v: v["summary.json"].update(processPeakRssPlatformUnits=float("nan")),
+            "negative RSS": lambda v: v["summary.json"].update(processPeakRssPlatformUnits=-1),
+            "malformed training episode": lambda v: v["training.json"][0].update(episodes=[{}]),
+            "malformed training seconds": lambda v: v["training.json"][0].update(seconds="bad"),
+            "failed with null reason": lambda v: set_outcome(v, "failed", None),
+            "failed with empty reason": lambda v: set_outcome(v, "failed", ""),
+            "failed with blank reason": lambda v: set_outcome(v, "failed", " "),
+            "failed with reserved reason": lambda v: set_outcome(v, "failed", "complete"),
+            "complete with failure reason": lambda v: set_outcome(v, "complete", "drawdown"),
+            "summary promotion": lambda v: v["summary.json"].update(promotionAllowed=True),
+            "summary holdout": lambda v: v["summary.json"].update(holdoutOpened=True),
+            "summary live authorization": lambda v: v["summary.json"].update(liveAuthorization=True),
+            "summary decision": lambda v: v["summary.json"].update(decision="candidate_passed"),
+            "summary evidence class": lambda v: v["summary.json"].update(evidenceClass="confirmation"),
+            "summary statistical inference": lambda v: v["summary.json"]["statistics"].update(DSR=.99),
+            "summary extra statistical claim": lambda v: v["summary.json"]["statistics"].update(passed=True),
+            "manifest nonboolean authorization": lambda v: v["manifest.json"].update(liveAuthorization=0),
+            "duplicate planned ID": lambda v: v["planned-registry.json"].append(v["planned-registry.json"][0]),
+            "missing failed replay": lambda v: v["evaluation.json"].pop(0),
+            "duplicate replay": lambda v: v["evaluation.json"].append(v["evaluation.json"][0]),
+            "missing training": lambda v: v["training.json"].clear(),
+            "missing training reason": lambda v: v["training.json"][0].pop("reason"),
+            "contradictory training reason": lambda v: v["training.json"][0].update(reason="other"),
+            "blank training reason": lambda v: v["training.json"][0].update(reason=""),
+            "duplicate training": lambda v: v["training.json"].append(v["training.json"][0]),
+            "wrong seed": lambda v: v["evaluation.json"][0].update(seed=23),
+            "nested identity override": lambda v: v["evaluation.json"][0]["result"].update(seed=23),
+            "contradictory status": lambda v: v["evaluation.json"][0]["result"].update(status="complete"),
+            "contradictory reason": lambda v: v["evaluation.json"][0]["result"].update(reason="other_failure"),
+            "contradictory observations": lambda v: v["events.jsonl"][2].update(observations=1),
+            "non-text terminal reason": lambda v: v["events.jsonl"][1].update(reason=True),
+            "missing training start": lambda v: v["events.jsonl"].pop(0),
+            "missing evaluated replay start": lambda v: v["events.jsonl"].pop(3),
+            "event after terminal": lambda v: v["events.jsonl"].append({"id": "ppo/h1/f0/s11", "status": "started"}),
+            "missing group": lambda v: v["summary.json"]["groups"].pop(0),
+            "duplicate group": lambda v: v["summary.json"]["groups"].append(v["summary.json"]["groups"][0]),
+            "wrong summary count": lambda v: v["summary.json"].update(replayPaths=1),
+            "false group failures": lambda v: v["summary.json"]["groups"][0].update(failedPaths=0),
+            "false group return": lambda v: v["summary.json"]["groups"][1].update(meanTerminalOrStoppedReturn=.5),
+            "OPE on failed fit": lambda v: v["ope.json"].append({"id": "ppo/h1/f0/s11", "result": {"status": "invalid"}}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                _, values = self.export_fixture(root/"archive")
+                mutate(values)
+                for name, value in values.items():
+                    (root/"archive"/name).write_text("".join(json.dumps(e)+"\n" for e in value)
+                        if name == "events.jsonl" else json.dumps(value)+"\n")
+                index = {name: runner.digest(root/"archive"/name) for name in (*values, "returns.csv")}
+                (root/"archive/evidence-index.json").write_text(json.dumps(index)+"\n")
+                sha = runner.digest(root/"archive/evidence-index.json")
+                with self.assertRaises(ValueError):
+                    export(root/"archive", root/"review", rss_unit="bytes",
+                           platform_label="fixture", expected_index_sha256=sha)
+                self.assertFalse((root/"review").exists())
+
+    def test_export_rejects_missing_evaluated_policy_report_metrics(self):
+        for field in ("latencyP99Ms", "oodObservationRate", "completedFitReason"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                sha, values = self.export_fixture(root/"archive", evaluated_rl=True)
+                export(root/"archive", root/"control", rss_unit="bytes",
+                       platform_label="fixture", expected_index_sha256=sha)
+                name = "training.json" if field == "completedFitReason" else "evaluation.json"
+                if field == "completedFitReason":
+                    values[name][0]["reason"] = "unexpected_failure"
+                else:
+                    values[name][0]["result"].pop(field)
+                (root/"archive"/name).write_text(json.dumps(values[name]))
+                index_path = root/"archive/evidence-index.json"
+                index = json.loads(index_path.read_text())
+                index[name] = runner.digest(root/"archive"/name)
+                index_path.write_text(json.dumps(index))
+                with self.assertRaises(ValueError):
+                    export(root/"archive", root/"rejected", rss_unit="bytes",
+                           platform_label="fixture", expected_index_sha256=runner.digest(index_path))
+                self.assertFalse((root/"rejected").exists())
+
+    def test_ope_payload_contract(self):
+        from sequential_registry import reconcile_ope_payload
+        estimate = ope_estimates(np.zeros((2, 6)), np.zeros((2, 6), dtype=int),
+            np.full((2, 6), 1/3), np.ones((2, 6)), np.zeros((2, 6)), np.zeros((2, 7)), .99)
+        estimate.update(directSimulatorValue=0., valueModel="fixture control variate",
+            uncertaintyScope="fixture conditional interval", liveStateActionSupport="unavailable",
+            simulatedActionSupport=[1/3, 1/3, 1/3])
+        for valid in [estimate, {"status": "invalid", "failedEpisodes": 1, "reason": "fixture"},
+                      {"status": "failed", "reason": "MemoryError"}]:
+            reconcile_ope_payload(valid)
+        for bad in [None, {}, {"status": "complete"}, {"status": "invalid", "reason": "fixture"},
+                    {"status": "failed", "reason": ""}, {**estimate, "reliable": True},
+                    {**estimate, "effectiveSampleSize": float("nan")},
+                    {**estimate, "nonzeroTrajectories": 3},
+                    {**estimate, "conditionalBootstrap95": {}}]:
+            with self.subTest(payload=bad), self.assertRaises(ValueError):
+                reconcile_ope_payload(bad)
+        for payload in ({"id": "ppo/h1/f0/s11"}, {"id": "ppo/h1/f0/s11", "result": {}}):
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                _, values = self.export_fixture(root/"archive", evaluated_rl=True)
+                (root/"archive/ope.json").write_text(json.dumps([payload]))
+                index_path = root/"archive/evidence-index.json"
+                index = json.loads(index_path.read_text())
+                index["ope.json"] = runner.digest(root/"archive/ope.json")
+                index_path.write_text(json.dumps(index))
+                with self.assertRaises(ValueError):
+                    export(root/"archive", root/"review", rss_unit="bytes", platform_label="fixture",
+                           expected_index_sha256=runner.digest(index_path))
+                self.assertFalse((root/"review").exists())
+
+    def test_group_reconciliation_matches_hand_calculated_outcomes(self):
+        identity = {"algorithm": "cash", "horizon": 1, "seed": 11, "stress": "base"}
+        outcomes = [(-.2, .2, .2, None, .01, -.02, "failed"),
+                    (.1, 0., -.1, 1., .02, .01, "complete"),
+                    (.4, 0., -.4, 3., .03, .04, "complete")]
+        records = [{**identity, "result": {"netReturn": r, "maxDrawdown": dd,
+                    "expectedShortfall95": es, "sharpe": sr,
+                    "costsOverInitialEquity": {"fee": fee}, "fundingPnlOverInitialEquity": funding,
+                    "status": status}} for r, dd, es, sr, fee, funding, status in outcomes]
+        group = {**identity, "paths": 3, "completePaths": 2, "failedPaths": 1,
+                 "failureRate": 1/3, "meanTerminalOrStoppedReturn": .1,
+                 "worstTerminalOrStoppedReturn": -.2, "worstDrawdown": .2, "worstES95": .2,
+                 "medianPathSharpe": 2., "meanFees": .02, "meanFunding": .01}
+        summary = {"trainingFits": 0, "replayPaths": 3, "plannedEntries": 3, "groups": [group]}
+        reconcile_groups(summary, records, 0, 3)
+        for bad in [None, float("nan"), True, .1001]:
+            group["meanTerminalOrStoppedReturn"] = bad
+            with self.assertRaises(ValueError):
+                reconcile_groups(summary, records, 0, 3)
 
     def test_export_parses_verified_snapshots_after_archive_replacement(self):
         with tempfile.TemporaryDirectory() as td:
@@ -439,6 +619,27 @@ class SequentialContracts(unittest.TestCase):
                        platform_label="fixture", expected_index_sha256=sha)
             self.assertFalse((root/"review").exists())
 
+    def test_prepared_reports_use_utf8_bytes_without_newline_translation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sha, _ = self.export_fixture(root/"archive")
+            with patch.object(Path, "write_text", side_effect=AssertionError("text-mode newline translation")):
+                export(root/"archive", root/"review", rss_unit="bytes", platform_label="fixture-caf\u00e9",
+                       expected_index_sha256=sha)
+            files = list((root/"review").iterdir())
+            self.assertEqual(len(files), 7)
+            for path in files:
+                raw = path.read_bytes()
+                self.assertNotIn(b"\r\n", raw)
+                self.assertTrue(raw.endswith(b"\n"))
+                self.assertEqual(raw.decode("utf-8").encode("utf-8"), raw)
+            self.assertEqual(json.loads((root/"review/evaluation-summary.json").read_bytes())["platform"], "fixture-caf\u00e9")
+            with patch.object(exporter, "render_reports", return_value={"invalid.csv": "\ud800"}):
+                with self.assertRaises(UnicodeEncodeError):
+                    export(root/"archive", root/"bad-encoding", rss_unit="bytes", platform_label="fixture",
+                           expected_index_sha256=sha)
+            self.assertFalse((root/"bad-encoding").exists())
+
     def test_run_provenance_keeps_admitted_hashes_after_input_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -468,7 +669,7 @@ class SequentialContracts(unittest.TestCase):
                  patch.object(runner, "ALGORITHMS", ("ppo",)), \
                  patch.object(runner, "Baselines") as controls, \
                  patch.object(runner, "train_ppo", return_value=(Network(11), {})), \
-                 patch.object(runner, "short_ope", return_value={"status":"invalid","reason":"fixture"}):
+                 patch.object(runner, "short_ope", return_value={"status":"invalid","failedEpisodes":1,"reason":"fixture"}):
                 controls.names = ()
                 runner.run(panel, settlements, root/"run")
             manifest = json.loads((root/"run/manifest.json").read_text())
@@ -481,6 +682,53 @@ class SequentialContracts(unittest.TestCase):
                 self.assertNotEqual(runner.digest(path), expected)
             self.assertFalse(manifest["holdoutOpened"])
             self.assertFalse(manifest["promotionAllowed"])
+            index_path = root/"run/evidence-index.json"
+            export(root/"run", root/"review", rss_unit="bytes", platform_label="fixture",
+                   expected_index_sha256=runner.digest(index_path))
+            (root/"run/ope.json").write_text("[]")
+            index = json.loads(index_path.read_text())
+            index["ope.json"] = runner.digest(root/"run/ope.json")
+            index_path.write_text(json.dumps(index))
+            with self.assertRaisesRegex(ValueError, "OPE rows differ"):
+                export(root/"run", root/"missing-ope", rss_unit="bytes", platform_label="fixture",
+                       expected_index_sha256=runner.digest(index_path))
+            self.assertFalse((root/"missing-ope").exists())
+
+    def test_exception_failures_remain_exportable_without_losing_trials(self):
+        for error in (MemoryError(), RuntimeError(" "), RuntimeError("complete")):
+            for training_failure in (False, True):
+                with self.subTest(error=repr(error), training_failure=training_failure), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    registration = json.loads(REGISTRATION.read_text())
+                    registration["data"].update(symbols=["x"], decisionHorizonBars=[1])
+                    registration["seeds"] = [11]
+                    registration["validation"]["outerFolds"] = [{"trainStop":160,"testStart":166,"testStop":240}]
+                    reg = root/"registration.json"
+                    reg.write_text(json.dumps(registration))
+                    with patch.object(runner, "REGISTRATION", reg), \
+                         patch.object(runner, "source_commit", return_value="a"*40), \
+                         patch.object(runner, "load_development", return_value=({"x": self.p}, {"x": self.f}, np.arange(256)*1000)), \
+                         patch.object(runner, "ALGORITHMS", ("ppo",)), \
+                         patch.object(runner, "Baselines") as controls, \
+                         patch.object(runner, "train_ppo", side_effect=error if training_failure else None,
+                                      return_value=(Network(11), {})), \
+                         patch.object(runner, "short_ope", side_effect=error), \
+                         patch.object(runner, "replay_policy", side_effect=error):
+                        controls.names = ()
+                        runner.run(root/"unused-panel", root/"unused-funding", root/"run")
+                    export(root/"run", root/"review", rss_unit="bytes", platform_label="fixture",
+                           expected_index_sha256=runner.digest(root/"run/evidence-index.json"))
+                    report = json.loads((root/"review/evaluation-summary.json").read_text())
+                    self.assertEqual(report["replayPaths"], len(runner.STRESSES))
+                    self.assertNotIn("complete", report["totalFailuresByReason"])
+                    self.assertEqual(sum(report["totalFailuresByReason"].values()), len(runner.STRESSES))
+                    self.assertFalse(report["promotionAllowed"])
+                    for name in ("training.json", "ope.json"):
+                        for row in json.loads((root/"run"/name).read_text()):
+                            outcome = row.get("result", row)
+                            if outcome.get("status") == "failed":
+                                self.assertTrue(outcome["reason"].strip())
+                                self.assertNotEqual(outcome["reason"], "complete")
 
     def test_registered_separation_and_no_final_holdout(self):
         r = json.loads(REGISTRATION.read_text())

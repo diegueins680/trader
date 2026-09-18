@@ -7,8 +7,10 @@ import argparse
 from collections import Counter
 import csv
 import hashlib
+import io
 import json
 from pathlib import Path
+from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition
 
 
 REPORT_INPUTS = frozenset({'manifest.json', 'summary.json', 'evaluation.json',
@@ -50,25 +52,33 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
             raise ValueError('external evidence hash/path mismatch')
     read = lambda name: json.loads(snapshots.pop(name))
     manifest, summary = read('manifest.json'), read('summary.json')
-    if manifest['promotionAllowed'] or manifest['holdoutOpened'] or manifest['liveAuthorization']:
-        raise ValueError('authorizing or protected evidence')
     records, training, planned = read('evaluation.json'), read('training.json'), read('planned-registry.json')
-    terminal = {}
-    for line in snapshots.pop('events.jsonl').splitlines():
-        event = json.loads(line)
-        if event['status'] in ('complete', 'failed'):
-            if event['id'] in terminal:
-                raise ValueError('duplicate terminal event')
-            terminal[event['id']] = event
-    if set(terminal) != {r['id'] for r in planned}:
-        raise ValueError('incomplete experiment registry')
+    events = [json.loads(line) for line in snapshots.pop('events.jsonl').splitlines()]
+    ope = read('ope.json')
+    try:
+        reconcile_disposition(manifest, summary)
+        terminal = reconcile(planned, events, training, records, ope, summary, index)
+        reports = render_reports(manifest, summary, records, training, planned, terminal, ope, index,
+                                 rss_unit, platform_label, expected_index_sha256)
+        reports = {name: content.encode('utf-8') for name, content in reports.items()}
+    except (KeyError, TypeError, OverflowError) as exc:
+        raise ValueError('malformed registry evidence') from exc
     output.mkdir(parents=True, exist_ok=False)
+    for name, content in reports.items():
+        (output / name).write_bytes(content)
+
+
+def render_reports(manifest, summary, records, training, planned, terminal, ope, index,
+                   rss_unit, platform_label, expected_index_sha256):
+    """Prepare every compact report before creating output; no filesystem IO."""
+    reports = {}
     def js(name, value):
-        (output / name).write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False)+'\n')
+        reports[name] = json.dumps(value, sort_keys=True, indent=2, allow_nan=False)+'\n'
     def csvfile(name, rows, fields):
-        with (output / name).open('w', newline='') as stream:
+        with io.StringIO(newline='') as stream:
             writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
             writer.writeheader(); writer.writerows(rows)
+            reports[name] = stream.getvalue()
     reasons = sorted({r.get('reason') for r in terminal.values() if r.get('reason')})
     codes = {reason: i+1 for i, reason in enumerate(reasons)}
     csvfile('experiment-registry.csv', [dict(id=p['id'], kind=p['kind'], status=terminal[p['id']]['status'],
@@ -92,8 +102,8 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         t['initialAndFinalLoss'] = [losses[0],losses[-1]] if losses else []
         compact.append(t)
     js('multi-seed-training.json',compact)
-    js('ope-report.json',read('ope.json'))
-    rl = [r for r in records if r['algorithm'] in ('ppo','double_dqn','cql','cql_no_inventory_penalty')]
+    js('ope-report.json',ope)
+    rl = [r for r in records if r['algorithm'] in RL_FAMILIES]
     values = [r['result'] for r in rl if 'netReturn' in r['result']]
     sizes = [t['artifactBytes'] for t in training if 'artifactBytes' in t]
     summary.update(trainingSecondsSum=sum(t.get('seconds',0) for t in training),
@@ -116,9 +126,10 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         priorTrialAccounting=dict(earlierResidualFundingAttempts=46,
         thisScreenSeededCandidateTrials=len({(t["algorithm"],t["horizon"],t["seed"]) for t in training}),
         thisScreenOuterCandidateFits=len(training),
-        thisScreenBaselineHorizonConfigurations=len({(r["algorithm"],r["horizon"]) for r in records if r["algorithm"] not in ("ppo","double_dqn","cql","cql_no_inventory_penalty")}),
-        baselineOuterRefits=len({(r["horizon"],r["fold"]) for r in records if r["algorithm"] not in ("ppo","double_dqn","cql","cql_no_inventory_penalty")}),replayPaths=len(records)))
+        thisScreenBaselineHorizonConfigurations=len({(r["algorithm"],r["horizon"]) for r in records if r["algorithm"] not in RL_FAMILIES}),
+        baselineOuterRefits=len({(r["horizon"],r["fold"]) for r in records if r["algorithm"] not in RL_FAMILIES}),replayPaths=len(records)))
     js('experiment-manifest.json',manifest)
+    return reports
 
 
 if __name__ == '__main__':

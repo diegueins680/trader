@@ -87,3 +87,10 @@ hash. Other indexed files, including the 1.14 GB return CSV, are still hash-chec
 with 1 MiB streaming reads. Archive replacement after verification cannot alter
 report inputs or relabel their provenance. The command above reproduces all seven
 committed reports byte-for-byte; see [export-snapshot-audit.md](export-snapshot-audit.md).
+
+Export also reconciles the supplied roster, terminal ledger, fit/replay rows,
+successful-fit artifact identities, OPE fit coverage and descriptive group metrics
+before creating output. Internally contradictory archives are rejected even with
+matching hashes. See [registry-reconciliation-audit.md](registry-reconciliation-audit.md)
+for compatibility, rounding tolerance and the distinction from independent
+registration completeness or per-bar economic reconstruction.

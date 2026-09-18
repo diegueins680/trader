@@ -1,5 +1,21 @@
 ## Unreleased
 
+- Research/Report Bytes: write prepared reports as UTF-8 bytes, preserving explicit LF terminators across platform newline settings; add a text-translation rejection fixture.
+
+- Research/OPE Evidence: require complete v1 failure or conditional-estimate payloads for successful fits, including finite estimator/support fields and valid intervals. Reject ID-only placeholders and unsupported reliability claims before output; schema checks do not validate estimator truth.
+
+- Research/Training Outcomes: require failed-fit reasons to agree with terminal events and reject reasons on completed fits. Preserve status-omitted successful v1 records; conflicting older failure records require investigation rather than automatic rewriting.
+
+- Research/Failure Records: include the exception class in training, OPE and replay failure reasons, preserving nonblank labels even for empty or reserved exception messages. Synthetic producer-to-export tests retain all failed trials without claiming completion; existing research archives are unchanged.
+
+- Research/Report Preparation: validate finite nonnegative peak-memory metadata and prepare every compact report before creating output, so malformed training/report fields or serialization errors cannot leave partial reports. Filesystem write failures remain explicit.
+
+- Research/Evidence Disposition: reject terminal and replay status/reason contradictions, reserved failure labels, and summary promotion, holdout or statistical claims outside the v1 contaminated-development contract before export. Require boolean false authorization flags in the manifest; retain the original negative-result reports unchanged.
+
+- Research/Registry Review: require start events for fits and evaluated replays while retaining failed-fit cascades, and validate required RL latency/OOD metrics before creating reports. Share RL family classification between validation and export; add missing-start and missing-metric regressions.
+
+- Research/Registry Reconciliation: reject internally inconsistent hash-valid sequential archives before report output, including omitted/duplicated trials, conflicting seed/outcome metadata, missing OPE fits and false counts or descriptive metrics. Preserve original v1 training-record compatibility and all seven historical compact reports. Keep typed and Markdown risk mitigations synchronized; no new experiment or production behavior.
+
 - Formal/Risk Register: synchronize the typed Haskell `RL-OFFLINE-001` mitigation with its Markdown projection, including verified evidence snapshots and invalid OPE rejection. Severity and lifecycle remain HIGH/OPEN.
 
 - Research/Evidence Export: bind compact sequential reports to verified archive-index and report-input byte snapshots; retain the admitted index hash after path replacement while continuing bounded streaming verification of large return paths. Add replacement and tampering regressions. All seven historical compact reports reproduce byte-for-byte; no financial trial or production behavior changes.
