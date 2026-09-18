@@ -66,6 +66,10 @@ report-metric `KeyError`s before the follow-up fix (36 tests: two failures, two
 errors). They now reject before output creation; the successful-fit fixture uses
 a valid, untrained temporary policy artifact and proves the positive export path.
 
+A further fixture reproduced a nested `result.seed` overriding the validated
+outer seed in CSV output. Result objects now reject reserved trial-identity fields,
+so the verified ID metadata cannot be shadowed during report construction.
+
 The existing results archive was re-exported using the command in
 [reproduction.md](reproduction.md). Its index SHA-256 remains
 `764fd123a1570c6b31ecc7e0729ef5dcc1fe19a39c29aee48efc1614c289974b`.

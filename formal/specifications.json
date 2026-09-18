@@ -138,7 +138,7 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-E5",
-          "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows for successful fits. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
+          "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows for successful fits. Nested result fields cannot shadow validated trial identity in exported CSVs. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
         }
       ],
       "invariants": [

@@ -430,6 +430,7 @@ class SequentialContracts(unittest.TestCase):
             "missing training": lambda v: v["training.json"].clear(),
             "duplicate training": lambda v: v["training.json"].append(v["training.json"][0]),
             "wrong seed": lambda v: v["evaluation.json"][0].update(seed=23),
+            "nested identity override": lambda v: v["evaluation.json"][0]["result"].update(seed=23),
             "contradictory status": lambda v: v["evaluation.json"][0]["result"].update(status="complete"),
             "contradictory reason": lambda v: v["evaluation.json"][0]["result"].update(reason="other_failure"),
             "contradictory observations": lambda v: v["events.jsonl"][2].update(observations=1),

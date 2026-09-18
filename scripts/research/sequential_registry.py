@@ -138,6 +138,8 @@ def reconcile(planned, events, training, records, ope, summary, index):
         require(all(segment(row[k]) for k in ('stress', 'symbol')) and
                 key == f"{trial}/{row['stress']}/{row['symbol']}", 'replay identity differs from metadata')
         result, event = row['result'], terminal[key]
+        require(not any(field in result for field in ('id', 'algorithm', 'horizon', 'fold', 'seed', 'stress', 'symbol')),
+                'result shadows trial identity')
         require(result['status'] in ('complete', 'failed') and result['status'] == event['status'], 'replay status')
         require(integer(result['observations']) and integer(event['observations']) and
                 result['observations'] == event['observations'], 'replay observations')
