@@ -151,7 +151,10 @@ def ope_estimates(rewards, actions, behavior_prob, target_prob, q, v, gamma: flo
     q[i,t] is Q_hat(s_t, logged a_t); v includes final zero bootstrap.
     Exact logged propensities are mandatory. ESS is trajectory-weight ESS.
     """
-    arrays = [np.asarray(x) for x in (rewards, actions, behavior_prob, target_prob, q, v)]
+    inputs = (rewards, actions, behavior_prob, target_prob, q, v)
+    if any(np.ma.isMaskedArray(x) for x in inputs):
+        raise ValueError("masked OPE input")
+    arrays = [np.asarray(x) for x in inputs]
     r, a, b, pi, q, v = arrays
     if (r.ndim != 2 or 0 in r.shape or any(x.shape != r.shape for x in (a, b, pi, q)) or
         v.shape != (r.shape[0], r.shape[1] + 1)):

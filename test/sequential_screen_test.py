@@ -824,6 +824,65 @@ class SequentialContracts(unittest.TestCase):
                 ope_estimates(np.zeros(shape), np.zeros(shape, dtype=int), np.ones(shape),
                               np.ones(shape), np.zeros(shape), np.zeros((shape[0], shape[1]+1)), 1.)
 
+    def ope_fixture(self):
+        return dict(rewards=np.array([[1., 2.], [3., 4.]]),
+                    actions=np.zeros((2, 2), dtype=int),
+                    behavior_prob=np.ones((2, 2)), target_prob=np.ones((2, 2)),
+                    q=np.zeros((2, 2)), v=np.zeros((2, 3)), gamma=1.)
+
+    def test_ope_rejects_masks_before_array_coercion(self):
+        valid = self.ope_fixture()
+        for key in ("rewards", "actions", "behavior_prob", "target_prob", "q", "v"):
+            for kind in ("partial", "all", "none"):
+                mask = np.zeros(valid[key].shape, dtype=bool)
+                if kind == "partial": mask.flat[0] = True
+                if kind == "all": mask[:] = True
+                value = np.ma.array(valid[key], mask=mask)
+                with self.subTest(key=key, kind=kind), patch("sequential_evaluation.np.asarray", wraps=np.asarray) as convert:
+                    with self.assertRaisesRegex(ValueError, "masked OPE input"):
+                        ope_estimates(**{**valid, key:value})
+                    convert.assert_not_called()
+                np.testing.assert_array_equal(value.data, valid[key])
+                np.testing.assert_array_equal(value.mask, mask)
+
+    def test_ope_unmasked_arraylike_results_remain_exact(self):
+        valid = self.ope_fixture()
+        expected = ope_estimates(**valid)
+        for name in ("ordinaryIS", "perDecisionIS", "weightedIS", "doublyRobust"):
+            self.assertEqual(expected[name], 5.)
+        self.assertEqual(expected["effectiveSampleSize"], 2.)
+        self.assertFalse(expected["reliable"])
+        for representation in ("lists", "tuples", "readonly"):
+            values = {}
+            for key, value in valid.items():
+                if key == "gamma": values[key] = value; continue
+                if representation == "lists": values[key] = value.tolist()
+                elif representation == "tuples": values[key] = tuple(map(tuple, value.tolist()))
+                else:
+                    values[key] = value.copy()
+                    values[key].flags.writeable = False
+            with self.subTest(representation=representation):
+                self.assertEqual(ope_estimates(**values), expected)
+
+    def test_runner_records_masked_ope_failure_without_losing_fit(self):
+        inputs = self.ope_fixture()
+        inputs["rewards"] = np.ma.array(inputs["rewards"], mask=True)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.publication_fixture(root), patch.object(runner, "short_ope", side_effect=lambda *args: ope_estimates(**inputs)):
+                runner.run(root/"unused-panel", root/"unused-funding", root/"run")
+            ope = json.loads((root/"run/ope.json").read_bytes())
+            self.assertEqual(len(ope), 1)
+            self.assertEqual(ope[0]["result"], {"status":"failed", "reason":"ValueError: masked OPE input"})
+            events = [json.loads(line) for line in (root/"run/events.jsonl").read_text().splitlines()]
+            terminal = [e for e in events if e["id"] == ope[0]["id"] and e["status"] != "started"]
+            self.assertEqual(len(terminal), 1)
+            self.assertEqual(terminal[0]["status"], "complete")
+            export(root/"run", root/"review", rss_unit="bytes", platform_label="fixture",
+                   expected_index_sha256=runner.digest(root/"run/evidence-index.json"))
+            self.assertEqual(json.loads((root/"review/ope-report.json").read_bytes()), ope)
+            self.assertFalse(json.loads((root/"review/evaluation-summary.json").read_bytes())["promotionAllowed"])
+
     def test_ope_matches_enumerated_behavior_tree(self):
         # Enumerate all length-two trajectories of a uniform two-action policy.
         # The deterministic target selects action zero twice and earns 1 + .5*3.
