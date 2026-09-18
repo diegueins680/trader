@@ -392,7 +392,7 @@ class SequentialContracts(unittest.TestCase):
                              "processPeakRssPlatformUnits": 0},
             "evaluation.json": [failed, cash],
             "training.json": [{"id": trial, "algorithm": "ppo", "horizon": 1,
-                               "fold": 0, "seed": 11, "status": "failed"}],
+                               "fold": 0, "seed": 11, "status": "failed", "reason": "fixture"}],
             "planned-registry.json": planned,
             "events.jsonl": events,
             "ope.json": [],
@@ -408,6 +408,7 @@ class SequentialContracts(unittest.TestCase):
             policy_index[str(artifact.relative_to(root))] = sha
             fit = values["training.json"][0]
             fit.pop("status")
+            fit.pop("reason")
             fit.update(artifactSha256=sha, artifactBytes=artifact.stat().st_size)
             events[1] = {"id": trial, "status": "complete", "artifactSha256": sha}
             failed["result"] = {**cash["result"], "latencyP99Ms": .1, "oodObservationRate": 0.}
@@ -455,6 +456,9 @@ class SequentialContracts(unittest.TestCase):
             "missing failed replay": lambda v: v["evaluation.json"].pop(0),
             "duplicate replay": lambda v: v["evaluation.json"].append(v["evaluation.json"][0]),
             "missing training": lambda v: v["training.json"].clear(),
+            "missing training reason": lambda v: v["training.json"][0].pop("reason"),
+            "contradictory training reason": lambda v: v["training.json"][0].update(reason="other"),
+            "blank training reason": lambda v: v["training.json"][0].update(reason=""),
             "duplicate training": lambda v: v["training.json"].append(v["training.json"][0]),
             "wrong seed": lambda v: v["evaluation.json"][0].update(seed=23),
             "nested identity override": lambda v: v["evaluation.json"][0]["result"].update(seed=23),
@@ -489,17 +493,21 @@ class SequentialContracts(unittest.TestCase):
                 self.assertFalse((root/"review").exists())
 
     def test_export_rejects_missing_evaluated_policy_report_metrics(self):
-        for field in ("latencyP99Ms", "oodObservationRate"):
+        for field in ("latencyP99Ms", "oodObservationRate", "completedFitReason"):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 sha, values = self.export_fixture(root/"archive", evaluated_rl=True)
                 export(root/"archive", root/"control", rss_unit="bytes",
                        platform_label="fixture", expected_index_sha256=sha)
-                values["evaluation.json"][0]["result"].pop(field)
-                (root/"archive/evaluation.json").write_text(json.dumps(values["evaluation.json"]))
+                name = "training.json" if field == "completedFitReason" else "evaluation.json"
+                if field == "completedFitReason":
+                    values[name][0]["reason"] = "unexpected_failure"
+                else:
+                    values[name][0]["result"].pop(field)
+                (root/"archive"/name).write_text(json.dumps(values[name]))
                 index_path = root/"archive/evidence-index.json"
                 index = json.loads(index_path.read_text())
-                index["evaluation.json"] = runner.digest(root/"archive/evaluation.json")
+                index[name] = runner.digest(root/"archive"/name)
                 index_path.write_text(json.dumps(index))
                 with self.assertRaises(ValueError):
                     export(root/"archive", root/"rejected", rss_unit="bytes",

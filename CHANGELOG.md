@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Training Outcomes: require failed-fit reasons to agree with terminal events and reject reasons on completed fits. Preserve status-omitted successful v1 records; conflicting older failure records require investigation rather than automatic rewriting.
+
 - Research/Failure Records: include the exception class in training, OPE and replay failure reasons, preserving nonblank labels even for empty or reserved exception messages. Synthetic producer-to-export tests retain all failed trials without claiming completion; existing research archives are unchanged.
 
 - Research/Report Preparation: validate finite nonnegative peak-memory metadata and prepare every compact report before creating output, so malformed training/report fields or serialization errors cannot leave partial reports. Filesystem write failures remain explicit.

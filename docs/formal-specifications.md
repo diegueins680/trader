@@ -249,3 +249,7 @@ The runner includes the exception class in training, OPE and replay failure
 records, so empty or reserved exception messages cannot produce blank reasons
 or completion labels. Synthetic producer-to-export replay tests retain all
 failed paths while keeping promotion disabled.
+
+Training-row reasons obey the same status semantics and must match terminal-event
+reasons. Conflicting older failure records are rejected for investigation; no
+archive is rewritten to manufacture consistency.

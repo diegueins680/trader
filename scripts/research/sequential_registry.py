@@ -149,6 +149,8 @@ def reconcile(planned, events, training, records, ope, summary, index):
         # ledger and verified artifact digest must still witness completion.
         status = fit.get('status', 'complete')
         require(status in ('complete', 'failed') and status == terminal[key]['status'], 'training status')
+        require_outcome_reason(status, fit.get('reason'))
+        require(fit.get('reason') == terminal[key].get('reason'), 'training reason')
         if status == 'complete':
             artifact = 'policies/' + key.replace('/', '_') + '.json'
             require(isinstance(fit['artifactSha256'], str) and

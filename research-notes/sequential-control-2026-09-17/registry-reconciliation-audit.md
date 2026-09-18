@@ -138,6 +138,16 @@ repair, all failed paths remain present and none is counted as complete. No real
 market input is read, policy trained or archived financial trial rerun by these
 fixtures. Final verification is recorded in the PR on the updated commit.
 
+## Training-reason consistency
+
+Four additional hash-valid fixtures reproduced accepted missing, blank or
+contradictory failed-fit reasons and a reason attached to a completed fit. Training
+rows now obey the same outcome semantics and match their terminal-event reasons.
+Status-omitted successful v1 fits remain supported. Older failed-fit records with
+conflicting labels require investigation; the exporter does not rewrite archives
+to make them consistent. The original archive contains successful fits and remains
+compatible, while synthetic failed-producer fixtures exercise the current path.
+
 ## Limits and decision
 
 This is consistency against the **supplied roster**, not proof that the roster
