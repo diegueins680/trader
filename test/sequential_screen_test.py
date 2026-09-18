@@ -338,6 +338,66 @@ class SequentialContracts(unittest.TestCase):
         controls.mean = np.float64(.125)
         self.assertEqual(controls.forecast("historical_mean", np.zeros(12)), .125)
 
+    def economic_fixture(self, horizon=1):
+        p = np.full(80, 100.)
+        return Replay(p, np.zeros_like(p), 30, 50, horizon, Scale.fit([p[:30]]), enabled=True)
+
+    def test_economic_rejects_unfinished_replays(self):
+        for steps in (0, 1):
+            with self.subTest(steps=steps):
+                env = self.economic_fixture()
+                if steps:
+                    env.step(.25)
+                    self.assertNotEqual(env.units, 0.)
+                with self.assertRaisesRegex(ValueError, "stopped replay"):
+                    economic(env)
+
+    def test_economic_rejects_inconsistent_completion_state(self):
+        cases = [(field, value) for field, values in
+                 (("done", (False, 1, "true")), ("units", (.01, np.nan)),
+                  ("pending", ((50, 0.),)), ("t", (48,)),
+                  ("equity", (0., -1., np.nan, 1.1)), ("failure", ("", " ", "complete", False, 0)))
+                 for value in values]
+        cases.append(("rows", []))
+        for field, value in cases:
+            with self.subTest(field=field, value=repr(value)):
+                env = self.economic_fixture()
+                while not env.done: env.step(0.)
+                setattr(env, field, value)
+                with self.assertRaises(ValueError): economic(env)
+
+    def test_economic_preserves_explicit_failed_paths(self):
+        empty = self.economic_fixture(); empty.step(None)
+        self.assertEqual(economic(empty), {"status":"failed", "reason":"invalid_action", "observations":0})
+        partial = self.economic_fixture(); partial.step(.25)
+        partial.prices[partial.t+1] = np.nan
+        partial.step(0.)
+        report = economic(partial)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["reason"], "invalid_market_transition")
+        self.assertEqual(report["observations"], 1)
+        self.assertLess(report["netReturn"], 0.)
+        self.assertNotEqual(partial.units, 0.)
+        risk = self.economic_fixture(); risk.step(.25)
+        risk.prices[risk.t+1] = 1.
+        risk.step(0.)
+        report = economic(risk)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["reason"], "capital_floor")
+        self.assertEqual(risk.units, 0.)
+        self.assertLess(report["netReturn"], -.24)
+
+    def test_economic_completed_reports_retain_exact_bytes(self):
+        reports = []
+        for horizon in (1, 3, 6):
+            env = self.economic_fixture(horizon)
+            while not env.done: env.step(0.)
+            reports.append(economic(env))
+            self.assertEqual(reports[-1]["status"], "complete")
+            self.assertEqual(reports[-1]["observations"], 19)
+        actual = hashlib.sha256(json.dumps(reports, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(actual, "e4c2a5f1da24364904426b42b94817524b42aa0ef2bde1f3bde31b707c7df6bb")
+
     def test_delay_prevents_same_bar_profit(self):
         p = np.full(65, 100.0); p[31:] = 200
         e = Replay(p, np.zeros(65), 30, 34, 1, Scale.fit([np.full(65, 100.0)]), enabled=True)

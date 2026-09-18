@@ -396,3 +396,11 @@ integer compatibility with unused values left unread, and the smallest valid
 six-decision windows at horizons 1/3/6. Types and lengths are checked up front;
 market values remain checked when replay consumes them. Budget registration,
 data provenance and estimator reliability remain separate requirements.
+
+
+`A-SEQUENTIAL-RESEARCH-R22` admits stopped replay states for economic reporting.
+Successful paths require the final bar, zero inventory, no pending action, full bar
+coverage and matching positive finite equity. Four witnesses cover unfinished
+paths, corrupted completion state, preservation of explicit failed paths and exact
+completed-report bytes. Failed unliquidated paths remain failures; these checks
+do not estimate their recoverable value or validate every ledger field.

@@ -148,3 +148,8 @@ Short OPE admits complete windows and aligned price/funding symbol sets before
 sampling. Use genuine integer horizons, boundaries, seeds and positive episode
 budgets. Arrays must cover the entire requested exclusive stop; admission does not
 scan future values. See the [OPE window-admission audit](ope-window-admission-audit.md).
+
+Call economic reporting only after replay stops. A successful report requires
+complete terminal accounting state; a failed stopped path keeps its failure and
+recorded losses. Unfinished paths cannot be labeled complete. See the
+[economic-completion audit](economic-completion-audit.md).
