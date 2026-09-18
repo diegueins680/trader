@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Registry Review: require start events for fits and evaluated replays while retaining failed-fit cascades, and validate required RL latency/OOD metrics before creating reports. Share RL family classification between validation and export; add missing-start and missing-metric regressions.
+
 - Research/Registry Reconciliation: reject internally inconsistent hash-valid sequential archives before report output, including omitted/duplicated trials, conflicting seed/outcome metadata, missing OPE fits and false counts or descriptive metrics. Preserve original v1 training-record compatibility and all seven historical compact reports. Keep typed and Markdown risk mitigations synchronized; no new experiment or production behavior.
 
 - Formal/Risk Register: synchronize the typed Haskell `RL-OFFLINE-001` mitigation with its Markdown projection, including verified evidence snapshots and invalid OPE rejection. Severity and lifecycle remain HIGH/OPEN.

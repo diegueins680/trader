@@ -29,7 +29,8 @@ creates its output directory:
 
 - Roster IDs are unique, nonempty and explicitly typed as training or replay.
   Events reference that roster, have a valid lifecycle, and contain exactly one
-  terminal outcome per planned ID. Cascaded failures need not have a start event.
+  terminal outcome per planned ID. Every training attempt and evaluated replay
+  requires a start event; only explicit failed-fit cascades may omit one.
 - Training and replay rows correspond one-to-one to their roster entries. Their
   algorithm, horizon, fold, seed, stress and symbol agree with their serialized ID.
 - Training outcomes agree with terminal events. Successful fits bind the same
@@ -39,6 +40,8 @@ creates its output directory:
 - Replay status, reason and observation count agree with terminal events.
   Failed fits have only unevaluated `training_failed` replay outcomes. Completed
   replays require observations; metric coverage agrees with observation presence.
+  Evaluated RL rows also require finite nonnegative latency p99 and an OOD rate
+  in `[0,1]` before output creation. Validation and reporting share the RL family set.
 - OPE has exactly one row per successful fit, and none for a failed fit. This
   validates attribution and coverage, not the estimator's statistical validity.
 - Total and per-group path, completion and failure counts reconcile exactly.
@@ -53,10 +56,15 @@ repair unequal endpoints or turn their averages into valid superiority tests.
 
 ## Verification and compatibility
 
-The deterministic suite passes 35 tests, including all contradictory-archive
+The deterministic suite passes 36 tests, including all contradictory-archive
 fixtures, a hand-calculated mixed complete/failed outcome example, successful-fit
 export with original v1 metadata, and rejection of missing successful-fit OPE.
 The fixtures contain no actual market observations or live order interface.
+
+Review follow-up fixtures reproduced two missing-start acceptances and two missing
+report-metric `KeyError`s before the follow-up fix (36 tests: two failures, two
+errors). They now reject before output creation; the successful-fit fixture uses
+a valid, untrained temporary policy artifact and proves the positive export path.
 
 The existing results archive was re-exported using the command in
 [reproduction.md](reproduction.md). Its index SHA-256 remains

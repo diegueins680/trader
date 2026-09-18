@@ -9,7 +9,7 @@ import csv
 import hashlib
 import json
 from pathlib import Path
-from sequential_registry import reconcile
+from sequential_registry import RL_FAMILIES, reconcile
 
 
 REPORT_INPUTS = frozenset({'manifest.json', 'summary.json', 'evaluation.json',
@@ -91,7 +91,7 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         compact.append(t)
     js('multi-seed-training.json',compact)
     js('ope-report.json',ope)
-    rl = [r for r in records if r['algorithm'] in ('ppo','double_dqn','cql','cql_no_inventory_penalty')]
+    rl = [r for r in records if r['algorithm'] in RL_FAMILIES]
     values = [r['result'] for r in rl if 'netReturn' in r['result']]
     sizes = [t['artifactBytes'] for t in training if 'artifactBytes' in t]
     summary.update(trainingSecondsSum=sum(t.get('seconds',0) for t in training),
@@ -114,8 +114,8 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         priorTrialAccounting=dict(earlierResidualFundingAttempts=46,
         thisScreenSeededCandidateTrials=len({(t["algorithm"],t["horizon"],t["seed"]) for t in training}),
         thisScreenOuterCandidateFits=len(training),
-        thisScreenBaselineHorizonConfigurations=len({(r["algorithm"],r["horizon"]) for r in records if r["algorithm"] not in ("ppo","double_dqn","cql","cql_no_inventory_penalty")}),
-        baselineOuterRefits=len({(r["horizon"],r["fold"]) for r in records if r["algorithm"] not in ("ppo","double_dqn","cql","cql_no_inventory_penalty")}),replayPaths=len(records)))
+        thisScreenBaselineHorizonConfigurations=len({(r["algorithm"],r["horizon"]) for r in records if r["algorithm"] not in RL_FAMILIES}),
+        baselineOuterRefits=len({(r["horizon"],r["fold"]) for r in records if r["algorithm"] not in RL_FAMILIES}),replayPaths=len(records)))
     js('experiment-manifest.json',manifest)
 
 

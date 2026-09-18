@@ -7,6 +7,8 @@ establish economic significance.
 import math
 from statistics import median
 
+RL_FAMILIES = frozenset(('ppo', 'double_dqn', 'cql', 'cql_no_inventory_penalty'))
+
 
 def require(condition, reason):
     if not condition:
@@ -119,6 +121,7 @@ def reconcile(planned, events, training, records, ope, summary, index):
                 kind + ' rows differ from roster')
     successful = set()
     for key, fit in fits.items():
+        require(key in started, 'training start event missing')
         require(trial_id(fit) == key, 'training identity differs from metadata')
         # Original v1 successful training records omit status; the terminal
         # ledger and verified artifact digest must still witness completion.
@@ -142,9 +145,14 @@ def reconcile(planned, events, training, records, ope, summary, index):
                 result.get('reason') == event.get('reason'), 'replay reason')
         require(('netReturn' in result) == (result['observations'] > 0), 'replay metric coverage')
         require(result['status'] != 'complete' or result['observations'] > 0, 'empty completed replay')
+        if row['algorithm'] in RL_FAMILIES and result['observations'] > 0:
+            require(number(result['latencyP99Ms']) >= 0, 'invalid policy latency')
+            require(0 <= number(result['oodObservationRate']) <= 1, 'invalid policy OOD rate')
         if trial in fits and trial not in successful:
             require(result['status'] == 'failed' and result.get('reason') == 'training_failed' and
                     result['observations'] == 0, 'failed training has evaluated replay')
+        else:
+            require(key in started, 'evaluated replay start event missing')
     require(set(unique(ope, 'OPE')) == successful, 'OPE rows differ from successful fits')
     reconcile_groups(summary, records, len(fits), len(roster))
     return terminal

@@ -362,8 +362,8 @@ class SequentialContracts(unittest.TestCase):
                 export(root/"run",root/"tampered",rss_unit="bytes",platform_label="fixture",expected_index_sha256=index_sha)
             self.assertFalse((root/"tampered").exists())
 
-    def export_fixture(self, root):
-        """Small failed-run archive; no market data, training or policy artifact."""
+    def export_fixture(self, root, *, evaluated_rl=False):
+        """Synthetic archive; optional untrained policy artifact, never market data."""
         trial = "ppo/h1/f0/s11"
         failed = {"id": trial+"/base/x", "algorithm": "ppo", "horizon": 1,
                   "fold": 0, "seed": 11, "stress": "base", "symbol": "x",
@@ -376,9 +376,11 @@ class SequentialContracts(unittest.TestCase):
                            "fundingPnlOverInitialEquity": 0.}}
         planned = [{"id": trial, "kind": "training", "status": "planned"},
                    *[{"id": r["id"], "kind": "replay", "status": "planned"} for r in (failed, cash)]]
-        events = [{"id": trial, "status": "failed", "reason": "fixture"},
-                  *[{"id": r["id"], **{k: r["result"][k] for k in ("status", "reason", "observations")}}
-                    for r in (failed, cash)]]
+        events = [{"id": trial, "status": "started"},
+                  {"id": trial, "status": "failed", "reason": "fixture"},
+                  {"id": failed["id"], **failed["result"]},
+                  {"id": cash["id"], "status": "started"},
+                  {"id": cash["id"], **{k: cash["result"][k] for k in ("status", "reason", "observations")}}]
         values = {
             "manifest.json": {"promotionAllowed": False, "holdoutOpened": False,
                               "liveAuthorization": False},
@@ -393,12 +395,30 @@ class SequentialContracts(unittest.TestCase):
             "ope.json": [],
         }
         root.mkdir()
+        policy_index = {}
+        if evaluated_rl:
+            artifact = root/"policies/ppo_h1_f0_s11.json"
+            artifact.parent.mkdir()
+            sha = save_policy(artifact, Network(11), {"codeCommit": "a"*40,
+                "registrationSha256": "b"*64, "dataSha256": "c"*64,
+                "algorithm": "ppo", "seed": 11, "horizon": 1, "fold": 0})
+            policy_index[str(artifact.relative_to(root))] = sha
+            fit = values["training.json"][0]
+            fit.pop("status")
+            fit.update(artifactSha256=sha, artifactBytes=artifact.stat().st_size)
+            events[1] = {"id": trial, "status": "complete", "artifactSha256": sha}
+            failed["result"] = {**cash["result"], "latencyP99Ms": .1, "oodObservationRate": 0.}
+            events[2] = {"id": failed["id"], "status": "complete", "reason": None, "observations": 1}
+            events.insert(2, {"id": failed["id"], "status": "started"})
+            values["ope.json"] = [{"id": trial, "result": {"status": "invalid", "reason": "fixture"}}]
+            values["summary.json"]["groups"] = runner.summary([failed, cash])
         for name, value in values.items():
             (root/name).write_text("".join(json.dumps(e)+"\n" for e in value)
                                    if name == "events.jsonl" else json.dumps(value)+"\n")
         # Last index entry deliberately exercises the streaming-only path.
         (root/"returns.csv").write_text("trial,symbol,outcomeIndex,netReturn\n")
         index = {name: runner.digest(root/name) for name in (*values, "returns.csv")}
+        index.update(policy_index)
         (root/"evidence-index.json").write_text(json.dumps(index)+"\n")
         return runner.digest(root/"evidence-index.json"), values
 
@@ -412,8 +432,10 @@ class SequentialContracts(unittest.TestCase):
             "wrong seed": lambda v: v["evaluation.json"][0].update(seed=23),
             "contradictory status": lambda v: v["evaluation.json"][0]["result"].update(status="complete"),
             "contradictory reason": lambda v: v["evaluation.json"][0]["result"].update(reason="other_failure"),
-            "contradictory observations": lambda v: v["events.jsonl"][1].update(observations=1),
-            "non-text terminal reason": lambda v: v["events.jsonl"][0].update(reason=True),
+            "contradictory observations": lambda v: v["events.jsonl"][2].update(observations=1),
+            "non-text terminal reason": lambda v: v["events.jsonl"][1].update(reason=True),
+            "missing training start": lambda v: v["events.jsonl"].pop(0),
+            "missing evaluated replay start": lambda v: v["events.jsonl"].pop(3),
             "event after terminal": lambda v: v["events.jsonl"].append({"id": "ppo/h1/f0/s11", "status": "started"}),
             "missing group": lambda v: v["summary.json"]["groups"].pop(0),
             "duplicate group": lambda v: v["summary.json"]["groups"].append(v["summary.json"]["groups"][0]),
@@ -437,6 +459,24 @@ class SequentialContracts(unittest.TestCase):
                     export(root/"archive", root/"review", rss_unit="bytes",
                            platform_label="fixture", expected_index_sha256=sha)
                 self.assertFalse((root/"review").exists())
+
+    def test_export_rejects_missing_evaluated_policy_report_metrics(self):
+        for field in ("latencyP99Ms", "oodObservationRate"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                sha, values = self.export_fixture(root/"archive", evaluated_rl=True)
+                export(root/"archive", root/"control", rss_unit="bytes",
+                       platform_label="fixture", expected_index_sha256=sha)
+                values["evaluation.json"][0]["result"].pop(field)
+                (root/"archive/evaluation.json").write_text(json.dumps(values["evaluation.json"]))
+                index_path = root/"archive/evidence-index.json"
+                index = json.loads(index_path.read_text())
+                index["evaluation.json"] = runner.digest(root/"archive/evaluation.json")
+                index_path.write_text(json.dumps(index))
+                with self.assertRaises(ValueError):
+                    export(root/"archive", root/"rejected", rss_unit="bytes",
+                           platform_label="fixture", expected_index_sha256=runner.digest(index_path))
+                self.assertFalse((root/"rejected").exists())
 
     def test_group_reconciliation_matches_hand_calculated_outcomes(self):
         identity = {"algorithm": "cash", "horizon": 1, "seed": 11, "stress": "base"}

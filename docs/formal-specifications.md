@@ -227,3 +227,9 @@ mixed-outcome example exercise this boundary. It does not prove the supplied
 roster matches an external registration, reconstruct per-bar P&L or make OPE
 reliable. Original successful v1 fits without explicit status are supported only
 with terminal completion and a matching verified artifact digest.
+
+Every fit and normally evaluated replay must have its producer-defined start
+event; only explicit failed-fit cascades may omit it. Evaluated RL rows must also
+provide finite nonnegative latency p99 and an OOD observation rate in `[0,1]`
+before any output directory is created. Validator and exporter share the same RL
+family classification, preventing report-only field requirements from diverging.
