@@ -1,5 +1,6 @@
 """Deterministic engineering fixtures; no protected market data or network."""
 import hashlib
+from contextlib import contextmanager
 import csv
 import json
 from pathlib import Path
@@ -1252,6 +1253,103 @@ class SequentialContracts(unittest.TestCase):
                             if outcome.get("status") == "failed":
                                 self.assertTrue(outcome["reason"].strip())
                                 self.assertNotEqual(outcome["reason"], "complete")
+
+    @contextmanager
+    def publication_fixture(self, root):
+        registration = json.loads(REGISTRATION.read_text())
+        registration["data"].update(symbols=["x"], decisionHorizonBars=[1])
+        registration["seeds"] = [11]
+        registration["validation"]["outerFolds"] = [{"trainStop":160,"testStart":166,"testStop":240}]
+        reg = root/"registration.json"; reg.write_text(json.dumps(registration))
+        with patch.object(runner, "REGISTRATION", reg), \
+             patch.object(runner, "source_commit", return_value="a"*40), \
+             patch.object(runner, "load_development", return_value=({"x":self.p}, {"x":self.f}, np.arange(256)*1000)), \
+             patch.object(runner, "ALGORITHMS", ("ppo",)), \
+             patch.object(runner, "Baselines") as controls, \
+             patch.object(runner, "train_ppo", return_value=(Network(11), {})), \
+             patch.object(runner, "infer", return_value=(0., 0.)), \
+             patch.object(runner, "short_ope", return_value={"status":"invalid", "failedEpisodes":1, "reason":"fixture"}):
+            controls.names = ()
+            yield
+
+    def test_terminal_ledger_write_failure_aborts_without_reclassification(self):
+        for target in ("training", "replay"):
+            for operation in ("write", "flush"):
+                with self.subTest(target=target, operation=operation), tempfile.TemporaryDirectory() as td:
+                    root = Path(td); attempts = []; injected = []
+                    original_open = Path.open
+                    class Ledger:
+                        def __init__(self, stream):
+                            self.stream, self.fail_flush = stream, False
+                        def __enter__(self): return self
+                        def __exit__(self, *args): return self.stream.__exit__(*args)
+                        def write(self, text):
+                            event = json.loads(text)
+                            if event["status"] in ("complete", "failed"):
+                                attempts.append(event)
+                                training = event["id"].count("/") == 3
+                                if not injected and training == (target == "training"):
+                                    injected.append(True)
+                                    if operation == "write": raise OSError("fixture ledger write")
+                                    self.fail_flush = True
+                            return self.stream.write(text)
+                        def flush(self):
+                            if self.fail_flush:
+                                self.fail_flush = False
+                                raise OSError("fixture ledger flush")
+                            return self.stream.flush()
+                    def open_stream(path, *args, **kwargs):
+                        stream = original_open(path, *args, **kwargs)
+                        return Ledger(stream) if path == root/"run/events.jsonl" and args == ("x",) else stream
+                    with self.publication_fixture(root), patch.object(Path, "open", open_stream), \
+                         self.assertRaisesRegex(OSError, "fixture ledger"):
+                        runner.run(root/"unused-panel", root/"unused-funding", root/"run")
+                    self.assertEqual(len(injected), 1)
+                    self.assertEqual(len(attempts), 1 if target == "training" else 2)
+                    self.assertTrue(all(e["status"] == "complete" for e in attempts))
+                    self.assertFalse((root/"run/evidence-index.json").exists())
+                    self.assertFalse((root/"run/summary.json").exists())
+
+    def test_return_path_write_failure_aborts_before_replay_terminal(self):
+        for fail_row in (1, 2, 20):
+            with self.subTest(fail_row=fail_row), tempfile.TemporaryDirectory() as td:
+                root = Path(td); writes = []; original_writer = csv.writer
+                class ReturnsWriter:
+                    def __init__(self, stream, *args, **kwargs):
+                        self.writer = original_writer(stream, *args, **kwargs)
+                    def writerow(self, row):
+                        writes.append(row)
+                        if len(writes) == fail_row+1: raise OSError("fixture return write")
+                        return self.writer.writerow(row)
+                with self.publication_fixture(root), patch.object(runner.csv, "writer", ReturnsWriter), \
+                     self.assertRaisesRegex(OSError, "fixture return write"):
+                    runner.run(root/"unused-panel", root/"unused-funding", root/"run")
+                self.assertEqual(len(writes), fail_row+1)
+                events = [json.loads(line) for line in (root/"run/events.jsonl").read_text().splitlines()]
+                self.assertEqual([e["status"] for e in events], ["started", "complete", "started"])
+                self.assertFalse((root/"run/evidence-index.json").exists())
+                self.assertFalse((root/"run/summary.json").exists())
+                with (root/"run/returns.csv").open() as stream:
+                    self.assertEqual(len(list(csv.DictReader(stream))), fail_row-1)
+
+    def test_successful_publication_has_one_terminal_per_trial(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.publication_fixture(root):
+                runner.run(root/"unused-panel", root/"unused-funding", root/"run")
+            events = [json.loads(line) for line in (root/"run/events.jsonl").read_text().splitlines()]
+            planned = json.loads((root/"run/planned-registry.json").read_text())
+            terminals = [e for e in events if e["status"] in ("complete", "failed")]
+            self.assertEqual(len(terminals), len(planned))
+            self.assertEqual({e["id"] for e in terminals}, {e["id"] for e in planned})
+            self.assertTrue(all(e["status"] == "complete" for e in terminals))
+            export(root/"run", root/"review", rss_unit="bytes", platform_label="fixture",
+                   expected_index_sha256=runner.digest(root/"run/evidence-index.json"))
+            summary = json.loads((root/"review/evaluation-summary.json").read_text())
+            self.assertEqual(summary["replayPaths"], len(runner.STRESSES))
+            self.assertEqual(summary["totalFailuresByReason"], {"complete":len(runner.STRESSES)})
+            self.assertFalse(summary["promotionAllowed"])
+            self.assertEqual(len(list((root/"review").iterdir())), 7)
 
     def test_registered_separation_and_no_final_holdout(self):
         r = json.loads(REGISTRATION.read_text())

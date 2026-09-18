@@ -195,13 +195,6 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                 artifact = output / "policies" / (trial.replace("/", "_") + ".json")
                                 info["artifactSha256"] = save_policy(artifact, net, provenance)
                                 info["artifactBytes"] = artifact.stat().st_size
-                                training.append(info)
-                                event({"id": trial, "status": "complete", "seconds": info["seconds"], "artifactSha256": info["artifactSha256"]})
-                                try:
-                                    ope_result = short_ope(prices, funding, scale, h, split["testStart"], split["testStop"], net, seed)
-                                except Exception as exc:
-                                    ope_result = {"status": "failed", "reason": exception_reason(exc)}
-                                ope.append({"id": trial, "result": ope_result})
                             except Exception as exc:
                                 reason = exception_reason(exc)
                                 event({"id": trial, "status": "failed", "reason": reason})
@@ -216,6 +209,14 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                                         "stress": stress, "result": result})
                                         event({"id": replay_id, **result})
                                 continue
+                            # Evidence publication errors must abort the archive, not relabel a fit.
+                            training.append(info)
+                            event({"id": trial, "status": "complete", "seconds": info["seconds"], "artifactSha256": info["artifactSha256"]})
+                            try:
+                                ope_result = short_ope(prices, funding, scale, h, split["testStart"], split["testStop"], net, seed)
+                            except Exception as exc:
+                                ope_result = {"status": "failed", "reason": exception_reason(exc)}
+                            ope.append({"id": trial, "result": ope_result})
                         for stress, cfg in STRESSES.items():
                             if alg == "cql_no_inventory_penalty":
                                 cfg = replace(cfg, risk_penalty=0)
@@ -231,15 +232,16 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                     return result, (time.perf_counter_ns() - tick) / 1e6
                                 try:
                                     env, result = replay_policy(prices[symbol], funding[symbol], split["testStart"], split["testStop"], h, scale, choose, cfg)
-                                    records.append({"id": replay_id, "algorithm": alg, "seed": seed, "fold": fi,
-                                                    "horizon": h, "symbol": symbol, "stress": stress, "result": result})
+                                except Exception as exc:
+                                    env = None
+                                    result = {"status": "failed", "reason": exception_reason(exc), "observations": 0}
+                                # Keep CSV/ledger failures outside the replay exception boundary.
+                                records.append({"id": replay_id, "algorithm": alg, "seed": seed, "fold": fi,
+                                                "horizon": h, "symbol": symbol, "stress": stress, "result": result})
+                                if env is not None:
                                     for row in env.rows:
                                         writer.writerow([trial + "/" + stress, symbol, row["t"], *[row[k] for k in ("net", "equity", "gross", "funding", "fee", "spread", "slippage", "impact", "exposure")]])
-                                    event({"id": replay_id, "status": result["status"], "reason": result.get("reason"), "observations": result["observations"]})
-                                except Exception as exc:
-                                    result = {"status": "failed", "reason": exception_reason(exc), "observations": 0}
-                                    records.append({"id": replay_id, "algorithm": alg, "seed": seed, "fold": fi, "horizon": h, "symbol": symbol, "stress": stress, "result": result})
-                                    event({"id": replay_id, **result})
+                                event({"id": replay_id, "status": result["status"], "reason": result.get("reason"), "observations": result["observations"]})
                         print(f"completed {trial}", flush=True)
     write_json(output / "training.json", training)
     write_json(output / "evaluation.json", records)
