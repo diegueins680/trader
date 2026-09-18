@@ -189,6 +189,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R24",
           "statement": "Offline neural forward evaluation rejects floating-point overflow and invalid arithmetic and requires finite hidden preactivations before tanh and finite outputs before returning values. The contract covers actor and critic vector/batch evaluation; finite saturation remains valid. Inference catches failure as an absent proposal, which shielding rejects without a fill; OPE failure occurs before the affected transition. Valid forward bytes, action semantics and persistence format remain unchanged. This does not certify parameter provenance, validate all representations or gradients/optimizer state, guarantee a preemptive timeout or establish economic value."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R25",
+          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. A failed update leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
         }
       ],
       "ensures": [
@@ -666,6 +670,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_network_finite_forward_golden_parity"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_optimizer_rejects_overflowing_norm_without_mutation"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_optimizer_admits_learning_rate_and_counter_before_gradients"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_optimizer_late_failure_preserves_all_state"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_optimizer_finite_golden_parity"
         },
         {
           "level": "bounded-exhaustive",

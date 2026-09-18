@@ -124,6 +124,10 @@ Offline neural evaluation rejects non-finite hidden arithmetic before activation
 so saturation cannot hide overflow and produce a directional proposal. Inference
 failure remains absent and shielded. See the [network-numerics audit](research-notes/sequential-control-2026-09-17/network-numerics-audit.md).
 
+Offline neural training rejects overflowing clipping norms and invalid Adam updates.
+Failed updates preserve all parameters, moments and the update counter. See the
+[optimizer-atomicity audit](research-notes/sequential-control-2026-09-17/optimizer-atomicity-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
