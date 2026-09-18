@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Episode Accounting: record final-sample terminal episodes, including accounted risk losses, and add `episodeAccountingV2` counts distinguishing completed episodes from budget truncation. Aggregate counts across training collections and reconcile them before report export; preserve legacy report bytes and learning updates.
+
 - Research/Training Admission: reject zero/negative or malformed budgets, seeds and horizons before PPO/Q model initialization. Require a boolean offline mode, validate risk coefficients before initialization and normalize NumPy integers before offset/batch arithmetic; preserve registered learning behavior and valid training outputs.
 
 - Research/Policy Save Admission: share v1 parameter validation between offline policy save and load. Reject missing/extra fields, wrong shapes, boolean/complex/object/masked arrays and non-finite portable values before creating an artifact; retain valid artifact bytes and exclusive-write behavior. Add runner-to-export failure accounting and 36-case artifact compatibility fixtures.

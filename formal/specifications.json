@@ -137,6 +137,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R11",
           "statement": "PPO and Q training validate integer horizons, seeds and positive step budgets before model construction or RNG use. Python/NumPy integers excluding booleans are admitted only for horizons 1/3/6, nonnegative seeds and positive budgets, then converted to Python integers before seed offsets or batch arithmetic. Q training requires an exact Python boolean offline mode and validates execution/risk coefficients before initialization. Zero/negative budgets cannot return an untrained PPO policy as a successful fit, truthy nonboolean modes cannot select an algorithm, and fixed-width arithmetic cannot wrap training controls. Registered parameters and valid learning behavior remain unchanged; this is not a compute-budget ceiling."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R12",
+          "statement": "Collection records every admitted terminal episode immediately, including the final requested decision and accounted risk stops. Optional episodeAccountingV2 metadata counts collections, started/completed/truncated episodes and decisions; completion denotes terminal accounting, not successful performance. Budget-truncated episodes retain nonterminal successors without invented liquidation or episode returns. Trainers sum counts across actual collections. Before export, v2 counts must be nonnegative integers excluding booleans, match the algorithm's collection schedule, positive step budget and terminal records, and reconcile started = completed + truncated. Unknown accounting versions and invalid terminal outcomes fail before report output. Legacy records without v2 retain their original bytes and unknown coverage; no historical report is rewritten or promoted."
         }
       ],
       "ensures": [
@@ -374,6 +378,26 @@
           "level": "bounded-exhaustive",
           "path": "test/sequential_screen_test.py",
           "contains": "test_ope_matches_enumerated_behavior_tree"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_episode_accounting_includes_final_terminal_and_risk_loss"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_training_aggregates_episode_accounting_across_rollouts"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_reconciles_v2_episode_accounting_before_output"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_legacy_episode_reports_preserve_exact_bytes"
         },
         {
           "level": "bounded-exhaustive",

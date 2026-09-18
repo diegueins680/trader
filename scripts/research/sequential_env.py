@@ -321,15 +321,14 @@ def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale
     horizon, seed, count = int(horizon), int(seed), int(count)
     rng = np.random.default_rng(seed)
     symbols = sorted(prices)
-    rows, episodes, env = [], [], None
+    rows, episodes, env, starts = [], [], None, 0
     while len(rows) < count:
         if env is None or env.done:
-            if env is not None:
-                episodes.append({"return": env.equity - 1, "failure": env.failure})
             symbol = symbols[int(rng.integers(len(symbols)))]
             p = prices[symbol]
             start = int(rng.integers(24, len(p) - 96))
             env = Replay(p, funding[symbol], start, start + 97, horizon, scale, execution, enabled=True)
+            starts += 1
         s = env.observation()
         if s is None:
             raise ValueError("invalid training observation")
@@ -341,7 +340,11 @@ def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale
         nxt, reward, done = env.step(float(ACTIONS[a]))
         _admit_training_transition(env, left, nxt, reward, done)
         rows.append((s, a, reward, np.zeros(FEATURE_COUNT) if nxt is None else nxt, done, probs[a]))
+        if done:
+            episodes.append({"return": env.equity - 1, "failure": env.failure})
     return {"s": np.array([r[0] for r in rows]), "a": np.array([r[1] for r in rows]),
             "r": np.array([r[2] for r in rows]), "next": np.array([r[3] for r in rows]),
             "done": np.array([r[4] for r in rows]), "prob": np.array([r[5] for r in rows]),
-            "episodes": episodes}
+            "episodes": episodes,
+            "episodeAccountingV2": {"collections": 1, "started": starts, "completed": len(episodes),
+                                    "truncated": int(not env.done), "decisions": len(rows)}}

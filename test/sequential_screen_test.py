@@ -445,6 +445,112 @@ class SequentialContracts(unittest.TestCase):
         _, targets = advantages(d, n, .99)
         np.testing.assert_allclose(targets, d["r"])
 
+    def test_episode_accounting_includes_final_terminal_and_risk_loss(self):
+        p = np.full(121, 100.); f = np.zeros(121); scale = Scale.fit([p])
+        for h in (1, 3, 6):
+            length = 96//h
+            for count in (length-1, length, length+1, 2*length):
+                data = collect({"x":p}, {"x":f}, scale, h, 11, count,
+                               policy=lambda _:np.array([0., 1., 0.]))
+                with self.subTest(horizon=h, count=count):
+                    self.assertEqual(len(data["episodes"]), int(data["done"].sum()))
+                    self.assertEqual(data["episodeAccountingV2"], dict(collections=1,
+                        started=(count+length-1)//length, completed=count//length,
+                        truncated=int(count%length != 0), decisions=count))
+        f[26] = 64.
+        data = collect({"x":p}, {"x":f}, scale, 3, 11, 1,
+                       policy=lambda _:np.array([0., 0., 1.]))
+        self.assertEqual(len(data["episodes"]), 1)
+        self.assertEqual(data["episodes"][0]["failure"], "drawdown_limit")
+        self.assertAlmostEqual(data["episodes"][0]["return"], -.1605)
+        self.assertEqual(data["episodeAccountingV2"]["truncated"], 0)
+        partial = collect({"x":p}, {"x":np.zeros(121)}, scale, 1, 11, 1,
+                          policy=lambda _:np.array([0., 0., 1.]))
+        self.assertEqual(partial["episodes"], [])
+        self.assertEqual(partial["episodeAccountingV2"]["truncated"], 1)
+        self.assertFalse(partial["done"][0])
+        self.assertGreater(partial["next"][0, 6], 0)  # No fabricated terminal liquidation.
+
+    def test_training_aggregates_episode_accounting_across_rollouts(self):
+        p = np.full(121, 100.); f = np.zeros(121); scale = Scale.fit([p])
+        for algorithm in ("ppo", "double_dqn", "cql", "cql_no_inventory_penalty"):
+            for h in (1, 3):
+                args = ({"x":p}, {"x":f}, scale, h, 11)
+                observed = []
+                def observe_collection(*args, **kwargs):
+                    data = collect(*args, **kwargs)
+                    completed = int(data["done"].sum())
+                    truncated = int(not data["done"][-1])
+                    observed.append(dict(collections=1, completed=completed, truncated=truncated,
+                                         started=completed+truncated, decisions=len(data["done"])))
+                    return data
+                with patch("sequential_learning.collect", side_effect=observe_collection):
+                    _, info = (train_ppo(*args, steps=257) if algorithm=="ppo" else
+                        train_q(*args, offline=algorithm!="double_dqn", steps=257,
+                                risk_penalty=0. if algorithm=="cql_no_inventory_penalty" else .01))
+                offline = algorithm.startswith("cql")
+                expected = {key:sum(row[key] for row in observed) for key in observed[0]}
+                with self.subTest(algorithm=algorithm, horizon=h):
+                    self.assertEqual(expected["collections"], 1 if offline else 2)
+                    self.assertEqual(expected["decisions"], 257)
+                    self.assertEqual(len(info["episodes"]), expected["completed"])
+                    self.assertEqual(info["episodeAccountingV2"], expected)
+
+    def test_export_reconciles_v2_episode_accounting_before_output(self):
+        mutations = [None,
+            lambda f:f.update(episodeAccountingV2=None),
+            lambda f:f["episodeAccountingV2"].update(completed=True),
+            lambda f:f["episodeAccountingV2"].update(completed=-1),
+            lambda f:f["episodeAccountingV2"].update(completed=1),
+            lambda f:f["episodeAccountingV2"].update(started=2),
+            lambda f:f["episodeAccountingV2"].update(truncated=2, started=4),
+            lambda f:f["episodeAccountingV2"].update(collections=0),
+            lambda f:f["episodeAccountingV2"].update(collections=2),
+            lambda f:f["episodeAccountingV2"].update(decisions=192),
+            lambda f:f["episodeAccountingV2"].pop("started"),
+            lambda f:f["episodeAccountingV2"].update(extra=1),
+            lambda f:f.update(steps=True),
+            lambda f:f.update(episodes=[]),
+            lambda f:f["episodes"][0].update(failure="invalid_market_transition"),
+            lambda f:f["episodes"][0].update(**{"return":-1.}),
+            lambda f:f["episodes"][0].update(**{"return":True}),
+            lambda f:f.update(episodeAccountingV3=f.pop("episodeAccountingV2"))]
+        with tempfile.TemporaryDirectory() as td:
+            for i, mutate in enumerate(mutations):
+                root = Path(td)/str(i); _, values = self.export_fixture(root, evaluated_rl=True)
+                fit = values["training.json"][0]
+                fit.update(steps=193, episodes=[{"return":-.1605, "failure":"drawdown_limit"},
+                                               {"return":0., "failure":None}],
+                           episodeAccountingV2=dict(collections=1, started=3, completed=2, truncated=1, decisions=193))
+                if mutate is not None: mutate(fit)
+                (root/"training.json").write_text(json.dumps(values["training.json"])+"\n")
+                index = json.loads((root/"evidence-index.json").read_text())
+                index["training.json"] = runner.digest(root/"training.json")
+                (root/"evidence-index.json").write_text(json.dumps(index)+"\n")
+                output = Path(td)/f"review-{i}"
+                kwargs = dict(rss_unit="bytes", platform_label="fixture",
+                              expected_index_sha256=runner.digest(root/"evidence-index.json"))
+                with self.subTest(mutation=i):
+                    if mutate is not None:
+                        with self.assertRaises(ValueError): export(root, output, **kwargs)
+                        self.assertFalse(output.exists())
+                    else:
+                        export(root, output, **kwargs)
+                        report = json.loads((output/"multi-seed-training.json").read_text())[0]
+                        self.assertEqual(report["episodeAccountingV2"], fit["episodeAccountingV2"])
+                        self.assertEqual(report["trainingEpisodes"], 2)
+                        self.assertEqual(report["trainingFailures"], {"drawdown_limit":1, "complete":1})
+                        self.assertAlmostEqual(report["trainingEpisodeReturns"]["mean"], -.08025)
+
+    def test_legacy_episode_reports_preserve_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); sha, _ = self.export_fixture(root/"input", evaluated_rl=True)
+            export(root/"input", root/"review", rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+            rows = {p.name:p.read_text() for p in sorted((root/"review").iterdir())}
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(hashlib.sha256(json.dumps(rows, sort_keys=True, allow_nan=False).encode()).hexdigest(),
+                         "d9cdec2fa64d52f3f12d4d41ec1a8d9a3c3c7aca902dddc9b30f021d5c89661b")
+
     def test_training_indices_are_admitted_before_initialization(self):
         changes = [{field: bad} for field in ("horizon", "seed", "steps")
                    for bad in (True, np.bool_(True), None, "1", 1.5, np.array([1, 2]))]

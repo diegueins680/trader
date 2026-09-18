@@ -93,15 +93,21 @@ def _training_indices(horizon: int, seed: int, steps: int) -> tuple[int, int, in
     return int(horizon), int(seed), int(steps)
 
 
+def _episode_totals(rollouts: list[dict]) -> dict:
+    return {key: sum(row[key] for row in rollouts)
+            for key in ("collections", "started", "completed", "truncated", "decisions")}
+
+
 def train_ppo(prices, funding, scale, horizon: int, seed: int, steps: int = 4096):
     horizon, seed, steps = _training_indices(horizon, seed, steps)
     net, value = Network(seed), Network(seed + 1, 1)
-    episodes, losses = [], []
+    episodes, losses, rollouts = [], [], []
     for batch in range((steps + 255) // 256):
         count = min(256, steps - batch * 256)
         data = collect(prices, funding, scale, horizon, seed + 1000 + batch, count,
                        policy=lambda s: softmax(net.forward(s)))
         episodes.extend(data["episodes"])
+        rollouts.append(data["episodeAccountingV2"])
         adv, targets = advantages(data, value, 0.99**horizon)
         for _ in range(4):
             loss, grad = ppo_gradient(net.forward(data["s"]), data["a"], data["prob"], adv)
@@ -109,7 +115,8 @@ def train_ppo(prices, funding, scale, horizon: int, seed: int, steps: int = 4096
             residual = value.forward(data["s"]).ravel() - targets
             value.update(data["s"], (residual / count)[:, None], 0.0003)
         losses.append(loss)
-    return net, {"steps": steps, "updates": net.steps, "episodes": episodes, "losses": losses}
+    return net, {"steps": steps, "updates": net.steps, "episodes": episodes, "losses": losses,
+                 "episodeAccountingV2": _episode_totals(rollouts)}
 
 
 def bellman_gradient(q: np.ndarray, actions: np.ndarray, targets: np.ndarray,
@@ -135,11 +142,12 @@ def train_q(prices, funding, scale, horizon: int, seed: int,
     cfg = Execution(risk_penalty=risk_penalty)
     net, target = Network(seed), Network(seed)
     rng = np.random.default_rng(seed + 2)
-    episodes, losses = [], []
+    episodes, losses, rollouts = [], [], []
     buffer = None
     if offline:
         buffer = collect(prices, funding, scale, horizon, seed + 2000, steps, execution=cfg)
         episodes.extend(buffer["episodes"])
+        rollouts.append(buffer["episodeAccountingV2"])
     for batch in range((steps + 255) // 256):
         count = min(256, steps - batch * 256)
         if not offline:
@@ -150,6 +158,7 @@ def train_q(prices, funding, scale, horizon: int, seed: int,
             new = collect(prices, funding, scale, horizon, seed + 3000 + batch, count,
                           policy=explore, execution=cfg)
             episodes.extend(new["episodes"])
+            rollouts.append(new["episodeAccountingV2"])
             buffer = new if buffer is None else {k: np.concatenate([buffer[k], new[k]])
                                                 for k in ("s", "a", "r", "next", "done", "prob")}
         for _ in range(count):
@@ -164,6 +173,7 @@ def train_q(prices, funding, scale, horizon: int, seed: int,
         losses.append(loss)
     support = np.bincount(buffer["a"], minlength=3).tolist()
     return net, {"steps": steps, "updates": net.steps, "episodes": episodes,
+                 "episodeAccountingV2": _episode_totals(rollouts),
                  "losses": losses, "behaviorActionCounts": support,
                  "bufferTransitions": len(buffer["a"]), "behavior": "uniform_simulated" if offline else "epsilon_greedy_simulated"}
 

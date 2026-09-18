@@ -105,6 +105,18 @@ behavior buffer with exact probability 1/3 per target. This is simulated
 counterfactual behavior, not exchange fill logs or live exploration. Fixed last
 updates are evaluated; no best checkpoint or best seed is selected.
 
+Every fully accounted terminal is now summarized immediately, including a terminal
+on the collection budget's last sample. Optional `episodeAccountingV2` training
+metadata counts collections, started, completed, truncated and decisions. Completed
+includes accounted risk stops; it is not a favorable outcome classification. A live
+episode at a collection cutoff is truncated, retaining its nonterminal successor
+without fabricated liquidation or an episode return. PPO/Double DQN aggregate
+across their 256-decision collections; CQL counts its single offline collection.
+Aborted calls return no successful coverage record. Legacy archives without v2
+retain their original, potentially incomplete episode-summary coverage. The new
+metadata does not change v1 observations, rewards, transitions, learning or policy
+artifacts. See the [accounting audit](episode-accounting-v2-audit.md).
+
 PPO and Q entry points validate training controls before constructing a model or
 using RNGs. Horizons, seeds and step budgets require Python/NumPy integers excluding
 booleans, with horizons 1/3/6, nonnegative seeds and strictly positive budgets.

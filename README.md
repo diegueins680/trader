@@ -66,6 +66,11 @@ mode before model initialization. NumPy integers normalize before seed-offset an
 batch arithmetic. See the
 [training-admission audit](research-notes/sequential-control-2026-09-17/training-admission-audit.md).
 
+Training reports include versioned counts of completed and budget-truncated episodes.
+Terminal losses are recorded even on the final training sample; truncated episodes
+do not receive fabricated liquidation returns. Legacy reports retain their original
+coverage. See the [episode-accounting audit](research-notes/sequential-control-2026-09-17/episode-accounting-v2-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
