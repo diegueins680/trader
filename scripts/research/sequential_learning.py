@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import time
 import numpy as np
-from sequential_env import ACTIONS, ENVIRONMENT, FEATURE_COUNT, OBSERVATION, Execution, _integer, collect
+from sequential_env import ACTIONS, ENVIRONMENT, FEATURE_COUNT, OBSERVATION, Execution, _finite_real, _integer, collect
 
 
 def softmax(z: np.ndarray) -> np.ndarray:
@@ -48,20 +48,32 @@ class Network:
         return {"w1": x.T @ dh, "b1": dh.sum(0), "w2": h.T @ dz, "b2": dz.sum(0)}
 
     def update(self, x: np.ndarray, dz: np.ndarray, lr: float) -> None:
-        grads = self.gradients(x, dz)
-        if not all(np.isfinite(g).all() for g in grads.values()):
-            raise ValueError("non-finite gradient")
-        norm = np.sqrt(sum(np.sum(g**2) for g in grads.values()))
-        self.steps += 1
-        for k, grad in grads.items():
-            g = grad / max(1.0, norm)
-            self.m[k] = 0.9 * self.m[k] + 0.1 * g
-            self.v[k] = 0.999 * self.v[k] + 0.001 * g**2
-            m = self.m[k] / (1 - 0.9**self.steps)
-            v = self.v[k] / (1 - 0.999**self.steps)
-            self.p[k] -= lr * m / (np.sqrt(v) + 1e-8)
-        if not all(np.isfinite(v).all() for v in self.p.values()):
-            raise ValueError("non-finite model")
+        if not _finite_real(lr) or lr <= 0 or not _integer(self.steps) or self.steps < 0:
+            raise ValueError("invalid optimizer learning rate or step counter")
+        try:
+            with np.errstate(over="raise", invalid="raise", divide="raise"):
+                grads = self.gradients(x, dz)
+                if not all(np.isfinite(g).all() for g in grads.values()):
+                    raise ValueError("non-finite gradient")
+                norm = np.sqrt(sum(np.sum(g**2) for g in grads.values()))
+                if not np.isfinite(norm):
+                    raise ValueError("non-finite gradient norm")
+                steps = int(self.steps) + 1
+                params, moments, variances = {}, {}, {}
+                for k, grad in grads.items():
+                    g = grad / max(1.0, norm)
+                    moments[k] = 0.9 * self.m[k] + 0.1 * g
+                    variances[k] = 0.999 * self.v[k] + 0.001 * g**2
+                    m = moments[k] / (1 - 0.9**steps)
+                    v = variances[k] / (1 - 0.999**steps)
+                    params[k] = self.p[k] - lr * m / (np.sqrt(v) + 1e-8)
+                if not all(np.isfinite(v).all() for state in (params, moments, variances)
+                           for v in state.values()):
+                    raise ValueError("non-finite optimizer state")
+        except FloatingPointError as exc:
+            raise ValueError("non-finite optimizer arithmetic") from exc
+        # Publish only after every parameter and moment update succeeds.
+        self.p, self.m, self.v, self.steps = params, moments, variances, steps
 
     def copy_from(self, other: Network) -> None:
         self.p = {k: v.copy() for k, v in other.p.items()}
