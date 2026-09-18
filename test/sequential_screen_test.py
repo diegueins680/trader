@@ -1019,6 +1019,72 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "fixture inference failure"):
                 self.short_ope_fixture(net)
 
+    def test_short_ope_rejects_invalid_controls_before_sampling(self):
+        cases = [("episodes", x) for x in (0, -1, True, np.bool_(True), 1.5, "1", np.array(1))]
+        cases += [("seed", x) for x in (-1, True, .5, "0", np.array(0))]
+        cases += [("horizon", x) for x in (0, 2, 7, True, 1., np.uint64(2**64-1))]
+        cases += [("start", x) for x in (23, -1, True, 30., np.array(30))]
+        cases += [("stop", x) for x in (36, 30, 129, True, 80., np.array(80))]
+        net = Network(11)
+        for key, value in cases:
+            with self.subTest(key=key, value=repr(value)), \
+                 patch("sequential_evaluation.np.random.default_rng", wraps=np.random.default_rng) as rng, \
+                 patch.object(net, "forward", return_value=np.array([0., 1., 0.])) as forward:
+                with self.assertRaisesRegex(ValueError, "invalid short OPE"):
+                    self.short_ope_fixture(net, **{key:value})
+                rng.assert_not_called()
+                forward.assert_not_called()
+
+    def test_short_ope_rejects_invalid_series_coverage_before_sampling(self):
+        p = np.full(128, 100.); f = np.zeros(128)
+        cases = [(None, {"x":f}), ({}, {}), ({"x":p}, {}),
+                 ({"x":p}, {"x":f, "extra":f}), ({"":p}, {"":f}), ({1:p}, {1:f}),
+                 ({"bad":p[:79], "x":p}, {"bad":f[:79], "x":f})]
+        for value in (p.tolist(), np.ones(128, dtype=bool), np.ones(128, dtype=complex),
+                      np.ones(128, dtype=object), np.ones((128, 1)), np.ma.array(p, mask=True), p[:79]):
+            cases.append(({"x":value}, {"x":f}))
+        for value in (None, f.tolist(), np.zeros(128, dtype=bool), np.zeros(128, dtype=complex),
+                      np.zeros(128, dtype=object), np.ma.array(f, mask=True), f[:127]):
+            cases.append(({"x":p}, {"x":value}))
+        net = Network(11)
+        for prices, funding in cases:
+            with self.subTest(prices=repr(prices), funding=repr(funding)), \
+                 patch("sequential_evaluation.np.random.default_rng", wraps=np.random.default_rng) as rng, \
+                 patch.object(net, "forward", return_value=np.array([0., 1., 0.])) as forward:
+                with self.assertRaisesRegex(ValueError, "invalid short OPE"):
+                    self.short_ope_fixture(net, prices=prices, funding=funding)
+                rng.assert_not_called()
+                forward.assert_not_called()
+
+    def test_short_ope_integer_compatibility_and_unused_values(self):
+        net = Network(11)
+        with patch.object(net, "forward", return_value=np.array([0., 1., 0.])):
+            expected = self.short_ope_fixture(net)
+            for integer in (np.int64, np.uint64):
+                with self.subTest(integer=integer):
+                    actual = self.short_ope_fixture(net, horizon=integer(1), start=integer(30),
+                                                    stop=integer(80), seed=integer(0), episodes=integer(1))
+                    self.assertEqual(actual, expected)
+            p, f = np.full(128, 100.), np.zeros(128)
+            p[:6] = np.nan; p[80:] = np.nan
+            f[:30] = np.nan; f[80:] = np.nan
+            self.assertEqual(self.short_ope_fixture(net, prices={"x":p}, funding={"x":f}), expected)
+
+    def test_short_ope_minimal_valid_windows_at_all_horizons(self):
+        net = Network(11)
+        for horizon in (1, 3, 6):
+            stop = 30 + 6*horizon + 1
+            with self.subTest(horizon=horizon), \
+                 patch.object(net, "forward", return_value=np.array([0., 1., 0.])), \
+                 patch("sequential_evaluation.Replay", wraps=Replay) as replay:
+                result = self.short_ope_fixture(net, horizon=horizon, stop=stop)
+                self.assertEqual(replay.call_count, 2)
+                for call in replay.call_args_list:
+                    self.assertEqual(call.args[2:5], (30, stop, horizon))
+                self.assertEqual(result["episodes"], 1)
+                self.assertEqual(result["horizonDecisions"], 6)
+                self.assertFalse(result["reliable"])
+
     def test_ope_matches_enumerated_behavior_tree(self):
         # Enumerate all length-two trajectories of a uniform two-action policy.
         # The deterministic target selects action zero twice and earns 1 + .5*3.
