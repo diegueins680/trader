@@ -279,6 +279,34 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_development(p, p, json.loads(REGISTRATION.read_text()))
 
+    def test_development_parser_uses_the_verified_byte_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            panel, settlements = Path(td)/"panel.csv", Path(td)/"settlements.csv"
+            panel.write_text("symbol,openTime,closeTime,close\n"
+                             "BTCUSDT,0,999,100\nBTCUSDT,1000,1999,101\nBTCUSDT,2000,2999,102\n")
+            settlements.write_text("symbol,fundingTime,fundingRate,resolvedMarkPrice\n"
+                                   "BTCUSDT,1999,0.001,100\n")
+            spec = {"data": {"panelSha256": runner.digest(panel),
+                    "settlementsSha256": runner.digest(settlements), "symbols": ["BTCUSDT"],
+                    "startOpenTime": 0, "endOpenTime": 2000,
+                    "intervalMilliseconds": 1000, "rowsPerSymbol": 3}}
+            original_read = runner.pd.read_csv
+            def replace_before_parse(source, *args, **kwargs):
+                panel.write_text(panel.read_text().replace(",100\n", ",900\n"))
+                settlements.write_text(settlements.read_text().replace(",0.001,", ",0.9,"))
+                return original_read(source, *args, **kwargs)
+            with patch.object(runner.pd, "read_csv", side_effect=replace_before_parse):
+                prices, funding, _ = load_development(panel, settlements, spec)
+            np.testing.assert_array_equal(prices["BTCUSDT"], [100., 101., 102.])
+            np.testing.assert_allclose(funding["BTCUSDT"], [0., 0.1, 0.])
+            self.assertFalse(prices["BTCUSDT"].flags.writeable)
+            self.assertFalse(funding["BTCUSDT"].flags.writeable)
+            # A subsequent invocation must reject the now-replaced bytes before parsing.
+            with patch.object(runner.pd, "read_csv") as read:
+                with self.assertRaises(ValueError):
+                    load_development(panel, settlements, spec)
+                read.assert_not_called()
+
     def test_artifact_rejects_invalid_provenance_even_with_matching_hash(self):
         valid = {"codeCommit": "a"*40, "registrationSha256": "b"*64, "dataSha256": "c"*64,
                  "seed": 11, "horizon": 1, "algorithm": "ppo", "fold": 0}
@@ -331,6 +359,49 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 export(root/"run",root/"tampered",rss_unit="bytes",platform_label="fixture",expected_index_sha256=index_sha)
             self.assertFalse((root/"tampered").exists())
+
+    def test_run_provenance_keeps_admitted_hashes_after_input_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            panel, settlements = root/"panel.csv", root/"funding.csv"
+            with panel.open("w", newline="") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(["symbol", "openTime", "closeTime", "close"])
+                writer.writerows(["x", i*1000, i*1000+999, p] for i, p in enumerate(self.p))
+            settlements.write_text("symbol,fundingTime,fundingRate,resolvedMarkPrice\n"
+                                   "x,1999,0.001,100\n")
+            registration = json.loads(REGISTRATION.read_text())
+            registration["data"].update(panelSha256=runner.digest(panel),
+                settlementsSha256=runner.digest(settlements), symbols=["x"],
+                startOpenTime=0, endOpenTime=255000, intervalMilliseconds=1000,
+                rowsPerSymbol=256, decisionHorizonBars=[1])
+            registration["seeds"] = [11]
+            registration["validation"]["outerFolds"] = [{"trainStop":160,"testStart":166,"testStop":240}]
+            reg = root/"registration.json"; reg.write_text(json.dumps(registration))
+            def admit_then_replace(*args):
+                data = load_development(*args)
+                panel.write_text("replaced after verified admission")
+                settlements.write_text("replaced after verified admission")
+                return data
+            with patch.object(runner, "REGISTRATION", reg), \
+                 patch.object(runner, "source_commit", return_value="a"*40), \
+                 patch.object(runner, "load_development", side_effect=admit_then_replace), \
+                 patch.object(runner, "ALGORITHMS", ("ppo",)), \
+                 patch.object(runner, "Baselines") as controls, \
+                 patch.object(runner, "train_ppo", return_value=(Network(11), {})), \
+                 patch.object(runner, "short_ope", return_value={"status":"invalid","reason":"fixture"}):
+                controls.names = ()
+                runner.run(panel, settlements, root/"run")
+            manifest = json.loads((root/"run/manifest.json").read_text())
+            provenance = json.loads((root/"run/policies/ppo_h1_f0_s11.json").read_text())["provenance"]
+            for source_key, policy_key, path in [("panelSha256", "dataSha256", panel),
+                                                ("settlementsSha256", "fundingSha256", settlements)]:
+                expected = registration["data"][source_key]
+                self.assertEqual(manifest[source_key], expected)
+                self.assertEqual(provenance[policy_key], expected)
+                self.assertNotEqual(runner.digest(path), expected)
+            self.assertFalse(manifest["holdoutOpened"])
+            self.assertFalse(manifest["promotionAllowed"])
 
     def test_registered_separation_and_no_final_holdout(self):
         r = json.loads(REGISTRATION.read_text())

@@ -201,3 +201,9 @@ means invalidates the batch rather than emitting NaN/Infinity or clipping weight
 Zero target support remains ESS zero with absent WIS. An enumerated two-action,
 two-decision fixture independently checks IS, PDIS, WIS and DR; finite estimates
 still grant no promotion authority. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Sequential CSV admission binds verification and parsing to the same immutable
+byte snapshots. Both hashes must match before either CSV is parsed. Run and
+policy metadata retain those proven hashes instead of reopening mutable source
+paths for provenance. Replacement-race and complete synthetic-run fixtures check
+these obligations; no financial experiment or protected holdout is reopened.
