@@ -167,3 +167,8 @@ Offline Adam updates reject invalid controls, overflowing norms and invalid
 arithmetic without partially changing model or optimizer state. See the
 [optimizer-atomicity audit](optimizer-atomicity-audit.md); no protected historical
 period is needed to reproduce these deterministic engineering tests.
+
+The offline runner now captures registered source and registration files once,
+validates those bytes against Git and retains their hashes for the entire run.
+The [source-snapshot audit](source-snapshot-audit.md) reproduces file replacement
+using temporary synthetic fixtures; no protected market archive is needed.

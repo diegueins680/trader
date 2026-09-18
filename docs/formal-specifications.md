@@ -430,3 +430,12 @@ Parameters, moments and the counter are published only after complete validation
 This preserves pre-existing state on failure, including pre-existing corruption;
 it is not state repair, a complete optimizer representation contract or a
 convergence claim. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+
+`A-SEQUENTIAL-RESEARCH-R26` pins registration parsing and source/provenance hashes
+to bytes checked against one Git commit before dataset access. Four witnesses
+cover replacement after validation/data admission/during training, validation of
+captured bytes without reopening paths, pre-data rejection, and one-read identity
+on valid runs. Later path contents cannot relabel a saved policy. This is file
+identity, not interpreter/dependency attestation or independent research evidence.
+`RL-OFFLINE-001` remains HIGH/OPEN.

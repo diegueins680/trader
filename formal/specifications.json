@@ -193,6 +193,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R25",
           "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. A failed update leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R26",
+          "statement": "The offline screen captures its registered source and registration files once before data admission and compares those exact bytes with blobs from one resolved Git commit. It parses the registration and computes source/registration provenance from admitted snapshots, retaining the same registration hash in the manifest and every saved policy. Later pathname replacement cannot change parsed settings or relabel provenance. Mismatching captured bytes reject before dataset access or archive creation; a fresh invocation validates fresh snapshots. Valid artifact fields and hashes retain their semantics. This checks file bytes, not loaded-interpreter attestation, dependency/environment identity, Git trust, data authenticity or economic efficacy; no order authority or promotion permission is added."
         }
       ],
       "ensures": [
@@ -690,6 +694,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_optimizer_finite_golden_parity"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_runner_pins_registration_and_sources_across_replacement"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_source_commit_validates_captured_bytes_without_reopening"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_run_rejects_uncommitted_snapshot_before_data_access"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_runner_reads_sources_once_and_preserves_manifest"
         },
         {
           "level": "bounded-exhaustive",
