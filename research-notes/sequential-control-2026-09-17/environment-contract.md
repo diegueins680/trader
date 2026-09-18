@@ -105,6 +105,16 @@ behavior buffer with exact probability 1/3 per target. This is simulated
 counterfactual behavior, not exchange fill logs or live exploration. Fixed last
 updates are evaluated; no best checkpoint or best seed is selected.
 
+PPO and Q entry points validate training controls before constructing a model or
+using RNGs. Horizons, seeds and step budgets require Python/NumPy integers excluding
+booleans, with horizons 1/3/6, nonnegative seeds and strictly positive budgets.
+They normalize to Python integers before seed offsets and batch arithmetic. Q
+mode requires exact Python `True` or `False`; execution/risk coefficients are also
+validated before initialization. Invalid controls raise instead of returning a
+zero-update fit or selecting a mode through truthiness. The registered 4,096-step
+budget remains unchanged; this validation does not impose a new compute ceiling.
+See the [training-admission audit](training-admission-audit.md).
+
 Episode indices, horizons, collection seeds and transition budgets require Python
 or NumPy integers, excluding booleans; admitted NumPy integers normalize to Python
 integers. Horizons remain 1/3/6, seeds nonnegative and budgets positive. Collection
