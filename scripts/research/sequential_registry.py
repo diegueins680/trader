@@ -80,6 +80,47 @@ def require_outcome_reason(status, reason):
             if status == 'failed' else reason is None, 'status/reason semantics')
 
 
+def reconcile_ope_payload(result):
+    """Check v1 producer shapes, not the truth or reliability of estimates."""
+    require(isinstance(result, dict) and bool(result), 'missing OPE result')
+    require_outcome_reason('failed', result.get('reason'))
+    if 'status' in result:
+        status = result['status']
+        require(status in ('failed', 'invalid'), 'unsupported OPE status')
+        expected = {'status', 'reason'} | ({'failedEpisodes'} if status == 'invalid' else set())
+        require(set(result) == expected, 'invalid OPE failure shape')
+        if status == 'invalid':
+            require(integer(result['failedEpisodes']) and result['failedEpisodes'] > 0, 'invalid OPE failure count')
+        return
+    fields = {'ordinaryIS', 'perDecisionIS', 'weightedIS', 'doublyRobust', 'effectiveSampleSize',
+              'maxTrajectoryWeight', 'nonzeroTrajectories', 'episodes', 'horizonDecisions',
+              'weightClipping', 'reliable', 'reason', 'conditionalBootstrap95', 'directSimulatorValue',
+              'valueModel', 'uncertaintyScope', 'liveStateActionSupport', 'simulatedActionSupport'}
+    require(set(result) == fields, 'invalid OPE estimate shape')
+    require(result['reliable'] is False and result['weightClipping'] == 'none' and
+            result['liveStateActionSupport'] == 'unavailable', 'unsupported OPE reliability/support')
+    require(all(isinstance(result[k], str) and bool(result[k].strip())
+                for k in ('valueModel', 'uncertaintyScope')), 'missing OPE limitations')
+    require(result['simulatedActionSupport'] == [1/3, 1/3, 1/3], 'invalid simulated OPE support')
+    require(all(integer(result[k]) for k in ('episodes', 'nonzeroTrajectories', 'horizonDecisions')) and
+            result['episodes'] > 0 and result['horizonDecisions'] == 6 and
+            result['nonzeroTrajectories'] <= result['episodes'], 'invalid OPE episode counts')
+    ess, weight = number(result['effectiveSampleSize']), number(result['maxTrajectoryWeight'])
+    require(0 <= ess <= result['nonzeroTrajectories'] + 1e-12 and weight >= 0, 'invalid OPE support metrics')
+    if result['nonzeroTrajectories'] == 0:
+        require(ess == 0 and weight == 0 and result['weightedIS'] is None, 'zero-support OPE metrics')
+    else:
+        require(ess > 0 and weight > 0, 'positive-support OPE metrics')
+        number(result['weightedIS'])
+    for key in ('ordinaryIS', 'perDecisionIS', 'doublyRobust', 'directSimulatorValue'):
+        number(result[key])
+    intervals = result['conditionalBootstrap95']
+    require(isinstance(intervals, dict) and set(intervals) == {'IS', 'PDIS', 'DR'}, 'invalid OPE intervals')
+    for bounds in intervals.values():
+        require(isinstance(bounds, list) and len(bounds) == 2 and
+                number(bounds[0]) <= number(bounds[1]), 'invalid OPE interval bounds')
+
+
 def reconcile_groups(summary, records, training_count, planned_count):
     for key, expected in [('trainingFits', training_count), ('replayPaths', len(records)),
                           ('plannedEntries', planned_count)]:
@@ -180,6 +221,9 @@ def reconcile(planned, events, training, records, ope, summary, index):
                     result['observations'] == 0, 'failed training has evaluated replay')
         else:
             require(key in started, 'evaluated replay start event missing')
-    require(set(unique(ope, 'OPE')) == successful, 'OPE rows differ from successful fits')
+    ope_rows = unique(ope, 'OPE')
+    require(set(ope_rows) == successful, 'OPE rows differ from successful fits')
+    for row in ope_rows.values():
+        reconcile_ope_payload(row.get('result'))
     reconcile_groups(summary, records, len(fits), len(roster))
     return terminal

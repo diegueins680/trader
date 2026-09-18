@@ -148,6 +148,19 @@ conflicting labels require investigation; the exporter does not rewrite archives
 to make them consistent. The original archive contains successful fits and remains
 compatible, while synthetic failed-producer fixtures exercise the current path.
 
+## OPE payload coverage
+
+An ID-only successful-fit OPE placeholder previously passed coverage and was
+published without an outcome. The exporter now requires one of the producer's
+three v1 payload shapes: invalid batches with positive failed-episode counts,
+exceptions with nonblank reasons, or complete conditional estimates with finite
+metrics/support/intervals and explicit unreliability. A fixture reproduced the
+ID-only acceptance; tests cover valid failure and estimator shapes as well as
+missing payloads, unsupported reliability and malformed support/interval fields.
+This is structural validation, not replication of the OPE estimates or evidence
+that their behavior-policy support is adequate. All original invalid OPE batches
+remain invalid and are not relabeled as successful.
+
 ## Limits and decision
 
 This is consistency against the **supplied roster**, not proof that the roster

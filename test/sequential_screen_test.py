@@ -414,7 +414,7 @@ class SequentialContracts(unittest.TestCase):
             failed["result"] = {**cash["result"], "latencyP99Ms": .1, "oodObservationRate": 0.}
             events[2] = {"id": failed["id"], "status": "complete", "reason": None, "observations": 1}
             events.insert(2, {"id": failed["id"], "status": "started"})
-            values["ope.json"] = [{"id": trial, "result": {"status": "invalid", "reason": "fixture"}}]
+            values["ope.json"] = [{"id": trial, "result": {"status": "invalid", "failedEpisodes": 1, "reason": "fixture"}}]
             values["summary.json"]["groups"] = runner.summary([failed, cash])
         for name, value in values.items():
             (root/name).write_text("".join(json.dumps(e)+"\n" for e in value)
@@ -513,6 +513,37 @@ class SequentialContracts(unittest.TestCase):
                     export(root/"archive", root/"rejected", rss_unit="bytes",
                            platform_label="fixture", expected_index_sha256=runner.digest(index_path))
                 self.assertFalse((root/"rejected").exists())
+
+    def test_ope_payload_contract(self):
+        from sequential_registry import reconcile_ope_payload
+        estimate = ope_estimates(np.zeros((2, 6)), np.zeros((2, 6), dtype=int),
+            np.full((2, 6), 1/3), np.ones((2, 6)), np.zeros((2, 6)), np.zeros((2, 7)), .99)
+        estimate.update(directSimulatorValue=0., valueModel="fixture control variate",
+            uncertaintyScope="fixture conditional interval", liveStateActionSupport="unavailable",
+            simulatedActionSupport=[1/3, 1/3, 1/3])
+        for valid in [estimate, {"status": "invalid", "failedEpisodes": 1, "reason": "fixture"},
+                      {"status": "failed", "reason": "MemoryError"}]:
+            reconcile_ope_payload(valid)
+        for bad in [None, {}, {"status": "complete"}, {"status": "invalid", "reason": "fixture"},
+                    {"status": "failed", "reason": ""}, {**estimate, "reliable": True},
+                    {**estimate, "effectiveSampleSize": float("nan")},
+                    {**estimate, "nonzeroTrajectories": 3},
+                    {**estimate, "conditionalBootstrap95": {}}]:
+            with self.subTest(payload=bad), self.assertRaises(ValueError):
+                reconcile_ope_payload(bad)
+        for payload in ({"id": "ppo/h1/f0/s11"}, {"id": "ppo/h1/f0/s11", "result": {}}):
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                _, values = self.export_fixture(root/"archive", evaluated_rl=True)
+                (root/"archive/ope.json").write_text(json.dumps([payload]))
+                index_path = root/"archive/evidence-index.json"
+                index = json.loads(index_path.read_text())
+                index["ope.json"] = runner.digest(root/"archive/ope.json")
+                index_path.write_text(json.dumps(index))
+                with self.assertRaises(ValueError):
+                    export(root/"archive", root/"review", rss_unit="bytes", platform_label="fixture",
+                           expected_index_sha256=runner.digest(index_path))
+                self.assertFalse((root/"review").exists())
 
     def test_group_reconciliation_matches_hand_calculated_outcomes(self):
         identity = {"algorithm": "cash", "horizon": 1, "seed": 11, "stress": "base"}
@@ -617,7 +648,7 @@ class SequentialContracts(unittest.TestCase):
                  patch.object(runner, "ALGORITHMS", ("ppo",)), \
                  patch.object(runner, "Baselines") as controls, \
                  patch.object(runner, "train_ppo", return_value=(Network(11), {})), \
-                 patch.object(runner, "short_ope", return_value={"status":"invalid","reason":"fixture"}):
+                 patch.object(runner, "short_ope", return_value={"status":"invalid","failedEpisodes":1,"reason":"fixture"}):
                 controls.names = ()
                 runner.run(panel, settlements, root/"run")
             manifest = json.loads((root/"run/manifest.json").read_text())

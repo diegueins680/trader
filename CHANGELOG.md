@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/OPE Evidence: require complete v1 failure or conditional-estimate payloads for successful fits, including finite estimator/support fields and valid intervals. Reject ID-only placeholders and unsupported reliability claims before output; schema checks do not validate estimator truth.
+
 - Research/Training Outcomes: require failed-fit reasons to agree with terminal events and reject reasons on completed fits. Preserve status-omitted successful v1 records; conflicting older failure records require investigation rather than automatic rewriting.
 
 - Research/Failure Records: include the exception class in training, OPE and replay failure reasons, preserving nonblank labels even for empty or reserved exception messages. Synthetic producer-to-export tests retain all failed trials without claiming completion; existing research archives are unchanged.

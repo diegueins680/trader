@@ -156,7 +156,7 @@ The exporter also rejects contradictory failure reasons and summary promotion, h
 
 All compact reports are prepared before the output directory is created; invalid memory metadata, malformed report fields and serialization failures leave no partial report. Filesystem write errors still require operator cleanup.
 
-New runner exception records include the exception class, ensuring empty error messages still produce reportable failures. Training reasons must agree with terminal events. Conflicting older failure records require investigation; existing evidence archives are never rewritten automatically.
+New runner exception records include the exception class, ensuring empty error messages still produce reportable failures. Training reasons must agree with terminal events. OPE coverage requires a valid v1 outcome payload, not an ID-only placeholder; schema validity does not establish estimator reliability. Conflicting older failure records require investigation; existing evidence archives are never rewritten automatically.
 
 ## CLI and API
 

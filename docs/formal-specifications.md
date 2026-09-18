@@ -253,3 +253,8 @@ failed paths while keeping promotion disabled.
 Training-row reasons obey the same status semantics and must match terminal-event
 reasons. Conflicting older failure records are rejected for investigation; no
 archive is rewritten to manufacture consistency.
+
+OPE fit coverage requires a nonempty valid v1 payload: failed/invalid outcomes or
+conditional estimates with finite metrics, support counts and interval bounds,
+and explicit unreliability. A matching fit ID alone is insufficient. These
+structural checks do not reproduce estimates or establish behavior-policy support.
