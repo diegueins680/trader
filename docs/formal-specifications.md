@@ -417,6 +417,6 @@ establish statistical significance. `RL-OFFLINE-001` remains HIGH/OPEN.
 `A-SEQUENTIAL-RESEARCH-R24` checks neural forward arithmetic before activation and
 before returning policy/value outputs. Four witnesses cover actor/critic vector
 and batch failures, absent inference with no fill, OPE rejection before transition,
-and exact finite forward bytes including valid saturation. Gradient/optimizer
+and finite forward golden parity including valid saturation. Gradient/optimizer
 state, parameter provenance and preemptive timeouts remain outside this guard.
 `RL-OFFLINE-001` remains HIGH/OPEN.

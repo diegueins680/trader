@@ -46,10 +46,17 @@ Four added methods bring the research suite to 110 tests:
 - Invalid hidden arithmetic produces absence, finite elapsed timing and no fill.
 - OPE rejects an infinite hidden state before the first simulated transition.
 - Seeds 11/23/47, one/three-output networks, vector/batch calls and ordinary/large
-  finite inputs retain exact forward bytes.
+  finite inputs match stored pre-repair outputs (rtol 1e-13, atol 1e-15).
 
-The valid-forward SHA-256 captured before repair is
+The local valid-forward SHA-256 captured before repair was
 `1ca2422f7c23b9247715afc33d4d3d5cd5903cb28c41b4769b1460931f8d1d85`.
+Initial Linux CI failed that raw-byte assertion (hash
+`39531d4bc57a1bcf61803af50da77e3b877ee4bd90d790907da85629c72ebeb2`),
+while the other 109 tests passed. A raw floating-point serialization hash is not
+a portable numerical contract. The corrected fixture stores the baseline values
+in `test/fixtures/sequential-network-forward-v1.json` and compares them at relative
+tolerance 1e-13 and absolute tolerance 1e-15. No arithmetic-rejection, economic or
+timeout gate was changed. Final CI must verify that numerical compatibility.
 Existing numerical-gradient, actor/critic, multi-seed synthetic training,
 serialization, OPE and reporting fixtures also pass.
 
@@ -70,7 +77,7 @@ to claim that every invocation meets that target. No budget is relaxed.
 `A-SEQUENTIAL-RESEARCH-R24` links four witnesses. Haskell/Markdown mitigations are
 synchronized; canonical `RL-OFFLINE-001` remains HIGH/OPEN. README, CHANGELOG and
 reproduction instructions describe the guard. The PR records actual wrapper,
-CI and deployment results. Generated fixtures/logs remain outside Git.
+CI and deployment results. Only the small numerical golden fixture is committed; logs and models remain outside Git.
 
 ## Decision
 

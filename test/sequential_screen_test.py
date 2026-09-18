@@ -244,7 +244,7 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaises(ValueError): self.short_ope_fixture(net)
             step.assert_not_called()
 
-    def test_network_finite_forward_bytes_preserved(self):
+    def test_network_finite_forward_golden_parity(self):
         values = []
         for seed in (11, 23, 47):
             for outputs in (1, 3):
@@ -252,8 +252,10 @@ class SequentialContracts(unittest.TestCase):
                 for obs in (np.arange(12) / 12, np.full(12, 1e100)):
                     values.append(net.forward(obs).tolist())
                     values.append(net.forward(np.vstack([obs, -obs])).tolist())
-        digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
-        self.assertEqual(digest, "1ca2422f7c23b9247715afc33d4d3d5cd5903cb28c41b4769b1460931f8d1d85")
+        fixture = json.loads((Path(__file__).parent / "fixtures/sequential-network-forward-v1.json").read_text())
+        self.assertEqual(len(values), len(fixture["values"]))
+        for actual, expected in zip(values, fixture["values"]):
+            np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-15)
 
     def baseline_fixture(self):
         controls = Baselines.__new__(Baselines)

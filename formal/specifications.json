@@ -665,7 +665,7 @@
         {
           "level": "integration",
           "path": "test/sequential_screen_test.py",
-          "contains": "test_network_finite_forward_bytes_preserved"
+          "contains": "test_network_finite_forward_golden_parity"
         },
         {
           "level": "bounded-exhaustive",
