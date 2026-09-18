@@ -51,6 +51,11 @@ observations instead of storing artificial terminal rewards or zero observations
 Fully accounted risk losses remain learning samples. See the
 [transition admission audit](research-notes/sequential-control-2026-09-17/transition-admission-audit.md).
 
+Research normalization snapshots validated parameters into immutable float64 arrays.
+Malformed feature vectors, invalid deviations and arithmetic overflow cannot produce
+normalized observations; short supplied training prefixes are rejected. See the
+[normalization audit](research-notes/sequential-control-2026-09-17/normalization-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

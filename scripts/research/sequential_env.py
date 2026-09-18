@@ -25,6 +25,10 @@ def _real_series(value) -> bool:
             value.ndim == 1 and value.dtype.kind in "iuf")
 
 
+def _feature_vector(value) -> bool:
+    return _real_series(value) and value.shape == (6,) and bool(np.isfinite(value).all())
+
+
 def market_features(prices: np.ndarray, t: int) -> np.ndarray | None:
     """Read only the trailing prefix, including the completed decision bar."""
     if not _real_series(prices) or not _integer(t) or not 24 <= t < len(prices):
@@ -46,24 +50,46 @@ class Scale:
     low: np.ndarray
     high: np.ndarray
 
+    def __post_init__(self) -> None:
+        snapshots = {}
+        for name in ("mean", "std", "low", "high"):
+            value = getattr(self, name)
+            if not _real_series(value) or value.shape != (6,):
+                raise ValueError("invalid scale parameter shape or type")
+            # Immutable backing bytes prevent caller aliasing and write-flag reactivation.
+            with np.errstate(over="ignore", invalid="ignore"):
+                snapshot = np.frombuffer(np.asarray(value, dtype=float).tobytes(), dtype=float)
+            if not _feature_vector(snapshot):
+                raise ValueError("non-finite scale parameter")
+            snapshots[name] = snapshot
+        if np.any(snapshots["std"] <= 0) or np.any(snapshots["low"] > snapshots["high"]):
+            raise ValueError("invalid scale deviation or support bounds")
+        for name, value in snapshots.items():
+            object.__setattr__(self, name, value)
+
     @classmethod
     def fit(cls, prefixes: list[np.ndarray]) -> Scale:
+        if (not isinstance(prefixes, (list, tuple)) or not prefixes or
+            any(not _real_series(p) or len(p) < 25 for p in prefixes)):
+            raise ValueError("incomplete training prefixes")
         rows = [market_features(p, t) for p in prefixes for t in range(24, len(p))]
         if not rows or any(x is None for x in rows):
             raise ValueError("incomplete training observations")
         x = np.array(rows)
         values = [x.mean(0), np.maximum(x.std(0), 1e-8), x.min(0), x.max(0)]
-        for v in values:
-            v.setflags(write=False)
         return cls(*values)
 
     def transform(self, x: np.ndarray) -> np.ndarray:
-        if x.shape != (6,) or not np.isfinite(x).all():
+        if not _feature_vector(x):
             raise ValueError("invalid observation")
-        return (x - self.mean) / self.std
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            result = (np.asarray(x, dtype=float) - self.mean) / self.std
+        if not _feature_vector(result):
+            raise ValueError("non-finite normalized observation")
+        return result
 
     def supported(self, x: np.ndarray) -> bool:
-        return bool(np.isfinite(x).all() and np.all(x >= self.low) and np.all(x <= self.high))
+        return bool(_feature_vector(x) and np.all(x >= self.low) and np.all(x <= self.high))
 
 
 @dataclass(frozen=True)
@@ -148,7 +174,11 @@ class Replay:
         target, delay = (0.0, 0.0) if self.pending is None else (self.pending[1], self.pending[0] - self.t)
         state = [self.units * p / self.equity, 1 - self.equity / self.peak,
                  self.equity, target, delay / 2, (self.stop - 1 - self.t) / (self.stop - 1 - self.start)]
-        obs = np.r_[self.scale.transform(x), state]
+        try:
+            normalized = self.scale.transform(x)
+        except ValueError:
+            return None
+        obs = np.r_[normalized, state]
         return obs if np.isfinite(obs).all() else None
 
     def supported(self) -> bool:
