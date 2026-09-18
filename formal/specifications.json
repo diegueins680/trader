@@ -145,6 +145,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R13",
           "statement": "Terminal ledger publication and replay return-path writes occur outside computational exception handlers. A write, flush or serialization error at those boundaries aborts the runner before final summary/index publication, without appending a replacement model-failure outcome or retrying an uncertain terminal. Partial files and possibly flushed terminal lines remain incomplete evidence and are not automatically resumed. Genuine training/artifact-admission, OPE and replay-computation exceptions retain existing failed-trial accounting. Successful archive semantics are unchanged. This does not provide atomic filesystem publication, fsync durability or crash recovery."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R14",
+          "statement": "The exporter decodes the admitted evidence-index bytes, all seven verified report-input snapshots and each JSONL event with one JSON admission contract. Duplicate object keys at any depth, including identical values and escaped-key collisions, are rejected before a value is discarded. NaN/Infinity constants and floating-point literals that overflow to non-finite values are rejected even in fields omitted by report rendering. Decoding never reopens verified report paths; failures precede output-directory creation. Valid finite JSON values, integer semantics and legacy report bytes remain unchanged. This is a decoding boundary, not a canonical-encoding requirement, authenticity proof, schema-completeness claim or bounded-memory guarantee."
         }
       ],
       "ensures": [
@@ -417,6 +421,21 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_successful_publication_has_one_terminal_per_trial"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_duplicate_json_keys_in_every_input"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_nonfinite_numbers_even_in_omitted_fields"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_evidence_json_preserves_unambiguous_values"
         },
         {
           "level": "bounded-exhaustive",

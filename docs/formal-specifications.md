@@ -329,3 +329,12 @@ on a successful runner-to-export path. Publication errors propagate before final
 summary/index creation; partial files remain incomplete evidence. Existing
 computational-failure accounting is retained. This is not an atomic-write, durable
 commit or crash-recovery protocol.
+
+
+`A-SEQUENTIAL-RESEARCH-R14` admits evidence JSON before reconciliation and rendering.
+The index, seven report snapshots and every JSONL event share rejection of duplicate
+keys and non-finite numbers, including overflowing exponents and omitted fields.
+Three witnesses cover all input routes, nested/escaped collisions, discarded loss
+values and valid-number/text compatibility. Existing exact legacy-report and
+snapshot-replacement tests remain applicable. This does not prove evidence truth,
+require canonical JSON encoding or add an input-size limit.
