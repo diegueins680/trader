@@ -420,3 +420,13 @@ and batch failures, absent inference with no fill, OPE rejection before transiti
 and finite forward golden parity including valid saturation. Gradient/optimizer
 state, parameter provenance and preemptive timeouts remain outside this guard.
 `RL-OFFLINE-001` remains HIGH/OPEN.
+
+
+`A-SEQUENTIAL-RESEARCH-R25` requires explicit failures for invalid optimizer
+controls, overflowing clipping norms and invalid Adam arithmetic. Four witnesses
+cover actor/critic cold/warm norm overflow, control admission before gradients,
+late failures without partial mutation, and stored pre-repair numerical parity.
+Parameters, moments and the counter are published only after complete validation.
+This preserves pre-existing state on failure, including pre-existing corruption;
+it is not state repair, a complete optimizer representation contract or a
+convergence claim. `RL-OFFLINE-001` remains HIGH/OPEN.

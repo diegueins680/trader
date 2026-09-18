@@ -162,3 +162,8 @@ their recorded ledger is internally consistent.
 Offline neural forward evaluation rejects non-finite hidden preactivations before
 `tanh` can hide them by saturation. Inference returns absence and OPE/training
 retain explicit failure. See the [network-numerics audit](network-numerics-audit.md).
+
+Offline Adam updates reject invalid controls, overflowing norms and invalid
+arithmetic without partially changing model or optimizer state. See the
+[optimizer-atomicity audit](optimizer-atomicity-audit.md); no protected historical
+period is needed to reproduce these deterministic engineering tests.

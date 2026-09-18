@@ -257,6 +257,80 @@ class SequentialContracts(unittest.TestCase):
         for actual, expected in zip(values, fixture["values"]):
             np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-15)
 
+    def optimizer_snapshot(self, net):
+        return (net.steps, {name: {k: v.copy() for k, v in getattr(net, name).items()}
+                            for name in ("p", "m", "v")})
+
+    def assert_optimizer_unchanged(self, net, snapshot):
+        steps, state = snapshot
+        self.assertEqual(net.steps, steps)
+        for name, values in state.items():
+            for key, value in values.items():
+                np.testing.assert_array_equal(getattr(net, name)[key], value)
+
+    def test_optimizer_rejects_overflowing_norm_without_mutation(self):
+        for outputs in (1, 3):
+            for warm in (False, True):
+                with self.subTest(outputs=outputs, warm=warm):
+                    net = Network(11, outputs)
+                    x, dz = np.zeros((2, 12)), np.full((2, outputs), 1e200)
+                    if warm:
+                        net.update(x, np.ones_like(dz), .0003)
+                    self.assertTrue(all(np.isfinite(g).all() for g in net.gradients(x, dz).values()))
+                    before = self.optimizer_snapshot(net)
+                    with np.errstate(all="ignore"), self.assertRaises(ValueError):
+                        net.update(x, dz, .0003)
+                    self.assert_optimizer_unchanged(net, before)
+
+    def test_optimizer_admits_learning_rate_and_counter_before_gradients(self):
+        bad_rates = (True, np.bool_(True), None, "1", np.array([1.]), 1+0j,
+                     0., -1., np.nan, np.inf, 10**1000)
+        for rate in bad_rates:
+            net = Network(11)
+            before = self.optimizer_snapshot(net)
+            with self.subTest(rate=repr(rate)), patch.object(net, "gradients", side_effect=AssertionError("gradient before admission")):
+                with self.assertRaises(ValueError):
+                    net.update(np.ones((2, 12)), np.ones((2, 3)), rate)
+            self.assert_optimizer_unchanged(net, before)
+        for steps in (True, -1, 1.5, np.nan):
+            net = Network(11); net.steps = steps
+            with self.subTest(steps=steps), patch.object(net, "gradients", side_effect=AssertionError("gradient before admission")):
+                with self.assertRaises(ValueError):
+                    net.update(np.ones((2, 12)), np.ones((2, 3)), .0003)
+
+    def test_optimizer_late_failure_preserves_all_state(self):
+        for fault in ("moment_overflow", "negative_variance", "nan_parameter", "nan_gradient"):
+            net = Network(11)
+            x, dz = np.ones((2, 12)), np.ones((2, 3))
+            net.update(x, dz, .0003)
+            rate = .0003
+            if fault == "moment_overflow":
+                net.m["b2"][:] = 1e308; rate = 10.
+            elif fault == "negative_variance":
+                net.v["b2"][:] = -1.
+            elif fault == "nan_parameter":
+                net.p["b2"][:] = np.nan
+            else:
+                dz[:] = np.nan
+            before = self.optimizer_snapshot(net)
+            with self.subTest(fault=fault), np.errstate(all="ignore"):
+                with self.assertRaises(ValueError):
+                    net.update(x, dz, rate)
+                self.assertEqual(np.geterr()["over"], "ignore")
+                self.assert_optimizer_unchanged(net, before)
+
+    def test_optimizer_finite_golden_parity(self):
+        net = Network(11)
+        x = np.arange(48).reshape(4, 12) / 48
+        dz = np.arange(12).reshape(4, 3) / 12 - .5
+        for i in range(3):
+            net.update(x, dz * (i + 1), np.float64(.0003))
+        fixture = json.loads((Path(__file__).parent / "fixtures/sequential-adam-v1.json").read_text())
+        self.assertEqual(net.steps, fixture["steps"])
+        for name, values in fixture["state"].items():
+            for key, expected in values.items():
+                np.testing.assert_allclose(getattr(net, name)[key], expected, rtol=1e-13, atol=1e-15)
+
     def baseline_fixture(self):
         controls = Baselines.__new__(Baselines)
         controls.scale = Scale(np.zeros(6), np.ones(6), np.full(6, -10.), np.full(6, 10.))
