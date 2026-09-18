@@ -261,3 +261,11 @@ structural checks do not reproduce estimates or establish behavior-policy suppor
 
 Prepared reports are encoded as UTF-8 and written as bytes, preserving explicit
 LF terminators without platform text-mode newline translation.
+
+The Python research shield requires exact boolean `True` for enabled, valid and
+ownership evidence; timing and actions must be finite real scalars, excluding
+booleans, complex values and arrays. Replay checks these gates before observation
+reads or processing a pending fill. Rejection ends the path with no simulated
+transition or invented liquidation. Inference admits only finite real unmasked
+vectors with the declared dimensions and returns an absent proposal on a model
+exception. The elapsed-time check remains post-call and does not preempt a hang.

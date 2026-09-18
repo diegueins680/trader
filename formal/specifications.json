@@ -148,7 +148,7 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-I2",
-          "statement": "Default mode is Disabled. Offline opt-in permits only target values -0.25, 0, 0.25; malformed observation, action, provenance, support, ownership or timeout returns absent/rejected. No live authorization, deployment, production self-modification, automatic checkpoint promotion or production retraining route exists."
+          "statement": "Default mode is Disabled. Python enabled/valid/ownership gates require exact boolean True, not truthiness; timing and actions require finite real scalars excluding booleans, complex values and arrays. Replay rejects invalid gates before reading observations or processing pending fills. Inference accepts finite real unmasked vectors of the declared widths and returns an absent proposal on model exceptions; its elapsed-time gate is post-call, not preemptive. Offline opt-in permits only target values -0.25, 0, 0.25; malformed observation, action, provenance, support, ownership or timeout returns absent/rejected. No live authorization, deployment, production self-modification, automatic checkpoint promotion or production retraining route exists."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-I3",
@@ -179,6 +179,21 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_ope_rejects_invalid_domains_and_overflow"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_proposal_requires_boolean_evidence_and_real_scalars"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_invalid_replay_gates_cannot_fill_pending_inventory"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_inference_rejects_invalid_types_and_model_failures"
         },
         {
           "level": "regression",

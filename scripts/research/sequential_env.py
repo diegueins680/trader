@@ -76,18 +76,26 @@ class Execution:
             raise ValueError("invalid missed-fill schedule")
 
 
+def _finite_real(value) -> bool:
+    """Accept real numeric scalars without coercing booleans, arrays or complex values."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.integer, np.floating)):
+        return False
+    try:
+        return isfinite(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def shield(action: float, *, enabled: bool, valid: bool,
            ownership: bool = True, elapsed_ms: float = 0.0) -> tuple[float | None, str]:
     """A rejected proposal is absent, never an executable instruction to flatten."""
-    if not enabled:
+    if enabled is not True:
         return None, "disabled"
-    if not valid or not ownership:
+    if valid is not True or ownership is not True:
         return None, "invalid_observation_or_position"
-    if not isfinite(elapsed_ms) or not 0 <= elapsed_ms <= 20:
+    if not _finite_real(elapsed_ms) or not 0 <= elapsed_ms <= 20:
         return None, "timeout"
-    if isinstance(action, (bool, np.bool_)) or not isinstance(action, (float, int, np.number)):
-        return None, "invalid_action"
-    if not isfinite(action) or action not in (-0.25, 0.0, 0.25):
+    if not _finite_real(action) or action not in (-0.25, 0.0, 0.25):
         return None, "invalid_action"
     return float(action), "research_proposal_only"
 
@@ -172,9 +180,10 @@ class Replay:
              elapsed_ms: float = 0.0) -> tuple[np.ndarray | None, float, bool]:
         if self.done:
             raise ValueError("episode already terminated")
-        obs = self.observation()
-        proposal, reason = shield(action, enabled=self.enabled, valid=valid and obs is not None,
+        proposal, reason = shield(action, enabled=self.enabled, valid=valid,
                                   ownership=ownership, elapsed_ms=elapsed_ms)
+        if proposal is not None and self.observation() is None:
+            proposal, reason = None, "invalid_observation_or_position"
         if proposal is None:
             self.rejections += 1
             self.failure, self.done = reason, True
