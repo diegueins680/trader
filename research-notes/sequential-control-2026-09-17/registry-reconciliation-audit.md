@@ -19,6 +19,9 @@ duplicate summary groups; incorrect total/failure counts; invented mean return;
 and an OPE row attributed to a failed fit. All sixteen were accepted before the
 repair. The before-repair suite ran 34 tests with 16 failing subtests.
 
+An additional schema fixture rejects a non-text terminal reason before output
+creation, so malformed reason metadata cannot fail later while writing CSVs.
+
 ## Reconciliation contract
 
 A small standard-library module validates admitted snapshots before the exporter

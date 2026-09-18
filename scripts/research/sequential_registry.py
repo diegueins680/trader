@@ -109,6 +109,7 @@ def reconcile(planned, events, training, records, ope, summary, index):
             started.add(key)
         else:
             require(event['status'] in ('complete', 'failed'), 'invalid event status')
+            require(event.get('reason') is None or isinstance(event['reason'], str), 'invalid terminal reason')
             terminal[key] = event
     require(set(terminal) == set(roster), 'incomplete experiment registry')
     fits, replays = unique(training, 'training'), unique(records, 'replay')
@@ -137,7 +138,8 @@ def reconcile(planned, events, training, records, ope, summary, index):
         require(result['status'] in ('complete', 'failed') and result['status'] == event['status'], 'replay status')
         require(integer(result['observations']) and integer(event['observations']) and
                 result['observations'] == event['observations'], 'replay observations')
-        require(result.get('reason') == event.get('reason'), 'replay reason')
+        require((result.get('reason') is None or isinstance(result['reason'], str)) and
+                result.get('reason') == event.get('reason'), 'replay reason')
         require(('netReturn' in result) == (result['observations'] > 0), 'replay metric coverage')
         require(result['status'] != 'complete' or result['observations'] > 0, 'empty completed replay')
         if trial in fits and trial not in successful:

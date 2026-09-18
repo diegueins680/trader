@@ -413,6 +413,7 @@ class SequentialContracts(unittest.TestCase):
             "contradictory status": lambda v: v["evaluation.json"][0]["result"].update(status="complete"),
             "contradictory reason": lambda v: v["evaluation.json"][0]["result"].update(reason="other_failure"),
             "contradictory observations": lambda v: v["events.jsonl"][1].update(observations=1),
+            "non-text terminal reason": lambda v: v["events.jsonl"][0].update(reason=True),
             "event after terminal": lambda v: v["events.jsonl"].append({"id": "ppo/h1/f0/s11", "status": "started"}),
             "missing group": lambda v: v["summary.json"]["groups"].pop(0),
             "duplicate group": lambda v: v["summary.json"]["groups"].append(v["summary.json"]["groups"][0]),
