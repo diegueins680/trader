@@ -1,0 +1,866 @@
+[
+  {
+    "id": "ppo/h1/f0/s11",
+    "result": {
+      "failedEpisodes": 92,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f0/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f0/s47",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f0/s11",
+    "result": {
+      "failedEpisodes": 98,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f0/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f0/s47",
+    "result": {
+      "failedEpisodes": 86,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f0/s11",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f0/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f0/s47",
+    "result": {
+      "failedEpisodes": 79,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f0/s11",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f0/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f0/s47",
+    "result": {
+      "failedEpisodes": 79,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f1/s11",
+    "result": {
+      "failedEpisodes": 98,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f1/s23",
+    "result": {
+      "failedEpisodes": 120,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f1/s47",
+    "result": {
+      "failedEpisodes": 93,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f1/s11",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f1/s23",
+    "result": {
+      "failedEpisodes": 104,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f1/s47",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f1/s11",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f1/s23",
+    "result": {
+      "failedEpisodes": 103,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f1/s47",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f1/s11",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f1/s23",
+    "result": {
+      "failedEpisodes": 103,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f1/s47",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f2/s11",
+    "result": {
+      "failedEpisodes": 105,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f2/s23",
+    "result": {
+      "failedEpisodes": 119,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h1/f2/s47",
+    "result": {
+      "failedEpisodes": 126,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f2/s11",
+    "result": {
+      "failedEpisodes": 95,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f2/s23",
+    "result": {
+      "failedEpisodes": 95,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h1/f2/s47",
+    "result": {
+      "failedEpisodes": 139,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f2/s11",
+    "result": {
+      "failedEpisodes": 93,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f2/s23",
+    "result": {
+      "failedEpisodes": 95,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h1/f2/s47",
+    "result": {
+      "failedEpisodes": 90,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f2/s11",
+    "result": {
+      "failedEpisodes": 93,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f2/s23",
+    "result": {
+      "failedEpisodes": 95,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h1/f2/s47",
+    "result": {
+      "failedEpisodes": 90,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f0/s11",
+    "result": {
+      "failedEpisodes": 103,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f0/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f0/s47",
+    "result": {
+      "failedEpisodes": 74,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f0/s11",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f0/s23",
+    "result": {
+      "failedEpisodes": 87,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f0/s47",
+    "result": {
+      "failedEpisodes": 74,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f0/s11",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f0/s23",
+    "result": {
+      "failedEpisodes": 86,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f0/s47",
+    "result": {
+      "failedEpisodes": 74,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f0/s11",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f0/s23",
+    "result": {
+      "failedEpisodes": 86,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f0/s47",
+    "result": {
+      "failedEpisodes": 74,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f1/s11",
+    "result": {
+      "failedEpisodes": 93,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f1/s23",
+    "result": {
+      "failedEpisodes": 92,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f1/s47",
+    "result": {
+      "failedEpisodes": 81,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f1/s11",
+    "result": {
+      "failedEpisodes": 86,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f1/s23",
+    "result": {
+      "failedEpisodes": 93,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f1/s47",
+    "result": {
+      "failedEpisodes": 81,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f1/s11",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f1/s23",
+    "result": {
+      "failedEpisodes": 91,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f1/s47",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f1/s11",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f1/s23",
+    "result": {
+      "failedEpisodes": 91,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f1/s47",
+    "result": {
+      "failedEpisodes": 83,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f2/s11",
+    "result": {
+      "failedEpisodes": 104,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f2/s23",
+    "result": {
+      "failedEpisodes": 105,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h3/f2/s47",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f2/s11",
+    "result": {
+      "failedEpisodes": 94,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f2/s23",
+    "result": {
+      "failedEpisodes": 90,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h3/f2/s47",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f2/s11",
+    "result": {
+      "failedEpisodes": 94,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f2/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h3/f2/s47",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f2/s11",
+    "result": {
+      "failedEpisodes": 94,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f2/s23",
+    "result": {
+      "failedEpisodes": 89,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h3/f2/s47",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f0/s11",
+    "result": {
+      "failedEpisodes": 78,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f0/s23",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f0/s47",
+    "result": {
+      "failedEpisodes": 69,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f0/s11",
+    "result": {
+      "failedEpisodes": 78,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f0/s23",
+    "result": {
+      "failedEpisodes": 82,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f0/s47",
+    "result": {
+      "failedEpisodes": 70,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f0/s11",
+    "result": {
+      "failedEpisodes": 78,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f0/s23",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f0/s47",
+    "result": {
+      "failedEpisodes": 71,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f0/s11",
+    "result": {
+      "failedEpisodes": 78,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f0/s23",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f0/s47",
+    "result": {
+      "failedEpisodes": 71,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f1/s11",
+    "result": {
+      "failedEpisodes": 86,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f1/s23",
+    "result": {
+      "failedEpisodes": 87,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f1/s47",
+    "result": {
+      "failedEpisodes": 112,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f1/s11",
+    "result": {
+      "failedEpisodes": 101,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f1/s23",
+    "result": {
+      "failedEpisodes": 101,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f1/s47",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f1/s11",
+    "result": {
+      "failedEpisodes": 87,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f1/s23",
+    "result": {
+      "failedEpisodes": 87,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f1/s47",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f1/s11",
+    "result": {
+      "failedEpisodes": 87,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f1/s23",
+    "result": {
+      "failedEpisodes": 87,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f1/s47",
+    "result": {
+      "failedEpisodes": 80,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f2/s11",
+    "result": {
+      "failedEpisodes": 94,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f2/s23",
+    "result": {
+      "failedEpisodes": 91,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "ppo/h6/f2/s47",
+    "result": {
+      "failedEpisodes": 95,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f2/s11",
+    "result": {
+      "failedEpisodes": 105,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f2/s23",
+    "result": {
+      "failedEpisodes": 118,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "double_dqn/h6/f2/s47",
+    "result": {
+      "failedEpisodes": 92,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f2/s11",
+    "result": {
+      "failedEpisodes": 94,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f2/s23",
+    "result": {
+      "failedEpisodes": 90,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql/h6/f2/s47",
+    "result": {
+      "failedEpisodes": 92,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f2/s11",
+    "result": {
+      "failedEpisodes": 94,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f2/s23",
+    "result": {
+      "failedEpisodes": 90,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  },
+  {
+    "id": "cql_no_inventory_penalty/h6/f2/s47",
+    "result": {
+      "failedEpisodes": 92,
+      "reason": "No failed episodes may be silently excluded from OPE.",
+      "status": "invalid"
+    }
+  }
+]

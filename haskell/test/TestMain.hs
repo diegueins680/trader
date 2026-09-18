@@ -442,6 +442,7 @@ import Trader.Test.GracefulShutdown (gracefulShutdownSuite)
 import Trader.Test.MarketRisk (marketRiskSuite)
 import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
+import Trader.Test.ResearchPolicy (runResearchPolicyTests)
 import Trader.Test.Revenue (revenueSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.Test.TradeLogRiskState (tradeLogRiskStateSuite)
@@ -861,6 +862,7 @@ main = do
     testPredictorImplementationIdentityCompatibility
     testHMMSanitizesMalformedInputs
     runOnlineNeuralTests
+    runResearchPolicyTests
     runTechnicalAnalysisTests
     runSuite "apiRoutes" apiRouteSuite
     runSuite "cors" corsSuite

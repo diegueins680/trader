@@ -1,0 +1,25 @@
+{
+  "auditedHead": "0484060fd8f4bd44962dd34796e80a8024830a35",
+  "baseMain": "f669c7e9492689871da7aa08c02f55c3ed9eac21",
+  "compactExports": {
+    "all-seed-results.csv": "8074528f0a1a1bc6202ec87b03ef82f27f42b29283a091fade40d9d35629b6d3",
+    "evaluation-summary.json": "39cf69b904ee6d6edbf49dee7f4a9715cf01ad108e655286942f1cc8bd1b6957",
+    "experiment-manifest.json": "3205503006bc5aa23c20f45f8a77faa13cf54536f2e6d5f23a4da891eba53cab",
+    "experiment-registry.csv": "b4e672eebe0ba5a2f533cc9abcd2f6835be50c1ad21f884b7bd031f4136eba07",
+    "multi-seed-training.json": "d1c299fe8fbf31a2bbd81eb540c3344896fa823fbbe9c620f125a278819ba725",
+    "ope-report.json": "26c6f3978cc6ef9d7d735e2fa3537631dfd2188c7f22016260b81da2c11d04bd",
+    "symbol-fold-base-results.csv": "1c0b3484ba8f4c365a0ba55eafa44af579c2f352b19c7de528f3abc44432d7f8"
+  },
+  "externalIndexSha256": "764fd123a1570c6b31ecc7e0729ef5dcc1fe19a39c29aee48efc1614c289974b",
+  "holdoutOpened": false,
+  "newFinancialTrials": 0,
+  "orderAuthorization": false,
+  "postFixOpeBoundary": "Explicit ValueError on malformed domain or overflowing arithmetic; no weight clipping; exact enumerated IS/PDIS/WIS/DR fixtures",
+  "promotionAllowed": false,
+  "reproducedPreFixFailures": [
+    "NaN discount emitted NaN ordinary IS",
+    "negative discount accepted",
+    "finite tiny behavior probabilities emitted infinite IS and NaN ESS"
+  ],
+  "schema": "sequential_audit_v1"
+}

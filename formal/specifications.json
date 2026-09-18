@@ -27,6 +27,7 @@
       { "root": "scripts", "include": ["scripts/**/*.mjs", "scripts/**/*.sh", "scripts/**/*.py", "scripts/**/*.jq", "scripts/*.mjs", "scripts/*.sh", "scripts/*.py"] },
       { "root": "haskell/scripts", "include": ["haskell/scripts/*.sh", "haskell/scripts/*.py"], "exclude": ["haskell/scripts/test_*.py"] },
       { "root": "deploy", "include": ["deploy/*.sh", "deploy/**/*.sh", "deploy/**/*.py", "deploy/**/*.yml", "deploy/**/Caddyfile.*", "deploy/**/*.env.example", "deploy/**/*.env.managed"] },
+      { "root": "research-notes/sequential-control-2026-09-17", "include": ["research-notes/sequential-control-2026-09-17/**"] },
       { "root": "research-notes/market-prediction-2026-09-04", "include": ["research-notes/market-prediction-2026-09-04/**"] },
       { "root": "haskell/web/nginx", "include": ["haskell/web/nginx/**"] },
       { "root": "haskell/web/docker-entrypoint.d", "include": ["haskell/web/docker-entrypoint.d/**"] },
@@ -45,12 +46,131 @@
       "haskell/web/fly.frontend.toml",
       "haskell/web/vite.config.ts",
       "haskell/web/public/trader-config.js",
+      "research-notes/registrations/sequential-control-screen-v1.json",
       "research-notes/registrations/har-rv-risk-gate-v1.json",
       "research-notes/registrations/depth-normalized-ofi-v1.json",
       "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json"
     ]
   },
   "specifications": [
+    {
+      "id": "A-SEQUENTIAL-RESEARCH",
+      "title": "Non-authorizing offline sequential policy screen",
+      "features": [
+        "POMDP observation semantics",
+        "bounded discrete target proposals",
+        "PPO",
+        "Double DQN",
+        "discrete CQL",
+        "terminal accounting",
+        "simulated behavior coverage",
+        "off-policy evaluation",
+        "no live exploration",
+        "no automatic promotion"
+      ],
+      "criticality": "safety",
+      "implementation": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "research-notes/registrations/sequential-control-screen-v1.json",
+        "research-notes/sequential-control-2026-09-17/**"
+      ],
+      "uses": [
+        "G-FAIL-CLOSED",
+        "G-FINITE",
+        "G-CAUSAL",
+        "G-BOUNDED",
+        "G-NO-LOOKAHEAD",
+        "G-ACCOUNT",
+        "G-DETERMINISTIC"
+      ],
+      "dependsOn": [
+        "A-RESEARCH",
+        "H-RISK"
+      ],
+      "requires": [
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R1",
+          "statement": "The runner accepts only the two hash-pinned contaminated development files and committed source bytes; no raw final holdout or prospective outcome is admissible."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R2",
+          "statement": "Observations contain only trailing completed closes and explicit inventory, equity, drawdown, pending target/delay and remaining episode state. Training prefixes physically bound scaler and replay construction."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R3",
+          "statement": "Policy save/load requires nonempty typed provenance: canonical source/data digest strings, exact non-negative integer seed/fold, a supported integer horizon and policy family, and finite JSON metadata. Matching bytes and caller expectations alone do not admit missing or mistyped provenance."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R4",
+          "statement": "OPE requires nonempty aligned finite numeric trajectories, valid integer logged action indices, behavior probabilities in (0,1], target probabilities in [0,1], a finite numeric discount in [0,1], and zero terminal value bootstrap."
+        }
+      ],
+      "ensures": [
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E1",
+          "statement": "Every simulated fill occurs after its decision, old inventory earns price/funding through the endpoint, and fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E2",
+          "statement": "All planned algorithms, horizons, seeds, folds and replays remain in the roster; failed/stopped paths are not cash-padded or discarded for promotion statistics."
+        }
+      ],
+      "invariants": [
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-I1",
+          "statement": "Haskell ResearchProposal has no order identity; its constructor is private and orderAuthorized is always False. This isolated module has no production caller. Deterministic risk evidence takes precedence over every accepted target."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-I2",
+          "statement": "Default mode is Disabled. Offline opt-in permits only target values -0.25, 0, 0.25; malformed observation, action, provenance, support, ownership or timeout returns absent/rejected. No live authorization, deployment, production self-modification, automatic checkpoint promotion or production retraining route exists."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-I3",
+          "statement": "Environment, observation, action, reward and policy versions are explicit. PPO evaluation is deterministic. Logged behavior is simulated and cannot be presented as exchange support. No shadow, paper or micro-live readiness is inferred from this screen."
+        }
+      ],
+      "failures": [
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-F1",
+          "statement": "Hash/schema/version/provenance/non-finite failure or timeout rejects an artifact/proposal. Risk breach terminates the path as failed; valid terminal inventory is charged liquidation costs, with no synthetic continuation."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-F2",
+          "statement": "Missing independent data, champion parity, state-action coverage, reliable OPE, statistical tests or realistic fills fails promotion completeness; it is never interpreted as zero risk."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-F3",
+          "statement": "Malformed OPE input or non-finite importance-weight, moment, estimate or bootstrap arithmetic raises an explicit invalid-batch error; weights are never clipped to manufacture support. Zero target support retains ESS zero and absent WIS. A finite estimate never grants promotion authority."
+        }
+      ],
+      "evidence": [
+        {
+          "level": "regression",
+          "path": "test/sequential-screen.test.mjs",
+          "contains": "offline sequential contracts"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_rejects_invalid_domains_and_overflow"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_matches_enumerated_behavior_tree"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "haskell/test/Trader/Test/ResearchPolicy.hs",
+          "contains": "no policy proposal authorizes an order"
+        }
+      ]
+    },
     {
       "id": "H-INTERFACE",
       "title": "CLI, API routing, configuration, authorization, and runtime",

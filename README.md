@@ -17,6 +17,24 @@ Trader is a Haskell trading research and execution system with a React operation
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example](.env.example) for the complete runtime configuration surface.
 
+## Offline sequential-control research
+
+The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)
+adds a 50-paper literature update, current predictor-fidelity audit and a
+preregistered simulated PPO/Double-DQN/CQL comparison. No candidate passed.
+All seeds and failed paths are retained; reused development data is explicitly
+contaminated, and protected holdouts remain unopened. No champion or live setting
+changes. Existing TCN/PatchTST/Transformer identifiers retain their documented
+ridge/similarity proxy semantics and existing accurate aliases.
+
+The research runner requires `--run-registered-development-v1` and exact approved
+development-file hashes. Its default-disabled, non-authorizing Haskell proposal
+boundary has no production caller. See [reproduction and dependencies](research-notes/sequential-control-2026-09-17/reproduction.md)
+and [unmet acceptance conditions](research-notes/sequential-control-2026-09-17/deliverables-index.md).
+Policy artifacts require typed provenance and valid source/data digests as well as
+a matching content hash; incomplete metadata fails closed. No environment
+variable or production service is added.
+
 ## Toolchain
 
 The checked-in versions are authoritative:
@@ -125,6 +143,8 @@ The separate prospective collector is `python3 scripts/research/collect_market_c
 The legacy `tcn`, `patch_tst`, and `transformer` predictor codes are compatibility identifiers for lightweight deterministic proxies, not faithful neural architectures. Their actual versioned implementation identities are `dilated_lag_ridge_v1`, `patch_summary_ridge_v1`, and `similarity_attention_v1`; those accurate names are accepted as aliases while serialization continues to emit the legacy codes. A faithful future architecture must use a new semantic model identifier and artifact compatibility version, so saved configurations never change meaning silently.
 
 The 2026-09-04 [market-prediction review](research-notes/market-prediction-2026-09-04/literature-review.md) maps 50 primary works, audits every current model family, records the [paper-to-code gaps](research-notes/market-prediction-2026-09-04/paper-to-repository-gap-matrix.md), and freezes three future-data registrations. Its decision is **no candidate passed**: no predictor, champion, combo, deployment mode, or live authorization changed. The existing historical holdout remains unopened, and the prospective funding-carry path remains metadata-only until its registered 2027 evaluation time.
+
+The offline sequential OPE helper rejects empty or malformed trajectories, invalid discounts or action indices, nonzero terminal bootstraps, and non-finite weight/estimate arithmetic. It never clips importance weights to rescue an estimate. The [draft audit](research-notes/sequential-control-2026-09-17/audit-followup.md) records the reproduced defects, deterministic estimator checks and unchanged negative evidence.
 
 ## CLI and API
 

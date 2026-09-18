@@ -46,6 +46,7 @@ data RiskID
     | RISK_LIMIT_001
     | RISK_LIMIT_NON_FINITE_001
     | RISK_METRIC_INVALID_001
+    | RL_OFFLINE_001
     | SCHEMA_001
     | THRESHOLD_FACTOR_001
     | TRADE_LOG_GAP_001
@@ -109,6 +110,7 @@ riskIdText = \case
     RISK_LIMIT_001 -> "RISK-LIMIT-001"
     RISK_LIMIT_NON_FINITE_001 -> "RISK-LIMIT-NON-FINITE-001"
     RISK_METRIC_INVALID_001 -> "RISK-METRIC-INVALID-001"
+    RL_OFFLINE_001 -> "RL-OFFLINE-001"
     SCHEMA_001 -> "SCHEMA-001"
     THRESHOLD_FACTOR_001 -> "THRESHOLD-FACTOR-001"
     TRADE_LOG_GAP_001 -> "TRADE-LOG-GAP-001"
@@ -292,6 +294,13 @@ riskRegister =
         "Malformed loss or drawdown evidence could bypass live halt checks"
         "trader-firm-risk"
         "specRiskHalt emits RISK_METRIC_INVALID before threshold comparisons"
+    , riskEntry
+        RL_OFFLINE_001
+        HIGH
+        OPEN
+        "Simulator policies can exploit costs, coverage, episode boundaries or contaminated history"
+        "trader-firm-research"
+        "Keep sequential-control v1 offline and non-authorizing; require fresh data, matched champion, credible OPE, complete risk-safe paths and separate human review before any integration"
     , riskEntry
         SCHEMA_001
         CRITICAL

@@ -1,0 +1,79 @@
+{
+  "availabilityEvidence": "Historical timestamps only; no original first-seen witnesses; blocks production promotion.",
+  "contamination": "Previously exposed development panel; 45 earlier adaptive residual/funding attempts. Attempt 46 is separate prospective work, not independent evidence here.",
+  "copyrightedPapersCommitted": false,
+  "credentialsRequired": false,
+  "dependencies": [
+    {
+      "license": "BSD-3-Clause",
+      "name": "numpy",
+      "source": "https://github.com/numpy/numpy/blob/v2.3.5/LICENSE.txt",
+      "version": "2.3.5"
+    },
+    {
+      "license": "BSD-3-Clause",
+      "name": "pandas",
+      "source": "https://github.com/pandas-dev/pandas/blob/v2.3.3/LICENSE",
+      "version": "2.3.3"
+    }
+  ],
+  "dependencyReview": "Existing research libraries reused, top-level versions pinned, CPU-only, original RL code; no third-party academic implementation copied. CI installs these pins. Pandas security page and NumPy advisory GHSA-9fq2-x9r6-wfmf reviewed on execution date; this is a bounded advisory review, not a complete transitive vulnerability scan or claim of no vulnerabilities. No pickle/eval is used. Wheel/BLAS differences may affect floating-point reproduction.",
+  "dependencySecuritySources": [
+    "https://github.com/pandas-dev/pandas/security",
+    "https://github.com/advisories/GHSA-9fq2-x9r6-wfmf"
+  ],
+  "license": "Provider market-data terms; public availability is not a blanket redistribution license. Raw data is not committed or redistributed by this change.",
+  "modelParametersCommitted": false,
+  "networkMarketRequests": 0,
+  "paidData": false,
+  "panel": {
+    "columns": [
+      "symbol",
+      "openTime",
+      "closeTime",
+      "close"
+    ],
+    "filename": "registered-development-panel.csv",
+    "firstOpenUtc": "2020-09-23T00:00:00Z",
+    "frequency": "8h",
+    "lastOpenUtc": "2025-03-17T08:00:00Z",
+    "rows": 49100,
+    "rowsPerSymbol": 4910,
+    "sha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+    "symbols": [
+      "ADAUSDT",
+      "AVAXUSDT",
+      "BNBUSDT",
+      "BTCUSDT",
+      "DOGEUSDT",
+      "ETHUSDT",
+      "LINKUSDT",
+      "LTCUSDT",
+      "SOLUSDT",
+      "XRPUSDT"
+    ]
+  },
+  "rawDataCommitted": false,
+  "retrievalProcedure": "Obtain ONLY the exact development exports from the authorized prior campaign archive. Verify both hashes before parsing. The original generator also handles protected full snapshots: do not rerun it or inspect those snapshots under this screen. If these exports are unavailable, reproduction is blocked; do not silently redownload revised data or relax hashes.",
+  "retrievedForThisTask": false,
+  "schema": "sequential_data_license_v1",
+  "settlements": {
+    "columns": [
+      "symbol",
+      "fundingTime",
+      "fundingRate",
+      "resolvedMarkPrice",
+      "markSource",
+      "markOpenTime"
+    ],
+    "filename": "registered-development-settlements.csv",
+    "markResolution": "Explicit event mark or containing 1h mark-bar open, inherited from prior campaign. Not later bar close.",
+    "rows": 49175,
+    "sha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899"
+  },
+  "source": "Previously authorized public Binance USD-M development-only campaign exports",
+  "sourceDocumentation": "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api",
+  "sourceGenerator": "scripts/research/run_historical_funding_campaign.py",
+  "sourceRegistration": "research-notes/registrations/residual-momentum-funding-only-v1.json",
+  "survivorship": "Fixed surviving symbols, not historical top-liquidity membership; no point-in-time cross-sectional claim."
+}

@@ -1,0 +1,85 @@
+{
+  "artifactByteRange": [
+    6741,
+    6913
+  ],
+  "decision": "no_candidate_passed",
+  "evidenceClass": "contaminated_development_only",
+  "holdoutOpened": false,
+  "peakResidentMemoryMiB": 128.19921875,
+  "plannedEntries": 19548,
+  "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+  "processPeakRssPlatformUnits": 134426624,
+  "promotionAllowed": false,
+  "replayPaths": 19440,
+  "rlAllPathsMaxDrawdown": 0.25737824125945785,
+  "rlAllPathsWorstES95": 0.02992319879018135,
+  "rlBaseFailuresByReason": {
+    "capital_floor": 5,
+    "complete": 394,
+    "drawdown_limit": 387,
+    "endpoint_exposure": 14,
+    "turnover_limit": 280
+  },
+  "rlObservedMaxP99InferenceMs": 2.944969979999997,
+  "rlOodObservationRateRange": [
+    0.0,
+    0.01001669449081803
+  ],
+  "rlStressFailures": {
+    "base": {
+      "failed": 686,
+      "total": 1080
+    },
+    "cost1_5x": {
+      "failed": 688,
+      "total": 1080
+    },
+    "cost2x": {
+      "failed": 697,
+      "total": 1080
+    },
+    "delay1bar": {
+      "failed": 693,
+      "total": 1080
+    },
+    "extreme25bp": {
+      "failed": 700,
+      "total": 1080
+    },
+    "funding2x": {
+      "failed": 700,
+      "total": 1080
+    },
+    "impact10bp": {
+      "failed": 688,
+      "total": 1080
+    },
+    "missed10pct": {
+      "failed": 687,
+      "total": 1080
+    },
+    "partial50pct": {
+      "failed": 454,
+      "total": 1080
+    }
+  },
+  "seconds": 3005.9173852370004,
+  "statistics": {
+    "DSR": null,
+    "PBO": null,
+    "SPA": null,
+    "pairedConfidence": null,
+    "reason": "No promotion inference: contaminated panel, no matched champion, constant cash baseline and possibly stopped/incomplete paths. Do not discard required paths to manufacture a complete selection matrix."
+  },
+  "totalFailuresByReason": {
+    "capital_floor": 83,
+    "complete": 7918,
+    "drawdown_limit": 5059,
+    "endpoint_exposure": 191,
+    "timeout": 2,
+    "turnover_limit": 6187
+  },
+  "trainingFits": 108,
+  "trainingSecondsSum": 494.68378440488596
+}
