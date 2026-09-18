@@ -202,6 +202,61 @@ class SequentialContracts(unittest.TestCase):
                     proposal, _ = infer(net, np.zeros(12), enabled=True)
                     self.assertEqual(proposal, .25 if elapsed_ns == 20_000_000 else None)
 
+    def network_arithmetic_fixture(self, kind, outputs=3):
+        net = Network(11, outputs)
+        obs = np.ones(12)
+        if kind == "hidden_product": net.p["w1"][:] = 1e308
+        elif kind == "hidden_addition":
+            net.p["w1"][:] = 1e307; net.p["b1"][:] = 1e308
+        elif kind == "hidden_infinite": net.p["b1"][:] = np.inf
+        elif kind == "hidden_nan": net.p["b1"][:] = np.nan
+        elif kind == "output_product":
+            net.p["w1"][:] = 1.; net.p["w2"][:] = 1e308
+        else: net.p["b2"][:] = np.inf
+        return net, obs
+
+    def test_network_rejects_invalid_forward_arithmetic(self):
+        for outputs in (1, 3):
+            for batch in (False, True):
+                for kind in ("hidden_product", "hidden_addition", "hidden_infinite", "hidden_nan",
+                             "output_product", "output_infinite"):
+                    with self.subTest(outputs=outputs, batch=batch, kind=kind):
+                        net, obs = self.network_arithmetic_fixture(kind, outputs)
+                        with np.errstate(all="ignore"), self.assertRaises(ValueError):
+                            net.forward(np.vstack([obs, obs]) if batch else obs)
+
+    def test_network_overflow_inference_is_absent_and_shielded(self):
+        for kind in ("hidden_product", "hidden_addition", "hidden_infinite"):
+            with self.subTest(kind=kind):
+                net, obs = self.network_arithmetic_fixture(kind)
+                with np.errstate(all="ignore"):
+                    proposal, elapsed = infer(net, obs, enabled=True)
+                self.assertIsNone(proposal)
+                self.assertTrue(np.isfinite(elapsed) and elapsed >= 0)
+                env = self.economic_fixture()
+                env.step(proposal)
+                self.assertEqual(env.failure, "invalid_action")
+                self.assertEqual((env.t, env.fills, env.units, env.equity), (30, 0, 0., 1.))
+
+    def test_network_invalid_hidden_state_aborts_ope_before_transition(self):
+        net, _ = self.network_arithmetic_fixture("hidden_infinite")
+        with patch.object(Replay, "step", autospec=True, side_effect=Replay.step) as step:
+            with self.assertRaises(ValueError): self.short_ope_fixture(net)
+            step.assert_not_called()
+
+    def test_network_finite_forward_golden_parity(self):
+        values = []
+        for seed in (11, 23, 47):
+            for outputs in (1, 3):
+                net = Network(seed, outputs)
+                for obs in (np.arange(12) / 12, np.full(12, 1e100)):
+                    values.append(net.forward(obs).tolist())
+                    values.append(net.forward(np.vstack([obs, -obs])).tolist())
+        fixture = json.loads((Path(__file__).parent / "fixtures/sequential-network-forward-v1.json").read_text())
+        self.assertEqual(len(values), len(fixture["values"]))
+        for actual, expected in zip(values, fixture["values"]):
+            np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-15)
+
     def baseline_fixture(self):
         controls = Baselines.__new__(Baselines)
         controls.scale = Scale(np.zeros(6), np.ones(6), np.full(6, -10.), np.full(6, 10.))

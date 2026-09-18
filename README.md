@@ -120,6 +120,10 @@ Economic metrics also require contiguous finite bar ledgers and per-bar return,
 equity, P&L and cost reconciliation. Invalid ledger evidence fails before reporting;
 valid stopped losses remain reportable. See the [ledger-admission audit](research-notes/sequential-control-2026-09-17/ledger-admission-audit.md).
 
+Offline neural evaluation rejects non-finite hidden arithmetic before activation,
+so saturation cannot hide overflow and produce a directional proposal. Inference
+failure remains absent and shielded. See the [network-numerics audit](research-notes/sequential-control-2026-09-17/network-numerics-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

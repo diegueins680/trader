@@ -158,3 +158,7 @@ Economic reporting also validates contiguous ledger rows and reconciles every ba
 return with its equity change and every equity change with P&L and costs. See the
 [ledger-admission audit](ledger-admission-audit.md); failed paths are retained when
 their recorded ledger is internally consistent.
+
+Offline neural forward evaluation rejects non-finite hidden preactivations before
+`tanh` can hide them by saturation. Inference returns absence and OPE/training
+retain explicit failure. See the [network-numerics audit](network-numerics-audit.md).

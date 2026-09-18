@@ -30,7 +30,17 @@ class Network:
         self.steps = 0
 
     def forward(self, x: np.ndarray) -> np.ndarray:
-        return np.tanh(x @ self.p["w1"] + self.p["b1"]) @ self.p["w2"] + self.p["b2"]
+        try:
+            with np.errstate(over="raise", invalid="raise", divide="raise"):
+                hidden = x @ self.p["w1"] + self.p["b1"]
+                if not np.isfinite(hidden).all():
+                    raise ValueError("non-finite network hidden state")
+                out = np.tanh(hidden) @ self.p["w2"] + self.p["b2"]
+                if not np.isfinite(out).all():
+                    raise ValueError("non-finite network output")
+                return out
+        except FloatingPointError as exc:
+            raise ValueError("non-finite network arithmetic") from exc
 
     def gradients(self, x: np.ndarray, dz: np.ndarray) -> dict:
         h = np.tanh(x @ self.p["w1"] + self.p["b1"])
