@@ -200,12 +200,34 @@ def validate_provenance(provenance: dict) -> None:
         raise ValueError("invalid provenance JSON") from exc
 
 
+def _parameter_snapshots(parameters: dict) -> dict:
+    """One v1 parameter contract for policy writers and readers; critics are distinct."""
+    shapes = {"w1": (FEATURE_COUNT, 16), "b1": (16,), "w2": (16, 3), "b2": (3,)}
+    if not isinstance(parameters, dict) or set(parameters) != set(shapes):
+        raise ValueError("parameter fields")
+    snapshots = {}
+    for name, shape in shapes.items():
+        value = parameters[name]
+        if (not isinstance(value, np.ndarray) or np.ma.isMaskedArray(value) or
+            value.dtype.kind not in "iuf" or value.shape != shape):
+            raise ValueError("invalid parameter shape or type")
+        snapshot = value.copy()
+        with np.errstate(over="ignore", invalid="ignore"):
+            portable = np.asarray(snapshot, dtype=float)
+        if not np.isfinite(portable).all():
+            raise ValueError("non-finite parameters")
+        # Preserve integer JSON values; floating parameters use portable float64.
+        snapshots[name] = portable if snapshot.dtype.kind == "f" else snapshot
+    return snapshots
+
+
 def save_policy(path: Path, net: Network, provenance: dict) -> str:
     validate_provenance(provenance)
+    parameters = _parameter_snapshots(net.p)
     value = {"schema": "offline_policy_v1", "environment": ENVIRONMENT,
              "observation": OBSERVATION, "actions": ACTIONS.tolist(),
              "promotion": "rejected_research_only", "enabled": False,
-             "provenance": provenance, "parameters": {k: v.tolist() for k, v in net.p.items()}}
+             "provenance": provenance, "parameters": {k: v.tolist() for k, v in parameters.items()}}
     raw = (json.dumps(value, sort_keys=True, allow_nan=False) + "\n").encode()
     if len(raw) > 65536:
         raise ValueError("artifact too large")
@@ -242,16 +264,17 @@ def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> 
         a["promotion"] != "rejected_research_only" or a["enabled"] is not False or
         json.dumps(a["provenance"], sort_keys=True) != json.dumps(expected_provenance, sort_keys=True)):
         raise ValueError("incompatible artifact")
-    net = Network(0)
-    if set(a["parameters"]) != set(net.p):
-        raise ValueError("parameter fields")
     def numeric(value):
         return all(numeric(v) for v in value) if isinstance(value, list) else type(value) in (int, float)
-    for k, template in net.p.items():
-        if not numeric(a["parameters"][k]):
+    parameters = {}
+    for name, value in a["parameters"].items():
+        if not numeric(value):
             raise ValueError("non-numeric parameter")
-        arr = np.asarray(a["parameters"][k], dtype=float)
-        if arr.shape != template.shape or not np.isfinite(arr).all():
-            raise ValueError("invalid parameters")
-        net.p[k] = arr
+        try:
+            parameters[name] = np.asarray(value, dtype=float)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("invalid numeric parameters") from exc
+    snapshots = _parameter_snapshots(parameters)
+    net = Network(0)
+    net.p = snapshots
     return net

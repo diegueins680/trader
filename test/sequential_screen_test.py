@@ -455,6 +455,89 @@ class SequentialContracts(unittest.TestCase):
                 for k in a.p:
                     np.testing.assert_array_equal(a.p[k], b.p[k])
 
+    def test_policy_save_rejects_invalid_parameters_before_file_creation(self):
+        meta = dict(codeCommit="a"*40, registrationSha256="b"*64, dataSha256="c"*64,
+                    seed=11, horizon=1, algorithm="ppo", fold=0)
+        with tempfile.TemporaryDirectory() as td:
+            for key, template in Network(11).p.items():
+                bad_values = (None, template.tolist(), np.zeros(1), np.zeros(template.shape, dtype=bool),
+                              np.zeros(template.shape, dtype=complex), np.zeros(template.shape, dtype=object),
+                              np.full(template.shape, np.nan), np.full(template.shape, np.inf),
+                              np.ma.array(template, mask=True))
+                for index, bad in enumerate(bad_values):
+                    target = Path(td)/f"{key}-{index}.json"
+                    net = Network(11); net.p[key] = bad
+                    with self.subTest(key=key, value=repr(bad)):
+                        with self.assertRaises(ValueError):
+                            save_policy(target, net, meta)
+                        self.assertFalse(target.exists())
+            for index, parameters in enumerate(({}, {**Network(11).p, "extra": np.ones(1)}, None)):
+                target = Path(td)/f"fields-{index}.json"
+                net = Network(11); net.p = parameters
+                with self.subTest(parameters=repr(parameters)), self.assertRaises(ValueError):
+                    save_policy(target, net, meta)
+
+    def test_policy_save_retains_valid_v1_bytes_and_loader_parity(self):
+        rows = []
+        with tempfile.TemporaryDirectory() as td:
+            for algorithm in ("ppo", "double_dqn", "cql", "cql_no_inventory_penalty"):
+                for seed in (11, 23, 47):
+                    for variant in ("float64", "float32", "integer_bias"):
+                        net = Network(seed)
+                        if variant == "float32": net.p = {k:v.astype(np.float32) for k,v in net.p.items()}
+                        if variant == "integer_bias": net.p["b2"] = np.array([-1, 0, 1], dtype=np.int64)
+                        meta = dict(codeCommit="a"*40, registrationSha256="b"*64, dataSha256="c"*64,
+                                    seed=seed, horizon=3, algorithm=algorithm, fold=0)
+                        path = Path(td)/f"{algorithm}-{seed}-{variant}.json"
+                        sha = save_policy(path, net, meta)
+                        loaded = load_policy(path, sha, meta)
+                        np.testing.assert_array_equal(loaded.forward(np.ones(12)), net.forward(np.ones(12)))
+                        rows.append(dict(algorithm=algorithm, seed=seed, variant=variant, sha256=sha,
+                                         bytes=path.stat().st_size, artifact=path.read_text()))
+        raw = json.dumps(rows, sort_keys=True, allow_nan=False).encode()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "020dbfdf167008b238a7d1f414493eb9677686bf2c8d9113fd87ffd7f76474ee")
+
+    def test_policy_save_never_overwrites_existing_artifact(self):
+        meta = dict(codeCommit="a"*40, registrationSha256="b"*64, dataSha256="c"*64,
+                    seed=11, horizon=1, algorithm="ppo", fold=0)
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td)/"policy.json"
+            save_policy(path, Network(11), meta); original = path.read_bytes()
+            with self.assertRaises(FileExistsError): save_policy(path, Network(23), meta)
+            self.assertEqual(path.read_bytes(), original)
+            with self.assertRaises(ValueError): save_policy(path, Network(11, outputs=1), meta)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_runner_records_policy_save_failure_without_success_artifact(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"input.csv"; source.write_text("fixture-only")
+            registration = json.loads(REGISTRATION.read_text())
+            registration["data"]["decisionHorizonBars"] = [1]
+            registration["seeds"] = [11]
+            registration["validation"]["outerFolds"] = [{"trainStop":160,"testStart":166,"testStop":240}]
+            reg = root/"registration.json"; reg.write_text(json.dumps(registration))
+            invalid = Network(11, outputs=1)
+            with patch.object(runner, "REGISTRATION", reg), patch.object(runner, "source_commit", return_value="a"*40), \
+                 patch.object(runner, "load_development", return_value=({"x":self.p}, {"x":self.f}, np.array([0,1]))), \
+                 patch.object(runner, "ALGORITHMS", ("ppo",)), patch.object(runner, "Baselines") as controls, \
+                 patch.object(runner, "train_ppo", return_value=(invalid, {})):
+                controls.names = ()
+                runner.run(source, source, root/"run")
+            self.assertEqual(list((root/"run/policies").glob("*.json")), [])
+            training = json.loads((root/"run/training.json").read_text())
+            self.assertEqual(training[0]["status"], "failed")
+            self.assertIn("parameter", training[0]["reason"])
+            self.assertNotIn("artifactSha256", training[0])
+            planned = json.loads((root/"run/planned-registry.json").read_text())
+            events = [json.loads(line) for line in (root/"run/events.jsonl").read_text().splitlines()]
+            terminal = [e for e in events if e["status"] in ("complete", "failed")]
+            self.assertEqual({e["id"] for e in terminal}, {e["id"] for e in planned})
+            self.assertTrue(all(e["status"] == "failed" for e in terminal))
+            index_sha = hashlib.sha256((root/"run/evidence-index.json").read_bytes()).hexdigest()
+            export(root/"run", root/"review", rss_unit="bytes", platform_label="fixture", expected_index_sha256=index_sha)
+            self.assertFalse(json.loads((root/"review/evaluation-summary.json").read_text())["promotionAllowed"])
+
     def test_artifact_roundtrip_hash_version_and_nonfinite(self):
         meta = {"codeCommit": "a"*40, "registrationSha256": "b"*64, "dataSha256": "c"*64,
                 "seed": 11, "horizon": 1, "algorithm": "ppo", "fold": 0}
