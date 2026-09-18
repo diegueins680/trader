@@ -412,3 +412,11 @@ at relative/absolute tolerance 1e-10 and net returns at 1e-12. Four witnesses co
 corrupted returns/ledgers, failed losses beyond initial equity and exact nonzero
 report parity. These checks do not reconstruct fills, certify market data or
 establish statistical significance. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+
+`A-SEQUENTIAL-RESEARCH-R24` checks neural forward arithmetic before activation and
+before returning policy/value outputs. Four witnesses cover actor/critic vector
+and batch failures, absent inference with no fill, OPE rejection before transition,
+and exact finite forward bytes including valid saturation. Gradient/optimizer
+state, parameter provenance and preemptive timeouts remain outside this guard.
+`RL-OFFLINE-001` remains HIGH/OPEN.

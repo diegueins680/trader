@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research/RL: reject non-finite neural hidden arithmetic before tanh and invalid output arithmetic before selection; preserve finite forward bytes and absent-proposal failure behavior.
 - Research/Reporting: reconcile every recorded bar return and equity transition before economic metrics; reject invalid chronology, numeric domains and cost buckets while preserving valid completed and failed reports.
 - Research/Reporting: reject economic reports from unfinished or inconsistent successful replays; require terminal accounting state while preserving explicit failed paths and valid report bytes.
 - Research/OPE: validate full windows, integer budgets/seeds/horizons and aligned symbol/series coverage before sampling; normalize NumPy integers and preserve causal value access and valid replay behavior.

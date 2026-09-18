@@ -185,6 +185,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R23",
           "statement": "Economic reporting admits contiguous recorded bars from start+1 through the stopped replay index, finite real metric inputs excluding booleans, and nonnegative turnover and cost buckets. Each equity transition reconciles prior equity plus gross P&L and funding less costs within relative/absolute tolerance 1e-10; each net return reconciles equity/prior equity minus one within 1e-12. Prior equity is positive; a finite nonpositive final equity remains reportable for an explicitly failed path. Final recorded equity equals replay equity. Invalid evidence raises before metric computation; valid report bytes and failed-path losses are preserved. This is internal ledger consistency, not fill reconstruction, market-data authenticity, action-counter validation or economic confirmation."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R24",
+          "statement": "Offline neural forward evaluation rejects floating-point overflow and invalid arithmetic and requires finite hidden preactivations before tanh and finite outputs before returning values. The contract covers actor and critic vector/batch evaluation; finite saturation remains valid. Inference catches failure as an absent proposal, which shielding rejects without a fill; OPE failure occurs before the affected transition. Valid forward bytes, action semantics and persistence format remain unchanged. This does not certify parameter provenance, validate all representations or gradients/optimizer state, guarantee a preemptive timeout or establish economic value."
         }
       ],
       "ensures": [
@@ -642,6 +646,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_economic_nonzero_ledger_report_parity"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_network_rejects_invalid_forward_arithmetic"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_network_overflow_inference_is_absent_and_shielded"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_network_invalid_hidden_state_aborts_ope_before_transition"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_network_finite_forward_bytes_preserved"
         },
         {
           "level": "bounded-exhaustive",
