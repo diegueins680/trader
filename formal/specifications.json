@@ -95,7 +95,7 @@
       "requires": [
         {
           "id": "A-SEQUENTIAL-RESEARCH-R1",
-          "statement": "The runner accepts only the two hash-pinned contaminated development files and committed source bytes; no raw final holdout or prospective outcome is admissible."
+          "statement": "The runner accepts only the two hash-pinned contaminated development files and committed source bytes; no raw final holdout or prospective outcome is admissible. Both CSVs are captured as immutable byte snapshots and verified before parsing, and parsing consumes those same snapshots."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R2",
@@ -118,6 +118,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-E2",
           "statement": "All planned algorithms, horizons, seeds, folds and replays remain in the roster; failed/stopped paths are not cash-padded or discarded for promotion statistics."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E3",
+          "statement": "Run manifests and policy provenance retain the registered hashes proven at snapshot admission. Replacing either input pathname after admission cannot change parsed prices/funding or relabel their provenance; a subsequent invocation rejects unregistered replacement bytes before parsing."
         }
       ],
       "invariants": [
@@ -158,6 +162,16 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_ope_rejects_invalid_domains_and_overflow"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_development_parser_uses_the_verified_byte_snapshot"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_run_provenance_keeps_admitted_hashes_after_input_replacement"
         },
         {
           "level": "bounded-exhaustive",

@@ -73,3 +73,10 @@ holding-period distribution, calibrated Q overestimation, regime/liquidity slice
 full forecast reliability diagnostics and matched champion statistics) remain
 unavailable; the registration's requested list is not a claim they were produced.
 See [deliverables-index.md](deliverables-index.md) for the exact scope limits.
+
+The current runner also closes a CSV replacement race: it reads each admitted
+input into immutable bytes once, verifies both hashes before parsing, and parses
+those same byte buffers. All later data hashes in manifests/policy provenance
+come from that successful admission, not a reopened pathname. The frozen original
+source predates this hardening; its evidence remains unchanged. See
+[input-snapshot-audit.md](input-snapshot-audit.md) for synthetic regression evidence.

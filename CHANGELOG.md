@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Input Admission: parse the offline sequential screen's exact hash-verified CSV byte snapshots instead of reopening mutable paths; retain admitted data hashes in run manifests and policy artifacts if source files change later. Add replacement-race and provenance regressions using synthetic fixtures. Frozen financial results, registrations, holdouts and production behavior remain unchanged.
+
 - Research/OPE Audit: reject invalid discounts, logged actions, empty trajectories, terminal bootstraps and overflowing importance-weight arithmetic; add exact enumerated-policy and malformed-input regressions. Preserve the frozen experiment archive, every rejected seed and all protected holdouts.
 
 - Research/Policy Provenance: reject empty or mistyped policy metadata even when caller expectations and artifact hashes match. Validate required source/data digest syntax, exact integer seed/fold/horizon fields, supported policy families and finite JSON before saving or loading; retain compatibility with all 108 frozen research artifacts without rerunning financial experiments or changing their rejected disposition.

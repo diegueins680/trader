@@ -146,6 +146,8 @@ The 2026-09-04 [market-prediction review](research-notes/market-prediction-2026-
 
 The offline sequential OPE helper rejects empty or malformed trajectories, invalid discounts or action indices, nonzero terminal bootstraps, and non-finite weight/estimate arithmetic. It never clips importance weights to rescue an estimate. The [draft audit](research-notes/sequential-control-2026-09-17/audit-followup.md) records the reproduced defects, deterministic estimator checks and unchanged negative evidence.
 
+Offline sequential research captures both development CSVs once, verifies both hashes before parsing, and parses those exact byte snapshots. Manifests and policy artifacts retain the admitted hashes even if the input files are later replaced. Unregistered replacement bytes fail admission on a subsequent invocation. See the [input-admission audit](research-notes/sequential-control-2026-09-17/input-snapshot-audit.md).
+
 ## CLI and API
 
 List the complete CLI surface with:

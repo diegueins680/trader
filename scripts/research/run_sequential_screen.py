@@ -7,6 +7,7 @@ import csv
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import platform
@@ -53,11 +54,14 @@ def source_commit() -> str:
 
 def load_development(panel: Path, settlements: Path, registration: dict):
     spec = registration["data"]
-    # Verify both files before parsing any value; no access to full source snapshots.
-    if digest(panel) != spec["panelSha256"] or digest(settlements) != spec["settlementsSha256"]:
+    # Read each input once. Parsing must consume these verified bytes, not a
+    # pathname that can be replaced between the integrity check and decoding.
+    panel_bytes, settlement_bytes = panel.read_bytes(), settlements.read_bytes()
+    if (hashlib.sha256(panel_bytes).hexdigest() != spec["panelSha256"] or
+        hashlib.sha256(settlement_bytes).hexdigest() != spec["settlementsSha256"]):
         raise ValueError("only exact registered development bytes are permitted")
-    bars = pd.read_csv(panel)
-    events = pd.read_csv(settlements)
+    bars = pd.read_csv(BytesIO(panel_bytes))
+    events = pd.read_csv(BytesIO(settlement_bytes))
     if list(bars.columns) != ["symbol", "openTime", "closeTime", "close"]:
         raise ValueError("panel schema")
     if sorted(bars.symbol.unique()) != spec["symbols"] or sorted(events.symbol.unique()) != spec["symbols"]:
@@ -120,13 +124,17 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
     commit = source_commit()
     registration = json.loads(REGISTRATION.read_text())
     prices, funding, times = load_development(panel, settlements, registration)
+    # Admission proves the parsed snapshots have exactly these registered hashes.
+    # A later pathname change must not relabel the data used for this run.
+    panel_sha = registration["data"]["panelSha256"]
+    settlements_sha = registration["data"]["settlementsSha256"]
     output.mkdir(parents=True, exist_ok=False)
     (output / "policies").mkdir()
     started = time.perf_counter()
     write_json(output / "manifest.json", {"campaign": registration["campaign"], "codeCommit": commit,
                "registrationCommit": "dfc6b27d", "registrationSha256": digest(REGISTRATION),
                "sources": {str(p.relative_to(ROOT)): digest(p) for p in SOURCES},
-               "panelSha256": digest(panel), "settlementsSha256": digest(settlements),
+               "panelSha256": panel_sha, "settlementsSha256": settlements_sha,
                "firstOpenUtc": datetime.fromtimestamp(int(times[0])/1000, timezone.utc).isoformat(),
                "lastOpenUtc": datetime.fromtimestamp(int(times[-1])/1000, timezone.utc).isoformat(),
                "createdAtUtc": datetime.now(timezone.utc).isoformat(),
@@ -175,9 +183,9 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                 info.update({"id": trial, "seconds": time.perf_counter() - then,
                                              "algorithm": alg, "seed": seed, "fold": fi, "horizon": h})
                                 provenance = {"codeCommit": commit, "registrationSha256": digest(REGISTRATION),
-                                              "dataSha256": digest(panel), "seed": seed, "horizon": h,
+                                              "dataSha256": panel_sha, "seed": seed, "horizon": h,
                                               "algorithm": alg, "fold": fi, "split": split,
-                                              "fundingSha256": digest(settlements), "scale": {k: getattr(scale, k).tolist() for k in ("mean", "std", "low", "high")}}
+                                              "fundingSha256": settlements_sha, "scale": {k: getattr(scale, k).tolist() for k in ("mean", "std", "low", "high")}}
                                 artifact = output / "policies" / (trial.replace("/", "_") + ".json")
                                 info["artifactSha256"] = save_policy(artifact, net, provenance)
                                 info["artifactBytes"] = artifact.stat().st_size
