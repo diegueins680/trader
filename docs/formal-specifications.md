@@ -244,3 +244,8 @@ Peak-memory metadata must be finite and nonnegative. Every compact JSON/CSV repo
 is rendered before output creation, so field/serialization errors leave no partial
 report directory. This does not promise atomic publication across filesystem
 failures during the subsequent writes.
+
+The runner includes the exception class in training, OPE and replay failure
+records, so empty or reserved exception messages cannot produce blank reasons
+or completion labels. Synthetic producer-to-export replay tests retain all
+failed paths while keeping promotion disabled.

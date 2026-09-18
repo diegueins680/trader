@@ -138,7 +138,7 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-E5",
-          "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows for successful fits. Nested result fields cannot shadow validated trial identity in exported CSVs. Failed terminal/replay outcomes require nonblank non-reserved reasons and complete outcomes have no reason. Manifest and summary dispositions must remain non-authorizing contaminated development with no candidate passed, no opened holdout and null v1 promotion statistics before output creation. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
+          "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows for successful fits. Nested result fields cannot shadow validated trial identity in exported CSVs. Failed terminal/replay outcomes require nonblank non-reserved reasons and complete outcomes have no reason. The runner records exception class names in training/OPE/replay failure reasons, including empty or reserved messages, so these failures remain exportable without losing trials. Manifest and summary dispositions must remain non-authorizing contaminated development with no candidate passed, no opened holdout and null v1 promotion statistics before output creation. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
         }
       ],
       "invariants": [
@@ -209,6 +209,11 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_export_rejects_inconsistent_hash_valid_registry"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_exception_failures_remain_exportable_without_losing_trials"
         },
         {
           "level": "regression",

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Failure Records: include the exception class in training, OPE and replay failure reasons, preserving nonblank labels even for empty or reserved exception messages. Synthetic producer-to-export tests retain all failed trials without claiming completion; existing research archives are unchanged.
+
 - Research/Report Preparation: validate finite nonnegative peak-memory metadata and prepare every compact report before creating output, so malformed training/report fields or serialization errors cannot leave partial reports. Filesystem write failures remain explicit.
 
 - Research/Evidence Disposition: reject terminal and replay status/reason contradictions, reserved failure labels, and summary promotion, holdout or statistical claims outside the v1 contaminated-development contract before export. Require boolean false authorization flags in the manifest; retain the original negative-result reports unchanged.

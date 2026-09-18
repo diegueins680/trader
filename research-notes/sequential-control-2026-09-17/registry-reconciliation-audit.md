@@ -125,6 +125,19 @@ Full verification and CI passed at predecessor `be0ff9f1` before this later
 repair. The PR records a new full run and CI on the final commit; predecessor
 passes do not substitute for final verification.
 
+## Producer failure compatibility
+
+Review of the exception handler found that an empty exception message could emit
+a blank failed-replay reason. The strict exporter would correctly reject the
+invalid record but could not report the runner's failed attempt. Training, OPE
+and replay exception records now include the exception class and optional trimmed
+message. Synthetic producer-to-export fixtures inject empty, whitespace and
+reserved `complete` messages into training and replay/OPE paths. Before repair,
+the six subcases produced three assertion failures and three export errors; after
+repair, all failed paths remain present and none is counted as complete. No real
+market input is read, policy trained or archived financial trial rerun by these
+fixtures. Final verification is recorded in the PR on the updated commit.
+
 ## Limits and decision
 
 This is consistency against the **supplied roster**, not proof that the roster

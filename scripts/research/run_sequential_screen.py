@@ -37,6 +37,12 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def exception_reason(exc: Exception) -> str:
+    """Keep failure records nonblank and distinct from the completion label."""
+    message = str(exc).strip()
+    return type(exc).__name__ + (": " + message if message else "")
+
+
 def write_json(path: Path, value) -> None:
     with path.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False, indent=2)
@@ -194,11 +200,12 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                 try:
                                     ope_result = short_ope(prices, funding, scale, h, split["testStart"], split["testStop"], net, seed)
                                 except Exception as exc:
-                                    ope_result = {"status": "failed", "reason": str(exc)}
+                                    ope_result = {"status": "failed", "reason": exception_reason(exc)}
                                 ope.append({"id": trial, "result": ope_result})
                             except Exception as exc:
-                                event({"id": trial, "status": "failed", "reason": type(exc).__name__ + ": " + str(exc)})
-                                training.append({"id": trial, "status": "failed", "reason": str(exc),
+                                reason = exception_reason(exc)
+                                event({"id": trial, "status": "failed", "reason": reason})
+                                training.append({"id": trial, "status": "failed", "reason": reason,
                                                  "algorithm": alg, "seed": seed, "fold": fi, "horizon": h})
                                 for stress in STRESSES:
                                     for symbol in sorted(prices):
@@ -230,7 +237,7 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                         writer.writerow([trial + "/" + stress, symbol, row["t"], *[row[k] for k in ("net", "equity", "gross", "funding", "fee", "spread", "slippage", "impact", "exposure")]])
                                     event({"id": replay_id, "status": result["status"], "reason": result.get("reason"), "observations": result["observations"]})
                                 except Exception as exc:
-                                    result = {"status": "failed", "reason": str(exc), "observations": 0}
+                                    result = {"status": "failed", "reason": exception_reason(exc), "observations": 0}
                                     records.append({"id": replay_id, "algorithm": alg, "seed": seed, "fold": fi, "horizon": h, "symbol": symbol, "stress": stress, "result": result})
                                     event({"id": replay_id, **result})
                         print(f"completed {trial}", flush=True)

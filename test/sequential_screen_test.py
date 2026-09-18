@@ -634,6 +634,42 @@ class SequentialContracts(unittest.TestCase):
                        expected_index_sha256=runner.digest(index_path))
             self.assertFalse((root/"missing-ope").exists())
 
+    def test_exception_failures_remain_exportable_without_losing_trials(self):
+        for error in (MemoryError(), RuntimeError(" "), RuntimeError("complete")):
+            for training_failure in (False, True):
+                with self.subTest(error=repr(error), training_failure=training_failure), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    registration = json.loads(REGISTRATION.read_text())
+                    registration["data"].update(symbols=["x"], decisionHorizonBars=[1])
+                    registration["seeds"] = [11]
+                    registration["validation"]["outerFolds"] = [{"trainStop":160,"testStart":166,"testStop":240}]
+                    reg = root/"registration.json"
+                    reg.write_text(json.dumps(registration))
+                    with patch.object(runner, "REGISTRATION", reg), \
+                         patch.object(runner, "source_commit", return_value="a"*40), \
+                         patch.object(runner, "load_development", return_value=({"x": self.p}, {"x": self.f}, np.arange(256)*1000)), \
+                         patch.object(runner, "ALGORITHMS", ("ppo",)), \
+                         patch.object(runner, "Baselines") as controls, \
+                         patch.object(runner, "train_ppo", side_effect=error if training_failure else None,
+                                      return_value=(Network(11), {})), \
+                         patch.object(runner, "short_ope", side_effect=error), \
+                         patch.object(runner, "replay_policy", side_effect=error):
+                        controls.names = ()
+                        runner.run(root/"unused-panel", root/"unused-funding", root/"run")
+                    export(root/"run", root/"review", rss_unit="bytes", platform_label="fixture",
+                           expected_index_sha256=runner.digest(root/"run/evidence-index.json"))
+                    report = json.loads((root/"review/evaluation-summary.json").read_text())
+                    self.assertEqual(report["replayPaths"], len(runner.STRESSES))
+                    self.assertNotIn("complete", report["totalFailuresByReason"])
+                    self.assertEqual(sum(report["totalFailuresByReason"].values()), len(runner.STRESSES))
+                    self.assertFalse(report["promotionAllowed"])
+                    for name in ("training.json", "ope.json"):
+                        for row in json.loads((root/"run"/name).read_text()):
+                            outcome = row.get("result", row)
+                            if outcome.get("status") == "failed":
+                                self.assertTrue(outcome["reason"].strip())
+                                self.assertNotEqual(outcome["reason"], "complete")
+
     def test_registered_separation_and_no_final_holdout(self):
         r = json.loads(REGISTRATION.read_text())
         for split in r["validation"]["outerFolds"]:

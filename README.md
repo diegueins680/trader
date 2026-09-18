@@ -156,6 +156,8 @@ The exporter also rejects contradictory failure reasons and summary promotion, h
 
 All compact reports are prepared before the output directory is created; invalid memory metadata, malformed report fields and serialization failures leave no partial report. Filesystem write errors still require operator cleanup.
 
+New runner exception records include the exception class, ensuring empty error messages still produce reportable failures. Existing evidence archives are preserved.
+
 ## CLI and API
 
 List the complete CLI surface with:
