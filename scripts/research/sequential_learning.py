@@ -156,13 +156,22 @@ def train_q(prices, funding, scale, horizon: int, seed: int,
                  "bufferTransitions": len(buffer["a"]), "behavior": "uniform_simulated" if offline else "epsilon_greedy_simulated"}
 
 
+def _finite_real_vector(value, width: int) -> bool:
+    return (isinstance(value, np.ndarray) and not np.ma.isMaskedArray(value) and value.shape == (width,) and
+            value.dtype.kind in "iuf" and bool(np.isfinite(value).all()))
+
+
 def infer(net: Network, observation: np.ndarray | None, *, enabled: bool = False) -> tuple[float | None, float]:
     start = time.perf_counter_ns()
-    if not enabled or observation is None or observation.shape != (FEATURE_COUNT,) or not np.isfinite(observation).all():
+    if enabled is not True or not _finite_real_vector(observation, FEATURE_COUNT):
         return None, (time.perf_counter_ns() - start) / 1e6
-    out = net.forward(observation)
+    try:
+        out = net.forward(observation)
+    except Exception:
+        # An inference failure is an absent proposal, never a directional default.
+        out = None
     elapsed = (time.perf_counter_ns() - start) / 1e6
-    if out.shape != (3,) or not np.isfinite(out).all() or elapsed > 20:
+    if not _finite_real_vector(out, 3) or not 0 <= elapsed <= 20:
         return None, elapsed
     return float(ACTIONS[int(np.argmax(out))]), elapsed
 

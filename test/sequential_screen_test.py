@@ -71,6 +71,72 @@ class SequentialContracts(unittest.TestCase):
         self.assertEqual(e.rows, [])
         self.assertIsNone(infer(Network(11), np.zeros(12))[0])
 
+    def test_proposal_requires_boolean_evidence_and_real_scalars(self):
+        for field in ("enabled", "valid", "ownership"):
+            for value in ("false", "true", 0, 1, None, np.bool_(True), [True], np.array([True, False])):
+                with self.subTest(field=field, value=repr(value)):
+                    kwargs = dict(enabled=True, valid=True, ownership=True)
+                    kwargs[field] = value
+                    self.assertIsNone(shield(.25, **kwargs)[0])
+        for value in (True, None, "0", 0j, np.complex128(0), np.array([0, 1]), 10**1000):
+            with self.subTest(elapsed=repr(value)):
+                self.assertIsNone(shield(.25, enabled=True, valid=True, elapsed_ms=value)[0])
+        for value in (np.complex128(.25), .25+0j, np.bool_(False), ".25", np.array([.25])):
+            with self.subTest(action=repr(value)):
+                self.assertIsNone(shield(value, enabled=True, valid=True)[0])
+        for action in (np.float32(-.25), np.float64(.25), np.int64(0), -.25, 0, .25):
+            self.assertEqual(shield(action, enabled=True, valid=True, elapsed_ms=np.float64(20))[0], float(action))
+
+    def test_invalid_replay_gates_cannot_fill_pending_inventory(self):
+        for field in ("enabled", "valid", "ownership", "elapsed_ms"):
+            for value in ("false", 1 if field != "elapsed_ms" else True, np.array([True, False])):
+                with self.subTest(field=field, value=repr(value)):
+                    e = self.env(enabled=True, execution=Execution(extra_delay=1))
+                    e.step(.25)
+                    before = (e.t, e.equity, e.units, len(e.rows), e.pending)
+                    kwargs = {field: value}
+                    if field == "enabled":
+                        e.enabled = value
+                        kwargs = {}
+                    with patch.object(e, "observation", side_effect=AssertionError("invalid gate read observation")):
+                        obs, reward, done = e.step(.25, **kwargs)
+                    self.assertIsNone(obs); self.assertEqual(reward, 0); self.assertTrue(done)
+                    self.assertEqual((e.t, e.equity, e.units, len(e.rows), e.pending), before)
+                    self.assertIsNotNone(e.failure)
+        e = self.env(enabled=True)
+        e.step(.25)
+        units, equity, tick = e.units, e.equity, e.t
+        self.assertGreater(units, 0)
+        e.step(0., ownership=False)
+        self.assertEqual((e.units, e.equity, e.t), (units, equity, tick))
+
+    def test_inference_rejects_invalid_types_and_model_failures(self):
+        net = Network(11)
+        for enabled in ("false", 1, np.bool_(True), np.array([True, False])):
+            with self.subTest(enabled=repr(enabled)), patch.object(net, "forward") as forward:
+                self.assertIsNone(infer(net, np.zeros(12), enabled=enabled)[0])
+                forward.assert_not_called()
+        for obs in (None, [0.]*12, np.zeros(12, dtype=bool), np.zeros(12, dtype=complex),
+                    np.zeros(12, dtype=object), np.zeros(11), np.full(12, np.nan),
+                    np.ma.array(np.zeros(12), mask=[True]+[False]*11)):
+            with self.subTest(observation=repr(obs)), patch.object(net, "forward") as forward:
+                self.assertIsNone(infer(net, obs, enabled=True)[0])
+                forward.assert_not_called()
+        for out in ([0., 1., 2.], np.ones(3, dtype=bool), np.ones(3, dtype=complex),
+                    np.ones(3, dtype=object), np.ones(2), np.full(3, np.inf),
+                    np.ma.array(np.ones(3), mask=[True, False, False])):
+            with self.subTest(output=repr(out)), patch.object(net, "forward", return_value=out):
+                self.assertIsNone(infer(net, np.zeros(12), enabled=True)[0])
+        with patch.object(net, "forward", side_effect=RuntimeError("fixture")):
+            proposal, elapsed = infer(net, np.zeros(12), enabled=True)
+            self.assertIsNone(proposal); self.assertTrue(np.isfinite(elapsed) and elapsed >= 0)
+        with patch.object(net, "forward", return_value=np.array([-1., 0., 1.])):
+            self.assertEqual(infer(net, np.zeros(12), enabled=True)[0], .25)
+            for elapsed_ns in (-1, 20_000_000, 20_000_001):
+                with patch("sequential_learning.time.perf_counter_ns", side_effect=[0, elapsed_ns]):
+                    proposal, _ = infer(net, np.zeros(12), enabled=True)
+                    self.assertEqual(proposal, .25 if elapsed_ns == 20_000_000 else None)
+
     def test_delay_prevents_same_bar_profit(self):
         p = np.full(65, 100.0); p[31:] = 200
         e = Replay(p, np.zeros(65), 30, 34, 1, Scale.fit([np.full(65, 100.0)]), enabled=True)
