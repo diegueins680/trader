@@ -45,6 +45,70 @@ class SequentialContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.scale.mean[0] = 1
 
+    def test_scale_rejects_invalid_parameters(self):
+        valid = dict(mean=np.zeros(6), std=np.ones(6), low=np.full(6, -1.), high=np.ones(6))
+        for field in valid:
+            for bad in (None, [0.]*6, np.zeros(5), np.zeros((6, 1)), np.zeros(6, dtype=complex),
+                        np.zeros(6, dtype=bool), np.zeros(6, dtype=object), np.full(6, np.nan),
+                        np.full(6, np.inf), np.ma.array(np.zeros(6), mask=True)):
+                with self.subTest(field=field, value=repr(bad)), self.assertRaises(ValueError):
+                    Scale(**{**valid, field: bad})
+        for std in (np.zeros(6), np.full(6, -1.)):
+            with self.assertRaises(ValueError):
+                Scale(**{**valid, "std": std})
+        with self.assertRaises(ValueError):
+            Scale(**{**valid, "low": np.full(6, 2.)})
+
+    def test_scale_snapshots_cannot_be_mutated_through_arrays(self):
+        arrays = dict(mean=np.zeros(6), std=np.ones(6), low=np.full(6, -1.), high=np.ones(6))
+        direct = Scale(**arrays)
+        for name, original in arrays.items():
+            before = getattr(direct, name).copy()
+            original[:] = 19.
+            np.testing.assert_array_equal(getattr(direct, name), before)
+        for scale in (direct, self.scale):
+            for name in arrays:
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    getattr(scale, name).setflags(write=True)
+
+    def test_scale_queries_require_finite_real_feature_vectors(self):
+        scale = Scale(np.zeros(6), np.ones(6), np.full(6, -1.), np.ones(6))
+        for bad in (None, 0., np.zeros(1), np.zeros((1, 6)), [0.]*6, np.zeros(6, dtype=bool),
+                    np.zeros(6, dtype=complex), np.zeros(6, dtype=object), np.full(6, np.nan),
+                    np.ma.array(np.zeros(6), mask=True)):
+            with self.subTest(value=repr(bad)):
+                self.assertFalse(scale.supported(bad))
+                with self.assertRaises(ValueError):
+                    scale.transform(bad)
+        np.testing.assert_array_equal(scale.transform(np.full(6, .5)), np.full(6, .5))
+        self.assertTrue(scale.supported(np.full(6, .5)))
+        self.assertFalse(scale.supported(np.full(6, 2.)))
+        bound = np.iinfo(np.int64).max
+        integer = Scale(np.full(6, bound, dtype=np.int64), np.ones(6),
+                        np.full(6, -bound, dtype=np.int64), np.full(6, bound, dtype=np.int64))
+        np.testing.assert_array_equal(integer.transform(np.full(6, -bound, dtype=np.int64)),
+                                      np.full(6, -2.*bound))
+        tiny = Scale(np.zeros(6), np.full(6, 1e-308), np.full(6, -1.), np.ones(6))
+        with np.errstate(over="ignore"), self.assertRaises(ValueError):
+            tiny.transform(np.full(6, 100.))
+        # Overflowing normalization cannot produce a pending fill in replay.
+        unstable = Scale(np.zeros(6), np.full(6, np.nextafter(0., 1.)), np.full(6, -1.), np.ones(6))
+        env = Replay(self.p, self.f, 30, 61, 1, unstable, enabled=True)
+        with np.errstate(over="ignore"):
+            self.assertIsNone(env.observation())
+            env.step(.25)
+        self.assertEqual(env.failure, "invalid_observation_or_position")
+        self.assertEqual(env.rows, []); self.assertEqual(env.units, 0)
+
+    def test_scale_fit_rejects_incomplete_prefixes(self):
+        for prefixes in (None, [], [self.p, self.p[:0]], [self.p, self.p[:24]],
+                         [self.p, self.p[:24].astype(complex)], [self.p, None]):
+            with self.subTest(prefixes=repr(prefixes)), self.assertRaises(ValueError):
+                Scale.fit(prefixes)
+        single = Scale.fit([self.p[:25]])
+        np.testing.assert_array_equal(single.mean, market_features(self.p, 24))
+        np.testing.assert_array_equal(single.std, np.full(6, 1e-8))
+
     def test_invalid_inputs_are_absent(self):
         for value in [np.nan, np.inf, -np.inf, 0, -1]:
             p = self.p.copy(); p[30] = value
