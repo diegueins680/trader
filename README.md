@@ -128,6 +128,10 @@ Offline neural training rejects overflowing clipping norms and invalid Adam upda
 Failed updates preserve all parameters, moments and the update counter. See the
 [optimizer-atomicity audit](research-notes/sequential-control-2026-09-17/optimizer-atomicity-audit.md).
 
+The offline screen retains the exact Git-validated registration and source bytes
+for parsing and provenance. Replacing files during a run cannot relabel its
+manifest or policy artifacts. See the [source-snapshot audit](research-notes/sequential-control-2026-09-17/source-snapshot-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

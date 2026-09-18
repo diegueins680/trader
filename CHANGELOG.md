@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Provenance: parse registration settings and persist source/registration hashes from the exact Git-validated snapshots; prevent mid-run file replacement from relabeling manifests and saved policy artifacts.
+
 - Research/RL: reject overflowing gradient norms and invalid Adam arithmetic; admit optimizer controls and publish parameters, moments and counters atomically after complete validation. Preserve valid numerical update results.
 
 - Research/RL: reject non-finite neural hidden arithmetic before tanh and invalid output arithmetic before selection; preserve finite forward bytes and absent-proposal failure behavior.

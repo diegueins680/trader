@@ -49,11 +49,12 @@ def write_json(path: Path, value) -> None:
         stream.write("\n")
 
 
-def source_commit() -> str:
+def source_commit(snapshots: dict[Path, bytes] | None = None) -> str:
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     for path in SOURCES:
         committed = subprocess.check_output(["git", "show", f"{commit}:{path.relative_to(ROOT)}"], cwd=ROOT)
-        if committed != path.read_bytes():
+        actual = path.read_bytes() if snapshots is None else snapshots[path]
+        if committed != actual:
             raise ValueError(f"uncommitted experiment source: {path.name}")
     return commit
 
@@ -127,8 +128,12 @@ def summary(records: list[dict]) -> list[dict]:
 
 
 def run(panel: Path, settlements: Path, output: Path) -> None:
-    commit = source_commit()
-    registration = json.loads(REGISTRATION.read_text())
+    # Capture once, validate those bytes, then retain their identity throughout the run.
+    snapshots = {p: p.read_bytes() for p in dict.fromkeys((*SOURCES, REGISTRATION))}
+    commit = source_commit(snapshots)
+    registration = json.loads(snapshots[REGISTRATION])
+    registration_sha = hashlib.sha256(snapshots[REGISTRATION]).hexdigest()
+    source_hashes = {str(p.relative_to(ROOT)): hashlib.sha256(snapshots[p]).hexdigest() for p in SOURCES}
     prices, funding, times = load_development(panel, settlements, registration)
     # Admission proves the parsed snapshots have exactly these registered hashes.
     # A later pathname change must not relabel the data used for this run.
@@ -138,8 +143,8 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
     (output / "policies").mkdir()
     started = time.perf_counter()
     write_json(output / "manifest.json", {"campaign": registration["campaign"], "codeCommit": commit,
-               "registrationCommit": "dfc6b27d", "registrationSha256": digest(REGISTRATION),
-               "sources": {str(p.relative_to(ROOT)): digest(p) for p in SOURCES},
+               "registrationCommit": "dfc6b27d", "registrationSha256": registration_sha,
+               "sources": source_hashes,
                "panelSha256": panel_sha, "settlementsSha256": settlements_sha,
                "firstOpenUtc": datetime.fromtimestamp(int(times[0])/1000, timezone.utc).isoformat(),
                "lastOpenUtc": datetime.fromtimestamp(int(times[-1])/1000, timezone.utc).isoformat(),
@@ -188,7 +193,7 @@ def run(panel: Path, settlements: Path, output: Path) -> None:
                                                        risk_penalty=0 if alg == "cql_no_inventory_penalty" else 0.01)
                                 info.update({"id": trial, "seconds": time.perf_counter() - then,
                                              "algorithm": alg, "seed": seed, "fold": fi, "horizon": h})
-                                provenance = {"codeCommit": commit, "registrationSha256": digest(REGISTRATION),
+                                provenance = {"codeCommit": commit, "registrationSha256": registration_sha,
                                               "dataSha256": panel_sha, "seed": seed, "horizon": h,
                                               "algorithm": alg, "fold": fi, "split": split,
                                               "fundingSha256": settlements_sha, "scale": {k: getattr(scale, k).tolist() for k in ("mean", "std", "low", "high")}}
