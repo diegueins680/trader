@@ -169,6 +169,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R19",
           "statement": "Offline baselines validate the fitted scalar/vector/matrix parameters used by each selected rule: finite real values, exact coefficient shapes, no boolean/object/complex/masked representations, and an allowed behavior-clone action. Forecast/action arithmetic rejects overflow and non-finite intermediate values before logistic clipping, argmax or utility selection. Failed computations return absence; replay shielding rejects absence without a fill. Valid formulas, tie-breaking, finite-logit clipping and RNG behavior remain unchanged; unrelated invalid fitted components do not disable independent constant/uniform rules. This does not establish parameter provenance, calibration, timeout guarantees or economic value."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R20",
+          "statement": "Short OPE replay validates every observation passed to the policy and every resulting value vector before selection or transition on both logged-behavior and direct-policy paths. Inputs must be finite real unmasked 12-element NumPy vectors; outputs must be finite real unmasked three-element NumPy vectors. Malformed observations fail before forward inference; malformed outputs fail before the affected transition. Failures remain explicit and do not become cash actions, clipped values or excluded episodes. Valid policy action traces, tie-breaking, RNG and unsupported-state behavior remain unchanged. This does not calibrate policy values, guarantee inference time or establish OPE reliability."
         }
       ],
       "ensures": [
@@ -541,6 +545,31 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_baseline_numeric_admission_preserves_independent_rules"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_rejects_invalid_outputs_before_transition"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_rejects_invalid_observation_before_forward"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_valid_policy_retains_action_trace"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_forward_failure_is_explicit"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_retains_failed_episode_accounting"
         },
         {
           "level": "bounded-exhaustive",

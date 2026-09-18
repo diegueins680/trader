@@ -240,6 +240,18 @@ def _ope_estimates(r, b, pi, q, v, gamma):
     return result
 
 
+def _ope_policy_values(net, observation):
+    """Malformed policy evidence aborts OPE before action selection or transition."""
+    if (not _real_series(observation) or observation.shape != (FEATURE_COUNT,) or
+        not np.isfinite(observation).all()):
+        raise ValueError("invalid OPE policy observation")
+    values = net.forward(observation)
+    if (not _real_series(values) or values.shape != (len(ACTIONS),) or
+        not np.isfinite(values).all()):
+        raise ValueError("invalid OPE policy output")
+    return values
+
+
 def short_ope(prices, funding, scale, horizon, start, stop, net, seed, episodes=200):
     rng = np.random.default_rng(seed)
     symbols = sorted(prices)
@@ -253,7 +265,7 @@ def short_ope(prices, funding, scale, horizon, start, stop, net, seed, episodes=
         rs, ac, pi, qs, vs = [], [], [], [], []
         for j in range(6):
             obs = env.observation()
-            out = net.forward(obs)
+            out = _ope_policy_values(net, obs)
             chosen = int(np.argmax(out)) if env.supported() else 1
             a = int(rng.integers(3))
             vs.append(float(out[chosen]))
@@ -268,7 +280,7 @@ def short_ope(prices, funding, scale, horizon, start, stop, net, seed, episodes=
         for j in range(6):
             if replay.done:
                 break
-            a = int(np.argmax(net.forward(replay.observation()))) if replay.supported() else 1
+            a = int(np.argmax(_ope_policy_values(net, replay.observation()))) if replay.supported() else 1
             _, reward, _ = replay.step(float(ACTIONS[a]))
             value += 0.99**(horizon * j) * reward
         if len(rs) != 6 or env.failure or replay.failure:

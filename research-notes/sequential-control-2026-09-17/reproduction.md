@@ -138,3 +138,8 @@ rule and rejects non-finite intermediate scores before clipping or action select
 Failures return absence, not a zero-position request. Valid formulas, finite-logit
 clipping and RNG semantics remain unchanged. See the
 [baseline-numerics audit](baseline-numerics-audit.md).
+
+Short OPE policy calls require finite real unmasked observations and three-value
+outputs. Malformed evidence aborts before the affected transition, on both logged
+and direct paths. Do not impute values or discard episodes to obtain an estimate.
+See the [OPE policy-admission audit](ope-policy-admission-audit.md).
