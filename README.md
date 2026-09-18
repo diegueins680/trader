@@ -35,6 +35,12 @@ Policy artifacts require typed provenance and valid source/data digests as well 
 a matching content hash; incomplete metadata fails closed. No environment
 variable or production service is added.
 
+The Python research proposal boundary requires explicit Python `True` gates and
+finite real numeric inputs; truthy strings, numeric flags, complex values and
+masked observations cannot authorize a simulated proposal. Invalid gates stop a
+replay before pending fills or market-state reads, while inference failures return
+no proposal. See the [proposal type audit](research-notes/sequential-control-2026-09-17/proposal-types-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

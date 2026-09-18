@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Proposal Types: require explicit boolean enablement, observation-validity and ownership evidence in the Python replay shield. Reject boolean/complex/array timing and action values; validate real unmasked inference vectors and return no proposal on model failure. Check gates before observations or pending fills; preserve valid-input replay behavior and all production settings.
+
 - Research/Report Bytes: write prepared reports as UTF-8 bytes, preserving explicit LF terminators across platform newline settings; add a text-translation rejection fixture.
 
 - Research/OPE Evidence: require complete v1 failure or conditional-estimate payloads for successful fits, including finite estimator/support fields and valid intervals. Reject ID-only placeholders and unsupported reliability claims before output; schema checks do not validate estimator truth.

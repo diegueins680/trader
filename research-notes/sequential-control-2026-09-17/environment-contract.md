@@ -46,6 +46,15 @@ wrong ownership, disabled mode and elapsed inference beyond 20 ms fail closed.
 The inference timer rejects a completed slow call; it does not preempt a hung
 thread and is not a production timeout implementation.
 
+Runtime admission additionally requires exact Python boolean `True` for enabled,
+valid-observation and ownership gates. Strings, integer flags and NumPy booleans
+are not authorization. Timing and actions must be finite real numeric scalars,
+excluding booleans, complex values and arrays. Inference requires real, finite,
+unmasked vectors of the declared widths and returns no proposal on model failure.
+Invalid gates are checked before replay observation reads or pending-fill work.
+These checks refine malformed-input rejection; valid v1 actions and artifacts
+keep their existing semantics. See [proposal-types-audit.md](proposal-types-audit.md).
+
 ## Transition (`delayed_close_units_v1`)
 
 Assume availability at close plus 1 ms, decide then, and fill at close t+1
