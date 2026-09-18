@@ -278,3 +278,12 @@ Only metadata and bounds are inspected at admission. Future missing values do no
 invalidate the current observation; feature and transition values are checked
 when causally consumed. This does not prove external data provenance or valid
 real-exchange fills.
+
+`A-SEQUENTIAL-RESEARCH-R8` prevents incomplete replay outcomes from entering a
+training batch. The collector checks time progress, finite reward/equity,
+nonterminal successor validity and terminal inventory/pending-state accounting.
+An invalid transition aborts the call without returning a partial batch. Fully
+accounted risk-triggered terminal losses remain admissible learning samples;
+they remain failures for economic promotion. Executable witnesses cover missing
+funding, partial decision intervals, insolvency, malformed successors, normal
+terminal padding and update isolation across PPO, Double DQN and CQL seeds.

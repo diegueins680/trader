@@ -288,6 +288,69 @@ class SequentialContracts(unittest.TestCase):
                     Execution(**{field: bad})
         self.assertEqual(Execution(cost_multiplier=np.float64(1)).cost_multiplier, 1.)
 
+    def test_collection_rejects_incomplete_market_steps(self):
+        p = np.full(121, 100.)
+        scale = Scale.fit([p])
+        for horizon in (1, 3, 6):
+            for offset in (1, horizon):
+                for bad in (np.nan, np.inf):
+                    f = np.zeros(121); f[24+offset] = bad
+                    with self.subTest(horizon=horizon, offset=offset, value=bad):
+                        with self.assertRaisesRegex(ValueError, "incomplete training transition"):
+                            collect({"x": p}, {"x": f}, scale, horizon, 11, 1,
+                                    policy=lambda _: np.array([0., 0., 1.]))
+        # Insolvency cannot be treated as a fully liquidated terminal sample.
+        f = np.zeros(121); f[26] = 1000.
+        with self.assertRaisesRegex(ValueError, "incomplete training transition"):
+            collect({"x": p}, {"x": f}, scale, 3, 11, 1,
+                    policy=lambda _: np.array([0., 0., 1.]))
+        # A later invalid transition aborts the whole batch, not just its last row.
+        f = np.zeros(121); f[26] = np.nan
+        with self.assertRaisesRegex(ValueError, "incomplete training transition"):
+            collect({"x": p}, {"x": f}, scale, 1, 11, 2)
+
+    def test_collection_rejects_missing_or_malformed_next_observations(self):
+        observation = Replay.observation
+        for bad in (None, np.zeros(11), np.full(12, np.nan), np.zeros(12, dtype=complex),
+                    np.ma.array(np.zeros(12), mask=True)):
+            def corrupt_next(env):
+                return observation(env) if env.t == env.start else bad
+            with self.subTest(next=repr(bad)), patch.object(Replay, "observation", corrupt_next):
+                with self.assertRaisesRegex(ValueError, "incomplete training transition"):
+                    collect({"x": self.p[:121]}, {"x": self.f[:121]}, self.scale, 1, 11, 1)
+
+    def test_training_cannot_update_from_incomplete_collection(self):
+        p = np.full(121, 100.); f = np.zeros(121); f[25:] = np.nan
+        scale = Scale.fit([p])
+        for seed in (11, 23, 47):
+            for algorithm in ("ppo", "double_dqn", "cql"):
+                args = ({"x": p}, {"x": f}, scale, 1, seed)
+                with self.subTest(seed=seed, algorithm=algorithm):
+                    with patch.object(Network, "update", side_effect=AssertionError("updated from invalid data")):
+                        with self.assertRaisesRegex(ValueError, "incomplete training transition"):
+                            if algorithm == "ppo":
+                                train_ppo(*args, steps=4)
+                            else:
+                                train_q(*args, offline=algorithm == "cql", steps=4)
+
+    def test_collection_keeps_accounted_risk_terminals(self):
+        p = np.full(121, 100.); f = np.zeros(121); f[26] = 64.
+        scale = Scale.fit([p])
+        data = collect({"x": p}, {"x": f}, scale, 3, 11, 2,
+                       policy=lambda _: np.array([0., 0., 1.]))
+        self.assertTrue(data["done"].all())
+        self.assertTrue((data["r"] < -15).all())
+        np.testing.assert_array_equal(data["next"], np.zeros((2, 12)))
+        self.assertEqual(data["episodes"][0]["failure"], "drawdown_limit")
+        # Fully observed risk loss includes both entry and terminal exit costs.
+        self.assertAlmostEqual(data["r"][0], -16.05)
+        normal = collect({"x": p}, {"x": np.zeros(121)}, scale, 1, 11, 96,
+                         policy=lambda _: np.array([0., 1., 0.]))
+        self.assertEqual(np.flatnonzero(normal["done"]).tolist(), [95])
+        self.assertTrue(np.isfinite(normal["next"]).all())
+        self.assertEqual(normal["next"][0, 8], 1.)  # Live successor equity, not padding.
+        np.testing.assert_array_equal(normal["next"][-1], np.zeros(12))
+
     def test_neural_gradients_match_finite_difference(self):
         n = Network(11)
         x = np.random.default_rng(4).normal(size=(4, 12))

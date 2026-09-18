@@ -121,6 +121,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R7",
           "statement": "Replay indices and horizons, collection seeds and transition budgets require Python or NumPy integers excluding booleans, with existing episode bounds, horizons 1/3/6, nonnegative seeds and positive budgets. Replay market inputs are aligned real unmasked one-dimensional arrays. Collection requires matching nonempty string-symbol maps and at least 121 aligned training bars per symbol; admission precedes RNG sampling. Execution coefficients are finite real nonboolean scalars in their existing ranges, and behavior probabilities require real unmasked vectors. Admission inspects representation and bounds only; trailing feature values and actual transition scalars are validated when consumed, without scanning unused future values."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R8",
+          "statement": "Collection admits a learning transition only after finite reward/equity and causal time progress are checked. Nonterminal samples require a real unmasked finite 12-component successor and the complete decision interval. Terminal samples require absent successor, zero inventory, no pending target and a normal episode endpoint or an accounted capital-floor, drawdown, exposure or turnover stop. Invalid-market, invalid-observation, permission and insolvency failures abort collection instead of becoming zero-reward terminals or fabricated successor vectors; the call returns no partial batch. Fully accounted risk losses remain training samples."
         }
       ],
       "ensures": [
@@ -193,6 +197,26 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_episode_admission_requires_integral_bounds_and_progress"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_collection_rejects_incomplete_market_steps"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_collection_rejects_missing_or_malformed_next_observations"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_training_cannot_update_from_incomplete_collection"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_collection_keeps_accounted_risk_terminals"
         },
         {
           "level": "regression",

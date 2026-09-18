@@ -257,6 +257,24 @@ class Replay:
         return (None if self.done else self.observation()), reward, self.done
 
 
+def _admit_training_transition(env: Replay, left: int, nxt: np.ndarray | None,
+                               reward: float, done: bool) -> None:
+    """Incomplete market paths are not terminal learning targets or cash samples."""
+    accounted_risk = ("capital_floor", "drawdown_limit", "endpoint_exposure", "turnover_limit")
+    valid = (env.failure in (None, *accounted_risk) and _finite_real(reward) and
+             _finite_real(env.equity) and env.equity > 0 and
+             left < env.t <= min(left + env.horizon, env.stop - 1))
+    if done is True:
+        valid = (valid and nxt is None and env.units == 0 and env.pending is None and
+                 (env.failure in accounted_risk or env.t == env.stop - 1))
+    else:
+        valid = (valid and done is False and env.failure is None and
+                 env.t == left + env.horizon and env.t < env.stop - 1 and
+                 _real_series(nxt) and nxt.shape == (FEATURE_COUNT,) and np.isfinite(nxt).all())
+    if not valid:
+        raise ValueError(f"incomplete training transition: {env.failure or 'invalid successor state'}")
+
+
 def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale: Scale,
             horizon: int, seed: int, count: int, policy=None, execution: Execution = Execution()) -> dict:
     """Training-only prefixes physically bound every replay and episode."""
@@ -289,7 +307,9 @@ def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale
         if not _real_series(probs) or probs.shape != (3,) or not np.isfinite(probs).all() or np.any(probs < 0) or not np.isclose(probs.sum(), 1):
             raise ValueError("invalid behavior probabilities")
         a = int(rng.choice(3, p=probs))
+        left = env.t
         nxt, reward, done = env.step(float(ACTIONS[a]))
+        _admit_training_transition(env, left, nxt, reward, done)
         rows.append((s, a, reward, np.zeros(FEATURE_COUNT) if nxt is None else nxt, done, probs[a]))
     return {"s": np.array([r[0] for r in rows]), "a": np.array([r[1] for r in rows]),
             "r": np.array([r[2] for r in rows]), "next": np.array([r[3] for r in rows]),
