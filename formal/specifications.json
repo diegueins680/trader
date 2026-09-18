@@ -108,6 +108,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R4",
           "statement": "OPE requires nonempty aligned finite numeric trajectories, valid integer logged action indices, behavior probabilities in (0,1], target probabilities in [0,1], a finite numeric discount in [0,1], and zero terminal value bootstrap."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R5",
+          "statement": "Compact evidence export verifies the expected index hash against the exact index bytes parsed, requires every report input, and verifies the complete indexed inventory before output creation. Report JSON and event records are parsed only from their verified byte snapshots; large return paths and policy artifacts remain stream-verified."
         }
       ],
       "ensures": [
@@ -122,6 +126,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-E3",
           "statement": "Run manifests and policy provenance retain the registered hashes proven at snapshot admission. Replacing either input pathname after admission cannot change parsed prices/funding or relabel their provenance; a subsequent invocation rejects unregistered replacement bytes before parsing."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E4",
+          "statement": "Archive path replacement after successful verification cannot change exported report inputs or the admitted external index identity. Unchanged archived evidence produces byte-identical compact reports. This preserves evidence identity without granting promotion authority or asserting that source paths remain immutable."
         }
       ],
       "invariants": [
@@ -172,6 +180,21 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_run_provenance_keeps_admitted_hashes_after_input_replacement"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_parses_verified_snapshots_after_archive_replacement"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_retains_verified_index_identity_after_replacement"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_tampered_streamed_returns_before_output"
         },
         {
           "level": "bounded-exhaustive",

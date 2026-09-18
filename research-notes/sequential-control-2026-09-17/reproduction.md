@@ -80,3 +80,10 @@ those same byte buffers. All later data hashes in manifests/policy provenance
 come from that successful admission, not a reopened pathname. The frozen original
 source predates this hardening; its evidence remains unchanged. See
 [input-snapshot-audit.md](input-snapshot-audit.md) for synthetic regression evidence.
+
+The compact exporter now captures and verifies the index and seven report-input
+files as byte snapshots, parsing those same bytes and retaining the admitted index
+hash. Other indexed files, including the 1.14 GB return CSV, are still hash-checked
+with 1 MiB streaming reads. Archive replacement after verification cannot alter
+report inputs or relabel their provenance. The command above reproduces all seven
+committed reports byte-for-byte; see [export-snapshot-audit.md](export-snapshot-audit.md).

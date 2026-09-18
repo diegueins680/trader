@@ -207,3 +207,12 @@ byte snapshots. Both hashes must match before either CSV is parsed. Run and
 policy metadata retain those proven hashes instead of reopening mutable source
 paths for provenance. Replacement-race and complete synthetic-run fixtures check
 these obligations; no financial experiment or protected holdout is reopened.
+
+Compact report export applies the same obligation to the archive index and every
+JSON/event input it parses. The complete indexed inventory is checked before
+output creation; non-report files, including the large return CSV, retain bounded
+streaming verification. Parsed inputs and exported index provenance refer to the
+admitted snapshots even if paths are subsequently replaced. This is evidence
+identity, not a lock on the source archive or a new promotion gate pass. Synthetic
+replacement regressions and byte-identical reproduction of seven original reports
+support `A-SEQUENTIAL-RESEARCH-R5/E4`; `RL-OFFLINE-001` remains HIGH/OPEN.

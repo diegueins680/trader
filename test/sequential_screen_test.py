@@ -16,6 +16,7 @@ from sequential_evaluation import economic, ope_estimates
 from run_sequential_screen import REGISTRATION, load_development
 import run_sequential_screen as runner
 from summarize_sequential_screen import export
+import summarize_sequential_screen as exporter
 
 
 class SequentialContracts(unittest.TestCase):
@@ -359,6 +360,84 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 export(root/"run",root/"tampered",rss_unit="bytes",platform_label="fixture",expected_index_sha256=index_sha)
             self.assertFalse((root/"tampered").exists())
+
+    def export_fixture(self, root):
+        """Small failed-run archive; no market data, training or policy artifact."""
+        trial = "ppo/h1/f0/s11"
+        values = {
+            "manifest.json": {"promotionAllowed": False, "holdoutOpened": False,
+                              "liveAuthorization": False},
+            "summary.json": {"groups": [{"algorithm": "ppo", "seed": 11}],
+                             "processPeakRssPlatformUnits": 0},
+            "evaluation.json": [],
+            "training.json": [{"id": trial, "algorithm": "ppo", "horizon": 1,
+                               "seed": 11, "status": "failed"}],
+            "planned-registry.json": [{"id": trial, "kind": "training"}],
+            "events.jsonl": {"id": trial, "status": "failed", "reason": "fixture"},
+            "ope.json": [],
+        }
+        root.mkdir()
+        for name, value in values.items():
+            (root/name).write_text(json.dumps(value)+"\n")
+        # Last index entry deliberately exercises the streaming-only path.
+        (root/"returns.csv").write_text("trial,symbol,outcomeIndex,netReturn\n")
+        index = {name: runner.digest(root/name) for name in (*values, "returns.csv")}
+        (root/"evidence-index.json").write_text(json.dumps(index)+"\n")
+        return runner.digest(root/"evidence-index.json"), values
+
+    def test_export_parses_verified_snapshots_after_archive_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sha, values = self.export_fixture(root/"archive")
+            kwargs = dict(rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+            export(root/"archive", root/"control", **kwargs)
+            original_digest = exporter.digest
+            replaced = []
+            def verify_then_replace(path):
+                result = original_digest(path)
+                if path.name == "returns.csv":
+                    for name in values:
+                        (root/"archive"/name).write_text("unverified replacement")
+                    replaced.append(True)
+                return result
+            with patch.object(exporter, "digest", side_effect=verify_then_replace):
+                export(root/"archive", root/"review", **kwargs)
+            self.assertEqual(replaced, [True])
+            for path in (root/"control").iterdir():
+                self.assertEqual(path.read_bytes(), (root/"review"/path.name).read_bytes())
+            with self.assertRaises(ValueError):
+                export(root/"archive", root/"rejected", **kwargs)
+            self.assertFalse((root/"rejected").exists())
+
+    def test_export_retains_verified_index_identity_after_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sha, _ = self.export_fixture(root/"archive")
+            original_loads = json.loads
+            replaced = []
+            def parse_then_replace(raw, *args, **kwargs):
+                value = original_loads(raw, *args, **kwargs)
+                if not replaced:
+                    (root/"archive/evidence-index.json").write_text("unverified index replacement")
+                    replaced.append(True)
+                return value
+            with patch.object(exporter.json, "loads", side_effect=parse_then_replace):
+                export(root/"archive", root/"review", rss_unit="bytes",
+                       platform_label="fixture", expected_index_sha256=sha)
+            manifest = json.loads((root/"review/experiment-manifest.json").read_text())
+            self.assertEqual(replaced, [True])
+            self.assertEqual(manifest["externalEvidenceIndexSha256"], sha)
+            self.assertNotEqual(runner.digest(root/"archive/evidence-index.json"), sha)
+
+    def test_export_rejects_tampered_streamed_returns_before_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sha, _ = self.export_fixture(root/"archive")
+            (root/"archive/returns.csv").write_text("unverified returns")
+            with self.assertRaisesRegex(ValueError, "hash/path mismatch"):
+                export(root/"archive", root/"review", rss_unit="bytes",
+                       platform_label="fixture", expected_index_sha256=sha)
+            self.assertFalse((root/"review").exists())
 
     def test_run_provenance_keeps_admitted_hashes_after_input_replacement(self):
         with tempfile.TemporaryDirectory() as td:

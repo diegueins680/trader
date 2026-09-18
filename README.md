@@ -148,6 +148,8 @@ The offline sequential OPE helper rejects empty or malformed trajectories, inval
 
 Offline sequential research captures both development CSVs once, verifies both hashes before parsing, and parses those exact byte snapshots. Manifests and policy artifacts retain the admitted hashes even if the input files are later replaced. Unregistered replacement bytes fail admission on a subsequent invocation. See the [input-admission audit](research-notes/sequential-control-2026-09-17/input-snapshot-audit.md).
 
+The compact evidence exporter also parses verified snapshots of the archive index and report inputs, retaining the admitted index hash if archive paths change. Large return paths and policy artifacts remain stream-verified. See the [export audit](research-notes/sequential-control-2026-09-17/export-snapshot-audit.md) for replacement tests and byte-identical reproduction of all seven reports.
+
 ## CLI and API
 
 List the complete CLI surface with:
