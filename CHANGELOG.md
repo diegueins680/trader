@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Policy Save Admission: share v1 parameter validation between offline policy save and load. Reject missing/extra fields, wrong shapes, boolean/complex/object/masked arrays and non-finite portable values before creating an artifact; retain valid artifact bytes and exclusive-write behavior. Add runner-to-export failure accounting and 36-case artifact compatibility fixtures.
+
 - Research/Normalization Admission: validate and snapshot scaler parameters into immutable float64 arrays, preventing caller aliasing, writable-flag reactivation and integer subtraction wraparound. Reject invalid feature/support vectors, nonpositive deviations, inverted bounds, short supplied prefixes and non-finite normalized outputs; preserve valid fitted results and fail replay closed on normalization errors.
 
 - Research/Transition Admission: abort an offline collection batch on incomplete market transitions, insolvency without terminal accounting or malformed successor observations. Preserve fully accounted risk losses, valid terminal padding and existing valid-input replay/collection bytes; add all-seed PPO/Double-DQN/CQL update-isolation regressions.

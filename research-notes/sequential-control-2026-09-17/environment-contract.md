@@ -163,3 +163,19 @@ it is not proof of exchange behavior or correctness of supplied evidence.
 Production risk gates, identity, caps and champion ownership remain untouched.
 There is no production loader, auto-promotion, self-modification, retraining hook,
 network client or order adapter in this research boundary.
+
+## Policy persistence admission
+
+Save and load share the `offline_policy_v1` parameter contract: exactly `w1`,
+`b1`, `w2`, `b2`, with shapes 12x16, 16, 16x3 and 3. Saving requires real unmasked
+arrays, snapshots their values, validates finite float64 portability and rejects
+invalid fields before opening the destination. Integer JSON values retain their
+representation; floating parameters use float64. Loading first rejects nonnumeric
+JSON leaves, then applies the same shape/value contract. A value-network critic
+with one output cannot be saved as a three-action policy.
+
+Valid artifact schema, provenance, bytes, 65,536-byte limit, disabled status and
+exclusive-write behavior remain unchanged. An invalid save raises rather than
+returning a success digest; the runner records a failed fit and blocked replays.
+This is admission before I/O, not atomic recovery from filesystem write failures.
+See the [policy-save audit](policy-save-admission-audit.md).

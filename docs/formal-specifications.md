@@ -296,3 +296,11 @@ observations before fills. Four executable witnesses cover constructor admission
 array aliasing/write flags, integer-wraparound and overflow, and prefix coverage.
 These checks do not prove that supplied parameters came from an authentic
 training dataset or that coordinate-wise support implies joint policy coverage.
+
+`A-SEQUENTIAL-RESEARCH-R10` shares the v1 policy parameter contract between save
+and load. Writers validate detached numeric snapshots before opening the target;
+readers reject nonnumeric JSON leaves before the same shape/value checks. Four
+executable witnesses cover invalid save admission, 36-case artifact byte and
+inference compatibility, exclusive writes, and runner-to-export failure accounting.
+Invalid parameters cannot produce a success digest or a completed-fit artifact.
+This does not guarantee atomic filesystem writes or validate statistical merit.
