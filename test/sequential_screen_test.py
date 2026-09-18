@@ -2018,6 +2018,115 @@ class SequentialContracts(unittest.TestCase):
             controls.names = ()
             yield
 
+    def test_runner_pins_registration_and_sources_across_replacement(self):
+        source_check = runner.source_commit
+        for stage in ("after_validation", "after_data", "during_training"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with self.publication_fixture(root):
+                    reg = runner.REGISTRATION
+                    source = root / "fixture.py"; source.write_text("# admitted source\n")
+                    original = {reg: reg.read_bytes(), source: source.read_bytes()}
+                    def git(args, **kwargs):
+                        return "a"*40 if args[1] == "rev-parse" else original[root / args[2].split(":", 1)[1]]
+                    def replace_sources():
+                        changed = json.loads(original[reg]); changed["campaign"] = "replaced campaign"
+                        reg.write_text(json.dumps(changed)); source.write_text("# replaced source\n")
+                    def admit(*args):
+                        commit = source_check(*args)
+                        if stage == "after_validation": replace_sources()
+                        return commit
+                    def data(*args):
+                        if stage == "after_data": replace_sources()
+                        return {"x": self.p}, {"x": self.f}, np.arange(256)*1000
+                    def train(*args):
+                        if stage == "during_training": replace_sources()
+                        return Network(11), {}
+                    with patch.object(runner, "ROOT", root), patch.object(runner, "SOURCES", [reg, source]), \
+                         patch.object(runner.subprocess, "check_output", side_effect=git), \
+                         patch.object(runner, "source_commit", side_effect=admit), \
+                         patch.object(runner, "load_development", side_effect=data), \
+                         patch.object(runner, "train_ppo", side_effect=train):
+                        runner.run(root/"unused", root/"unused", root/"run")
+                manifest = json.loads((root/"run/manifest.json").read_text())
+                policy = json.loads((root/"run/policies/ppo_h1_f0_s11.json").read_text())
+                expected = {str(p.relative_to(root)): hashlib.sha256(b).hexdigest() for p, b in original.items()}
+                self.assertEqual(manifest["registrationSha256"], expected[reg.name])
+                self.assertEqual(manifest["sources"], expected)
+                self.assertEqual(policy["provenance"]["registrationSha256"], expected[reg.name])
+                self.assertEqual(manifest["campaign"], json.loads(original[reg])["campaign"])
+                self.assertFalse(manifest["holdoutOpened"])
+                self.assertFalse(manifest["promotionAllowed"])
+
+    def test_source_commit_validates_captured_bytes_without_reopening(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"fixture.py"
+            admitted = b"# committed source\n"; replaced = b"# replacement\n"
+            source.write_bytes(replaced)
+            def git(args, **kwargs):
+                return "a"*40 if args[1] == "rev-parse" else admitted
+            with patch.object(runner, "ROOT", root), patch.object(runner, "SOURCES", [source]), \
+                 patch.object(runner.subprocess, "check_output", side_effect=git):
+                with patch.object(Path, "read_bytes", side_effect=AssertionError("reopened source")):
+                    self.assertEqual(runner.source_commit({source: admitted}), "a"*40)
+                    with self.assertRaisesRegex(ValueError, "uncommitted experiment source"):
+                        runner.source_commit({source: replaced})
+                # The legacy no-argument checker still inspects the current file.
+                with self.assertRaisesRegex(ValueError, "uncommitted experiment source"):
+                    runner.source_commit()
+                source.write_bytes(admitted)
+                self.assertEqual(runner.source_commit(), "a"*40)
+
+    def test_run_rejects_uncommitted_snapshot_before_data_access(self):
+        source_check = runner.source_commit
+        for changed in ("registration.json", "fixture.py"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with self.publication_fixture(root):
+                    reg = runner.REGISTRATION
+                    source = root/"fixture.py"; source.write_text("# committed source\n")
+                    original = {reg: reg.read_bytes(), source: source.read_bytes()}
+                    (root/changed).write_text("uncommitted bytes")
+                    def git(args, **kwargs):
+                        return "a"*40 if args[1] == "rev-parse" else original[root/args[2].split(":", 1)[1]]
+                    with patch.object(runner, "ROOT", root), patch.object(runner, "SOURCES", [reg, source]), \
+                         patch.object(runner.subprocess, "check_output", side_effect=git), \
+                         patch.object(runner, "source_commit", side_effect=source_check), \
+                         patch.object(runner, "load_development", side_effect=AssertionError("data before source admission")) as load:
+                        with self.assertRaisesRegex(ValueError, "uncommitted experiment source"):
+                            runner.run(root/"unused", root/"unused", root/"run")
+                        load.assert_not_called()
+                        self.assertFalse((root/"run").exists())
+
+    def test_runner_reads_sources_once_and_preserves_manifest(self):
+        source_check, read = runner.source_commit, Path.read_bytes
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.publication_fixture(root):
+                reg = runner.REGISTRATION
+                source = root/"fixture.py"; source.write_text("# committed source\n")
+                original = {reg: read(reg), source: read(source)}
+                counts = dict.fromkeys(original, 0)
+                def capture(path):
+                    if path in counts: counts[path] += 1
+                    return read(path)
+                def git(args, **kwargs):
+                    return "a"*40 if args[1] == "rev-parse" else original[root/args[2].split(":", 1)[1]]
+                with patch.object(runner, "ROOT", root), patch.object(runner, "SOURCES", [reg, source]), \
+                     patch.object(runner.subprocess, "check_output", side_effect=git), \
+                     patch.object(runner, "source_commit", side_effect=source_check), \
+                     patch.object(Path, "read_bytes", capture):
+                    runner.run(root/"unused", root/"unused", root/"run")
+                self.assertEqual(counts, dict.fromkeys(original, 1))
+            manifest = json.loads((root/"run/manifest.json").read_text())
+            policy = json.loads((root/"run/policies/ppo_h1_f0_s11.json").read_text())
+            expected = {str(p.relative_to(root)): hashlib.sha256(b).hexdigest() for p, b in original.items()}
+            self.assertEqual(manifest["sources"], expected)
+            self.assertEqual(manifest["registrationSha256"], expected[reg.name])
+            self.assertEqual(policy["provenance"]["registrationSha256"], expected[reg.name])
+            self.assertEqual(manifest["codeCommit"], "a"*40)
+            self.assertEqual(policy["provenance"]["codeCommit"], "a"*40)
+
     def test_terminal_ledger_write_failure_aborts_without_reclassification(self):
         for target in ("training", "replay"):
             for operation in ("write", "flush"):
