@@ -266,6 +266,78 @@ class SequentialContracts(unittest.TestCase):
         actual = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
         self.assertEqual(actual, "1866180923c03a7716705d8dc021ccbac977c77992586f63acf697f5ffc2dc35")
 
+    def test_baselines_reject_invalid_fitted_parameters(self):
+        cases = []
+        for name, field, shape in (("ridge_optimizer", "ridge", (7,)),
+                                   ("logistic", "logistic", (7,)),
+                                   ("contextual_bandit", "bandit", (13, 3))):
+            values = (None, np.ones(shape).tolist(), np.ones(shape, dtype=bool),
+                      np.ones(shape, dtype=complex), np.ones(shape, dtype=object),
+                      np.ones((1,)), np.full(shape, np.nan), np.full(shape, np.inf),
+                      np.ma.array(np.ones(shape), mask=True))
+            cases.extend((name, field, value) for value in values)
+        cases.extend(("historical_mean", "mean", value) for value in
+                     (None, True, "0.1", np.array(.1), np.nan, np.inf))
+        cases.extend(("behavior_clone", "clone_action", value) for value in
+                     (None, True, "0.25", np.array(.25), np.nan, np.inf, .5))
+        for name, field, value in cases:
+            with self.subTest(name=name, field=field, value=repr(value)):
+                controls = self.baseline_fixture(); setattr(controls, field, value)
+                rng = np.random.default_rng(11)
+                before = json.dumps(rng.bit_generator.state, sort_keys=True)
+                with np.errstate(all="ignore"):
+                    self.assertIsNone(controls.action(name, np.ones(12), rng))
+                    if name in ("historical_mean", "ridge_optimizer"):
+                        self.assertIsNone(controls.forecast(name, np.ones(12)))
+                self.assertEqual(json.dumps(rng.bit_generator.state, sort_keys=True), before)
+
+    def test_baselines_reject_nonfinite_intermediate_arithmetic(self):
+        for name in ("ridge_optimizer", "logistic", "contextual_bandit"):
+            with self.subTest(name=name):
+                controls = self.baseline_fixture()
+                field = "ridge" if name == "ridge_optimizer" else "bandit" if name == "contextual_bandit" else name
+                setattr(controls, field, np.full(getattr(controls, field).shape, 1e308))
+                with np.errstate(all="ignore"):
+                    self.assertIsNone(controls.action(name, np.ones(12), np.random.default_rng(11)))
+                    if name == "ridge_optimizer":
+                        self.assertIsNone(controls.forecast(name, np.ones(12)))
+        controls = self.baseline_fixture()
+        controls.scale = Scale(np.full(6, 1e308), np.full(6, 1e308), np.zeros(6), np.ones(6))
+        for name in ("last_return", "momentum", "reversal"):
+            with self.subTest(name=name), np.errstate(all="ignore"):
+                self.assertIsNone(controls.forecast(name, np.ones(12)))
+                self.assertIsNone(controls.action(name, np.ones(12), np.random.default_rng(11)))
+
+    def test_baseline_numerical_failures_reach_shield_as_absence(self):
+        controls = self.baseline_fixture(); controls.logistic[:] = np.inf
+        def choose(obs):
+            return controls.action("logistic", obs, np.random.default_rng(11)), 0.
+        with np.errstate(all="ignore"):
+            env, result = replay_policy(self.p, self.f, 30, 61, 1, self.scale, choose)
+        self.assertEqual(result["reason"], "invalid_action")
+        self.assertEqual(result["observations"], 0)
+        self.assertEqual(env.fills, 0)
+        self.assertEqual(env.equity, 1.)
+
+    def test_baseline_numeric_admission_preserves_independent_rules(self):
+        controls = self.baseline_fixture()
+        controls.clone_action = None
+        controls.ridge[:] = np.nan
+        controls.logistic[:] = np.nan
+        controls.bandit[:] = np.nan
+        controls.mean = np.nan
+        for name, expected in (("cash", 0.), ("constant_long", .25), ("constant_short", -.25)):
+            self.assertEqual(controls.action(name, np.zeros(12), np.random.default_rng(11)), expected)
+        rng, reference = np.random.default_rng(11), np.random.default_rng(11)
+        self.assertEqual(controls.action("behavior_uniform", np.zeros(12), rng), float(reference.choice(ACTIONS)))
+        self.assertEqual(rng.bit_generator.state, reference.bit_generator.state)
+        controls.logistic[:] = 1e300  # Large but finite score keeps existing clipping semantics.
+        self.assertEqual(controls.action("logistic", np.ones(12), rng), .25)
+        controls.clone_action = np.float64(-.25)
+        self.assertEqual(controls.action("behavior_clone", np.zeros(12), rng), -.25)
+        controls.mean = np.float64(.125)
+        self.assertEqual(controls.forecast("historical_mean", np.zeros(12)), .125)
+
     def test_delay_prevents_same_bar_profit(self):
         p = np.full(65, 100.0); p[31:] = 200
         e = Replay(p, np.zeros(65), 30, 34, 1, Scale.fit([np.full(65, 100.0)]), enabled=True)

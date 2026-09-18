@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
-from sequential_env import ACTIONS, FEATURE_COUNT, Execution, Replay, _real_series, collect, market_features
+from sequential_env import ACTIONS, FEATURE_COUNT, Execution, Replay, _finite_real, _real_series, collect, market_features
 
 
 def finite(value):
@@ -88,35 +88,72 @@ class Baselines:
         return (_real_series(obs) and obs.shape == (FEATURE_COUNT,) and
                 bool(np.isfinite(obs).all()))
 
+    def _valid_parameters(self, name: str) -> bool:
+        fields = {"ridge_optimizer": ("ridge", (7,)), "logistic": ("logistic", (7,)),
+                  "contextual_bandit": ("bandit", (13, 3))}
+        if name in fields:
+            field, shape = fields[name]
+            value = getattr(self, field, None)
+            return (isinstance(value, np.ndarray) and not np.ma.isMaskedArray(value) and
+                    value.shape == shape and value.dtype.kind in "iuf" and bool(np.isfinite(value).all()))
+        if name == "historical_mean":
+            return _finite_real(getattr(self, "mean", None))
+        if name == "behavior_clone":
+            value = getattr(self, "clone_action", None)
+            return _finite_real(value) and value in (-0.25, 0.0, 0.25)
+        return True
+
     def forecast(self, name: str, obs: np.ndarray | None) -> float | None:
         if (not isinstance(name, str) or name not in
             ("historical_mean", "last_return", "momentum", "reversal", "ridge_optimizer") or
-            not self._valid_observation(obs)):
+            not self._valid_observation(obs) or not self._valid_parameters(name)):
             return None
-        raw = obs[:6] * self.scale.std + self.scale.mean
-        if name == "historical_mean":
-            return self.mean
-        if name == "last_return":
-            return float(raw[0])
-        if name in ("momentum", "reversal"):
-            return float(raw[1] * (-1 if name == "reversal" else 1))
-        return float(np.r_[obs[:6], 1.0] @ self.ridge)
+        try:
+            with np.errstate(over="raise", invalid="raise", divide="raise"):
+                if name == "historical_mean":
+                    value = self.mean
+                elif name == "ridge_optimizer":
+                    value = np.r_[obs[:6], 1.0] @ self.ridge
+                else:
+                    raw = obs[:6] * self.scale.std + self.scale.mean
+                    value = raw[0] if name == "last_return" else raw[1] * (-1 if name == "reversal" else 1)
+        except (ArithmeticError, AttributeError, TypeError, ValueError):
+            return None
+        return float(value) if _finite_real(value) else None
 
     def action(self, name: str, obs: np.ndarray | None, rng: np.random.Generator) -> float | None:
-        if not isinstance(name, str) or name not in self.names or not self._valid_observation(obs):
+        if (not isinstance(name, str) or name not in self.names or
+            not self._valid_observation(obs) or not self._valid_parameters(name)):
             return None
-        if name in ("cash", "constant_long", "constant_short", "behavior_clone"):
-            return {"cash": 0.0, "constant_long": 0.25, "constant_short": -0.25,
-                    "behavior_clone": self.clone_action}[name]
+        try:
+            with np.errstate(over="raise", invalid="raise", divide="raise"):
+                target = self._action(name, obs, rng)
+        except (ArithmeticError, AttributeError, TypeError, ValueError):
+            return None
+        return float(target) if _finite_real(target) and target in (-0.25, 0.0, 0.25) else None
+
+    def _action(self, name: str, obs: np.ndarray, rng: np.random.Generator) -> float | None:
+        if name in ("cash", "constant_long", "constant_short"):
+            return {"cash": 0.0, "constant_long": 0.25, "constant_short": -0.25}[name]
+        if name == "behavior_clone":
+            return self.clone_action
         if name == "behavior_uniform":
             return float(rng.choice(ACTIONS))
         if name == "contextual_bandit":
-            return float(ACTIONS[np.argmax(np.r_[obs, 1.0] @ self.bandit)])
+            values = np.r_[obs, 1.0] @ self.bandit
+            return float(ACTIONS[np.argmax(values)]) if np.isfinite(values).all() else None
         if name == "logistic":
-            prob = 1 / (1 + np.exp(-np.clip(np.r_[obs[:6], 1.0] @ self.logistic, -30, 30)))
+            logit = np.r_[obs[:6], 1.0] @ self.logistic
+            if not _finite_real(logit):
+                return None
+            prob = 1 / (1 + np.exp(-np.clip(logit, -30, 30)))
             return 0.25 if prob > 0.55 else -0.25 if prob < 0.45 else 0.0
         mu = self.forecast(name, obs)
+        if mu is None:
+            return None
         scores = ACTIONS * mu - 0.001 * np.abs(ACTIONS - obs[6])
+        if not np.isfinite(scores).all():
+            return None
         # Cash first on equal economic utility; no accidental bullish default.
         best = np.flatnonzero(scores >= max(scores) - 1e-14)
         return 0.0 if 1 in best else float(ACTIONS[int(best[0])])

@@ -100,6 +100,10 @@ Offline OPE rejects masked arrays before coercion can discard missingness, acros
 rewards, actions, behavior/target probabilities and Q/V estimates. Failures remain
 explicit in the OPE report. See the [OPE mask-admission audit](research-notes/sequential-control-2026-09-17/ope-mask-admission-audit.md).
 
+Offline baselines also validate the fitted parameters used by each rule and reject
+non-finite intermediate scores before clipping or selecting an action. Numerical
+failure remains an absent proposal. See the [baseline-numerics audit](research-notes/sequential-control-2026-09-17/baseline-numerics-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

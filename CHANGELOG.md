@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research/Baselines: reject invalid fitted parameters and non-finite intermediate arithmetic before forecast/action selection; preserve valid formulas, finite logistic clipping and independent fixed rules.
 - Research/OPE: reject masked arrays in all six trajectory/value inputs before coercion discards missingness; preserve ordinary array-like estimates and explicit runner failure reporting.
 - Research/Baselines: reject malformed observations and unrecognized baseline names with absent actions/forecasts before computation or RNG use; retain valid baseline semantics and replay safety precedence.
 - Research/Resource Evidence: reject invalid training durations, contradictory fit/ledger timing, nonpositive or noninteger artifact byte counts, and unsupported RSS units before compact report publication; preserve valid legacy reports.
