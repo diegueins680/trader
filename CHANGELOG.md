@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research/OPE: validate full windows, integer budgets/seeds/horizons and aligned symbol/series coverage before sampling; normalize NumPy integers and preserve causal value access and valid replay behavior.
 - Research/OPE: validate observations and policy value vectors before short-replay selection and transitions on both logged and direct policy paths; preserve valid action traces and explicit inference failures.
 - Research/Baselines: reject invalid fitted parameters and non-finite intermediate arithmetic before forecast/action selection; preserve valid formulas, finite logistic clipping and independent fixed rules.
 - Research/OPE: reject masked arrays in all six trajectory/value inputs before coercion discards missingness; preserve ordinary array-like estimates and explicit runner failure reporting.

@@ -143,3 +143,8 @@ Short OPE policy calls require finite real unmasked observations and three-value
 outputs. Malformed evidence aborts before the affected transition, on both logged
 and direct paths. Do not impute values or discard episodes to obtain an estimate.
 See the [OPE policy-admission audit](ope-policy-admission-audit.md).
+
+Short OPE admits complete windows and aligned price/funding symbol sets before
+sampling. Use genuine integer horizons, boundaries, seeds and positive episode
+budgets. Arrays must cover the entire requested exclusive stop; admission does not
+scan future values. See the [OPE window-admission audit](ope-window-admission-audit.md).

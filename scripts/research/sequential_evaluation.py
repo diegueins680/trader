@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
-from sequential_env import ACTIONS, FEATURE_COUNT, Execution, Replay, _finite_real, _real_series, collect, market_features
+from sequential_env import ACTIONS, FEATURE_COUNT, Execution, Replay, _finite_real, _integer, _real_series, collect, market_features
 
 
 def finite(value):
@@ -252,7 +252,26 @@ def _ope_policy_values(net, observation):
     return values
 
 
+def _admit_ope_window(prices, funding, horizon, start, stop, seed, episodes):
+    if not all(_integer(v) for v in (horizon, start, stop, seed, episodes)):
+        raise ValueError("invalid short OPE integer controls")
+    horizon, start, stop, seed, episodes = map(int, (horizon, start, stop, seed, episodes))
+    if horizon not in (1, 3, 6) or seed < 0 or episodes <= 0 or not 24 <= start < stop - 6*horizon:
+        raise ValueError("invalid short OPE window or budget")
+    if (not isinstance(prices, dict) or not isinstance(funding, dict) or not prices or
+        set(prices) != set(funding) or any(not isinstance(s, str) or not s for s in prices)):
+        raise ValueError("invalid short OPE symbol coverage")
+    for symbol, p in prices.items():
+        f = funding[symbol]
+        if (not _real_series(p) or not _real_series(f) or
+            len(p) != len(f) or stop > len(p)):
+            raise ValueError("invalid short OPE series or coverage")
+    return horizon, start, stop, seed, episodes
+
+
 def short_ope(prices, funding, scale, horizon, start, stop, net, seed, episodes=200):
+    horizon, start, stop, seed, episodes = _admit_ope_window(
+        prices, funding, horizon, start, stop, seed, episodes)
     rng = np.random.default_rng(seed)
     symbols = sorted(prices)
     all_r, all_a, all_b, all_pi, all_q, all_v, direct = [], [], [], [], [], [], []

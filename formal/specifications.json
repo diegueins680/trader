@@ -173,6 +173,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R20",
           "statement": "Short OPE replay validates every observation passed to the policy and every resulting value vector before selection or transition on both logged-behavior and direct-policy paths. Inputs must be finite real unmasked 12-element NumPy vectors; outputs must be finite real unmasked three-element NumPy vectors. Malformed observations fail before forward inference; malformed outputs fail before the affected transition. Failures remain explicit and do not become cash actions, clipped values or excluded episodes. Valid policy action traces, tie-breaking, RNG and unsupported-state behavior remain unchanged. This does not calibrate policy values, guarantee inference time or establish OPE reliability."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R21",
+          "statement": "Short OPE admits its whole request before RNG construction or policy calls. Horizon/start/stop/seed/episode budget are genuine Python or NumPy integers, excluding booleans; they normalize to Python integers before arithmetic. Horizons are 1/3/6, seed is nonnegative, budget positive, and 24 <= start < stop - 6*horizon. Price/funding dictionaries have identical nonempty string symbol sets and aligned one-dimensional real unmasked arrays covering the complete exclusive stop bound. Admission inspects representation/length only; future values are consumed causally by replay. Valid RNG, policy, failed-episode and result semantics are preserved. This does not authenticate data, register a budget or establish OPE reliability."
         }
       ],
       "ensures": [
@@ -570,6 +574,26 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_short_ope_retains_failed_episode_accounting"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_rejects_invalid_controls_before_sampling"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_rejects_invalid_series_coverage_before_sampling"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_integer_compatibility_and_unused_values"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_short_ope_minimal_valid_windows_at_all_horizons"
         },
         {
           "level": "bounded-exhaustive",
