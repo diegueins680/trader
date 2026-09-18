@@ -133,6 +133,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R10",
           "statement": "Policy save and load share a v1 parameter contract with exact w1/b1/w2/b2 names and shapes 12x16/16/16x3/3. Writers snapshot real unmasked numeric arrays and reject malformed fields, booleans, object/complex arrays, wrong shapes and non-finite portable values before opening the output file. Readers reject nonnumeric JSON leaves before applying the same shape/finite-value contract. Floating parameters use portable float64 while integer JSON values retain their representation. Valid writes remain bounded to 65536 bytes and exclusive; an invalid save returns no success digest, and runner failure accounting retains every planned trial without a successful-fit artifact. Filesystem write failures are not an atomic-write guarantee."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R11",
+          "statement": "PPO and Q training validate integer horizons, seeds and positive step budgets before model construction or RNG use. Python/NumPy integers excluding booleans are admitted only for horizons 1/3/6, nonnegative seeds and positive budgets, then converted to Python integers before seed offsets or batch arithmetic. Q training requires an exact Python boolean offline mode and validates execution/risk coefficients before initialization. Zero/negative budgets cannot return an untrained PPO policy as a successful fit, truthy nonboolean modes cannot select an algorithm, and fixed-width arithmetic cannot wrap training controls. Registered parameters and valid learning behavior remain unchanged; this is not a compute-budget ceiling."
         }
       ],
       "ensures": [
@@ -265,6 +269,26 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_runner_records_policy_save_failure_without_success_artifact"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_training_indices_are_admitted_before_initialization"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_q_mode_and_risk_are_admitted_before_initialization"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_training_integer_offsets_cannot_wrap_before_collection"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_training_preserves_exact_positive_budget_and_numpy_semantics"
         },
         {
           "level": "regression",

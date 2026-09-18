@@ -304,3 +304,10 @@ executable witnesses cover invalid save admission, 36-case artifact byte and
 inference compatibility, exclusive writes, and runner-to-export failure accounting.
 Invalid parameters cannot produce a success digest or a completed-fit artifact.
 This does not guarantee atomic filesystem writes or validate statistical merit.
+
+`A-SEQUENTIAL-RESEARCH-R11` validates training controls before model/RNG
+initialization: integer horizons/seeds/positive budgets, explicit boolean Q mode
+and valid risk coefficients. Integer normalization precedes seed offsets and batch
+arithmetic. Four executable witnesses cover rejected initialization, mode/risk
+admission, fixed-width overflow boundaries and exact valid-budget behavior. This
+does not enforce an upper compute limit or supply new market evidence.

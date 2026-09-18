@@ -61,6 +61,11 @@ as policy loads. Invalid parameters fail before file creation or a success diges
 valid artifacts retain their existing bytes. See the
 [policy-save audit](research-notes/sequential-control-2026-09-17/policy-save-admission-audit.md).
 
+Training validates positive integer budgets, seeds, horizons and explicit Q-learning
+mode before model initialization. NumPy integers normalize before seed-offset and
+batch arithmetic. See the
+[training-admission audit](research-notes/sequential-control-2026-09-17/training-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

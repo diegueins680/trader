@@ -445,6 +445,70 @@ class SequentialContracts(unittest.TestCase):
         _, targets = advantages(d, n, .99)
         np.testing.assert_allclose(targets, d["r"])
 
+    def test_training_indices_are_admitted_before_initialization(self):
+        changes = [{field: bad} for field in ("horizon", "seed", "steps")
+                   for bad in (True, np.bool_(True), None, "1", 1.5, np.array([1, 2]))]
+        changes += [{"horizon":2}, {"seed":-1}, {"steps":0}, {"steps":-1}, {"steps":-256}]
+        for algorithm in ("ppo", "double_dqn", "cql"):
+            for change in changes:
+                kwargs = dict(horizon=3, seed=11, steps=4); kwargs.update(change)
+                with self.subTest(algorithm=algorithm, change=repr(change)):
+                    with patch("sequential_learning.Network", side_effect=AssertionError("initialized before admission")), \
+                         patch("sequential_learning.np.random.default_rng", side_effect=AssertionError("sampled before admission")):
+                        with self.assertRaises(ValueError):
+                            if algorithm == "ppo":
+                                train_ppo({"x":self.p}, {"x":self.f}, self.scale, **kwargs)
+                            else:
+                                train_q({"x":self.p}, {"x":self.f}, self.scale, offline=algorithm=="cql", **kwargs)
+
+    def test_q_mode_and_risk_are_admitted_before_initialization(self):
+        changes = [{"offline": bad} for bad in ("false", "true", 0, 1, None, np.bool_(True), np.array([True, False]))]
+        changes += [{"risk_penalty": bad} for bad in (False, None, "0.01", -.01, np.nan, np.inf, 1j, np.array([.01]))]
+        for change in changes:
+            kwargs = dict(offline=False, risk_penalty=.01); kwargs.update(change)
+            with self.subTest(change=repr(change)):
+                with patch("sequential_learning.Network", side_effect=AssertionError("initialized before admission")), \
+                     patch("sequential_learning.np.random.default_rng", side_effect=AssertionError("sampled before admission")):
+                    with self.assertRaises(ValueError):
+                        train_q({"x":self.p}, {"x":self.f}, self.scale, 3, 11, steps=4, **kwargs)
+
+    def test_training_integer_offsets_cannot_wrap_before_collection(self):
+        class StopBeforeCollection(Exception):
+            pass
+        seed = np.uint64(np.iinfo(np.uint64).max)
+        budget = np.int64(np.iinfo(np.int64).max)
+        for algorithm, offset in (("ppo",1000), ("double_dqn",3000), ("cql",2000)):
+            def inspect_collection(prices, funding, scale, horizon, next_seed, count, **kwargs):
+                self.assertIs(type(horizon), int); self.assertEqual(horizon, 3)
+                self.assertIs(type(next_seed), int); self.assertEqual(next_seed, int(seed)+offset)
+                self.assertIs(type(count), int)
+                self.assertEqual(count, int(budget) if algorithm=="cql" else 256)
+                raise StopBeforeCollection()
+            with self.subTest(algorithm=algorithm), patch("sequential_learning.collect", side_effect=inspect_collection):
+                with np.errstate(over="ignore"), self.assertRaises(StopBeforeCollection):
+                    args = ({"x":self.p}, {"x":self.f}, self.scale, np.int64(3), seed)
+                    if algorithm == "ppo": train_ppo(*args, steps=budget)
+                    else: train_q(*args, offline=algorithm=="cql", steps=budget)
+
+    def test_training_preserves_exact_positive_budget_and_numpy_semantics(self):
+        for algorithm in ("ppo", "double_dqn", "cql"):
+            def fit(horizon, seed, steps):
+                args = ({"x":self.p[:160]}, {"x":self.f[:160]}, self.scale, horizon, seed)
+                return train_ppo(*args, steps=steps) if algorithm=="ppo" else train_q(*args, offline=algorithm=="cql", steps=steps)
+            with self.subTest(algorithm=algorithm):
+                net, info = fit(3, 11, 257)
+                self.assertEqual(info["steps"], 257)
+                self.assertEqual(net.steps, 8 if algorithm=="ppo" else 257)
+                if algorithm != "ppo":
+                    self.assertEqual(info["bufferTransitions"], 257)
+                    self.assertEqual(sum(info["behaviorActionCounts"]), 257)
+                plain, plain_info = fit(3, 11, 4)
+                numpy, numpy_info = fit(np.int64(3), np.int64(11), np.int64(4))
+                self.assertIs(type(numpy_info["steps"]), int)
+                self.assertEqual(plain_info, numpy_info)
+                for key in plain.p:
+                    np.testing.assert_array_equal(plain.p[key], numpy.p[key])
+
     def test_multiple_training_seeds_are_reproducible(self):
         for seed in [11, 23, 47]:
             for alg in ["ppo", "double_dqn", "cql"]:
