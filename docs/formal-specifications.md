@@ -311,3 +311,12 @@ and valid risk coefficients. Integer normalization precedes seed offsets and bat
 arithmetic. Four executable witnesses cover rejected initialization, mode/risk
 admission, fixed-width overflow boundaries and exact valid-budget behavior. This
 does not enforce an upper compute limit or supply new market evidence.
+
+
+`A-SEQUENTIAL-RESEARCH-R12` records terminal episodes when they occur and adds
+optional `episodeAccountingV2` coverage counts. Completion includes accounted risk
+stops; budget truncation retains a nonterminal successor and has no invented
+episode return. Four executable witnesses cover terminal timing, trainer
+aggregation, export rejection of inconsistent/unsupported metadata and exact legacy
+report bytes. Count reconciliation establishes internal consistency, not financial
+significance or complete coverage inside an aborted training call.
