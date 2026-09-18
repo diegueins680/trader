@@ -347,3 +347,12 @@ cannot redirect publication. Three witnesses cover direct/nested/aliased paths,
 alias retargeting, exact external report compatibility and no-overwrite behavior.
 Resolved directory ancestors must remain stable; this is not inode locking or
 atomic publication.
+
+
+`A-SEQUENTIAL-RESEARCH-R16` admits resource metadata before report publication.
+Supplied fit/terminal durations are finite nonnegative numbers (not booleans), and
+agree exactly when both occur. Artifact byte counts are positive integers; RSS
+units must be explicitly `bytes` or `kib` before evidence reads. Three integration
+witnesses cover malformed/contradictory fields, API units, and valid measurements.
+Legacy missing fields and exact report bytes remain compatible. These are domain
+and consistency checks, not proof of measurement accuracy or completeness.

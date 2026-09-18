@@ -86,6 +86,11 @@ source/destination aliases once, rejects archive-contained output and preserves
 existing external destinations. See the
 [destination-isolation audit](research-notes/sequential-control-2026-09-17/export-destination-audit.md).
 
+Exported resource metadata requires finite nonnegative training durations, agreement
+with ledger durations when both are present, positive integer artifact byte counts,
+and explicit `bytes` or `kib` RSS units. These checks do not authenticate benchmark
+measurements. See the [resource-evidence audit](research-notes/sequential-control-2026-09-17/resource-evidence-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
