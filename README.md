@@ -56,6 +56,11 @@ Malformed feature vectors, invalid deviations and arithmetic overflow cannot pro
 normalized observations; short supplied training prefixes are rejected. See the
 [normalization audit](research-notes/sequential-control-2026-09-17/normalization-admission-audit.md).
 
+Policy saves validate the same v1 parameter names, shapes and numeric constraints
+as policy loads. Invalid parameters fail before file creation or a success digest;
+valid artifacts retain their existing bytes. See the
+[policy-save audit](research-notes/sequential-control-2026-09-17/policy-save-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
