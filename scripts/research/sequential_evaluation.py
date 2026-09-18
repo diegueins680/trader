@@ -15,7 +15,17 @@ def sharpe(r: np.ndarray) -> float | None:
 
 
 def economic(env: Replay) -> dict:
+    if env.done is not True:
+        raise ValueError("economic report requires a stopped replay")
+    if env.failure is not None and (not isinstance(env.failure, str) or
+                                   not env.failure.strip() or env.failure.strip() == "complete"):
+        raise ValueError("invalid replay failure reason")
     rows = env.rows
+    if env.failure is None and (
+        env.t != env.stop - 1 or not _finite_real(env.units) or env.units != 0 or env.pending is not None or
+        not _finite_real(env.equity) or env.equity <= 0 or len(rows) != env.stop - env.start - 1 or
+        env.equity != rows[-1]["equity"]):
+        raise ValueError("incomplete successful replay")
     if not rows:
         return {"status": "failed", "reason": env.failure, "observations": 0}
     r = np.array([x["net"] for x in rows])
