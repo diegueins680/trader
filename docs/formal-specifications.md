@@ -380,3 +380,11 @@ overflow before clipping/argmax, replay rejection of absent results, and indepen
 fixed rules plus finite-logit compatibility. The existing exact valid-baseline
 fixture remains applicable. No provenance, calibration, execution-time or economic
 claim follows from numerical validity.
+
+
+`A-SEQUENTIAL-RESEARCH-R20` validates short-OPE policy inputs and outputs on both
+logged and direct paths before action selection/transition. Five witnesses cover
+malformed output vectors, observation rejection before inference, a preserved
+valid action trace, explicit forward exceptions and retained failed-episode accounting. Existing failed-OPE archive
+and export tests remain applicable. Finite policy values are not calibrated Q
+estimates; neither inference deadlines nor OPE reliability follow from this check.

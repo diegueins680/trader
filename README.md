@@ -104,6 +104,10 @@ Offline baselines also validate the fitted parameters used by each rule and reje
 non-finite intermediate scores before clipping or selecting an action. Numerical
 failure remains an absent proposal. See the [baseline-numerics audit](research-notes/sequential-control-2026-09-17/baseline-numerics-audit.md).
 
+Short OPE replay validates each policy observation and three-value output before
+selection or transition on both policy paths. Malformed policy evidence aborts
+OPE explicitly. See the [OPE policy-admission audit](research-notes/sequential-control-2026-09-17/ope-policy-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
