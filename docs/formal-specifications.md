@@ -216,3 +216,14 @@ admitted snapshots even if paths are subsequently replaced. This is evidence
 identity, not a lock on the source archive or a new promotion gate pass. Synthetic
 replacement regressions and byte-identical reproduction of seven original reports
 support `A-SEQUENTIAL-RESEARCH-R5/E4`; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+`A-SEQUENTIAL-RESEARCH-R6/E5` adds cross-file reconciliation before output creation.
+Unique roster IDs, event lifecycle, fit/replay metadata and outcomes, verified
+successful-fit artifact identities, OPE fit coverage, counts and descriptive group
+metrics must agree. Counts are exact integers; finite aggregate comparisons allow
+only `1e-12` absolute/relative rounding tolerance. Failed/stopped paths remain in
+the aggregates. Deterministic contradictory-archive fixtures and a hand-calculated
+mixed-outcome example exercise this boundary. It does not prove the supplied
+roster matches an external registration, reconstruct per-bar P&L or make OPE
+reliable. Original successful v1 fits without explicit status are supported only
+with terminal completion and a matching verified artifact digest.

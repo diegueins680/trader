@@ -150,6 +150,8 @@ Offline sequential research captures both development CSVs once, verifies both h
 
 The compact evidence exporter also parses verified snapshots of the archive index and report inputs, retaining the admitted index hash if archive paths change. Large return paths and policy artifacts remain stream-verified. See the [export audit](research-notes/sequential-control-2026-09-17/export-snapshot-audit.md) for replacement tests and byte-identical reproduction of all seven reports.
 
+Before writing reports, it reconciles the supplied trial roster, terminal events, training/replay results, OPE coverage and descriptive summaries. A matching archive hash cannot excuse missing failed paths, duplicate trials, conflicting seed metadata or invented aggregate results. See the [registry audit](research-notes/sequential-control-2026-09-17/registry-reconciliation-audit.md) for the exact checks and their limits.
+
 ## CLI and API
 
 List the complete CLI surface with:

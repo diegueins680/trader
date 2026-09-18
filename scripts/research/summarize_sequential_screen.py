@@ -9,6 +9,7 @@ import csv
 import hashlib
 import json
 from pathlib import Path
+from sequential_registry import reconcile
 
 
 REPORT_INPUTS = frozenset({'manifest.json', 'summary.json', 'evaluation.json',
@@ -53,15 +54,12 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
     if manifest['promotionAllowed'] or manifest['holdoutOpened'] or manifest['liveAuthorization']:
         raise ValueError('authorizing or protected evidence')
     records, training, planned = read('evaluation.json'), read('training.json'), read('planned-registry.json')
-    terminal = {}
-    for line in snapshots.pop('events.jsonl').splitlines():
-        event = json.loads(line)
-        if event['status'] in ('complete', 'failed'):
-            if event['id'] in terminal:
-                raise ValueError('duplicate terminal event')
-            terminal[event['id']] = event
-    if set(terminal) != {r['id'] for r in planned}:
-        raise ValueError('incomplete experiment registry')
+    events = [json.loads(line) for line in snapshots.pop('events.jsonl').splitlines()]
+    ope = read('ope.json')
+    try:
+        terminal = reconcile(planned, events, training, records, ope, summary, index)
+    except (KeyError, TypeError, OverflowError) as exc:
+        raise ValueError('malformed registry evidence') from exc
     output.mkdir(parents=True, exist_ok=False)
     def js(name, value):
         (output / name).write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False)+'\n')
@@ -92,7 +90,7 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         t['initialAndFinalLoss'] = [losses[0],losses[-1]] if losses else []
         compact.append(t)
     js('multi-seed-training.json',compact)
-    js('ope-report.json',read('ope.json'))
+    js('ope-report.json',ope)
     rl = [r for r in records if r['algorithm'] in ('ppo','double_dqn','cql','cql_no_inventory_penalty')]
     values = [r['result'] for r in rl if 'netReturn' in r['result']]
     sizes = [t['artifactBytes'] for t in training if 'artifactBytes' in t]

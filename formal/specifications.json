@@ -76,6 +76,7 @@
         "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
         "scripts/research/summarize_sequential_screen.py",
+        "scripts/research/sequential_registry.py",
         "research-notes/registrations/sequential-control-screen-v1.json",
         "research-notes/sequential-control-2026-09-17/**"
       ],
@@ -112,6 +113,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R5",
           "statement": "Compact evidence export verifies the expected index hash against the exact index bytes parsed, requires every report input, and verifies the complete indexed inventory before output creation. Report JSON and event records are parsed only from their verified byte snapshots; large return paths and policy artifacts remain stream-verified."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R6",
+          "statement": "Before creating report output, the exporter reconciles unique supplied roster IDs, terminal event lifecycle, training/replay identities and seed/fold metadata, statuses/reasons/observation counts, successful-fit artifact digests, OPE fit coverage, total/group counts and descriptive return/risk/cost aggregates. Contradictory, missing, duplicated or malformed evidence is rejected."
         }
       ],
       "ensures": [
@@ -130,6 +135,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-E4",
           "statement": "Archive path replacement after successful verification cannot change exported report inputs or the admitted external index identity. Unchanged archived evidence produces byte-identical compact reports. This preserves evidence identity without granting promotion authority or asserting that source paths remain immutable."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E5",
+          "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows for successful fits. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
         }
       ],
       "invariants": [
@@ -195,6 +204,16 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_export_rejects_tampered_streamed_returns_before_output"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_inconsistent_hash_valid_registry"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_group_reconciliation_matches_hand_calculated_outcomes"
         },
         {
           "level": "bounded-exhaustive",

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Registry Reconciliation: reject internally inconsistent hash-valid sequential archives before report output, including omitted/duplicated trials, conflicting seed/outcome metadata, missing OPE fits and false counts or descriptive metrics. Preserve original v1 training-record compatibility and all seven historical compact reports. Keep typed and Markdown risk mitigations synchronized; no new experiment or production behavior.
+
 - Formal/Risk Register: synchronize the typed Haskell `RL-OFFLINE-001` mitigation with its Markdown projection, including verified evidence snapshots and invalid OPE rejection. Severity and lifecycle remain HIGH/OPEN.
 
 - Research/Evidence Export: bind compact sequential reports to verified archive-index and report-input byte snapshots; retain the admitted index hash after path replacement while continuing bounded streaming verification of large return paths. Add replacement and tampering regressions. All seven historical compact reports reproduce byte-for-byte; no financial trial or production behavior changes.
