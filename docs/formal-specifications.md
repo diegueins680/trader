@@ -364,3 +364,11 @@ shapes, non-finite observations and unknown names with absence before computatio
 or RNG use. Four witnesses cover the input matrix, name admission, replay shield
 precedence and exact valid-output compatibility. Fitted-parameter validity,
 timeouts and simulator adequacy remain separate concerns.
+
+
+`A-SEQUENTIAL-RESEARCH-R18` preserves OPE missingness at admission by rejecting
+masked arrays before conversion for all six trajectory/value inputs. Three
+witnesses cover partial/full/all-false masks, unchanged ordinary array-like
+estimates, and runner/export propagation of explicit failure without discarding
+the completed fit. There is no imputation or trajectory exclusion. This does not
+make OPE reliable or resolve behavior-support and simulator limitations.

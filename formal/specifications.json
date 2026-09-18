@@ -161,6 +161,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R17",
           "statement": "Offline baseline action and forecast entry points admit only recognized names and unmasked, one-dimensional, 12-element finite real NumPy observations, excluding boolean, complex and object representations. Invalid observations or unknown names return absence before rule computation or random sampling. Forecast names are limited to the five implemented forecasting rules. A rejected action remains absent, not a request to flatten, and replay shielding rejects it without a fill. Valid baseline outputs and RNG semantics are preserved. This is input admission, not fitted-parameter validation, a timeout guarantee or a complete simulator/OPE audit."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R18",
+          "statement": "OPE admission rejects NumPy masked arrays in rewards, logged actions, behavior probabilities, target probabilities, Q estimates and V estimates before array coercion can discard the mask. Partial, full and all-false masks are rejected without imputation, row deletion or caller mutation. Ordinary supported unmasked arrays and array-like inputs retain existing estimates. The runner records rejection as an explicit failed OPE outcome while retaining the completed fit; compact reports preserve the failure and remain non-authorizing. This does not establish behavior support, estimator reliability or market generalization."
         }
       ],
       "ensures": [
@@ -498,6 +502,21 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_valid_baselines_retain_exact_actions_and_forecasts"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_rejects_masks_before_array_coercion"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_ope_unmasked_arraylike_results_remain_exact"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_runner_records_masked_ope_failure_without_losing_fit"
         },
         {
           "level": "bounded-exhaustive",
