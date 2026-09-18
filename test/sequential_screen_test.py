@@ -383,8 +383,11 @@ class SequentialContracts(unittest.TestCase):
                   {"id": cash["id"], **{k: cash["result"][k] for k in ("status", "reason", "observations")}}]
         values = {
             "manifest.json": {"promotionAllowed": False, "holdoutOpened": False,
-                              "liveAuthorization": False},
+                              "liveAuthorization": False, "evidenceClass": "contaminated_development_only"},
             "summary.json": {"groups": runner.summary([failed, cash]),
+                             "promotionAllowed": False, "holdoutOpened": False,
+                             "decision": "no_candidate_passed", "evidenceClass": "contaminated_development_only",
+                             "statistics": {"DSR": None, "PBO": None, "SPA": None, "pairedConfidence": None},
                              "trainingFits": 1, "replayPaths": 2, "plannedEntries": 3,
                              "processPeakRssPlatformUnits": 0},
             "evaluation.json": [failed, cash],
@@ -423,7 +426,25 @@ class SequentialContracts(unittest.TestCase):
         return runner.digest(root/"evidence-index.json"), values
 
     def test_export_rejects_inconsistent_hash_valid_registry(self):
+        def set_outcome(values, status, reason):
+            values["evaluation.json"][1]["result"].update(status=status, reason=reason)
+            values["events.jsonl"][-1].update(status=status, reason=reason)
+            values["summary.json"]["groups"] = runner.summary(values["evaluation.json"])
+
         mutations = {
+            "failed with null reason": lambda v: set_outcome(v, "failed", None),
+            "failed with empty reason": lambda v: set_outcome(v, "failed", ""),
+            "failed with blank reason": lambda v: set_outcome(v, "failed", " "),
+            "failed with reserved reason": lambda v: set_outcome(v, "failed", "complete"),
+            "complete with failure reason": lambda v: set_outcome(v, "complete", "drawdown"),
+            "summary promotion": lambda v: v["summary.json"].update(promotionAllowed=True),
+            "summary holdout": lambda v: v["summary.json"].update(holdoutOpened=True),
+            "summary live authorization": lambda v: v["summary.json"].update(liveAuthorization=True),
+            "summary decision": lambda v: v["summary.json"].update(decision="candidate_passed"),
+            "summary evidence class": lambda v: v["summary.json"].update(evidenceClass="confirmation"),
+            "summary statistical inference": lambda v: v["summary.json"]["statistics"].update(DSR=.99),
+            "summary extra statistical claim": lambda v: v["summary.json"]["statistics"].update(passed=True),
+            "manifest nonboolean authorization": lambda v: v["manifest.json"].update(liveAuthorization=0),
             "duplicate planned ID": lambda v: v["planned-registry.json"].append(v["planned-registry.json"][0]),
             "missing failed replay": lambda v: v["evaluation.json"].pop(0),
             "duplicate replay": lambda v: v["evaluation.json"].append(v["evaluation.json"][0]),

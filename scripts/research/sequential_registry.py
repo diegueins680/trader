@@ -58,6 +58,27 @@ def equal_metric(actual, expected):
     return math.isclose(number(actual), expected, rel_tol=1e-12, abs_tol=1e-12)
 
 
+def reconcile_disposition(manifest, summary):
+    """This v1 development screen cannot publish promotion inference."""
+    for key in ('promotionAllowed', 'holdoutOpened', 'liveAuthorization'):
+        require(manifest[key] is False, 'authorizing or invalid manifest ' + key)
+    for key in ('promotionAllowed', 'holdoutOpened'):
+        require(summary[key] is False, 'authorizing or invalid summary ' + key)
+    require(summary.get('liveAuthorization', False) is False, 'authorizing summary')
+    require(manifest['evidenceClass'] == summary['evidenceClass'] == 'contaminated_development_only',
+            'unsupported evidence class')
+    require(summary['decision'] == 'no_candidate_passed', 'unsupported summary decision')
+    require(set(summary['statistics']) <= {'DSR', 'PBO', 'SPA', 'pairedConfidence', 'reason'},
+            'unsupported statistical fields')
+    for key in ('DSR', 'PBO', 'SPA', 'pairedConfidence'):
+        require(summary['statistics'][key] is None, 'unsupported statistical inference ' + key)
+
+
+def require_outcome_reason(status, reason):
+    require((isinstance(reason, str) and bool(reason.strip()) and reason.strip() != 'complete')
+            if status == 'failed' else reason is None, 'status/reason semantics')
+
+
 def reconcile_groups(summary, records, training_count, planned_count):
     for key, expected in [('trainingFits', training_count), ('replayPaths', len(records)),
                           ('plannedEntries', planned_count)]:
@@ -111,7 +132,7 @@ def reconcile(planned, events, training, records, ope, summary, index):
             started.add(key)
         else:
             require(event['status'] in ('complete', 'failed'), 'invalid event status')
-            require(event.get('reason') is None or isinstance(event['reason'], str), 'invalid terminal reason')
+            require_outcome_reason(event['status'], event.get('reason'))
             terminal[key] = event
     require(set(terminal) == set(roster), 'incomplete experiment registry')
     fits, replays = unique(training, 'training'), unique(records, 'replay')
@@ -145,6 +166,7 @@ def reconcile(planned, events, training, records, ope, summary, index):
                 result['observations'] == event['observations'], 'replay observations')
         require((result.get('reason') is None or isinstance(result['reason'], str)) and
                 result.get('reason') == event.get('reason'), 'replay reason')
+        require_outcome_reason(result['status'], result.get('reason'))
         require(('netReturn' in result) == (result['observations'] > 0), 'replay metric coverage')
         require(result['status'] != 'complete' or result['observations'] > 0, 'empty completed replay')
         if row['algorithm'] in RL_FAMILIES and result['observations'] > 0:

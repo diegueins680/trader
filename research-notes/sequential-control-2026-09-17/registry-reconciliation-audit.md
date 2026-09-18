@@ -92,6 +92,23 @@ checks. Formal contracts `A-SEQUENTIAL-RESEARCH-R6/E5` map to these tests. Typed
 Haskell and Markdown risk mitigations are updated together; canonical
 `RL-OFFLINE-001` remains HIGH/OPEN.
 
+## Additional disposition review
+
+Further review identified status/reason contradictions that could classify failed
+replays as complete, and summary fields that could contradict the non-authorizing
+manifest. Eleven hash-valid mutations reproduced false acceptance before repair.
+Failures now require nonblank, non-reserved reasons; completed terminal/replay
+outcomes require no failure reason. Manifest flags must be boolean false, and the
+summary must retain the v1 contaminated-development class, no-candidate decision,
+false promotion/holdout flags and null DSR/PBO/SPA/paired-confidence fields. Extra
+statistical claims and summary live authorization are rejected. The original
+producer's successful and failed paths remain supported.
+
+The in-progress full wrapper encountered the newly added negative fixtures before
+the repair was applied and failed its Python contract suite. This is not a passing
+verification result. The associated PR records a fresh full run on frozen code,
+its final result, log hash and CI evidence before merge.
+
 ## Limits and decision
 
 This is consistency against the **supplied roster**, not proof that the roster

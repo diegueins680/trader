@@ -9,7 +9,7 @@ import csv
 import hashlib
 import json
 from pathlib import Path
-from sequential_registry import RL_FAMILIES, reconcile
+from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition
 
 
 REPORT_INPUTS = frozenset({'manifest.json', 'summary.json', 'evaluation.json',
@@ -51,12 +51,11 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
             raise ValueError('external evidence hash/path mismatch')
     read = lambda name: json.loads(snapshots.pop(name))
     manifest, summary = read('manifest.json'), read('summary.json')
-    if manifest['promotionAllowed'] or manifest['holdoutOpened'] or manifest['liveAuthorization']:
-        raise ValueError('authorizing or protected evidence')
     records, training, planned = read('evaluation.json'), read('training.json'), read('planned-registry.json')
     events = [json.loads(line) for line in snapshots.pop('events.jsonl').splitlines()]
     ope = read('ope.json')
     try:
+        reconcile_disposition(manifest, summary)
         terminal = reconcile(planned, events, training, records, ope, summary, index)
     except (KeyError, TypeError, OverflowError) as exc:
         raise ValueError('malformed registry evidence') from exc

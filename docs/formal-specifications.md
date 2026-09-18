@@ -233,3 +233,9 @@ event; only explicit failed-fit cascades may omit it. Evaluated RL rows must als
 provide finite nonnegative latency p99 and an OOD observation rate in `[0,1]`
 before any output directory is created. Validator and exporter share the same RL
 family classification, preventing report-only field requirements from diverging.
+
+Terminal and replay failures require nonblank reasons other than the reserved
+`complete` label; completion has no failure reason. Both manifest and summary
+must retain the v1 contaminated-development disposition, false promotion/holdout
+flags and absent promotion statistics. Contradictory disposition fields fail
+before output creation; these checks confer no production authorization.

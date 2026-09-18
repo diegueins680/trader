@@ -152,6 +152,8 @@ The compact evidence exporter also parses verified snapshots of the archive inde
 
 Before writing reports, it reconciles the supplied trial roster, terminal events, training/replay results, OPE coverage and descriptive summaries. A matching archive hash cannot excuse missing failed paths, duplicate trials, conflicting seed metadata or invented aggregate results. See the [registry audit](research-notes/sequential-control-2026-09-17/registry-reconciliation-audit.md) for the exact checks and their limits.
 
+The exporter also rejects contradictory failure reasons and summary promotion, holdout or statistical claims outside the v1 contaminated-development contract before creating reports.
+
 ## CLI and API
 
 List the complete CLI surface with:
