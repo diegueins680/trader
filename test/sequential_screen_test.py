@@ -959,6 +959,61 @@ class SequentialContracts(unittest.TestCase):
             index_path.write_text(json.dumps(index)+"\n")
         return runner.digest(index_path)
 
+    def test_export_rejects_invalid_resource_metadata(self):
+        cases = [("training.json", "seconds", x) for x in (-1, True, None, "1")]
+        cases += [("events.jsonl", "seconds", x) for x in (-1, True, None, "1")]
+        cases += [("training.json", "artifactBytes", x) for x in (-1, 0, True, 1.5, "12", None)]
+        cases += [("events.jsonl", "seconds", 2)]  # Conflicts with the fit's one second.
+        for name, field, value in cases:
+            for evaluated in (False, True):
+                with self.subTest(name=name, field=field, value=value, evaluated=evaluated), tempfile.TemporaryDirectory() as td:
+                    root = Path(td); source = root/"archive"
+                    _, values = self.export_fixture(source, evaluated_rl=evaluated)
+                    values["training.json"][0]["seconds"] = 1
+                    values["events.jsonl"][1]["seconds"] = 1
+                    values[name][1 if name == "events.jsonl" else 0][field] = value
+                    for member in ("training.json", "events.jsonl"):
+                        raw = ("".join(json.dumps(e)+"\n" for e in values[member])
+                               if member == "events.jsonl" else json.dumps(values[member]))
+                        sha = self.rewrite_export_member(source, member, raw.encode())
+                    with self.assertRaises(ValueError):
+                        export(source, root/"review", rss_unit="bytes", platform_label="fixture",
+                               expected_index_sha256=sha)
+                    self.assertFalse((root/"review").exists())
+
+    def test_export_rejects_unknown_rss_units_before_reads(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for unit in ("byte", "KiB", "", None, True, 1024):
+                with self.subTest(unit=unit), patch.object(Path, "read_bytes") as reads:
+                    with self.assertRaises(ValueError):
+                        export(root/"absent", root/"review", rss_unit=unit,
+                               platform_label="fixture", expected_index_sha256="0"*64)
+                    reads.assert_not_called()
+                    self.assertFalse((root/"review").exists())
+
+    def test_export_preserves_valid_resource_measurements(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"archive"
+            _, values = self.export_fixture(source, evaluated_rl=True)
+            values["summary.json"]["processPeakRssPlatformUnits"] = 1048576
+            for seconds in (0, 1.25):
+                values["training.json"][0]["seconds"] = seconds
+                values["events.jsonl"][1]["seconds"] = seconds
+                for member in ("summary.json", "training.json", "events.jsonl"):
+                    raw = ("".join(json.dumps(e)+"\n" for e in values[member])
+                           if member == "events.jsonl" else json.dumps(values[member]))
+                    sha = self.rewrite_export_member(source, member, raw.encode())
+                for unit, expected in (("bytes", 1), ("kib", 1024)):
+                    output = root/f"review-{seconds}-{unit}"
+                    export(source, output, rss_unit=unit, platform_label="fixture",
+                           expected_index_sha256=sha)
+                    report = json.loads((output/"evaluation-summary.json").read_bytes())
+                    self.assertEqual(report["trainingSecondsSum"], seconds)
+                    self.assertEqual(report["peakResidentMemoryMiB"], expected)
+                    size = values["training.json"][0]["artifactBytes"]
+                    self.assertEqual(report["artifactByteRange"], [size, size])
+
     def test_export_rejects_duplicate_json_keys_in_every_input(self):
         cases = [
             ("evidence-index.json", '"manifest.json":"' + "0"*64 + '",'),

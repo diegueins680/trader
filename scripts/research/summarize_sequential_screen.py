@@ -47,6 +47,8 @@ def decode_evidence(raw: bytes) -> object:
 
 
 def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
+    if rss_unit not in ('bytes', 'kib'):
+        raise ValueError('unsupported process peak RSS unit')
     # Resolve aliases once; keep reports outside the admitted source archive.
     source, output = source.resolve(), output.resolve()
     if output.is_relative_to(source):

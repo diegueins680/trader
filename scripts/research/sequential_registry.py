@@ -220,6 +220,14 @@ def reconcile(planned, events, training, records, ope, summary, index):
         require_outcome_reason(status, fit.get('reason'))
         require(fit.get('reason') == terminal[key].get('reason'), 'training reason')
         reconcile_episode_accounting(fit, status)
+        for resource in (fit, terminal[key]):
+            if 'seconds' in resource:
+                require(number(resource['seconds']) >= 0, 'invalid training duration')
+        if 'seconds' in fit and 'seconds' in terminal[key]:
+            require(fit['seconds'] == terminal[key]['seconds'], 'training duration differs from ledger')
+        if 'artifactBytes' in fit:
+            require(integer(fit['artifactBytes']) and fit['artifactBytes'] > 0,
+                    'invalid artifact byte count')
         if status == 'complete':
             artifact = 'policies/' + key.replace('/', '_') + '.json'
             require(isinstance(fit['artifactSha256'], str) and
