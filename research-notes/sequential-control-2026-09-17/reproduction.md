@@ -114,3 +114,10 @@ archive would add unindexed files and invalidate its inventory, so same/descenda
 destinations now fail before evidence reads or directory creation. The exporter
 resolves and pins source/output aliases at admission and keeps existing external
 destinations exclusive. See the [destination-isolation audit](export-destination-audit.md).
+
+Resource metadata is validated before publication: supplied training durations
+must be finite nonnegative numbers and agree with terminal-ledger values when both
+exist; supplied artifact byte counts must be positive integers. Both CLI and Python
+export require `bytes` or `kib` RSS units. Legacy missing fields remain optional;
+do not interpret absent measurements as evidence of zero cost. See the
+[resource-evidence audit](resource-evidence-audit.md).

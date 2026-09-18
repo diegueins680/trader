@@ -153,6 +153,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R15",
           "statement": "Evidence export resolves source and output paths once at admission and uses those resolved paths throughout. A destination equal to or beneath the admitted source archive is rejected before reading evidence or creating directories, including symlink aliases and dot-dot spellings. Retargeting the original destination alias after admission cannot redirect report publication into the source. Valid external destinations retain exclusive directory creation, exact report bytes and archive file inventory/content. Existing external outputs are not overwritten. This assumes resolved directory ancestors remain stable and does not provide inode locking, mount-alias detection or atomic multi-file publication."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R16",
+          "statement": "Before compact report publication, any supplied training duration in a fit or its terminal event must be a finite nonnegative real JSON number, excluding booleans; if both supply durations they must agree exactly. Supplied artifact byte counts must be positive JSON integers, excluding booleans. Missing legacy fields remain optional. Export admits only explicit bytes or kib RSS units before evidence reads. Valid measurements and legacy report bytes retain their semantics. This validates metadata domains and cross-record agreement, not measurement accuracy, completeness or artifact byte-count identity."
         }
       ],
       "ensures": [
@@ -455,6 +459,21 @@
           "level": "integration",
           "path": "test/sequential_screen_test.py",
           "contains": "test_export_isolated_destinations_preserve_reports_and_existing_files"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_invalid_resource_metadata"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_unknown_rss_units_before_reads"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_preserves_valid_resource_measurements"
         },
         {
           "level": "bounded-exhaustive",
