@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research/OPE: reject masked arrays in all six trajectory/value inputs before coercion discards missingness; preserve ordinary array-like estimates and explicit runner failure reporting.
 - Research/Baselines: reject malformed observations and unrecognized baseline names with absent actions/forecasts before computation or RNG use; retain valid baseline semantics and replay safety precedence.
 - Research/Resource Evidence: reject invalid training durations, contradictory fit/ledger timing, nonpositive or noninteger artifact byte counts, and unsupported RSS units before compact report publication; preserve valid legacy reports.
 - Research/Export Destination: resolve and pin source/output paths before reading evidence, rejecting report destinations equal to or beneath the source archive. Cover nested paths, symlink aliases and alias retargeting; preserve valid external report bytes, archive inventory and exclusive no-overwrite behavior.

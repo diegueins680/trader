@@ -96,6 +96,10 @@ Offline baseline actions and forecasts require a recognized rule name and a fini
 computation or random sampling. The replay shield rejects absence without a fill.
 See the [baseline-admission audit](research-notes/sequential-control-2026-09-17/baseline-admission-audit.md).
 
+Offline OPE rejects masked arrays before coercion can discard missingness, across
+rewards, actions, behavior/target probabilities and Q/V estimates. Failures remain
+explicit in the OPE report. See the [OPE mask-admission audit](research-notes/sequential-control-2026-09-17/ope-mask-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

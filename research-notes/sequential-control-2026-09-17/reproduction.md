@@ -126,3 +126,9 @@ Offline baselines now reject invalid observations and unknown names before rule
 computation or random sampling. Absence is rejected by the replay shield; it is
 not an executable cash/flatten instruction. Valid actions and forecasts retain
 their existing semantics. See the [baseline-admission audit](baseline-admission-audit.md).
+
+OPE requires unmasked trajectory/value inputs. The estimator rejects masked arrays
+before conversion can discard missingness, including all-false masks, consistently
+with the other research boundaries. Do not fill missing observations or drop
+trajectories to force admission. Runner/export records retain explicit failures.
+See the [OPE mask-admission audit](ope-mask-admission-audit.md).
