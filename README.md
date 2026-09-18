@@ -91,6 +91,11 @@ with ledger durations when both are present, positive integer artifact byte coun
 and explicit `bytes` or `kib` RSS units. These checks do not authenticate benchmark
 measurements. See the [resource-evidence audit](research-notes/sequential-control-2026-09-17/resource-evidence-audit.md).
 
+Offline baseline actions and forecasts require a recognized rule name and a finite
+12-element real observation. Invalid input returns an absent proposal before
+computation or random sampling. The replay shield rejects absence without a fill.
+See the [baseline-admission audit](research-notes/sequential-control-2026-09-17/baseline-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

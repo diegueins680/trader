@@ -121,3 +121,8 @@ exist; supplied artifact byte counts must be positive integers. Both CLI and Pyt
 export require `bytes` or `kib` RSS units. Legacy missing fields remain optional;
 do not interpret absent measurements as evidence of zero cost. See the
 [resource-evidence audit](resource-evidence-audit.md).
+
+Offline baselines now reject invalid observations and unknown names before rule
+computation or random sampling. Absence is rejected by the replay shield; it is
+not an executable cash/flatten instruction. Valid actions and forecasts retain
+their existing semantics. See the [baseline-admission audit](baseline-admission-audit.md).
