@@ -950,6 +950,61 @@ class SequentialContracts(unittest.TestCase):
         (root/"evidence-index.json").write_text(json.dumps(index)+"\n")
         return runner.digest(root/"evidence-index.json"), values
 
+    def rewrite_export_member(self, root, name, raw):
+        (root/name).write_bytes(raw)
+        index_path = root/"evidence-index.json"
+        if name != "evidence-index.json":
+            index = json.loads(index_path.read_bytes())
+            index[name] = runner.digest(root/name)
+            index_path.write_text(json.dumps(index)+"\n")
+        return runner.digest(index_path)
+
+    def test_export_rejects_duplicate_json_keys_in_every_input(self):
+        cases = [
+            ("evidence-index.json", '"manifest.json":"' + "0"*64 + '",'),
+            ("manifest.json", '"promotionAllowed":true,'),
+            ("summary.json", '"decision":"integrate",'),
+            ("evaluation.json", '"symbol":"wrong",'),
+            ("training.json", '"algorithm":"wrong",'),
+            ("planned-registry.json", '"kind":"replay",'),
+            ("events.jsonl", '"status":"complete",'),
+            ("ope.json", '"id":"wrong",'),
+            ("manifest.json", '"promotionAllowed":false,'),
+            ("manifest.json", r'"promotion\u0041llowed":true,'),
+            ("training.json", r'"audit":{"key":1,"\u006bey":2},')]
+        with tempfile.TemporaryDirectory() as td:
+            for i, (name, prefix) in enumerate(cases):
+                root = Path(td)/str(i); self.export_fixture(root, evaluated_rl=True)
+                raw = (root/name).read_bytes().replace(b"{", b"{"+prefix.encode(), 1)
+                sha = self.rewrite_export_member(root, name, raw)
+                output = Path(td)/f"review-{i}"
+                with self.subTest(name=name, prefix=prefix):
+                    with self.assertRaises(ValueError):
+                        export(root, output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                    self.assertFalse(output.exists())
+
+    def test_export_rejects_nonfinite_numbers_even_in_omitted_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            for i, token in enumerate(("NaN", "Infinity", "-Infinity", "1e309", "-1e309")):
+                for name in ("evaluation.json", "training.json", "planned-registry.json", "events.jsonl"):
+                    root = Path(td)/f"{i}-{name}"; self.export_fixture(root, evaluated_rl=True)
+                    prefix = ('"losses":[0,'+token+',0],') if name == "training.json" else ('"ignored":{"values":['+token+']},')
+                    raw = (root/name).read_bytes().replace(b"{", b"{"+prefix.encode(), 1)
+                    sha = self.rewrite_export_member(root, name, raw)
+                    output = Path(td)/f"review-{i}-{name}"
+                    with self.subTest(name=name, token=token):
+                        with self.assertRaises(ValueError):
+                            export(root, output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                        self.assertFalse(output.exists())
+
+    def test_evidence_json_preserves_unambiguous_values(self):
+        raw = b'{"text":"NaN Infinity 1e309", "flag":true, "missing":null, "rows":[-0.0,1.25e-2,1e308], "large":340282366920938463463374607431768211456, "key\\u00e9": "caf\\u00e9"}'
+        value = exporter.decode_evidence(raw)
+        self.assertEqual(value, json.loads(raw))
+        self.assertTrue(np.signbit(value["rows"][0]))
+        self.assertIs(type(value["large"]), int)
+        self.assertEqual(value["keyé"], "café")
+
     def test_export_rejects_inconsistent_hash_valid_registry(self):
         def set_outcome(values, status, reason):
             values["evaluation.json"][1]["result"].update(status=status, reason=reason)

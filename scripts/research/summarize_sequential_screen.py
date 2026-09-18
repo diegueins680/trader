@@ -9,6 +9,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition
 
@@ -25,11 +26,31 @@ def digest(path):
     return h.hexdigest()
 
 
+def decode_evidence(raw: bytes) -> object:
+    """Decode verified JSON without discarded keys or non-finite numeric values."""
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate evidence JSON key')
+            result[key] = value
+        return result
+    def reject_constant(_):
+        raise ValueError('non-finite evidence JSON constant')
+    def finite_float(token):
+        value = float(token)
+        if not math.isfinite(value):
+            raise ValueError('non-finite evidence JSON number')
+        return value
+    return json.loads(raw, object_pairs_hook=unique, parse_constant=reject_constant,
+                      parse_float=finite_float)
+
+
 def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
     index_bytes = (source / 'evidence-index.json').read_bytes()
     if hashlib.sha256(index_bytes).hexdigest() != expected_index_sha256:
         raise ValueError('external evidence index hash mismatch')
-    index = json.loads(index_bytes)
+    index = decode_evidence(index_bytes)
     if not isinstance(index, dict) or not REPORT_INPUTS <= index.keys():
         raise ValueError('external evidence index missing report inputs')
     actual = {str(p.relative_to(source)) for p in source.rglob('*') if p.is_file()}
@@ -50,10 +71,10 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
             actual_sha = digest(p)
         if actual_sha != sha:
             raise ValueError('external evidence hash/path mismatch')
-    read = lambda name: json.loads(snapshots.pop(name))
+    read = lambda name: decode_evidence(snapshots.pop(name))
     manifest, summary = read('manifest.json'), read('summary.json')
     records, training, planned = read('evaluation.json'), read('training.json'), read('planned-registry.json')
-    events = [json.loads(line) for line in snapshots.pop('events.jsonl').splitlines()]
+    events = [decode_evidence(line) for line in snapshots.pop('events.jsonl').splitlines()]
     ope = read('ope.json')
     try:
         reconcile_disposition(manifest, summary)

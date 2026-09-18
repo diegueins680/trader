@@ -101,3 +101,10 @@ terminal line alone or manually index an interrupted directory. Preserve partial
 files for investigation and use a new output directory for an explicitly authorized
 repeat; there is no automatic resume or recovery. Computational trial failures still
 remain in the registry. See the [publication-boundary audit](publication-boundary-audit.md).
+
+The exporter also rejects duplicate object keys (including escaped-key collisions)
+and non-finite numeric tokens before reconciliation, even in fields compact reports
+omit. This covers the admitted index, every report snapshot and each JSONL event.
+Do not rewrite ambiguous archives automatically to obtain acceptance; investigate
+the source. Valid legacy report bytes are unchanged. See the
+[JSON-admission audit](evidence-json-admission-audit.md).

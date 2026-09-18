@@ -76,6 +76,11 @@ publishing its final summary/index. It preserves partial files for investigation
 those files are incomplete evidence. Computational failures retain their failed-trial
 records. See the [publication-boundary audit](research-notes/sequential-control-2026-09-17/publication-boundary-audit.md).
 
+Evidence export rejects duplicate JSON keys and non-finite numeric tokens, including
+overflowing exponents and values omitted from compact reports. It parses only the
+verified snapshots and retains valid legacy report bytes. See the
+[JSON-admission audit](research-notes/sequential-control-2026-09-17/evidence-json-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
