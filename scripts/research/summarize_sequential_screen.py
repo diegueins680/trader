@@ -47,6 +47,10 @@ def decode_evidence(raw: bytes) -> object:
 
 
 def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
+    # Resolve aliases once; keep reports outside the admitted source archive.
+    source, output = source.resolve(), output.resolve()
+    if output.is_relative_to(source):
+        raise ValueError('report output must be outside the source archive')
     index_bytes = (source / 'evidence-index.json').read_bytes()
     if hashlib.sha256(index_bytes).hexdigest() != expected_index_sha256:
         raise ValueError('external evidence index hash mismatch')
