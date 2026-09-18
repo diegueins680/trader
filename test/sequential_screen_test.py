@@ -1144,6 +1144,68 @@ class SequentialContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 reconcile_groups(summary, records, 0, 3)
 
+    def test_export_rejects_destinations_inside_source_archive(self):
+        for mode in ("same", "child", "nested", "source_alias", "output_alias", "both_aliases", "dotdot"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
+                root = Path(td); source = root/"archive"
+                sha, _ = self.export_fixture(source, evaluated_rl=True)
+                before = {str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}
+                before_paths = {str(p.relative_to(source)) for p in source.rglob("*")}
+                (root/"source-alias").symlink_to(source, target_is_directory=True)
+                (root/"output-alias").symlink_to(source, target_is_directory=True)
+                (root/"outside").mkdir()
+                output = {"same":source, "child":source/"review", "nested":source/"new/deep/review",
+                    "source_alias":source/"review", "output_alias":root/"output-alias/review",
+                    "both_aliases":root/"output-alias/review", "dotdot":root/"outside/../archive/review"}[mode]
+                argument = root/"source-alias" if mode in ("source_alias", "both_aliases") else source
+                with patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as reads:
+                    with self.assertRaisesRegex(ValueError, "outside.*source archive"):
+                        export(argument, output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                    reads.assert_not_called()
+                self.assertEqual({str(p.relative_to(source)) for p in source.rglob("*")}, before_paths)
+                self.assertEqual({str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}, before)
+
+    def test_export_pins_admitted_destination_alias(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"archive"
+            sha, _ = self.export_fixture(source, evaluated_rl=True)
+            before = {str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}
+            destination = root/"destination"; destination.mkdir()
+            alias = root/"destination-alias"; alias.symlink_to(destination, target_is_directory=True)
+            original_digest = exporter.digest; changed = []
+            def retarget_after_verification(path):
+                result = original_digest(path)
+                if path.name == "returns.csv":
+                    alias.unlink(); alias.symlink_to(source, target_is_directory=True); changed.append(True)
+                return result
+            with patch.object(exporter, "digest", side_effect=retarget_after_verification):
+                export(source, alias/"review", rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+            self.assertEqual(changed, [True])
+            self.assertEqual(len(list((destination/"review").iterdir())), 7)
+            self.assertFalse((source/"review").exists())
+            self.assertEqual({str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}, before)
+
+    def test_export_isolated_destinations_preserve_reports_and_existing_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"archive"
+            sha, _ = self.export_fixture(source, evaluated_rl=True)
+            before = {str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}
+            (root/"source-alias").symlink_to(source, target_is_directory=True)
+            (root/"destination").mkdir()
+            (root/"destination-alias").symlink_to(root/"destination", target_is_directory=True)
+            paths = [root/"archive-review", source/"../normalized-review", root/"destination-alias/review"]
+            outputs = []
+            for output in paths:
+                export(root/"source-alias", output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                reports = {p.name:p.read_bytes() for p in output.iterdir()}
+                self.assertEqual(len(reports), 7)
+                outputs.append(reports)
+                with self.assertRaises(FileExistsError):
+                    export(source, output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                self.assertEqual({p.name:p.read_bytes() for p in output.iterdir()}, reports)
+            self.assertTrue(all(value == outputs[0] for value in outputs))
+            self.assertEqual({str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}, before)
+
     def test_export_parses_verified_snapshots_after_archive_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

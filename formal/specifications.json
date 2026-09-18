@@ -149,6 +149,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R14",
           "statement": "The exporter decodes the admitted evidence-index bytes, all seven verified report-input snapshots and each JSONL event with one JSON admission contract. Duplicate object keys at any depth, including identical values and escaped-key collisions, are rejected before a value is discarded. NaN/Infinity constants and floating-point literals that overflow to non-finite values are rejected even in fields omitted by report rendering. Decoding never reopens verified report paths; failures precede output-directory creation. Valid finite JSON values, integer semantics and legacy report bytes remain unchanged. This is a decoding boundary, not a canonical-encoding requirement, authenticity proof, schema-completeness claim or bounded-memory guarantee."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R15",
+          "statement": "Evidence export resolves source and output paths once at admission and uses those resolved paths throughout. A destination equal to or beneath the admitted source archive is rejected before reading evidence or creating directories, including symlink aliases and dot-dot spellings. Retargeting the original destination alias after admission cannot redirect report publication into the source. Valid external destinations retain exclusive directory creation, exact report bytes and archive file inventory/content. Existing external outputs are not overwritten. This assumes resolved directory ancestors remain stable and does not provide inode locking, mount-alias detection or atomic multi-file publication."
         }
       ],
       "ensures": [
@@ -436,6 +440,21 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_evidence_json_preserves_unambiguous_values"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_rejects_destinations_inside_source_archive"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_pins_admitted_destination_alias"
+        },
+        {
+          "level": "integration",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_isolated_destinations_preserve_reports_and_existing_files"
         },
         {
           "level": "bounded-exhaustive",

@@ -81,6 +81,11 @@ overflowing exponents and values omitted from compact reports. It parses only th
 verified snapshots and retains valid legacy report bytes. See the
 [JSON-admission audit](research-notes/sequential-control-2026-09-17/evidence-json-admission-audit.md).
 
+Report export requires a new destination outside the source archive. It resolves
+source/destination aliases once, rejects archive-contained output and preserves
+existing external destinations. See the
+[destination-isolation audit](research-notes/sequential-control-2026-09-17/export-destination-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
