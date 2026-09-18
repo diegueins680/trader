@@ -211,6 +211,83 @@ class SequentialContracts(unittest.TestCase):
         self.assertEqual(set(a["a"]), {0, 1, 2})
         np.testing.assert_array_equal(a["prob"], np.full(64, 1/3))
 
+    def test_episode_admission_requires_integral_bounds_and_progress(self):
+        for field in ("start", "stop", "horizon"):
+            for bad in (True, np.bool_(True), 30.0, 33.5, None, "31", np.array([30, 31])):
+                with self.subTest(field=field, value=repr(bad)), self.assertRaises(ValueError):
+                    args = dict(start=30, stop=61, horizon=1)
+                    args[field] = bad
+                    Replay(self.p, self.f, scale=self.scale, **args)
+        for h in (1, 3, 6):
+            for length in (2, 7, 19):
+                e = Replay(self.p, self.f, np.int64(30), np.int64(30+length), np.int64(h), self.scale, enabled=True)
+                for _ in range((length-2)//h+1):
+                    old = e.t
+                    e.step(0.)
+                    self.assertGreater(e.t, old)
+                self.assertTrue(e.done)
+                self.assertEqual(e.t, 30+length-1)
+                self.assertEqual([r["t"] for r in e.rows], list(range(31, 30+length)))
+
+    def test_series_admission_is_real_unmasked_and_causal(self):
+        bad_series = (None, self.p.tolist(), self.p[:, None], self.p.astype(complex)+1j,
+                      self.p.astype(object), self.p.astype(str), np.ones(256, dtype=bool),
+                      np.ma.array(self.p, mask=np.arange(256) == 30))
+        for bad in bad_series:
+            with self.subTest(series=type(bad).__name__):
+                self.assertIsNone(market_features(bad, 30))
+                with self.assertRaises(ValueError):
+                    Replay(bad, self.f, 30, 61, 1, self.scale)
+                with self.assertRaises(ValueError):
+                    Replay(self.p, bad, 30, 61, 1, self.scale)
+        for bad in (30.0, True, None, "30", np.array([30, 31])):
+            with self.subTest(index=repr(bad)):
+                self.assertIsNone(market_features(self.p, bad))
+        prices, funding = self.p.copy(), self.f.copy()
+        prices[31:] = np.nan; funding[31:] = np.nan
+        e = Replay(prices, funding, 30, 61, 1, self.scale, enabled=True)
+        np.testing.assert_array_equal(e.observation(), self.env(enabled=True).observation())
+        e.step(.25)
+        self.assertTrue(e.done); self.assertEqual(e.failure, "invalid_market_transition")
+        self.assertEqual(e.rows, []); self.assertEqual(e.units, 0)
+        for funding in (self.f[:, None], self.f.astype(complex), np.zeros(256, dtype=bool),
+                        np.ma.array(self.f, mask=np.arange(256) == 31)):
+            with self.subTest(replaced_funding=repr(funding)):
+                e = self.env(enabled=True)
+                e.funding = funding
+                e.step(.25)
+                self.assertEqual(e.failure, "invalid_market_transition")
+                self.assertEqual(e.rows, []); self.assertEqual(e.units, 0)
+
+    def test_collection_rejects_invalid_budget_and_panel_before_sampling(self):
+        invalid = [{field: value} for field in ("count", "seed", "horizon")
+                   for value in (True, np.bool_(True), 1.5, None, "1", np.array([1, 2]))]
+        invalid += [{"count": 0}, {"count": -1}, {"seed": -1}, {"horizon": 2},
+                    {"prices": {}}, {"funding": {}}, {"prices": {"x": self.p[:120]}},
+                    {"funding": {"x": self.f[:-1]}}, {"prices": {"x": self.p[:, None]}},
+                    {"funding": {"x": self.f.astype(complex)}},
+                    {"prices": {1: self.p}, "funding": {1: self.f}}]
+        for change in invalid:
+            args = dict(prices={"x": self.p}, funding={"x": self.f}, scale=self.scale, horizon=1, seed=11, count=2)
+            args.update(change)
+            with self.subTest(change=repr(change)), patch("sequential_env.np.random.default_rng", side_effect=AssertionError("sampled before admission")):
+                with self.assertRaises(ValueError):
+                    collect(**args)
+        result = collect({"x": self.p[:121]}, {"x": self.f[:121]}, Scale.fit([self.p[:121]]),
+                         np.int64(3), np.int64(11), np.int64(2))
+        self.assertEqual(len(result["s"]), 2)
+        for bad in (None, [1/3]*3, np.ones(3, dtype=bool), np.ones(3, dtype=complex),
+                    np.ma.array([0., .5, .5], mask=[True, False, False])):
+            with self.subTest(probabilities=repr(bad)), self.assertRaises(ValueError):
+                collect({"x": self.p}, {"x": self.f}, self.scale, 1, 11, 1, policy=lambda _: bad)
+
+    def test_execution_assumptions_require_real_scalars(self):
+        for field in ("cost_multiplier", "fill_fraction", "impact_bps", "funding_multiplier", "risk_penalty"):
+            for bad in (False, np.bool_(True), 1+0j, np.complex128(1), None, "1", np.array([1]), 10**1000):
+                with self.subTest(field=field, value=repr(bad)), self.assertRaises(ValueError):
+                    Execution(**{field: bad})
+        self.assertEqual(Execution(cost_multiplier=np.float64(1)).cost_multiplier, 1.)
+
     def test_neural_gradients_match_finite_difference(self):
         n = Network(11)
         x = np.random.default_rng(4).normal(size=(4, 12))

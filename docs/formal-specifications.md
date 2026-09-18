@@ -269,3 +269,12 @@ reads or processing a pending fill. Rejection ends the path with no simulated
 transition or invented liquidation. Inference admits only finite real unmasked
 vectors with the declared dimensions and returns an absent proposal on a model
 exception. The elapsed-time check remains post-call and does not preempt a hang.
+
+`A-SEQUENTIAL-RESEARCH-R7` requires integer replay indices/horizons and collection
+seeds/budgets, excluding booleans; real unmasked one-dimensional market arrays;
+matching collection symbol histories; valid behavior-probability representation;
+and finite real execution coefficients. Invalid admission fails before sampling.
+Only metadata and bounds are inspected at admission. Future missing values do not
+invalidate the current observation; feature and transition values are checked
+when causally consumed. This does not prove external data provenance or valid
+real-exchange fills.

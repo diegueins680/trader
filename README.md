@@ -41,6 +41,11 @@ masked observations cannot authorize a simulated proposal. Invalid gates stop a
 replay before pending fills or market-state reads, while inference failures return
 no proposal. See the [proposal type audit](research-notes/sequential-control-2026-09-17/proposal-types-audit.md).
 
+Replay indices, horizons, collection seeds and transition budgets must be integers;
+fractional or boolean values are rejected. Prices, funding and behavior probabilities
+must use real, unmasked one-dimensional arrays. Admission checks representation
+and bounds without scanning future values. See the [episode admission audit](research-notes/sequential-control-2026-09-17/episode-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:

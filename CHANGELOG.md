@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Episode Admission: reject fractional/boolean replay indices, horizons and collection budgets before they can stall an episode or exceed a transition budget. Validate real unmasked series, aligned symbol histories, behavior probabilities and real execution assumptions; preserve causal transition-time value checks and valid-input replay/collection behavior.
+
 - Research/Proposal Types: require explicit boolean enablement, observation-validity and ownership evidence in the Python replay shield. Reject boolean/complex/array timing and action values; validate real unmasked inference vectors and return no proposal on model failure. Check gates before observations or pending fills; preserve valid-input replay behavior and all production settings.
 
 - Research/Report Bytes: write prepared reports as UTF-8 bytes, preserving explicit LF terminators across platform newline settings; add a text-translation rejection fixture.

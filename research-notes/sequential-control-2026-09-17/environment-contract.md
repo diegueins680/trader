@@ -94,6 +94,18 @@ behavior buffer with exact probability 1/3 per target. This is simulated
 counterfactual behavior, not exchange fill logs or live exploration. Fixed last
 updates are evaluated; no best checkpoint or best seed is selected.
 
+Episode indices, horizons, collection seeds and transition budgets require Python
+or NumPy integers, excluding booleans; admitted NumPy integers normalize to Python
+integers. Horizons remain 1/3/6, seeds nonnegative and budgets positive. Collection
+requires matching nonempty symbol maps, aligned one-dimensional real unmasked
+price/funding arrays and at least 121 training bars per symbol for its existing
+97-bar episodes. Behavior probabilities use the same real unmasked representation.
+Execution coefficients are finite real nonboolean scalars in their existing
+ranges. Admission checks only representation, lengths and indices, never unused
+future values. Trailing prices and actual transition prices/funding are checked
+when consumed; unavailable values fail that path without invented fills. See the
+[admission audit](episode-admission-audit.md) for valid-input parity and limitations.
+
 CQL consumes 4,096 transitions and 4,096 gradient updates. Double DQN collects
 256-transition blocks before updates (an implementation deviation from the
 registration's 64-transition warmup phrase); there is no 64-step initial update.

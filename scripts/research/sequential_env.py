@@ -15,10 +15,21 @@ ACTIONS = np.array([-0.25, 0.0, 0.25])
 FEATURE_COUNT = 12
 
 
+def _integer(value) -> bool:
+    return type(value) is int or (isinstance(value, np.integer) and value.dtype.kind in "iu")
+
+
+def _real_series(value) -> bool:
+    """Inspect representation only; never scan future market values at admission."""
+    return (isinstance(value, np.ndarray) and not np.ma.isMaskedArray(value) and
+            value.ndim == 1 and value.dtype.kind in "iuf")
+
+
 def market_features(prices: np.ndarray, t: int) -> np.ndarray | None:
     """Read only the trailing prefix, including the completed decision bar."""
-    if t < 24 or t >= len(prices):
+    if not _real_series(prices) or not _integer(t) or not 24 <= t < len(prices):
         return None
+    t = int(t)
     p = np.asarray(prices[t - 24:t + 1], dtype=float)
     if not np.isfinite(p).all() or np.any(p <= 0):
         return None
@@ -68,7 +79,7 @@ class Execution:
     def __post_init__(self) -> None:
         vals = (self.cost_multiplier, self.fill_fraction, self.impact_bps,
                 self.funding_multiplier, self.risk_penalty)
-        if not all(isfinite(v) and v >= 0 for v in vals) or not 0 < self.fill_fraction <= 1:
+        if not all(_finite_real(v) and v >= 0 for v in vals) or not 0 < self.fill_fraction <= 1:
             raise ValueError("invalid execution assumptions")
         if type(self.extra_delay) is not int or self.extra_delay not in (0, 1):
             raise ValueError("invalid delay")
@@ -109,6 +120,11 @@ class Replay:
     def __init__(self, prices: np.ndarray, funding: np.ndarray, start: int, stop: int,
                  horizon: int, scale: Scale, execution: Execution = Execution(),
                  *, enabled: bool = False) -> None:
+        if not _real_series(prices) or not _real_series(funding):
+            raise ValueError("invalid market series representation")
+        if not all(_integer(v) for v in (start, stop, horizon)):
+            raise ValueError("episode indices and horizon must be integers")
+        start, stop, horizon = int(start), int(stop), int(horizon)
         if horizon not in (1, 3, 6) or not 24 <= start < stop - 1 <= len(prices) - 1:
             raise ValueError("invalid episode boundaries")
         if len(prices) != len(funding):
@@ -201,7 +217,7 @@ class Replay:
             left, old_equity = self.t, self.equity
             p0, p1 = self.prices[left], self.prices[left + 1]
             f = self.funding[left + 1]
-            if not all(isfinite(v) for v in (p0, p1, f)) or min(p0, p1) <= 0:
+            if not all(_finite_real(v) for v in (p0, p1, f)) or min(p0, p1) <= 0:
                 self.failure, self.done = "invalid_market_transition", True
                 break
             exposure = self.units * p0 / old_equity
@@ -244,6 +260,17 @@ class Replay:
 def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale: Scale,
             horizon: int, seed: int, count: int, policy=None, execution: Execution = Execution()) -> dict:
     """Training-only prefixes physically bound every replay and episode."""
+    if (not all(_integer(v) for v in (horizon, seed, count)) or
+        horizon not in (1, 3, 6) or seed < 0 or count <= 0):
+        raise ValueError("invalid collection horizon, seed or transition budget")
+    if (not isinstance(prices, dict) or not isinstance(funding, dict) or not prices or
+        set(prices) != set(funding) or any(not isinstance(s, str) or not s for s in prices)):
+        raise ValueError("invalid collection symbol coverage")
+    for symbol, p in prices.items():
+        f = funding[symbol]
+        if not _real_series(p) or not _real_series(f) or len(p) != len(f) or len(p) <= 120:
+            raise ValueError("invalid collection series or insufficient episode history")
+    horizon, seed, count = int(horizon), int(seed), int(count)
     rng = np.random.default_rng(seed)
     symbols = sorted(prices)
     rows, episodes, env = [], [], None
@@ -259,7 +286,7 @@ def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale
         if s is None:
             raise ValueError("invalid training observation")
         probs = np.full(3, 1 / 3) if policy is None else policy(s)
-        if probs.shape != (3,) or not np.isfinite(probs).all() or np.any(probs < 0) or not np.isclose(probs.sum(), 1):
+        if not _real_series(probs) or probs.shape != (3,) or not np.isfinite(probs).all() or np.any(probs < 0) or not np.isclose(probs.sum(), 1):
             raise ValueError("invalid behavior probabilities")
         a = int(rng.choice(3, p=probs))
         nxt, reward, done = env.step(float(ACTIONS[a]))

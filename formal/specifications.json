@@ -117,6 +117,10 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R6",
           "statement": "Before creating report output, the exporter reconciles unique supplied roster IDs, start/terminal lifecycle (only failed-fit cascades may omit starts), training/replay identities and seed/fold metadata, statuses/reasons/observation counts, successful-fit artifact digests, OPE fit coverage, total/group counts and descriptive return/risk/cost aggregates. Evaluated RL rows require finite nonnegative latency p99 and OOD rates in [0,1], using the same family classification as reporting. Peak-memory metadata must be finite and nonnegative. All compact reports are rendered before output creation and written as UTF-8 bytes with explicit LF terminators, so field and serialization errors cannot leave partial reports or trigger platform newline translation; filesystem write failures are not atomic. Contradictory, missing, duplicated or malformed evidence in these fields is rejected."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R7",
+          "statement": "Replay indices and horizons, collection seeds and transition budgets require Python or NumPy integers excluding booleans, with existing episode bounds, horizons 1/3/6, nonnegative seeds and positive budgets. Replay market inputs are aligned real unmasked one-dimensional arrays. Collection requires matching nonempty string-symbol maps and at least 121 aligned training bars per symbol; admission precedes RNG sampling. Execution coefficients are finite real nonboolean scalars in their existing ranges, and behavior probabilities require real unmasked vectors. Admission inspects representation and bounds only; trailing feature values and actual transition scalars are validated when consumed, without scanning unused future values."
         }
       ],
       "ensures": [
@@ -184,6 +188,26 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_proposal_requires_boolean_evidence_and_real_scalars"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_episode_admission_requires_integral_bounds_and_progress"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_series_admission_is_real_unmasked_and_causal"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_collection_rejects_invalid_budget_and_panel_before_sampling"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_execution_assumptions_require_real_scalars"
         },
         {
           "level": "regression",
