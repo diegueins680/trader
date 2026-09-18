@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research/Transition Admission: abort an offline collection batch on incomplete market transitions, insolvency without terminal accounting or malformed successor observations. Preserve fully accounted risk losses, valid terminal padding and existing valid-input replay/collection bytes; add all-seed PPO/Double-DQN/CQL update-isolation regressions.
+
 - Research/Episode Admission: reject fractional/boolean replay indices, horizons and collection budgets before they can stall an episode or exceed a transition budget. Validate real unmasked series, aligned symbol histories, behavior probabilities and real execution assumptions; preserve causal transition-time value checks and valid-input replay/collection behavior.
 
 - Research/Proposal Types: require explicit boolean enablement, observation-validity and ownership evidence in the Python replay shield. Reject boolean/complex/array timing and action values; validate real unmasked inference vectors and return no proposal on model failure. Check gates before observations or pending fills; preserve valid-input replay behavior and all production settings.

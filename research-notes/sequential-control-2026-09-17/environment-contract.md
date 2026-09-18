@@ -122,6 +122,17 @@ liquidation is guaranteed only for valid-price normal/risk-triggered endings,
 not for missing-price/invalid-observation failures. Equity must reconcile exactly
 to initial equity plus gross P&L plus funding minus cash costs.
 
+Collection now rejects incomplete transitions before appending a learning sample.
+A nonterminal transition must span the full decision interval and supply a real,
+finite, unmasked 12-component successor. A terminal must have positive finite
+equity, zero units, no pending target and either reach the normal endpoint or
+finish an accounted capital-floor, drawdown, exposure or turnover stop. Finite
+reward and time progress are required in both cases. Invalid market/observation,
+permission and unaccounted insolvency failures abort the collection call without
+returning a partial batch. Zero successor padding is reserved for accounted
+terminals. Risk losses are retained, not filtered from training or reclassified
+as promotion successes. See the [transition audit](transition-admission-audit.md).
+
 ## Independent deterministic boundary
 
 The Python shield defaults disabled and restricts proposal type, finiteness,

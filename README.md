@@ -46,6 +46,11 @@ fractional or boolean values are rejected. Prices, funding and behavior probabil
 must use real, unmasked one-dimensional arrays. Admission checks representation
 and bounds without scanning future values. See the [episode admission audit](research-notes/sequential-control-2026-09-17/episode-admission-audit.md).
 
+Training collection rejects incomplete market transitions and unavailable successor
+observations instead of storing artificial terminal rewards or zero observations.
+Fully accounted risk losses remain learning samples. See the
+[transition admission audit](research-notes/sequential-control-2026-09-17/transition-admission-audit.md).
+
 ## Toolchain
 
 The checked-in versions are authoritative:
