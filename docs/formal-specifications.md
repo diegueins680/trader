@@ -439,3 +439,18 @@ captured bytes without reopening paths, pre-data rejection, and one-read identit
 on valid runs. Later path contents cannot relabel a saved policy. This is file
 identity, not interpreter/dependency attestation or independent research evidence.
 `RL-OFFLINE-001` remains HIGH/OPEN.
+
+## Scoped machine checks for offline research
+
+`A-FORMAL-RESEARCH` and the `F-RL-*` clauses add a separate proof-status ledger and
+[canonical contract](../formal/research/contract.md). `bash scripts/verify.sh formal`
+checks SMT formulas, the finite abstract protocol, source-bound receipts and
+compiled Haskell conformance; `full` invokes it. The existing registry validator
+continues to check coverage and references, not to prove its prose clauses.
+
+See the [runbook and limitations](../formal/research/README.md). All 38 broader
+mission obligations remain open/partial and prevent candidate acceptance. The
+abstract two-caller protocol does not establish production concurrency refinement.
+The exact-real accounting identity does not establish binary64 ledger correctness.
+The retained-proposal counterexample refutes revocation by pure mode disabling;
+the unchanged private Haskell proposal type still has no order authorization.
