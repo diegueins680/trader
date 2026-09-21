@@ -50,3 +50,12 @@ a universal method. No new challenger proceeds beyond offline research.
 Actual targeted and full verification commands, results and environmental retries are recorded in [verification.md](verification.md). Passing checks do not remove the unmet research acceptance conditions above.
 
 The [follow-up audit](audit-followup.md) verifies the original export and hardens OPE numerical admission. It does not complete or waive any unmet financial acceptance condition above.
+
+## Formal-assurance follow-up, 2026-09-20
+
+- [Decision, inherited evidence and unresolved mission requirements](formal-followup-2026-09-20.md).
+- [Dated primary-source literature supplement](formal-literature-2026-09-20.md) and [structured supplementary matrix](formal-paper-matrix-2026-09-20.csv).
+- [Canonical specification, proof ledger, models, source-bound results and runbook](../../formal/research/README.md).
+
+This update introduces no new financial trial and does not claim fresh-market
+confirmation, universal implementation refinement or candidate readiness.
