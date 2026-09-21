@@ -397,7 +397,11 @@
       "bounds": "Declared schema, source hashes and deterministic negative fixtures.",
       "limitations": "Trusted checker code and reviewed Git changes; not tamper-proof against a maintainer editing the verifier and receipts together.",
       "counterexample": null,
-      "status": "property_tested"
+      "status": "property_tested",
+      "relatedRequirements": [
+        "F-RL-ASSUMPTIONS",
+        "F-RL-FAIL-CLOSED"
+      ]
     },
     {
       "requirementId": "F-RL-REFINEMENT",
@@ -428,7 +432,10 @@
       "bounds": "Whole affected research-to-production system.",
       "limitations": "No promotion allowed. Existing empirical rejection and protected data constraints also remain binding.",
       "counterexample": null,
-      "status": "open"
+      "status": "open",
+      "relatedRequirements": [
+        "F-RL-NO-PROMOTION"
+      ]
     }
   ],
   "missionObligations": [
