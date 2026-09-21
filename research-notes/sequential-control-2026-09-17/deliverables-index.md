@@ -53,6 +53,7 @@ The [follow-up audit](audit-followup.md) verifies the original export and harden
 
 ## Formal-assurance follow-up, 2026-09-20
 
+- [September 21 verification receipt: local full check, Linux CI, failures and acceptance limits](formal-verification-2026-09-21.md).
 - [Decision, inherited evidence and unresolved mission requirements](formal-followup-2026-09-20.md).
 - [Dated primary-source literature supplement](formal-literature-2026-09-20.md) and [structured supplementary matrix](formal-paper-matrix-2026-09-20.csv).
 - [Canonical specification, proof ledger, models, source-bound results and runbook](../../formal/research/README.md).

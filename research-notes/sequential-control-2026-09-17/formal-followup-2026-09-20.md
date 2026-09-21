@@ -5,6 +5,10 @@ is not complete.** The independently useful new deliverable is a scoped formal
 gate and an explicit proof/assumption/traceability ledger. It does not repair the
 failed economic/OPE evidence or establish whole-system implementation refinement.
 
+The [September 21 verification receipt](formal-verification-2026-09-21.md) records
+passing final local formal/full checks and both Linux CI runs at their exact
+revisions, along with resolved failures and the still-failing acceptance gate.
+
 ## Preparation and fidelity
 
 The isolated branch starts from freshly fetched `main` at `dbd45e26`; the original
