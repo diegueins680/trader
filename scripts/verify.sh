@@ -17,7 +17,8 @@ Targets:
   web         Run web typecheck, tests, and build.
   automation  Validate formal-spec coverage and run root automation regressions.
   smoke       Run only the Haskell smoke checks.
-  full        Run haskell + web + automation checks.
+  formal      Run scoped SMT, state-model, conformance and proof-ledger checks.
+  full        Run formal + haskell + web + automation checks.
 EOF
 }
 
@@ -81,6 +82,16 @@ verify_automation() {
   run_step "node --test test/*.test.mjs" bash -c "cd \"$ROOT_DIR\" && node --test test/*.test.mjs"
 }
 
+verify_formal() {
+  require_cmd ghc
+  require_cmd node
+  local formal_python="${TRADER_FORMAL_PYTHON:-python3}"
+  require_cmd "$formal_python"
+  run_step "formal specification coverage" node "$ROOT_DIR/scripts/verify-formal-specs.mjs"
+  run_step "proof ledger and model regression tests" "$formal_python" "$ROOT_DIR/scripts/formal/test_integrity.py"
+  run_step "SMT, state model and Haskell conformance" "$formal_python" "$ROOT_DIR/scripts/formal/verify.py"
+}
+
 verify_smoke() {
   require_cmd bash
   require_cmd cabal
@@ -101,7 +112,11 @@ case "${TARGET}" in
   smoke)
     verify_smoke
     ;;
+  formal)
+    verify_formal
+    ;;
   full)
+    verify_formal
     verify_haskell
     verify_web
     verify_automation

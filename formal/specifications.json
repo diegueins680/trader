@@ -22,6 +22,7 @@
   ],
   "coverage": {
     "areas": [
+      { "root": "formal/research", "include": ["formal/research/**"] },
       { "root": "haskell/app", "include": ["haskell/app/**/*.hs", "haskell/app/*.hs"] },
       { "root": "haskell/web/src", "include": ["haskell/web/src/**/*.ts", "haskell/web/src/**/*.tsx", "haskell/web/src/*.tsx", "haskell/web/src/*.css", "haskell/web/src/*.d.ts"] },
       { "root": "scripts", "include": ["scripts/**/*.mjs", "scripts/**/*.sh", "scripts/**/*.py", "scripts/**/*.jq", "scripts/*.mjs", "scripts/*.sh", "scripts/*.py"] },
@@ -34,6 +35,7 @@
       { "root": ".github/workflows", "include": [".github/workflows/*.yml", ".github/workflows/*.yaml"] }
     ],
     "explicit": [
+      "scripts/formal/requirements.txt",
       "Dockerfile",
       "Dockerfile.optimized",
       "fly.toml",
@@ -53,6 +55,119 @@
     ]
   },
   "specifications": [
+    {
+      "id": "A-FORMAL-RESEARCH",
+      "title": "Scoped machine-checked research assurance",
+      "features": [
+        "IEEE binary64 proposal safety",
+        "bounded lifecycle model",
+        "proof ledger",
+        "explicit refinement blockers"
+      ],
+      "criticality": "safety",
+      "implementation": [
+        "scripts/formal/*.py",
+        "scripts/formal/requirements.txt",
+        "formal/research/**"
+      ],
+      "uses": [
+        "G-FAIL-CLOSED",
+        "G-FINITE",
+        "G-DETERMINISTIC"
+      ],
+      "dependsOn": [
+        "A-SEQUENTIAL-RESEARCH"
+      ],
+      "requires": [
+        {
+          "id": "F-RL-ASSUMPTIONS",
+          "statement": "Every claim names assumptions and exact verification scope; critical unresolved claims block candidate integration."
+        }
+      ],
+      "ensures": [
+        {
+          "id": "F-RL-SHIELD-BOUNDS",
+          "statement": "Accepted binary64 targets are finite with absolute value <= 1/4."
+        },
+        {
+          "id": "F-RL-SHIELD-GUARDS",
+          "statement": "Acceptance implies offline mode, all five evidence guards and finite elapsed milliseconds in [0,20]."
+        },
+        {
+          "id": "F-RL-SHIELD-FALLBACK",
+          "statement": "Non-finite target, invalid timing or any false evidence guard implies rejection."
+        },
+        {
+          "id": "F-RL-DEFAULT",
+          "statement": "Disabled mode rejects every defined binary64 target and elapsed value."
+        },
+        {
+          "id": "F-RL-SHIELD-IDEMPOTENT",
+          "statement": "Rechecking an accepted target with identical mode and evidence remains accepted."
+        },
+        {
+          "id": "F-RL-AUTH",
+          "statement": "An accepted research proposal has constant false order authority."
+        },
+        {
+          "id": "F-RL-CAUSAL-SLICE",
+          "statement": "For t>=24 and 0<=offset<25, t-24+offset<=t."
+        },
+        {
+          "id": "F-RL-SPLIT",
+          "statement": "For h>0, testStart>=trainStop+h, i<trainStop and j>=testStart, i+h<j."
+        },
+        {
+          "id": "F-RL-ACCOUNT",
+          "statement": "Ending wealth less starting wealth equals gross plus funding minus costs minus terminal costs; reward penalty is not cash."
+        },
+        {
+          "id": "F-RL-LIFECYCLE",
+          "statement": "The two-caller abstract protocol never gains authority, forbids new calls while draining and decreases outstanding calls on every completion."
+        },
+        {
+          "id": "F-RL-CONFORMANCE",
+          "statement": "Compiled Haskell agrees with the independent executable contract on all enumerated and seeded binary64 fixtures."
+        },
+        {
+          "id": "F-RL-INTEGRITY",
+          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch."
+        },
+        {
+          "id": "F-RL-REFINEMENT",
+          "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
+        }
+      ],
+      "invariants": [
+        {
+          "id": "F-RL-NO-PROMOTION",
+          "statement": "Passing scoped certificates never permits candidate promotion or access to protected outcomes."
+        }
+      ],
+      "failures": [
+        {
+          "id": "F-RL-FAIL-CLOSED",
+          "statement": "SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success."
+        }
+      ],
+      "evidence": [
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/lifecycle.py",
+          "contains": "check_model"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_live_authority_mutation_detected"
+        },
+        {
+          "level": "property",
+          "path": "scripts/formal/conformance.py",
+          "contains": "check_haskell"
+        }
+      ]
+    },
     {
       "id": "A-SEQUENTIAL-RESEARCH",
       "title": "Non-authorizing offline sequential policy screen",

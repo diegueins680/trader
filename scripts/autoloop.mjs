@@ -109,6 +109,7 @@ const HLINT_CHECK_COMMAND = "cd haskell && bash scripts/hlint_check.sh";
 const VERIFY_HASKELL_COMMAND = "bash scripts/verify.sh haskell";
 const VERIFY_WEB_COMMAND = "bash scripts/verify.sh web";
 const VERIFY_AUTOMATION_COMMAND = "bash scripts/verify.sh automation";
+const VERIFY_FORMAL_COMMAND = "bash scripts/verify.sh formal";
 const VERIFY_FULL_COMMAND = "bash scripts/verify.sh full";
 
 const SAFE_VERIFICATION_COMMANDS = new Set([
@@ -117,6 +118,7 @@ const SAFE_VERIFICATION_COMMANDS = new Set([
   VERIFY_HASKELL_COMMAND,
   VERIFY_WEB_COMMAND,
   VERIFY_AUTOMATION_COMMAND,
+  VERIFY_FORMAL_COMMAND,
   VERIFY_FULL_COMMAND,
   "cd haskell && cabal build",
   "cd haskell && cabal test",

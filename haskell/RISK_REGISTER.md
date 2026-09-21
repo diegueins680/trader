@@ -52,3 +52,15 @@ same commit. IDs are permanent. Reopening a risk changes its status rather than
 creating a duplicate row; a materially different risk receives a new ID.
 
 Last reconciled: 2026-09-07.
+
+## Research proof coverage — 2026-09-20
+
+`RL-OFFLINE-001` remains HIGH/OPEN. The [machine-readable proof ledger](../formal/research/proof-ledger.json)
+binds narrow SMT lemmas, a two-caller abstract model and Haskell conformance tests
+to exact sources. Its six named environmental/tool assumptions are not hidden
+axioms. All 38 whole-system obligations retain implementation gaps. In particular,
+finite proposal bounds do not prove loss bounds, source availability, exchange
+execution or production lifecycle correctness. No verified candidate or promotion
+is implied; [CE-RL-001](../formal/research/counterexamples.json) documents retained
+non-authorizing proposals after disable. Existing canonical IDs/statuses and the
+typed Haskell risk projection remain unchanged.
