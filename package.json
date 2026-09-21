@@ -32,6 +32,7 @@
     "verify:ci": "bash scripts/verify.sh full",
     "verify:haskell": "bash scripts/verify.sh haskell",
     "verify:web": "bash scripts/verify.sh web",
+    "verify:formal": "bash scripts/verify.sh formal",
     "verify:automation": "bash scripts/verify.sh automation"
   },
   "engines": {

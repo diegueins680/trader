@@ -24,6 +24,9 @@ an immutable proposal returned from an earlier snapshot is still non-authorizing
 Stopping prevents new starts. Under completion fairness at most two outstanding
 calls need completion to reach quiescence. There is no promotion or parameter
 update operation. Classification: lifecycle, concurrency, safety, liveness.
+Temporal readings are `AG(not authority)`, `AG(stopping implies not enabled)`,
+and `AG(stop implies AF quiescent)` under weak fairness of outstanding completions.
+Quiescent means neither worker is in flight; retained result values are not orders.
 This is an **abstract client protocol**, not an implemented server lifecycle.
 Its refinement to the production server is open and blocks integration.
 

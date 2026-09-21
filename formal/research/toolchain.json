@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "python": "3.13.3",
+  "ghc": "9.4.8",
+  "z3": "4.15.4",
+  "z3Distribution": "4.15.4.0",
+  "modelChecker": "research-lifecycle-v1",
+  "solverTimeoutMilliseconds": 10000,
+  "proofSources": [
+    "scripts/formal/proofs.py",
+    "scripts/formal/lifecycle.py"
+  ],
+  "sourceHashes": {
+    "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
+    "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+    "scripts/formal/proofs.py": "1cffa62991e54211a5cd62c67830575904c45a8e5facd0d572405ee7796ad930",
+    "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
+    "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
+    "scripts/formal/verify.py": "08c59d3e7f6d0aab00936d9a2a546f97587cd09d127d0cfdd6f287528000293b",
+    "scripts/formal/test_integrity.py": "b3cc6f6889a8caf57cf74588cc54ac4b667fa4f1298d281c7525de2a76cabd41",
+    "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
+    "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
+    "scripts/formal/requirements.txt": "cf3b48befb56078d536a9e4d00ff23bd42635c2e934a8a6cd52462c79d736619",
+    "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb"
+  }
+}
