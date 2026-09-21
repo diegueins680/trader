@@ -16,11 +16,15 @@
     "scripts/formal/proofs.py": "1cffa62991e54211a5cd62c67830575904c45a8e5facd0d572405ee7796ad930",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "08c59d3e7f6d0aab00936d9a2a546f97587cd09d127d0cfdd6f287528000293b",
-    "scripts/formal/test_integrity.py": "b3cc6f6889a8caf57cf74588cc54ac4b667fa4f1298d281c7525de2a76cabd41",
+    "scripts/formal/verify.py": "820a16126b62c3304342fb72b9faa4869653612b9923b1525a518974e3817c4d",
+    "scripts/formal/test_integrity.py": "ee95fa43406bd6498c2e252f72b942edb2c19c95a6024b3d547bd2872cea93e1",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "scripts/formal/requirements.txt": "cf3b48befb56078d536a9e4d00ff23bd42635c2e934a8a6cd52462c79d736619",
-    "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb"
+    "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
+    "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
+    "formal/research/proof-ledger.json": "08f831539fd6030185b168c9940e4f30db295dfe7103917e85e4832bea66434e",
+    "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
+    ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626"
   }
 }

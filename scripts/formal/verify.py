@@ -51,6 +51,15 @@ def validate_ledger(ledger, root):
                 'sourceModel', 'artifact', 'implementationFiles', 'testFiles', 'ciCommand', 'result', 'bounds',
                 'limitations', 'counterexample', 'status'}
     assumptions = {a['id'] for a in ledger['assumptions']}
+    scope = next(s for s in canonical['specifications'] if s['id'] == 'A-FORMAL-RESEARCH')
+    scoped_clauses = {c['id']: c['statement'] for k in ('requires', 'ensures', 'invariants', 'failures') for c in scope[k]}
+    mapped = {e['requirementId'] for e in entries}
+    for entry in entries:
+        related = entry.get('relatedRequirements', [])
+        require(isinstance(related, list) and set(related) <= scoped_clauses.keys(), 'unknown related requirement')
+        mapped.update(related)
+        require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
+    require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
     supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-REFINEMENT": "open"}
     require(set(supported) <= {e["requirementId"] for e in entries}, "missing required certificate")
@@ -74,6 +83,8 @@ def validate_ledger(ledger, root):
         require(set(item['evidenceRequirements']) <= {e['requirementId'] for e in entries}, 'unknown obligation evidence')
     covered = {p for e in entries for p in e['implementationFiles'] + e['testFiles'] + [e['sourceModel']]}
     require(set(ledger['criticalFiles']) <= covered, 'critical file lacks reverse traceability')
+    source_files = {str(p.relative_to(root)) for pattern in ('scripts/formal/*.py', 'formal/research/*.hs') for p in root.glob(pattern)}
+    require(source_files <= set(ledger['criticalFiles']), 'new proof source missing from critical-file roster')
     return sum(o['status'] in ('open', 'partially_verified') for o in obligations)
 
 

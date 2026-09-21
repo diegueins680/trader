@@ -20,7 +20,8 @@ jobs:
         with:
           ghc: "9.4.8"
           cabal: "3.12.1.0"
-      - run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
+      - run: >-
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
       - run: bash scripts/verify.sh formal
 
   haskell:

@@ -19,6 +19,9 @@ class IntegrityTests(unittest.TestCase):
     def test_mutated_ledgers_fail(self):
         changes = [lambda x: x['entries'].append(copy.deepcopy(x['entries'][0])),
                    lambda x: x['entries'][0].update(status='fully_verified'),
+                   lambda x: x['entries'][0].update(formalStatement='a different theorem'),
+                   lambda x: x['entries'][11].update(relatedRequirements=[]),
+                   lambda x: x['criticalFiles'].remove('scripts/formal/proofs.py'),
                    lambda x: x['entries'][9].update(status='proved'),
                    lambda x: x['missionObligations'][0].update(status='proved'),
                    lambda x: x['entries'][0].update(implementationFiles=[]),
