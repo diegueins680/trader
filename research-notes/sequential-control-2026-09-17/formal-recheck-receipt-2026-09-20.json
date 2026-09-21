@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "checkedOn": "2026-09-20",
+  "scope": "read-only archive validation and compact report re-export; no financial rerun",
+  "checkerCommit": "255bcfee265860335fcea8e32e118332393a8c92",
+  "exporterSha256": "85f5cc4218d28b39577cf657e8ebcd5d9be3ff033f3de108f8ae54e22bd89b60",
+  "expectedEvidenceIndexSha256": "764fd123a1570c6b31ecc7e0729ef5dcc1fe19a39c29aee48efc1614c289974b",
+  "reports": {
+    "all-seed-results.csv": {
+      "sha256": "8074528f0a1a1bc6202ec87b03ef82f27f42b29283a091fade40d9d35629b6d3",
+      "matchesCommitted": true
+    },
+    "evaluation-summary.json": {
+      "sha256": "39cf69b904ee6d6edbf49dee7f4a9715cf01ad108e655286942f1cc8bd1b6957",
+      "matchesCommitted": true
+    },
+    "experiment-manifest.json": {
+      "sha256": "3205503006bc5aa23c20f45f8a77faa13cf54536f2e6d5f23a4da891eba53cab",
+      "matchesCommitted": true
+    },
+    "experiment-registry.csv": {
+      "sha256": "b4e672eebe0ba5a2f533cc9abcd2f6835be50c1ad21f884b7bd031f4136eba07",
+      "matchesCommitted": true
+    },
+    "multi-seed-training.json": {
+      "sha256": "d1c299fe8fbf31a2bbd81eb540c3344896fa823fbbe9c620f125a278819ba725",
+      "matchesCommitted": true
+    },
+    "ope-report.json": {
+      "sha256": "26c6f3978cc6ef9d7d735e2fa3537631dfd2188c7f22016260b81da2c11d04bd",
+      "matchesCommitted": true
+    },
+    "symbol-fold-base-results.csv": {
+      "sha256": "1c0b3484ba8f4c365a0ba55eafa44af579c2f352b19c7de528f3abc44432d7f8",
+      "matchesCommitted": true
+    }
+  },
+  "holdoutOpened": false,
+  "financialTrialsAdded": 0,
+  "liveAuthorizationIntroduced": false,
+  "archiveMutated": false
+}

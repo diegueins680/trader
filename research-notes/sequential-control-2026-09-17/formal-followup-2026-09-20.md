@@ -23,7 +23,7 @@ serialized config or artifact semantics change. The prior review inventories
 GBDT/tree/KNN/HMM/LSTM/Kalman/online neural/quantile/conformal/ensembles/regimes,
 market context, ranking, optimizer and bandit routing; none is silently replaced.
 
-## Existing RL experiment, reproduced as a report reference only
+## Existing RL experiment, archive revalidated without a financial rerun
 
 The [registration](../registrations/sequential-control-screen-v1.json) was committed
 before the original experiment. It defines partially observed inventory control:
@@ -153,3 +153,15 @@ preserves any pre-existing fleet authorization rather than falsely reporting tha
 the entire production fleet is disabled. No proof source contains a proof
 placeholder or an ignored failed solver result. Neither draft is a deployment or
 merge request, and neither is declared ready for candidate integration.
+
+## Archive revalidation receipt
+
+The current exporter streamed and verified the frozen archive against index SHA-256
+`764fd123a1570c6b31ecc7e0729ef5dcc1fe19a39c29aee48efc1614c289974b`,
+reconciled the roster and result summaries, and wrote to a new external directory.
+All seven compact reports matched committed bytes, including all-seed results,
+experiment registry, manifest, training, OPE, per-symbol/fold outcomes and summary.
+The [receipt](formal-recheck-receipt-2026-09-20.json) pins the checker revision,
+exporter and report hashes. No source archive or protected data was modified, and
+no return path or policy was regenerated. Internal consistency and hash identity
+do not establish economic truth, statistical significance or untouched evidence.
