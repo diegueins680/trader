@@ -10,6 +10,7 @@ import lifecycle
 import causal_footprint
 import training_prefix
 import artifact_admission
+import transition_admission
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -465,6 +466,123 @@ class ArtifactAdmissionTests(unittest.TestCase):
             boundary = raw + b' '*(65536-len(raw))
             path.write_bytes(boundary)
             self.learning.load_policy(path, hashlib.sha256(boundary).hexdigest(), self.meta)
+
+
+class TransitionAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        import sequential_env
+        self.env_module = sequential_env
+        self.source = (ROOT / transition_admission.SOURCE).read_text()
+
+    def state(self, **changes):
+        from types import SimpleNamespace
+        fields = dict(t=31, stop=34, horizon=1, equity=1.0, units=0.0,
+                      failure=None, pending=None)
+        fields.update(changes)
+        return SimpleNamespace(**fields)
+
+    def test_actual_source_and_guard_mutations(self):
+        self.assertEqual(transition_admission.check_transition(self.source)['queries'], 3)
+        for old, new in [('and env.units == 0', 'and True'),
+                         ('and env.pending is None', 'and True'),
+                         ('_finite_real(reward)', 'True'),
+                         ('env.t == left + env.horizon', 'env.t <= left + env.horizon'),
+                         ('np.isfinite(nxt).all()', 'True')]:
+            with self.subTest(new=new), self.assertRaises(RuntimeError):
+                transition_admission.check_transition(self.source.replace(old, new))
+
+    def test_control_flow_and_unknown_predicate_fail_closed(self):
+        for old, new in [('_admit_training_transition(env, left, nxt, reward, done)', 'None'),
+                         ('if not valid:', 'if False:'),
+                         ('if done is True:', 'if unknown(done):')]:
+            self.assertIn(old, self.source)
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                transition_admission.check_transition(self.source.replace(old, new))
+        with self.assertRaisesRegex(RuntimeError, 'unsatisfied or unknown premise'):
+            transition_admission.prove(z3.BoolVal(False), z3.BoolVal(True))
+
+    def test_preserved_terminal_inventory_counterexample(self):
+        from types import SimpleNamespace
+        fixture = read_json(ROOT / 'formal/research/transition-counterexamples.json')['entries'][0]
+        env = SimpleNamespace(**{key: fixture[key] for key in ('t','stop','horizon','equity','units','failure','pending')})
+        with self.assertRaisesRegex(ValueError, 'incomplete training transition'):
+            self.env_module._admit_training_transition(env, fixture['left'], None, fixture['reward'], True)
+        self.assertEqual(self.source.count(fixture['replace']), 1)
+        mutant = self.source.replace(fixture['replace'], fixture['with'])
+        with self.assertRaisesRegex(RuntimeError, 'unsafe admission predicate'):
+            transition_admission.check_transition(mutant)
+        function = next(n for n in ast.parse(mutant).body
+                        if isinstance(n, ast.FunctionDef) and n.name == '_admit_training_transition')
+        namespace = dict(vars(self.env_module))
+        exec(compile(ast.Module(body=[function], type_ignores=[]), '<transition-mutant>', 'exec'), namespace)
+        namespace['_admit_training_transition'](env, fixture['left'], None, fixture['reward'], True)
+
+    def test_actual_helper_boundaries(self):
+        admit = self.env_module._admit_training_transition
+        nxt = np.zeros(12)
+        admit(self.state(), 30, nxt, 0.0, False)
+        for units in (0.0, -0.0):
+            admit(self.state(t=33, horizon=3, units=units), 30, None, 0.0, True)
+        for failure in ('capital_floor', 'drawdown_limit', 'endpoint_exposure', 'turnover_limit'):
+            admit(self.state(failure=failure), 30, None, 0.0, True)
+        rejected = []
+        for reward in (float('nan'), float('inf'), -float('inf'), True, None):
+            rejected.append((self.state(), nxt, reward, False))
+        for equity in (float('nan'), float('inf'), -float('inf'), 0.0, -1.0, True):
+            rejected.append((self.state(equity=equity), nxt, 0.0, False))
+        for done in (None, 0, 1, np.bool_(True), np.bool_(False)):
+            rejected.append((self.state(), nxt, 0.0, done))
+        for change in ({'t':30}, {'t':32}, {'stop':32}, {'failure':'invalid_market_transition'},
+                       {'failure':'capital_floor'}):
+            rejected.append((self.state(**change), nxt, 0.0, False))
+        for successor in (None, np.zeros(11), np.full(12,np.nan), np.zeros(12,dtype=complex)):
+            rejected.append((self.state(), successor, 0.0, False))
+        for change in ({'units':.25}, {'units':float('nan')}, {'pending':(34,.25)}, {'t':31},
+                       {'failure':'invalid_observation'}):
+            rejected.append((self.state(t=33,horizon=3,**change) if 't' not in change else self.state(horizon=3,**change),None,0.0,True))
+        self.assertEqual(len(rejected), 30)
+        for i, values in enumerate(rejected):
+            with self.subTest(index=i), self.assertRaises(ValueError):
+                admit(values[0], 30, values[1], values[2], values[3])
+
+    def test_actual_replay_terminal_conformance(self):
+        from itertools import product
+        e = self.env_module
+        prices, funding = np.full(80,100.0), np.zeros(80)
+        scale = e.Scale(np.zeros(6),np.ones(6),-np.ones(6),np.ones(6))
+        cases = 0
+        for horizon, target, costs, fraction in product((1,3,6),(-.25,0,.25),(1.,2.),(1.,.5)):
+            replay = e.Replay(prices,funding,30,45,horizon,scale,
+                              e.Execution(cost_multiplier=costs,fill_fraction=fraction),enabled=True)
+            for _ in range(15):
+                left = replay.t
+                nxt, reward, done = replay.step(target)
+                e._admit_training_transition(replay,left,nxt,reward,done)
+                if done:
+                    break
+            self.assertTrue(replay.done)
+            self.assertIsNone(replay.failure)
+            self.assertEqual(replay.units,0.0)
+            self.assertIsNone(replay.pending)
+            cases += 1
+        self.assertEqual(cases,36)
+
+    def test_collector_does_not_publish_unliquidated_transition(self):
+        e = self.env_module
+        original = e.Replay.step
+        rejected = []
+        def injected(replay, action):
+            result = original(replay, action)
+            if result[2]:
+                replay.units = 0.25
+                rejected.append(replay.t)
+            return result
+        prices, funding = np.full(160,100.0), np.zeros(160)
+        scale = e.Scale.fit([prices])
+        with patch.object(e.Replay,'step',injected):
+            with self.assertRaisesRegex(ValueError,'incomplete training transition'):
+                e.collect({'x':prices},{'x':funding},scale,6,11,20)
+        self.assertEqual(len(rejected),1)
 
 
 if __name__ == '__main__':

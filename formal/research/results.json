@@ -101,7 +101,8 @@
     "F-RL-SHIELD-FALLBACK": "unsat",
     "F-RL-SHIELD-GUARDS": "unsat",
     "F-RL-SHIELD-IDEMPOTENT": "unsat",
-    "F-RL-SPLIT": "unsat"
+    "F-RL-SPLIT": "unsat",
+    "F-RL-TRANSITION-ADMISSION": "unsat"
   },
   "solver": "4.15.4",
   "sourceFootprint": {
@@ -134,9 +135,11 @@
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
     "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
-    "formal/research/proof-ledger.json": "ab1598d083cc5a59574a52c9cc15babdfbbdd4b51a13953b6821f797c644ff99",
+    "formal/research/proof-ledger.json": "fe7de0afc738e32ec00299fc4c45d32e4a34b8849274837199e93bb79fe29300",
     "formal/research/training-counterexamples.json": "43bc62e7d776bf0e7fc8586a3bed0b3647ab054803095b180385f200d55a6531",
     "formal/research/training-prefix-contract.md": "a38cf1cf417a42cfd06ff6246206f55c97c80f728e2fb39b4a89ae8f64bd175b",
+    "formal/research/transition-admission-contract.md": "6f516f853fbe71fb8485d88834d99d91385cf29be64f5775432fe5a996b5c85e",
+    "formal/research/transition-counterexamples.json": "984b07319602bf5eb639a248ee902a45aace80bbfe73079804a86109e8d0bd23",
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
@@ -147,9 +150,10 @@
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
-    "scripts/formal/test_integrity.py": "65fac43acb442d18d3271283433aab723eeb13d5706aa9491a2cccdbdfdbe187",
+    "scripts/formal/test_integrity.py": "303e5b2b28cbcbb491066d6c66f2ef143cd0bc93b77119b23f56fd4befbefed3",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
-    "scripts/formal/verify.py": "9a5bb483aa8bd998f177d2e594ec8a910a3cc97ab5281ad9502613b74b85be19",
+    "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
+    "scripts/formal/verify.py": "39be035f44e0ff35e763b935f425fb8ce6cdabe6a73c8130f572ab93b8c7bc51",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
@@ -197,6 +201,16 @@
       "F-RL-FIT-PREFIX": "unsat"
     },
     "solverQueries": 6,
+    "universalRuntimeRefinement": false
+  },
+  "transitionAdmission": {
+    "collectorAdmissionBeforeAppend": true,
+    "integerIndices": "unbounded",
+    "numericDomain": "IEEE binary64 reward/equity/units",
+    "premiseChecks": 3,
+    "queries": 3,
+    "requirement": "F-RL-TRANSITION-ADMISSION",
+    "result": "unsat",
     "universalRuntimeRefinement": false
   }
 }

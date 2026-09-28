@@ -101,6 +101,7 @@ def run(record=False, require_complete=False):
     from causal_footprint import check_source
     from training_prefix import check_training, REGISTRATION
     from artifact_admission import check_artifact
+    from transition_admission import check_transition
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -128,6 +129,8 @@ def run(record=False, require_complete=False):
     result['smt'].update(result['trainingPrefix']['smt'])
     result['artifactAdmission'] = check_artifact()
     result['smt'][result['artifactAdmission']['metadata']['requirement']] = 'unsat'
+    result['transitionAdmission'] = check_transition()
+    result['smt'][result['transitionAdmission']['requirement']] = 'unsat'
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
     counterexamples = read_json(ROOT / 'formal/research/counterexamples.json')
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
@@ -143,6 +146,7 @@ def run(record=False, require_complete=False):
                       'sourceFootprint': result['sourceFootprint'],
                       'trainingPrefix': result['trainingPrefix'],
                       'artifactAdmission': result['artifactAdmission'],
+                      'transitionAdmission': result['transitionAdmission'],
                       'openMissionObligations': open_count, 'missionComplete': False,
                       'seconds': round(time.monotonic() - started, 3)}, indent=2))
     require(not require_complete or open_count == 0, 'research acceptance blocked by open obligations')

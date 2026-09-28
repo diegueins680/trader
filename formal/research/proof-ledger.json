@@ -61,6 +61,12 @@
       "status": "assumption",
       "statement": "Ordinary Path/bytes and JSON built-ins, stable globals and externally supplied expected metadata; no concurrent mutation, hostile subclass or monkeypatch. Python control flow, JSON/hashlib/NumPy, validators and Network constructor are trusted. The audited AST checker is not a verified interpreter; finite atomic gates do not prove helper internals or cryptographic authenticity.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TRANSITION-ADMISSION",
+      "status": "assumption",
+      "statement": "Ordinary stable Replay fields; integer indices and binary64 reward/equity/units, native identity/comparison behavior, stable arrays/helpers, no concurrent mutation or hostile subclasses. The restricted AST translator, Python control flow, _finite_real and successor representation/shape/finiteness predicates are trusted. Admission conditions do not prove cash-flow completeness, fill realism, helper internals or full Replay/compiler refinement.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -78,7 +84,8 @@
     "scripts/formal/gap_conformance.py",
     "scripts/formal/causal_footprint.py",
     "scripts/formal/training_prefix.py",
-    "scripts/formal/artifact_admission.py"
+    "scripts/formal/artifact_admission.py",
+    "scripts/formal/transition_admission.py"
   ],
   "entries": [
     {
@@ -777,6 +784,35 @@
       "limitations": "Source-skeleton recognition and conditional primitive abstraction, not full Python/helper/runtime refinement. Expected provenance is unauthenticated; equality does not prove training provenance, SHA security, finite neural inference, Haskell artifact loading or promotion eligibility. Actual-loader conformance tests supplement rather than prove refinement.",
       "counterexample": "formal/research/artifact-counterexamples.json",
       "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TRANSITION-ADMISSION",
+      "claim": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor.",
+      "criticality": "critical",
+      "formalStatement": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor.",
+      "assumptions": [
+        "A-TRANSITION-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "audited Python AST predicates and Z3 integer/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/transition_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/transition_admission.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Three SAT-premise/UNSAT-violation checks of actual admission expressions; collector source ordering is audited; CE-RL-009 removes a necessary terminal guard and is rejected.",
+      "bounds": "Unbounded integer indices and categorical failure/done tags; all IEEE binary64 reward/equity/units values; abstract successor representation/shape/finiteness and absence atoms. Thirty rejected helper fixtures and 36 actual replay cases supplement proof.",
+      "limitations": "Conditional source-skeleton/primitive abstraction, not full runtime or Replay refinement. Zero inventory and no pending action are necessary conditions, not a proof of cash accounting, valid risk classification, realistic fills, learning-target correctness or safety under arbitrary field mutations. Non-binary64 numeric inputs are outside the SMT domain.",
+      "counterexample": "formal/research/transition-counterexamples.json",
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -834,9 +870,10 @@
       "claim": "Finite outputs",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-BOUNDS"
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-TRANSITION-ADMISSION"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open."
     },
     {
       "number": 7,
@@ -946,28 +983,30 @@
     {
       "number": 18,
       "claim": "Valid transitions",
-      "status": "open",
+      "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-GAP-BOUND",
         "F-RL-DRAWDOWN-COMPOSE",
         "F-RL-POSTCOST-EXPOSURE",
         "F-RL-UNCONDITIONAL-FLOOR",
-        "F-RL-GAP-CONFORMANCE"
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-TRANSITION-ADMISSION"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open."
     },
     {
       "number": 19,
       "claim": "Terminal accounting",
-      "status": "open",
+      "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-GAP-BOUND",
         "F-RL-DRAWDOWN-COMPOSE",
         "F-RL-POSTCOST-EXPOSURE",
         "F-RL-UNCONDITIONAL-FLOOR",
-        "F-RL-GAP-CONFORMANCE"
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-TRANSITION-ADMISSION"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open."
     },
     {
       "number": 20,
