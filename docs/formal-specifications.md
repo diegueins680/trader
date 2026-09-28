@@ -468,3 +468,9 @@ extends the scoped research gate with actual-AST read-bound extraction and SMT
 checks. This reduces a manually translated index-model gap; it does not prove
 Python/NumPy, caller normalization provenance or historical publication timing.
 The whole-system acceptance obligations remain open or partially verified.
+
+The [training-prefix contract](../formal/research/training-prefix-contract.md)
+adds source-derived normalization and episode index bounds plus registered
+fold/horizon checks. Its admission precondition is explicit: the runner validates
+the entire historical panel before fitting, so training-value isolation is not
+claimed to prove online admission causality or full Replay transition refinement.

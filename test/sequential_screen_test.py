@@ -2018,6 +2018,32 @@ class SequentialContracts(unittest.TestCase):
             controls.names = ()
             yield
 
+    def test_runner_passes_only_training_prefixes_to_fit_and_optimizer(self):
+        # Conditional on admitted arrays: the real loader also validates the
+        # whole fixed historical panel, so this is not online admission evidence.
+        expected = Scale.fit([self.p[:160]])
+        for future in (np.nan, np.inf, -1., 1e200):
+            changed = self.p.copy(); changed[160:] = future
+            funds = self.f.copy(); funds[160:] = future
+            seen = []
+            def train(prices, funding, scale, horizon, seed):
+                np.testing.assert_array_equal(prices['x'], self.p[:160])
+                np.testing.assert_array_equal(funding['x'], self.f[:160])
+                for field in ('mean', 'std', 'low', 'high'):
+                    np.testing.assert_array_equal(getattr(scale, field), getattr(expected, field))
+                seen.append((horizon, seed))
+                return Network(11), {}
+            with self.subTest(future=future), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with self.publication_fixture(root), \
+                     patch.object(runner, 'load_development', return_value=({'x':changed}, {'x':funds}, np.arange(256)*1000)), \
+                     patch.object(runner, 'train_ppo', side_effect=train), \
+                     patch.object(runner, 'replay_policy', side_effect=ValueError('fixture stops before evaluation')):
+                    runner.run(root/'unused-panel', root/'unused-funding', root/'run')
+                self.assertEqual(seen, [(1, 11)])
+                artifact = json.loads((root/'run/policies/ppo_h1_f0_s11.json').read_text())
+                self.assertEqual(artifact['provenance']['scale']['mean'], expected.mean.tolist())
+
     def test_runner_pins_registration_and_sources_across_replacement(self):
         source_check = runner.source_commit
         for stage in ("after_validation", "after_data", "during_training"):

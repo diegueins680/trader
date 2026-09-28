@@ -77,3 +77,18 @@ actual implementation, mutation/conformance tests, deterministic receipt and
 source and fixture. Update the proof ledger, canonical specifications, risk record,
 README/CHANGELOG and continuation report. Preserve all prior negative results,
 failed paths, champion behavior, and the prohibition on live authorization.
+
+## Preserved counterexamples and admission boundary
+
+[CE-RL-005/006](training-counterexamples.json) are deliberate mutants, not defects
+in the unchanged runner: one post-training fit row changes normalization, and a
+one-bar episode overrun is rejected by the actual Replay constructor and mutated
+collector. The checker rejects both. Instrumented collector fixtures record actual
+feature windows and episode endpoints, not a universal trace of every machine read.
+
+The real load_development function checks finiteness of the entire registered
+historical panel before fit. Future invalid values can therefore prevent admission
+of a complete research run. This is explicitly outside the normalization-prefix
+noninterference claim; no online admission theorem is asserted. The actual-runner
+conformance fixture stubs that loader and training/evaluation, checking only the
+conditional training inputs and persisted normalization provenance.

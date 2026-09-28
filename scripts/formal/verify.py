@@ -98,6 +98,7 @@ def run(record=False, require_complete=False):
     from gap_risk import check_counterexamples
     from gap_conformance import check_replay
     from causal_footprint import check_source
+    from training_prefix import check_training, REGISTRATION
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -121,6 +122,8 @@ def run(record=False, require_complete=False):
     result['replayConformance'] = check_replay(gaps)
     result['sourceFootprint'] = check_source()
     result['smt'][result['sourceFootprint']['requirement']] = 'unsat'
+    result['trainingPrefix'] = check_training(read_json(ROOT / REGISTRATION))
+    result['smt'].update(result['trainingPrefix']['smt'])
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
     counterexamples = read_json(ROOT / 'formal/research/counterexamples.json')
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
@@ -134,6 +137,7 @@ def run(record=False, require_complete=False):
                       'gapRefutations': result['gapRefutations'],
                       'replayConformance': result['replayConformance'],
                       'sourceFootprint': result['sourceFootprint'],
+                      'trainingPrefix': result['trainingPrefix'],
                       'openMissionObligations': open_count, 'missionComplete': False,
                       'seconds': round(time.monotonic() - started, 3)}, indent=2))
     require(not require_complete or open_count == 0, 'research acceptance blocked by open obligations')

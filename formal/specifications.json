@@ -158,6 +158,14 @@
           "statement": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected."
         },
         {
+          "id": "F-RL-FIT-PREFIX",
+          "statement": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics."
+        },
+        {
+          "id": "F-RL-COLLECT-PREFIX",
+          "statement": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix."
+        },
+        {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
         }
@@ -194,6 +202,16 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_future_and_wrong_window_slices_fail_smt"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_training_counterexamples"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_runner_passes_only_training_prefixes_to_fit_and_optimizer"
         }
       ]
     },

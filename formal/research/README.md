@@ -39,7 +39,7 @@ There is no switch in this work to authorize a candidate, experiment or order.
 
 ## What is checked
 
-- [Thirteen SMT obligations](../../scripts/formal/proofs.py): IEEE binary64 target
+- [Fifteen SMT obligations](../../scripts/formal/proofs.py): IEEE binary64 target
   bounds, evidence precedence, malformed/timeout fallback, disabled behavior,
   stable rescreening, constant lack of authority, integer slice/purge lemmas,
   and exact-real accounting identity. Every negated claim must be UNSAT within
@@ -62,6 +62,14 @@ There is no switch in this work to authorize a candidate, experiment or order.
   checker and actual features/observations. The analyzer and NumPy primitive
   semantics remain trusted; publication timing and full replay-state causality
   remain open.
+- [Training-prefix contract](training-prefix-contract.md): source-derived price
+  and funding prefix stops, Scale.fit range and collector episode bounds satisfy
+  six integer SMT implications with satisfiable premises. All nine registered
+  fold/horizon cases satisfy the existing six-bar separation rule. CE-RL-005/006
+  preserve deliberate fit leakage and episode-overrun mutants. Forty-eight
+  normalization corruption cases and 27 paired collector cases supplement the
+  certificate. Whole-panel admission, Python/NumPy/constructor semantics and
+  complete transition refinement remain outside the proof.
 - [Finite protocol](../../scripts/formal/lifecycle.py): all 75 reachable states,
   349 directed transitions, maximum shortest-path depth 6, two callers. Search
   reaches a fixed point, not a depth cutoff. Safety is invariant checking;

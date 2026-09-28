@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import lifecycle
 import causal_footprint
+import training_prefix
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -187,6 +188,159 @@ class SourceCausalityTests(unittest.TestCase):
                 np.testing.assert_array_equal(expected, market_features(changed, t))
                 actual = Replay(changed, np.zeros(128), t, 128, 1, scale).observation()
                 np.testing.assert_array_equal(baseline, actual)
+
+
+class TrainingPrefixTests(unittest.TestCase):
+    def setUp(self):
+        self.environment = (ROOT / training_prefix.ENV).read_text()
+        self.runner = (ROOT / training_prefix.RUNNER).read_text()
+        self.registration = read_json(ROOT / training_prefix.REGISTRATION)
+
+    def check(self, environment=None, runner=None, registration=None):
+        return training_prefix.check_training(
+            self.registration if registration is None else registration,
+            self.environment if environment is None else environment,
+            self.runner if runner is None else runner)
+
+    def setup_from_source(self, prices, funding, stop, runner=None):
+        from sequential_env import Scale
+        source = self.runner if runner is None else runner
+        _, statements = training_prefix.extract_runner(source)
+        namespace = dict(prices=prices, funding=funding, split={'trainStop': stop}, Scale=Scale)
+        exec(compile(ast.Module(body=statements, type_ignores=[]), '<source-fold-setup>', 'exec'), namespace)
+        return namespace
+
+    def test_actual_source_and_registered_cases(self):
+        result = self.check()
+        self.assertEqual(result['solverQueries'], 6)
+        self.assertEqual(result['foldHorizonCases'], 9)
+        self.assertEqual([f['gapBars'] for f in result['registeredFolds']], [6, 6, 6])
+
+    def test_source_bound_mutants_fail(self):
+        for old, new, location in [
+            ('p[:split["trainStop"]]', 'p[:split["trainStop"] + 1]', 'runner'),
+            ('p[:split["trainStop"]]', 'p[:split["testStop"]]', 'runner'),
+            ('Scale.fit(list(train.values()))', 'Scale.fit(list(prices.values()))', 'runner'),
+            ('s: p[:split["trainStop"]]', '"OTHER": p[:split["trainStop"]]', 'runner'),
+            ('range(24, len(p))', 'range(24, len(p) + 1)', 'environment'),
+            ('x.mean(0)', 'outside.mean(0)', 'environment'),
+            ('start, start + 97, horizon', 'start, start + 98, horizon', 'environment'),
+            ('len(p) - 96', 'len(p) - 95', 'environment'),
+            ('len(p) <= 120', 'len(p) <= 119', 'environment')]:
+            original = getattr(self, location)
+            self.assertIn(old, original)
+            with self.subTest(new=new), self.assertRaises((RuntimeError, ValueError)):
+                self.check(**{location: original.replace(old, new)})
+
+    def test_training_smt_rejects_false_and_vacuous_claims(self):
+        for premise, conclusion in ((z3.BoolVal(True), z3.BoolVal(False)),
+                                    (z3.BoolVal(False), z3.BoolVal(True))):
+            with self.assertRaises(RuntimeError):
+                training_prefix.prove('mutant', premise, conclusion)
+
+    def test_registered_domain_mutants_fail(self):
+        changes = [lambda r: r['validation']['outerFolds'][0].update(testStart=1605),
+                   lambda r: r['validation']['outerFolds'][0].update(trainStop=True),
+                   lambda r: r['validation']['outerFolds'][0].update(testStop=5000),
+                   lambda r: r['data'].update(decisionHorizonBars=[True, 3, 6]),
+                   lambda r: r['validation'].update(embargoBars=0),
+                   lambda r: r['validation']['outerFolds'].pop()]
+        for change in changes:
+            altered = copy.deepcopy(self.registration)
+            change(altered)
+            with self.assertRaises(ValueError):
+                self.check(registration=altered)
+
+    def test_preserved_training_counterexamples(self):
+        import sequential_env
+        from sequential_env import Replay, Scale
+        for fixture in read_json(ROOT / 'formal/research/training-counterexamples.json')['entries']:
+            location = 'runner' if fixture['id'] == 'CE-RL-005' else 'environment'
+            original = getattr(self, location)
+            mutant = original.replace(fixture['replace'], fixture['with'], fixture['replacementCount'])
+            with self.subTest(id=fixture['id']), self.assertRaisesRegex(RuntimeError, 'violating source bound'):
+                self.check(**{location: mutant})
+            if location == 'runner':
+                solver = z3.Solver(); solver.set(timeout=10000)
+                T = fixture['trainStop']; forbidden = fixture['firstForbiddenIndex']
+                solver.add(z3.BoolVal(25 <= T < fixture['sourceLength']),
+                           z3.BoolVal(T <= forbidden < T+1))
+                self.assertEqual(solver.check(), z3.sat)
+                prices = np.full(fixture['sourceLength'], fixture['prefixPrice'])
+                changed = prices.copy()
+                changed[fixture['firstForbiddenIndex']] = fixture['changedFuturePrice']
+                args = ({'X': np.zeros_like(prices)}, fixture['trainStop'])
+                before = self.setup_from_source({'X': prices}, *args, runner=mutant)['scale']
+                after = self.setup_from_source({'X': changed}, *args, runner=mutant)['scale']
+                self.assertFalse(np.array_equal(before.mean, after.mean))
+                correct = self.setup_from_source({'X': changed}, *args)['scale']
+                np.testing.assert_array_equal(correct.mean, np.zeros(6))
+            else:
+                p = np.full(fixture['prefixLength'], 100.)
+                with self.assertRaisesRegex(ValueError, 'invalid episode boundaries'):
+                    Replay(p, np.zeros_like(p), fixture['sampledStart'], fixture['mutantStop'], 1, Scale.fit([p]))
+                function = next(n for n in ast.parse(mutant).body
+                                if isinstance(n, ast.FunctionDef) and n.name == 'collect')
+                namespace = dict(vars(sequential_env))
+                exec(compile(ast.Module(body=[function], type_ignores=[]), '<episode-mutant>', 'exec'), namespace)
+                with self.assertRaisesRegex(ValueError, 'invalid episode boundaries'):
+                    namespace['collect']({'X': p}, {'X': np.zeros_like(p)}, Scale.fit([p]), 1, 11, 1)
+                solver = z3.Solver(); solver.set(timeout=10000)
+                start, length = fixture['sampledStart'], fixture['prefixLength']
+                solver.add(z3.BoolVal(24 <= start < length-96), z3.BoolVal(start+98 > length))
+                self.assertEqual(solver.check(), z3.sat)
+
+    def test_source_setup_normalization_future_corruption(self):
+        rng = np.random.default_rng(20260929)
+        for stop in (121, 160, 200):
+            for _ in range(4):
+                prices = {s: 100*np.exp(np.cumsum(rng.normal(0, .002, 256))) for s in ('X', 'Y')}
+                funding = {s: np.zeros(256) for s in prices}
+                baseline = self.setup_from_source(prices, funding, stop)
+                for future in (float('nan'), float('inf'), -1., 1e200):
+                    changed = {s: p.copy() for s, p in prices.items()}
+                    for p in changed.values():
+                        p[stop:] = future
+                    actual = self.setup_from_source(changed, funding, stop)
+                    self.assertEqual(set(actual['train']), set(prices))
+                    self.assertTrue(all(len(p) == stop for p in actual['train'].values()))
+                    for field in ('mean', 'std', 'low', 'high'):
+                        np.testing.assert_array_equal(getattr(baseline['scale'], field), getattr(actual['scale'], field))
+
+    def test_collection_future_corruption_and_actual_episode_bounds(self):
+        import sequential_env as env
+        replay = env.Replay
+        feature_function = env.market_features
+        for stop in (121, 160, 200):
+            prices = 100*np.exp(np.sin(np.arange(256)/9)*.001)
+            funding = np.zeros(256)
+            original = self.setup_from_source({'X': prices}, {'X': funding}, stop)
+            changed = prices.copy(); changed[stop:] = np.nan
+            changed_funding = funding.copy(); changed_funding[stop:] = np.inf
+            altered = self.setup_from_source({'X': changed}, {'X': changed_funding}, stop)
+            for horizon in (1, 3, 6):
+                for seed in (11, 23, 47):
+                    episodes, reads = [], []
+                    def record_features(p, t):
+                        self.assertLessEqual(len(p), stop)
+                        self.assertGreaterEqual(t - 24, 0)
+                        self.assertLess(t, stop)
+                        reads.append((t - 24, t))
+                        return feature_function(p, t)
+                    def record(*args, **kwargs):
+                        episode = replay(*args, **kwargs)
+                        self.assertLessEqual(episode.stop, stop)
+                        self.assertEqual(len(episode.prices), stop)
+                        episodes.append(episode)
+                        return episode
+                    with patch.object(env, 'Replay', record), patch.object(env, 'market_features', record_features):
+                        a = env.collect(original['train'], original['funds'], original['scale'], horizon, seed, 12)
+                        b = env.collect(altered['train'], altered['funds'], altered['scale'], horizon, seed, 12)
+                    for key in ('s', 'a', 'r', 'next', 'done', 'prob'):
+                        np.testing.assert_array_equal(a[key], b[key])
+                    self.assertTrue(episodes)
+                    self.assertTrue(reads)
+                    self.assertTrue(all(e.t < stop for e in episodes))
 
 
 if __name__ == '__main__':

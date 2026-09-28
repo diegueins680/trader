@@ -49,6 +49,12 @@
       "status": "assumption",
       "statement": "Ordinary fixed-shape base NumPy numeric arrays, unchanged primitive bindings and no concurrent writes; audited metadata helper ASTs and restricted AST interpreter/NumPy argument-only dependency semantics are trusted. No publication-time, caller symbol selection, runtime/compiler or universal observation refinement proof.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TRAIN-PREFIX",
+      "status": "assumption",
+      "statement": "Checked fold setup is entered with admitted ordinary fixed-shape numeric arrays and stable symbol/split bindings. Python slicing/range/RNG, NumPy reductions, Scale constructor snapshots and the restricted AST checker are trusted; no hostile subclasses, aliases or concurrent writers. Whole-panel admission and full Replay/compiler refinement remain unproved.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -64,7 +70,8 @@
     "package.json",
     "scripts/formal/gap_risk.py",
     "scripts/formal/gap_conformance.py",
-    "scripts/formal/causal_footprint.py"
+    "scripts/formal/causal_footprint.py",
+    "scripts/formal/training_prefix.py"
   ],
   "entries": [
     {
@@ -641,6 +648,70 @@
       "limitations": "Trusted static checker and primitive dependency semantics, not verified interpreter/NumPy. Same array metadata required. Does not establish availability, fit provenance, recursive replay-state causality, symbol selection or production features. CE-RL-004 is a deliberately introduced mutant, not a defect in the unchanged feature source.",
       "counterexample": "formal/research/causal-counterexamples.json",
       "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FIT-PREFIX",
+      "claim": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics.",
+      "criticality": "critical",
+      "formalStatement": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics.",
+      "assumptions": [
+        "A-TRAIN-PREFIX",
+        "A-SOURCE-CAUSAL",
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "restricted Python AST source skeletons and Z3 integer bounds",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/training_prefix.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/training_prefix.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh automation",
+      "result": "Source-derived integer implications have SAT premises and UNSAT violations; all nine registered fold/horizon inequalities checked.",
+      "bounds": "Unbounded integer source lengths/stops; fit 25<=T<=N; collect L>=121; three frozen folds x horizons 1/3/6.",
+      "limitations": "Trusted parser, source-skeleton checker and primitive/constructor semantics, not verified Python execution. Entire historical panel is validated before fit; no online admission noninterference. Episode theorem assumes Replay boundary semantics and does not prove all transition reads, learning or rewards. Six-bar gap is not two additive purge/embargo regions.",
+      "counterexample": "formal/research/training-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-COLLECT-PREFIX",
+      "claim": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix.",
+      "criticality": "critical",
+      "formalStatement": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix.",
+      "assumptions": [
+        "A-TRAIN-PREFIX",
+        "A-SOURCE-CAUSAL",
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "restricted Python AST source skeletons and Z3 integer bounds",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/training_prefix.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/training_prefix.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh automation",
+      "result": "Source-derived integer implications have SAT premises and UNSAT violations; all nine registered fold/horizon inequalities checked.",
+      "bounds": "Unbounded integer source lengths/stops; fit 25<=T<=N; collect L>=121; three frozen folds x horizons 1/3/6.",
+      "limitations": "Trusted parser, source-skeleton checker and primitive/constructor semantics, not verified Python execution. Entire historical panel is validated before fit; no online admission noninterference. Episode theorem assumes Replay boundary semantics and does not prove all transition reads, learning or rewards. Six-bar gap is not two additive purge/embargo regions.",
+      "counterexample": "formal/research/training-counterexamples.json",
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -650,25 +721,32 @@
       "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-CAUSAL-SLICE",
-        "F-RL-FEATURE-FOOTPRINT"
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 2,
       "claim": "Split isolation",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SPLIT"
+        "F-RL-SPLIT",
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 3,
       "claim": "Causal normalization",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 4,
@@ -794,9 +872,11 @@
       "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-CAUSAL-SLICE",
-        "F-RL-FEATURE-FOOTPRINT"
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 18,
@@ -850,9 +930,12 @@
     {
       "number": 22,
       "claim": "Replay determinism",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 23,

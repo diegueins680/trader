@@ -1,5 +1,11 @@
 # Trader Firm — Risk Register
 
+Training-prefix evidence (2026-09-28 continuation):
+[source-derived fit and episode checks](../formal/research/training-prefix-contract.md)
+certify index bounds conditional on admitted arrays and trusted primitive/constructor
+semantics. Whole-panel validation is not online admission causality; complete
+Replay refinement remains open. `RL-OFFLINE-001` remains HIGH/OPEN.
+
 Source-linked causality evidence (2026-09-28 continuation): the
 [feature read-footprint check](../formal/research/causal-footprint-contract.md)
 links SMT index bounds to the actual Python AST. Base-array, runtime and primitive
