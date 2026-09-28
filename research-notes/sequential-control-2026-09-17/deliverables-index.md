@@ -67,3 +67,8 @@ The [source-linked causality continuation](causal-followup-2026-09-28.md) adds t
 actual-source read-footprint contract, restricted AST/SMT checker, CE-RL-004
 mutation fixture and explicit trusted-semantics assumptions. It extends formal
 items 56–74 without claiming mission completion or new empirical evidence.
+
+The [training-prefix continuation](training-prefix-followup-2026-09-28.md) adds
+normalization/episode source bounds, nine registered fold/horizon checks,
+CE-RL-005/006 and conditional actual-runner conformance. Whole-panel admission
+is explicitly outside its causality claim; all broader acceptance gates stand.

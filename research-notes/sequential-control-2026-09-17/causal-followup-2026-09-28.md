@@ -5,6 +5,11 @@ one assurance gap in the existing rejected RL research environment. It changes
 verification infrastructure and documentation only. No financial trial, policy,
 feature semantics, data, frozen registration, holdout access or live setting changes.
 
+This report records the feature-footprint stage (`528cc390`). The later
+[training-prefix continuation](training-prefix-followup-2026-09-28.md) adds two
+scoped SMT requirements and additional tests; its receipt records the current
+branch's verification counts. Economic results and no-adoption remain unchanged.
+
 The previous draft revision `68d1ce38` passed all four remote CI jobs in
 [run 36377655623](https://github.com/diegueins680/trader/actions/runs/36377655623).
 Docker build and deployment were skipped. That result is separate from the new

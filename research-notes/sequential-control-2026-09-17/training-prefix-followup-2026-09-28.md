@@ -21,6 +21,8 @@ extracted from the actual AST, including `split['trainStop']` and
 `range(24, len(p))`; it does not merely check a separately written index example.
 Together with the existing feature footprint, every fitted feature index is
 strictly before the exclusive training stop under the stated preconditions.
+The Scale pools symbols' training prefixes, as the registration specifies for
+shared policy fitting; key preservation is not a claim of per-symbol scaling.
 
 `F-RL-COLLECT-PREFIX` derives `rng.integers(24, len(p)-96)` and `start+97` from the
 actual collector episode construction. For every admitted prefix length L>=121,
@@ -71,6 +73,13 @@ Earlier admission and arbitrary external/aliased mutations are not newly proved.
 The source/fixture hashes and bidirectional ledger connect the claims to actual
 implementation, checks and CI, but do not prove the checker or interpreter sound.
 
+The fit cutoff T is distinct from a simulated training episode's historical
+clock t. Scale.fit uses the whole training prefix, including rows later than an
+early training episode. The new theorem excludes indices at/after T; it does not
+certify as-of-t normalization for each training episode. Evaluation starts after T,
+and the actual feature/observation metamorphic tests hold the supplied Scale fixed.
+Do not present training episode performance as independently causal OOS evidence.
+
 The real historical loader scans the entire registered panel for validity before
 fitting. Future-invalid values can prevent admission of a complete run. Therefore
 this is **conditional training-input isolation, not online admission causality**.
@@ -86,9 +95,61 @@ financial conclusion changes. All previous RL configurations remain rejected;
 no challenger becomes eligible for shadow/paper/live use. `RL-OFFLINE-001`
 remains HIGH/OPEN. No dependencies or configuration flags are added.
 
-## Verification status
+## Verification receipt
 
-Final scoped/full commands, results and log hashes will be recorded after those
-runs finish. Previous CI passes are not a claim that this new implementation has
-already passed full verification. `--require-complete` must continue to fail for
-the explicitly unresolved mission obligations.
+Executable source is frozen at `db06ea4c`, with report revision `c4ea8f67`.
+The receipt and cross-links change documentation only. Commands ran from the
+isolated worktree using GHC 9.4.8, Cabal 3.12.1.0, fourmolu 0.15.0.0, hlint 3.8,
+Node 20.19.0 and formal Python 3.13.3 / NumPy 2.3.5 / z3-solver 4.15.4.0
+(solver reports 4.15.4).
+
+```bash
+export PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH
+export TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python
+bash scripts/verify.sh formal
+python3 -m unittest discover -s test -p sequential_screen_test.py \
+  -k test_runner_passes_only_training_prefixes_to_fit_and_optimizer
+bash scripts/verify.sh full
+bash scripts/verify.sh automation
+bash scripts/verify.sh full
+"$TRADER_FORMAL_PYTHON" scripts/formal/verify.py --require-complete
+```
+
+- Scoped formal wrapper: **exit 0**, 23 integrity tests, 15 scoped SMT requirement
+  IDs, unchanged 75-state/349-transition lifecycle abstraction, 20,480 Haskell
+  conformance cases and 180 exact-rational accounting traces. The standalone
+  verifier reported 18.896 seconds. No claim of complete implementation refinement.
+- Actual-runner test: **exit 0**, one test with four corruption cases, 0.712 seconds.
+  Its mocked training output is not financial trial evidence.
+- Initial full wrapper: **exit 1**. Formal, Haskell and web passed; automation
+  passed 183/185. The scheduled-collector Python subprocess reached its unchanged
+  30-second timeout, and the edge-campaign subprocess reached its unchanged
+  60-second timeout (`spawnSync` status null). These synthetic fixture timeouts
+  are preserved; host contention is plausible but not established as their cause.
+- Unchanged automation retry: **exit 0**, 185/185, none skipped, 64.866 seconds.
+  No assertion, timeout, concurrency setting or test selection was changed.
+- Full-wrapper retry: **exit 0**. Formal checks, Haskell build/format/lint/smoke/
+  tests, web typecheck/241 tests/build, and all 185 automation tests passed, none
+  skipped. Automation took 55.765 seconds; the scoped verifier reported 7.450
+  seconds. No source, test, timeout or gate changed between attempts.
+- Acceptance diagnostic: expected **exit 1**, `ValueError: research acceptance
+  blocked by open obligations`. All 38 broader obligations remain open/partial.
+- Remote [CI run 36425743197](https://github.com/diegueins680/trader/actions/runs/36425743197)
+  at `c4ea8f67`: formal, Haskell, web and automation passed. Docker build and
+  deployment were skipped. This does not erase the initial local full-run failure.
+
+Logs remain outside Git. SHA-256 receipts (prefix
+`/private/tmp/trader-training-`, suffix `-20260928.log`):
+
+| Log | SHA-256 |
+| --- | --- |
+| formal | `fd7eb0f697f0db570349cbd35e80593c1b320060ed61d66341bc1c302ae9e6d0` |
+| acceptance | `0cc9ac4a02857bf0b612e5f698bb33d0571eb4040369dd78444a89d63091a077` |
+| full (initial failure) | `d72668683fc2d2ba32db59986c92d5021cb2ea50b89665379dfe1172d8951d72` |
+| automation-retry | `3a0360ac26a7327ff0190a6737e7d6052080a1514c176de32514f55993500760` |
+| full-retry | `10d3a829c7f2ff5135d210cca6ec548725e6cdd0090c8e116ab67af2c37892ae` |
+
+The branch remains a draft. No new live authorization, order, authenticated
+exchange call, exploration, merge, deployment or champion change occurred.
+Protected holdouts remain untouched. Passing these scoped checks cannot satisfy
+the unresolved empirical, operational or whole-system proof requirements.

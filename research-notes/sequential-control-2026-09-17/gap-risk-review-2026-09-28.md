@@ -8,8 +8,10 @@ claim untouched confirmation, a production safety proof or deployment readiness.
 This report records the gap-risk stage verified at `44177344`. The subsequent
 [source-linked causality continuation](causal-followup-2026-09-28.md) adds a
 thirteenth scoped SMT obligation and CE-RL-004 (a deliberate leakage mutant).
-Its separate verification receipt supersedes the check counts below for the
-current branch; economic evidence and the no-adoption decision are unchanged.
+The later [training-prefix continuation](training-prefix-followup-2026-09-28.md)
+adds two more scoped requirements. Those stage-specific receipts supersede the
+check counts below for the current branch; economic evidence and the no-adoption
+decision are unchanged.
 
 ## Repository preparation and scope
 
