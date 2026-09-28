@@ -22,7 +22,10 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example]
 The [2026-09-28 assurance follow-up](research-notes/sequential-control-2026-09-17/gap-risk-review-2026-09-28.md)
 refreshes primary-source surveillance and checks conditional gap-risk lemmas plus
 replayable loss-floor counterexamples. `bash scripts/verify.sh formal` includes
-actual replay conformance using hash-pinned NumPy. No candidate passed; scoped
+actual replay conformance using hash-pinned NumPy and a
+[source-linked causal read-footprint check](formal/research/causal-footprint-contract.md).
+The latter rejects feature-source lookahead and unsupported dependencies under
+explicit base-array/runtime assumptions; historical release timing remains open. No candidate passed; scoped
 proofs do not establish a future loss ceiling or complete research acceptance.
 
 The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)

@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research assurance: derive the existing feature core's read bounds from its Python
+  AST and check them with SMT; reject unsupported dependencies and lookahead
+  mutations. Add source/NumPy future-corruption conformance without changing
+  frozen research semantics, data, policies or production behavior.
+
 - Research assurance: add conditional SMT gap-loss, drawdown-composition and
   post-cost-exposure lemmas; preserve two actual-replay loss-floor counterexamples
   and 180 exact-accounting conformance cases. Refresh literature through
