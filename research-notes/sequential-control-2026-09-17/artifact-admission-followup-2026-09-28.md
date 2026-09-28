@@ -4,6 +4,11 @@
 verification of the existing offline policy loader. It changes no loader, model,
 policy, artifact schema, experiment, dataset, holdout access, production setting
 or champion. No new empirical performance or out-of-sample evidence is claimed.
+
+This receipt records the artifact-admission stage. The later
+[training-transition continuation](transition-admission-followup-2026-09-28.md)
+adds one scoped SMT requirement and its own verification receipt; earlier stage
+results remain unchanged.
 Latest remote main remains `dbd45e26`; work continues on the isolated branch
 `research/sequential-review-2026-09-28` in draft PR #284, stacked on #281.
 

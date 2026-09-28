@@ -84,5 +84,44 @@ unchanged. Neither production authorization nor candidate promotion follows.
 
 ## Verification receipt
 
-The targeted six-test suite passed. Final formal/full commands and log hashes
-will be recorded after completion; no full-verification success is claimed yet.
+Source freeze: `2fcd591d`; report revision: `62a45b95`. Later receipt changes
+are documentation only. Commands from the isolated worktree:
+
+```bash
+export PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH
+export TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python
+"$TRADER_FORMAL_PYTHON" scripts/formal/test_integrity.py TransitionAdmissionTests
+bash scripts/verify.sh formal
+bash scripts/verify.sh full
+"$TRADER_FORMAL_PYTHON" scripts/formal/verify.py --require-complete
+```
+
+Pinned tools: Python 3.13.3, NumPy 2.3.5, z3-solver 4.15.4.0 (solver 4.15.4),
+GHC 9.4.8, Cabal 3.12.1.0, fourmolu 0.15.0.0, hlint 3.8 and Node 20.19.0.
+
+- Targeted transition suite: **exit 0**, six tests, 1.822 seconds.
+- Formal wrapper: **exit 0**, 35 tests, 17 scoped SMT requirements, both existing
+  state models, 20,480 Haskell conformance cases and 180 rational accounting
+  traces. Standalone verifier: 5.429 seconds. No universal refinement claim.
+- Full wrapper: **exit 0**. Formal, Haskell build/format/lint/smoke/tests, web
+  typecheck/241 tests/build and 185 automation tests passed, none skipped.
+  Automation took 57.034 seconds; the scoped verifier reported 8.099 seconds.
+  No retry, disabled check, altered timeout or weakened gate was needed.
+- Remote [CI run 36437313290](https://github.com/diegueins680/trader/actions/runs/36437313290)
+  at `62a45b95`: formal, Haskell, web and automation passed. Docker build and
+  deployment were skipped.
+- Acceptance diagnostic: expected **exit 1**, `ValueError: research acceptance
+  blocked by open obligations`; all 38 broader obligations remain open/partial.
+
+Logs remain outside Git. SHA-256 receipts, prefix
+`/private/tmp/trader-transition-`, suffix `-20260928.log`:
+
+| Log | SHA-256 |
+| --- | --- |
+| formal | `3d69055d075dce1050a97c6ed32e09fee190cf5740db7c254496c553dbcd688d` |
+| acceptance | `b64ace3bda36b2d7b3c17ccdfe7a0995aaac133bfd529318d80762fa7382ece4` |
+| full | `a1196e5143512a1c6d35f2b0b410abf47013e72ca066d20ff6474a5e6bb476e4` |
+
+No live authorization, order, authenticated trading experiment, live exploration,
+holdout access, merge, deployment or champion change occurred. No proof placeholder
+was introduced; the unresolved proof and empirical obligations remain explicit.
