@@ -72,3 +72,8 @@ The [training-prefix continuation](training-prefix-followup-2026-09-28.md) adds
 normalization/episode source bounds, nine registered fold/horizon checks,
 CE-RL-005/006 and conditional actual-runner conformance. Whole-panel admission
 is explicitly outside its causality claim; all broader acceptance gates stand.
+
+The [artifact-admission continuation](artifact-admission-followup-2026-09-28.md)
+adds conditional loader path/model and metadata SMT evidence, CE-RL-007/008 and
+actual-loader malformed-input regressions. It changes no research result or
+production artifact interface.

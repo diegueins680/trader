@@ -1,5 +1,11 @@
 # Trader Firm — Risk Register
 
+Artifact-admission evidence (2026-09-28 continuation): the
+[source-linked gate model](../formal/research/artifact-admission-contract.md) and
+metadata SMT checks assume trusted helpers and externally supplied expected
+provenance. They do not establish authenticity, full runtime refinement or a
+production artifact path. `RL-OFFLINE-001` remains HIGH/OPEN.
+
 Training-prefix evidence (2026-09-28 continuation):
 [source-derived fit and episode checks](../formal/research/training-prefix-contract.md)
 certify index bounds conditional on admitted arrays and trusted primitive/constructor

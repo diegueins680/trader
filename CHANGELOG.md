@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: add source-linked offline artifact admission checks, two preserved bypass mutants and constructor-order regressions. Loader semantics and candidate eligibility are unchanged; primitive/provenance trust and broader proof gaps remain explicit.
+
 - Research assurance: verify source-derived normalization-prefix and collector
   episode bounds, preserve leakage/overrun mutant fixtures and connect them to
   actual runner and NumPy conformance tests. Keep historical-panel admission and

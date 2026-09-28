@@ -30,6 +30,10 @@ explicit base-array/runtime assumptions; historical release timing remains open.
 fit and episode bounds from source, conditional on already admitted arrays; it
 does not establish online causality of the whole historical-panel loader. No candidate passed; scoped
 proofs do not establish a future loss ceiling or complete research acceptance.
+The [artifact-admission check](formal/research/artifact-admission-contract.md)
+binds a finite gate model and SMT metadata predicates to the existing offline
+loader. Trusted parser/helper semantics and externally supplied provenance remain
+assumptions; this is not artifact authenticity or production-loader verification.
 
 The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)
 adds a 50-paper literature update, current predictor-fidelity audit and a

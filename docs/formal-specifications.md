@@ -474,3 +474,12 @@ adds source-derived normalization and episode index bounds plus registered
 fold/horizon checks. Its admission precondition is explicit: the runner validates
 the entire historical panel before fitting, so training-value isolation is not
 claimed to prove online admission causality or full Replay transition refinement.
+
+The [artifact-admission contract](../formal/research/artifact-admission-contract.md)
+adds source-linked atomic admission gates and actual compatibility/digest
+predicate checks. The finite 27-state model is conditional on trusted terminating
+primitives; SMT uses abstract string equality, exact-false identity and action/
+provenance equality atoms. Neither result proves artifact authenticity, helper
+internals, neural inference or production-loader refinement. CE-RL-007/008 are
+deliberate bypass mutants, not current source defects. Whole-mission obligations
+29/30 gain partial evidence; all 38 obligations remain open/partial.

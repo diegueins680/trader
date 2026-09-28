@@ -150,3 +150,18 @@ revisions, full simulator floating-point accounting, exchange rounding/margin,
 artifact authenticity, end-to-end capability isolation, universal compiler
 refinement, neural robustness, loss bounds through gaps, and future performance.
 All empirical acceptance gates remain binding. `RL-OFFLINE-001` stays HIGH/OPEN.
+
+## Offline artifact admission
+
+The [contract](artifact-admission-contract.md), specified at `e12e0bd4` before
+implementation, adds `F-RL-ARTIFACT-PATH` (27 states, 40 transitions, depth 13) and
+`F-RL-ARTIFACT-METADATA` (two source-derived predicate SMT queries). Run the same
+formal/full wrappers; no new tool or dependency is required. Six tests cover
+source/model drift, vacuous/false predicates, CE-RL-007/008, actual-loader malformed
+inputs, constructor ordering and the 65,536-byte boundary.
+
+Primitive gate outcomes are abstracted, not proved. Source recognition is not a
+verified interpreter; supplied provenance is not authenticated. The 75-state
+lifecycle model and 27-state loader model are separate, not a composed system
+proof. No production loader or policy is added. See the
+[scope and receipt](../../research-notes/sequential-control-2026-09-17/artifact-admission-followup-2026-09-28.md).
