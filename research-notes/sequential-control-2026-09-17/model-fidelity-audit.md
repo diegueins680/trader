@@ -89,3 +89,13 @@ direct terminal targets and whole-batch finite-output admission under a distinct
 default-disabled function contract. It is not connected to PPO, normalization or
 optimizer updates; the frozen learner classification and numerical counterexamples
 above are unchanged. No faithful full-PPO or economic claim follows.
+
+## PPO objective continuation — 2026-09-28
+
+The [source-linked audit](ppo-objective-followup-2026-09-28.md) verifies exact-real
+ratio/loss and coefficient branches for the registered clipped surrogate, with
+explicit binary64 literal values and conditional simplex assumptions. It does not
+verify full softmax, array/runtime or learner behavior. CE-RL-012 returns finite loss
+with NaN gradient; CE-RL-013 confirms the intended absence of a universal multiplier
+cap. Keep the current learner frozen and rejected; no implicit successor or
+financial rerun. Objective fidelity alone cannot justify candidate adoption.
