@@ -56,7 +56,7 @@ are rejected before Network construction. Cases include version/action drift,
 non-false enabled values, changed provenance, invalid/non-finite/overflowing
 parameters, invalid JSON, duplicate keys and oversize bytes. Valid round trips
 preserve parameters, 65,536-byte padded JSON is admitted, and 65,537 bytes is
-rejected. These are regression/property tests, not a proof of all JSON inputs or
+rejected. These are deterministic regression tests, not a proof of all JSON inputs or
 helper behavior. No trained artifact or large dataset is committed.
 
 ## Assumptions and unresolved properties
@@ -85,6 +85,45 @@ contaminated development periods and sealed holdouts remain unchanged.
 
 ## Verification receipt
 
-Pending final formal/full commands. Targeted six-test artifact suite passed;
-this is not yet a passing full-verification claim. Final receipt will preserve
-failures, exact source revision, commands, versions and log hashes.
+Source freeze: `91273c9f`; report revision: `2cbba834`. Subsequent receipt changes
+are documentation only. Exact commands from the isolated worktree:
+
+```bash
+export PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH
+export TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python
+"$TRADER_FORMAL_PYTHON" scripts/formal/test_integrity.py ArtifactAdmissionTests
+bash scripts/verify.sh formal
+bash scripts/verify.sh full
+"$TRADER_FORMAL_PYTHON" scripts/formal/verify.py --require-complete
+```
+
+Pinned tools: Python 3.13.3, NumPy 2.3.5, z3-solver 4.15.4.0 (solver 4.15.4),
+GHC 9.4.8, Cabal 3.12.1.0, fourmolu 0.15.0.0, hlint 3.8 and Node 20.19.0.
+
+- Targeted artifact suite: **exit 0**, six tests, 0.933 seconds.
+- Formal wrapper: **exit 0**, 29 tests, 16 scoped SMT requirements; loader model
+  27 states/40 transitions/depth 13 and existing lifecycle model 75 states/349
+  transitions/depth 6. Existing 20,480 Haskell conformance cases and 180 rational
+  accounting traces also pass. Standalone verifier: 5.992 seconds.
+- Full wrapper: **exit 0**, formal checks, Haskell build/format/lint/smoke/tests,
+  web typecheck/241 tests/build and 185 automation tests passed, none skipped.
+  Automation took 43.105 seconds; the scoped verifier reported 8.139 seconds.
+  No retries, disabled checks or altered timeouts were needed for this stage.
+- Remote [CI run 36434475535](https://github.com/diegueins680/trader/actions/runs/36434475535)
+  at `2cbba834`: formal, Haskell, web and automation passed. Docker build and
+  deployment were skipped.
+- Acceptance diagnostic: expected **exit 1**, `ValueError: research acceptance
+  blocked by open obligations`. All 38 broader obligations remain open/partial.
+
+Logs remain outside Git. SHA-256 receipts, with prefix
+`/private/tmp/trader-artifact-` and suffix `-20260928.log`:
+
+| Log | SHA-256 |
+| --- | --- |
+| formal | `918b24878dac99bc416225f5c9ac0418bcd4f1b09e831918842f3c262ed41ef5` |
+| acceptance | `e509ee4ce17b660ea239f105f107bb6969ba0c19f404ea31f3193cb7045c7d1b` |
+| full | `bc7b551907eac0e9f8e8424b6d8d50a8e16ae00cb31ba4831e6be98fdc94e310` |
+
+No live authorization, authenticated exchange experimentation, order, live-money
+exploration, holdout access, merge, deployment or champion change occurred.
+No proof placeholder was introduced; unresolved obligations remain explicit.

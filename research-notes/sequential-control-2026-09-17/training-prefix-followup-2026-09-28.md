@@ -5,6 +5,11 @@ normalization and training episode bounds to the existing runner/environment
 source. It introduces no policy, dataset, reward, artifact, production or live
 behavior change. No financial trial or protected holdout is accessed.
 
+This receipt records the training-prefix stage. The later
+[artifact-admission continuation](artifact-admission-followup-2026-09-28.md) adds
+one SMT requirement and a separate finite gate model; its own receipt records
+the current counts without changing these earlier results.
+
 The previous revision `63bc0a51` passed all remote CI jobs in
 [run 36422872047](https://github.com/diegueins680/trader/actions/runs/36422872047).
 Build and deployment were skipped. Latest main is still `dbd45e26`; the branch
