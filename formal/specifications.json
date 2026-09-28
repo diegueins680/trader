@@ -166,6 +166,14 @@
           "statement": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix."
         },
         {
+          "id": "F-RL-ARTIFACT-PATH",
+          "statement": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives."
+        },
+        {
+          "id": "F-RL-ARTIFACT-METADATA",
+          "statement": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions."
+        },
+        {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
         }
@@ -212,6 +220,11 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_runner_passes_only_training_prefixes_to_fit_and_optimizer"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_artifact_bypass_counterexamples"
         }
       ]
     },

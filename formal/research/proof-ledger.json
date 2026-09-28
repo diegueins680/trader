@@ -55,6 +55,12 @@
       "status": "assumption",
       "statement": "Checked fold setup is entered with admitted ordinary fixed-shape numeric arrays and stable symbol/split bindings. Python slicing/range/RNG, NumPy reductions, Scale constructor snapshots and the restricted AST checker are trusted; no hostile subclasses, aliases or concurrent writers. Whole-panel admission and full Replay/compiler refinement remain unproved.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ARTIFACT-ADMISSION",
+      "status": "assumption",
+      "statement": "Ordinary Path/bytes and JSON built-ins, stable globals and externally supplied expected metadata; no concurrent mutation, hostile subclass or monkeypatch. Python control flow, JSON/hashlib/NumPy, validators and Network constructor are trusted. The audited AST checker is not a verified interpreter; finite atomic gates do not prove helper internals or cryptographic authenticity.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -71,7 +77,8 @@
     "scripts/formal/gap_risk.py",
     "scripts/formal/gap_conformance.py",
     "scripts/formal/causal_footprint.py",
-    "scripts/formal/training_prefix.py"
+    "scripts/formal/training_prefix.py",
+    "scripts/formal/artifact_admission.py"
   ],
   "entries": [
     {
@@ -712,6 +719,64 @@
       "limitations": "Trusted parser, source-skeleton checker and primitive/constructor semantics, not verified Python execution. Entire historical panel is validated before fit; no online admission noninterference. Episode theorem assumes Replay boundary semantics and does not prove all transition reads, learning or rewards. Six-bar gap is not two additive purge/embargo regions.",
       "counterexample": "formal/research/training-counterexamples.json",
       "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-PATH",
+      "claim": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives.",
+      "criticality": "critical",
+      "formalStatement": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives.",
+      "assumptions": [
+        "A-ARTIFACT-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "audited Python AST gate abstraction and exhaustive exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/artifact_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/artifact_admission.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "27 states, 40 transitions, maximum depth 13; terminal gates stutter and cannot escape.",
+      "bounds": "13 ordered atomic gates, 27 states, 40 transitions, depth 13; unbounded abstract strings and Boolean equality/identity atoms for the metadata SMT checks.",
+      "limitations": "Source-skeleton recognition and conditional primitive abstraction, not full Python/helper/runtime refinement. Expected provenance is unauthenticated; equality does not prove training provenance, SHA security, finite neural inference, Haskell artifact loading or promotion eligibility. Actual-loader conformance tests supplement rather than prove refinement.",
+      "counterexample": "formal/research/artifact-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-METADATA",
+      "claim": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions.",
+      "criticality": "critical",
+      "formalStatement": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions.",
+      "assumptions": [
+        "A-ARTIFACT-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "source-derived Boolean/string predicates and Z3",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/artifact_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/artifact_admission.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Two SAT-premise and UNSAT-violation checks of actual source predicates; deliberate bypass mutants fail.",
+      "bounds": "13 ordered atomic gates, 27 states, 40 transitions, depth 13; unbounded abstract strings and Boolean equality/identity atoms for the metadata SMT checks.",
+      "limitations": "Source-skeleton recognition and conditional primitive abstraction, not full Python/helper/runtime refinement. Expected provenance is unauthenticated; equality does not prove training provenance, SHA security, finite neural inference, Haskell artifact loading or promotion eligibility. Actual-loader conformance tests supplement rather than prove refinement.",
+      "counterexample": "formal/research/artifact-counterexamples.json",
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -995,25 +1060,33 @@
     {
       "number": 29,
       "claim": "Artifact compatibility",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-METADATA"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
     },
     {
       "number": 30,
       "claim": "Hash and provenance checks",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-METADATA"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
     },
     {
       "number": 31,
       "claim": "Default-disabled",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-DEFAULT"
+        "F-RL-DEFAULT",
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-METADATA"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
     },
     {
       "number": 32,

@@ -9,6 +9,7 @@ from unittest.mock import patch
 import lifecycle
 import causal_footprint
 import training_prefix
+import artifact_admission
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -341,6 +342,129 @@ class TrainingPrefixTests(unittest.TestCase):
                     self.assertTrue(episodes)
                     self.assertTrue(reads)
                     self.assertTrue(all(e.t < stop for e in episodes))
+
+
+class ArtifactAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        import sequential_learning as learning
+        self.learning = learning
+        self.source = (ROOT / artifact_admission.SOURCE).read_text()
+        self.meta = {'codeCommit': 'a'*40, 'registrationSha256': 'b'*64,
+                     'dataSha256': 'c'*64, 'seed': 11, 'horizon': 1,
+                     'algorithm': 'ppo', 'fold': 0}
+
+    def test_source_predicates_and_model(self):
+        result = artifact_admission.check_artifact(self.source)
+        self.assertEqual(result['model']['states'], 27)
+        self.assertEqual(result['model']['transitions'], 40)
+        self.assertEqual(result['model']['terminationGateBound'], 13)
+        self.assertEqual(result['metadata']['queries'], 2)
+
+    def test_source_bypasses_and_rebinding_rejected(self):
+        mutants = [('return net', 'return Network(0)'),
+                   ('validate_provenance(expected_provenance)', 'pass'),
+                   ('snapshots = _parameter_snapshots(parameters)', 'snapshots = parameters'),
+                   ('raw = stream.read(65537)', 'raw = stream.read()'),
+                   ('net = Network(0)', 'return Network(0)'),
+                   ('a["enabled"] is not False', 'a["enabled"] != False')]
+        for old, new in mutants:
+            self.assertIn(old, self.source)
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                artifact_admission.check_artifact(self.source.replace(old, new))
+
+    def test_predicates_reject_false_vacuous_and_unknown(self):
+        for value in ('False', 'True', 'unknown_check(a)'):
+            with self.subTest(value=value), self.assertRaises((ValueError, RuntimeError)):
+                artifact_admission.check_artifact(self.source.replace(
+                    'hashlib.sha256(raw).hexdigest() != expected_sha256', value))
+
+    def test_model_rejects_skipped_gate_and_failure_escape(self):
+        original = artifact_admission.successors
+        for mutation in ('skip', 'escape'):
+            def successors(state, count):
+                yield from original(state, count)
+                if mutation == 'skip' and state == (0, 0, False):
+                    yield (count, (1 << count) - 1, False)
+                if mutation == 'escape' and state[2]:
+                    yield (count, (1 << count) - 1, False)
+            with self.subTest(mutation=mutation), patch.object(artifact_admission, 'successors', successors):
+                with self.assertRaises(RuntimeError):
+                    artifact_admission.check_model(artifact_admission.extract(self.source)[1])
+
+    def test_preserved_artifact_bypass_counterexamples(self):
+        import hashlib
+        import json
+        fixtures = read_json(ROOT / 'formal/research/artifact-counterexamples.json')['entries']
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'policy.json'
+            self.learning.save_policy(path, self.learning.Network(11), self.meta)
+            raw = path.read_bytes()
+            for fixture in fixtures:
+                with self.subTest(id=fixture['id']):
+                    self.assertEqual(self.source.count(fixture['replace']), 1)
+                    mutant = self.source.replace(fixture['replace'], fixture['with'])
+                    with self.assertRaises(RuntimeError):
+                        artifact_admission.check_artifact(mutant)
+                    body = json.loads(raw)
+                    if fixture['id'] == 'CE-RL-008':
+                        body['enabled'] = True
+                    data = json.dumps(body, sort_keys=True).encode()
+                    path.write_bytes(data)
+                    digest = '0'*64 if fixture['id'] == 'CE-RL-007' else hashlib.sha256(data).hexdigest()
+                    with self.assertRaises(ValueError):
+                        self.learning.load_policy(path, digest, self.meta)
+                    function = next(n for n in ast.parse(mutant).body
+                                    if isinstance(n, ast.FunctionDef) and n.name == 'load_policy')
+                    namespace = dict(vars(self.learning))
+                    exec(compile(ast.Module(body=[function], type_ignores=[]), '<artifact-mutant>', 'exec'), namespace)
+                    admitted = namespace['load_policy'](path, digest, self.meta)
+                    self.assertEqual(set(admitted.p), {'w1', 'b1', 'w2', 'b2'})
+
+    def test_actual_loader_admission_matrix_precedes_construction(self):
+        import hashlib
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'policy.json'
+            sha = self.learning.save_policy(path, self.learning.Network(11), self.meta)
+            raw = path.read_bytes()
+            base = json.loads(raw)
+            accepted = self.learning.load_policy(path, sha, self.meta)
+            for name, values in accepted.p.items():
+                np.testing.assert_array_equal(values, np.asarray(base['parameters'][name]))
+            variants = []
+            for key, value in [('schema', 'offline_policy_v2'), ('environment', 'other'),
+                               ('observation', 'other'), ('promotion', 'paper_eligible'),
+                               ('actions', [-1, 0, 1]), ('actions', [-0.25, False, 0.25]),
+                               ('actions', []), ('parameters', {}), ('provenance', {})]:
+                item = copy.deepcopy(base); item[key] = value
+                variants.append(json.dumps(item).encode())
+            for enabled in (True, 0, 1, None, 'false', [], {}):
+                item = copy.deepcopy(base); item['enabled'] = enabled
+                variants.append(json.dumps(item).encode())
+            for key, value in [('seed', 12), ('horizon', 3), ('fold', 1), ('algorithm', 'cql')]:
+                item = copy.deepcopy(base); item['provenance'][key] = value
+                variants.append(json.dumps(item).encode())
+            for value in (True, '0', None, float('nan'), float('inf'), 10**400):
+                item = copy.deepcopy(base); item['parameters']['b2'][0] = value
+                variants.append(json.dumps(item).encode())
+            variants += [b'{', b'[]', b'null', raw.replace(b'"enabled": false', b'"enabled": false, "enabled": false'),
+                         raw.replace(b'"b2": [', b'"b2": [1e999,'), raw + b' '*(65537-len(raw))]
+            self.assertEqual(len(variants), 32)
+            for index, data in enumerate(variants):
+                with self.subTest(index=index):
+                    path.write_bytes(data)
+                    with patch.object(self.learning, 'Network', side_effect=AssertionError('constructed rejected policy')):
+                        with self.assertRaises((ValueError, OverflowError)):
+                            self.learning.load_policy(path, hashlib.sha256(data).hexdigest(), self.meta)
+            path.write_bytes(raw)
+            with patch.object(self.learning, 'Network', side_effect=AssertionError('constructed wrong-hash policy')):
+                with self.assertRaisesRegex(ValueError, 'artifact hash mismatch'):
+                    self.learning.load_policy(path, '0'*64, self.meta)
+            # Exactly 65536 bytes is legal JSON (trailing whitespace); one more
+            # was rejected above. This is a size boundary, not a large artifact.
+            boundary = raw + b' '*(65536-len(raw))
+            path.write_bytes(boundary)
+            self.learning.load_policy(path, hashlib.sha256(boundary).hexdigest(), self.meta)
 
 
 if __name__ == '__main__':
