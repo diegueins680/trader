@@ -62,3 +62,8 @@ a universal method. No new challenger proceeds beyond offline research.
 Actual targeted and full verification commands, results and environmental retries are recorded in [verification.md](verification.md). Passing checks do not remove the unmet research acceptance conditions above.
 
 The [follow-up audit](audit-followup.md) verifies the original export and hardens OPE numerical admission. It does not complete or waive any unmet financial acceptance condition above.
+
+The [source-linked causality continuation](causal-followup-2026-09-28.md) adds the
+actual-source read-footprint contract, restricted AST/SMT checker, CE-RL-004
+mutation fixture and explicit trusted-semantics assumptions. It extends formal
+items 56–74 without claiming mission completion or new empirical evidence.

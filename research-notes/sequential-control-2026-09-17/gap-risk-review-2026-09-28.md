@@ -5,6 +5,12 @@ for integration. The full research mission remains incomplete.** This follow-up
 adds useful scoped verification and current literature surveillance; it does not
 claim untouched confirmation, a production safety proof or deployment readiness.
 
+This report records the gap-risk stage verified at `44177344`. The subsequent
+[source-linked causality continuation](causal-followup-2026-09-28.md) adds a
+thirteenth scoped SMT obligation and CE-RL-004 (a deliberate leakage mutant).
+Its separate verification receipt supersedes the check counts below for the
+current branch; economic evidence and the no-adoption decision are unchanged.
+
 ## Repository preparation and scope
 
 Latest fetched main was `dbd45e26`. The original workspace was dirty on an unrelated

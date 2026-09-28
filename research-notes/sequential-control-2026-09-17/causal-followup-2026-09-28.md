@@ -70,5 +70,57 @@ result, OPE estimate, seed selection or prior rejection is changed.
 
 README, CHANGELOG, formal documentation, specifications and risk-register evidence
 are updated. `RL-OFFLINE-001` remains HIGH/OPEN. No new dependency or configuration
-is introduced. Exact commands and final outcomes will be recorded after the scoped
-and full wrappers finish; until then no new full-run pass is asserted.
+is introduced. The final verification outcomes are recorded below. A green scoped/full check
+does not discharge the deliberately unresolved research acceptance requirements.
+
+
+## Final verification receipt
+
+Executable source is frozen at `528cc390`; its report commit is `489bbcdc`.
+The final local run used that executable tree throughout; this receipt and report
+cross-links are later documentation-only changes. No source was modified during
+verification. Exact Python 3.13.3, NumPy 2.3.5, Z3 4.15.4, GHC 9.4.8, Cabal
+3.12.1.0, Node 20.19.0, Fourmolu 0.15.0.0 and HLint 3.8 were used.
+
+```sh
+PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH \
+TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python \
+bash scripts/verify.sh formal
+
+PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH \
+TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python \
+bash scripts/verify.sh full
+
+/private/tmp/trader-proof-20260928/bin/python scripts/formal/verify.py --require-complete
+```
+
+- **Formal: exit 0.** Sixteen integrity/conformance tests, thirteen SMT obligations,
+  75-state/349-transition model, 20,480 Haskell cases and 180 replay accounting
+  cases pass. The new tests include 128 future-corruption comparisons and the
+  explicit CE-RL-004 SAT witness. Scoped verifier wall time: 25.199 seconds alone,
+  18.799 seconds within full; shared-host observations, not performance guarantees.
+- **Full: exit 0.** Formal, Haskell build/format/lint/smoke/test suite, web
+  typecheck/241 tests/build and automation 185 tests pass, none skipped.
+  Automation took 66.374 seconds. The run was authorized outside the sandbox
+  because the earlier turn established that sandbox restrictions prevent the
+  required localhost fixtures from binding; no fixture was weakened or skipped.
+- **Acceptance diagnostic: exit 1, expected.** Exact failure:
+  `ValueError: research acceptance blocked by open obligations`. All 38 broader
+  obligations remain open/partial. No candidate is declared ready for integration.
+- **Remote CI: all four jobs passed at `489bbcdc`.**
+  [Run 36378571024](https://github.com/diegueins680/trader/actions/runs/36378571024):
+  formal 1m45s, Haskell 6m10s, web 17s, automation 49s. Docker build and deployment
+  were skipped. This receipt does not imply that a subsequent documentation-only
+  commit has already completed remote CI.
+
+Logs remain outside Git; timing and paths make raw logs host-dependent.
+
+| Local log under `/private/tmp/` | SHA256 |
+|---|---|
+| `trader-causal-formal-20260928.log` | `e7712136cd85c4636a200e12e719b9203fc055ebf3f6ae0dc9054aeff17a2a1d` |
+| `trader-causal-full-20260928.log` | `2d887af922c3fdda31d5feee75cdc8acc6066ba5965174428cde856d9736e130` |
+| `trader-causal-acceptance-20260928.log` | `31fcb8625b16e205718cd76080aee48683671ec40d28cb7dcc395ebbcd22ee76` |
+
+The no-adoption recommendation and all prior negative financial findings stand.
+No live authorization, order, authenticated exchange experiment, live exploration,
+production risk change, champion change, merge or deployment occurred.
