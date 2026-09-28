@@ -89,3 +89,5 @@ fixtures and a focused primary-source GAE/PPO update. The numerical failures
 remain unresolved, and no economic trial or frozen learner behavior changes.
 
 - [Isolated target-v2 continuation](target-v2-followup-2026-09-28.md): versioned, disabled raw-target correction; scoped proof/model/conformance and benchmarks. No new financial trial or whole-learner correction.
+
+- [Numerical query-isolation continuation](query-isolation-followup-2026-09-28.md): independent proof-query contexts, exact assertion/status conformance and every registered timing attempt. Existing arithmetic claims and all economic gates are unchanged.
