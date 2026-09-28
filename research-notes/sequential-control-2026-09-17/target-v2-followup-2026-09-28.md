@@ -191,10 +191,10 @@ GHC 9.4.8, Cabal 3.12.1.0, fourmolu 0.15.0.0, hlint 3.8 and Node 20.19.0.
 - Environmental evidence: one-minute host load averages were 236.804 and 271.855
   on 16 logical CPUs around these failures. This supports resource contention as
   an explanation, not a proof of root cause or a substitute for a passing local
-  full command. Unrelated workloads were not stopped. Local full verification
-  remains an unresolved delivery limitation; rerun unchanged on an available
-  host before claiming that gate passed. The PR is not ready for candidate
-  integration, and the 38 broader obligations retain their open/partial status.
+  full command. Unrelated workloads were not stopped. At that receipt, local full
+  verification remained an unresolved delivery limitation. The continuation below records
+  subsequent attempts without replacing these failures. The PR is not ready for
+  candidate integration, and the 38 broader obligations retain their open/partial status.
 - Remote [CI run 36450058964](https://github.com/diegueins680/trader/actions/runs/36450058964)
   at `2b11d799`: formal, Haskell, web and automation passed. Docker build and
   deployment were skipped.
@@ -223,6 +223,78 @@ Logs and benchmark output remain outside Git. SHA-256 receipts, prefix
 | benchmark | `d0ac9c51c31ecc57391f402b7524bfd57e8631fda09a2ebcfa6a225c05b3d792` |
 | full (failed) | `7469c8dbd69c898247becdb01a8db0e90d241456c111cd7b9ce37332e294911a` |
 | automation-retry (failed) | `7965f8f536fb8100f5b193931d0688adad935fa27a40367a9641080af6f894b4` |
+
+## Verification continuation at `46f815e4`
+
+No source, proof, test, timeout, tool version, Node worker scheduling or acceptance
+gate changed. All 42 source hashes in the formal toolchain manifest still match.
+An unchanged automation rerun again returned **exit 1**: 183/185 passed, two failed,
+none skipped, in 107.765 seconds. Scheduler and edge-campaign subprocesses exceeded
+their existing 30/60-second deadlines; sequential-contract tests passed.
+
+A process-local resource experiment then capped numerical-library threads before
+Python/NumPy initialization. NumPy reports Apple Accelerate as its BLAS/LAPACK
+backend. Apple's installed `/usr/share/man/man7/Accelerate.7` documents
+`VECLIB_MAXIMUM_THREADS` for controlling internal threading and avoiding contention.
+The OpenBLAS/OpenMP variables also bound compatible libraries if loaded; this is
+not evidence that those backends were used. Nothing was installed or written to
+shell startup, deployment configuration or live trading environment variables.
+
+```bash
+PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH \
+TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python \
+VECLIB_MAXIMUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+bash scripts/verify.sh automation
+# The same command prefix was used for the formal and full targets below.
+```
+
+- Automation with this prefix: **exit 0**, 185/185 passed, none skipped, in 73.975
+  seconds. Scheduler took 26.439 seconds against its unchanged 30-second deadline.
+  This single pass does not establish a causal fix or adequate timing headroom.
+- Standalone formal with this prefix: **exit 1**, 49 tests in 87.100 seconds,
+  one assertion failure and two errors. `F-RL-TARGET-V2-FINITE` returned
+  `premise witness failed: unknown`; `F-RL-TERMINAL-FP-MASK` returned
+  `violating terminal claim: canceled`. The latter also prevented a receipt-tamper
+  regression from reaching its expected rejection. The pinned 10-second solver
+  timeout was not increased. Unknown/canceled checks supply neither a certificate
+  nor a counterexample and are not marked as passes.
+- Remote [CI run 36453692641](https://github.com/diegueins680/trader/actions/runs/36453692641)
+  at `46f815e4` passed formal, Haskell, web and automation; Docker/deployment were
+  skipped. This is separate evidence, not a replacement for local failures.
+
+The full wrapper with the same prefix returned **exit 0**. Its formal stage passed
+49 tests in 42.356 seconds and all 22 scoped SMT requirements, bounded models and
+conformance checks (verifier 30.224 seconds). Haskell build/format/lint/smoke/tests,
+web typecheck/241 tests/build and all 185 automation tests passed, none skipped.
+Automation took 54.769 seconds; the scheduler fixture took 17.955 seconds. This
+supplies the previously missing local full-run pass for unchanged executable source.
+It does not erase the earlier failures or certify reproducible timing headroom.
+
+An unchanged standalone `bash scripts/verify.sh formal` retry with the same prefix
+also returned **exit 0**: 49 tests in 39.231 seconds, all scoped checks and verifier
+19.016 seconds. The previous standalone failure remains a separate receipt.
+
+Host load varied during these attempts (including 61.511 on 16 logical CPUs around
+formal failures), so thread caps and host availability are confounded. No unrelated workload was stopped.
+The 38 broader obligations remain open/partial; no proof ledger status is promoted.
+The acceptance command, using the same process prefix and pinned Python,
+`python scripts/formal/verify.py --require-complete`, reproduced the scoped
+certificates in 19.938 seconds, then returned expected **exit 1**:
+`ValueError: research acceptance blocked by open obligations` (38 open/partial).
+This is an acceptance refusal, not a successful whole-mission verification.
+
+Continuation logs use prefix `/private/tmp/trader-targetv2-`, suffix
+`-20260928.log` (CI receipt uses `.json`):
+
+| Artifact | SHA-256 |
+| --- | --- |
+| resume-automation (failed) | `7ae818b6f5f62a0fadcce4a62270cee77941e19762f042f752bf2de680045296` |
+| resume-automation-threadcap | `b107af5daf0cc5c7cb976055835cec0518d6822f648e8cae433480eb79465691` |
+| resume-formal (failed) | `454decb7d45252c22d0c710980a58f2c75c4855f413e54df3a381f29611a11a8` |
+| resume-formal-retry | `9d9de355450905cd2ae8f5c9e9cb921c87cf0c2f6c9c1733d6260158bfb0af57` |
+| resume-acceptance (expected refusal) | `f9b84b3685d3c0b5303ef0088abf6ede0218bb3bbe285d54d363b56d4d13f482` |
+| resume-ci | `90a0722171216f2d4523ac92505df0bc7ab474f25e38a1ea3dcaea246c180004` |
+| resume-full | `1dd4ea1a42580b12f2d5eab932b5e30f40d8689dd1cde7c8028d954219ec0af5` |
 
 No live authorization, order, authenticated trading experiment, live exploration,
 holdout access, merge, deployment or champion change occurred. No proof placeholder
