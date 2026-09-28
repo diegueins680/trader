@@ -102,9 +102,57 @@ remains HIGH/OPEN. No candidate becomes eligible for shadow, paper or live use.
 
 ## Verification receipt
 
-The verification implementation is frozen at `77b3d656`, following specification
-`409b8a89`. The targeted six-test suite passed, including expected counterexamples.
-`bash scripts/verify.sh formal` returned **exit 0**: 41 integrity regressions,
-19 scoped SMT requirements, existing state models and conformance checks. The full
-command and final log hashes remain pending. No full-verification or mission-
-completion claim is made yet.
+Source freeze: `77b3d656`; report revision: `4599d248`; specification precedes both
+at `409b8a89`. Subsequent receipt changes are documentation only. Commands from the
+isolated worktree:
+
+```bash
+export PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH
+export TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python
+"$TRADER_FORMAL_PYTHON" scripts/formal/test_integrity.py TerminalNumericsTests
+bash scripts/verify.sh formal
+bash scripts/verify.sh full
+"$TRADER_FORMAL_PYTHON" scripts/formal/verify.py --require-complete
+```
+
+Pinned tools checked locally: Python 3.13.3, NumPy 2.3.5, z3-solver 4.15.4.0
+(solver 4.15.4), GHC 9.4.8, Cabal 3.12.1.0, fourmolu 0.15.0.0, hlint 3.8 and
+Node 20.19.0.
+
+- Targeted numerical suite: **exit 0**, six tests, 13.270 seconds.
+- Formal wrapper: **exit 0**, 41 integrity tests (17.848 seconds), 19 scoped SMT
+  requirements and two new expected current-source SAT counterexamples. The
+  scoped verifier reported 14.210 seconds.
+- Existing lifecycle model: two callers, 75 reachable states, 349 transitions,
+  maximum shortest depth 6. Separate artifact model: 13 gates, 27 states,
+  40 transitions, maximum depth 13. These are not a composed production proof.
+- Conformance: 16,384 bounded Haskell cases plus 4,096 generated cases,
+  180 exact-rational replay traces. New numerical cases are the two witnesses
+  and the 27-case well-conditioned terminal grid, not financial experiments.
+- Numerical domains: unbounded exact-real terminal algebra; all finite binary64
+  next values/carries and finite discounts in [0,1] for the product certificate;
+  separate RNE operations. SAT witnesses use the exact hex inputs in the fixture.
+- Full wrapper: **exit 0**. Formal, Haskell build/format/lint/smoke/tests, web
+  typecheck/241 tests/build and 185 automation tests passed, none skipped.
+  The scoped verifier reported 10.778 seconds. No retry, disabled check,
+  altered timeout or weakened gate was needed.
+- Remote [CI run 36441350297](https://github.com/diegueins680/trader/actions/runs/36441350297)
+  at `4599d248`: formal, Haskell, web and automation passed. Docker build and
+  deployment were skipped.
+- Acceptance diagnostic: expected **exit 1**, `ValueError: research acceptance
+  blocked by open obligations`; all 38 broader obligations remain open/partial.
+  Both new current-source numerical blockers remain unresolved.
+
+Logs remain outside Git. SHA-256 receipts, prefix
+`/private/tmp/trader-terminal-`, suffix `-20260928.log`:
+
+| Log | SHA-256 |
+| --- | --- |
+| formal | `af184fc0250ecfc824666b66cebd08f920de5fd1a1e7393ee25fdd8b3dcad559` |
+| acceptance | `34b0503d0c8cc33163cca6434683bb147d63fa27ab031fee43326273fa3d7e56` |
+| full | `e9d930ebb39ee4fdc93a41e0d5b5197182249ac4388e5d02ab30035625c73821` |
+
+No live authorization, order, authenticated trading experiment, live exploration,
+holdout access, merge, deployment or champion change occurred. No proof placeholder
+was introduced; unresolved proof and empirical obligations remain explicit. The
+passing scoped checks reproduce refutations rather than declaring those claims true.
