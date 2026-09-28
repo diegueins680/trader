@@ -12,6 +12,7 @@ import training_prefix
 import artifact_admission
 import transition_admission
 import terminal_numerics
+import target_v2
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -680,6 +681,139 @@ class TerminalNumericsTests(unittest.TestCase):
         self.assertEqual(t[0],u[0])
         self.assertEqual(t[0],1.)
         self.assertNotEqual(a[0],b[0])  # Batch normalization intentionally pools rows.
+
+
+class TargetV2Tests(unittest.TestCase):
+    def setUp(self):
+        import gae_targets_v2
+        self.kernel = gae_targets_v2
+        self.source = (ROOT / target_v2.SOURCE).read_text()
+
+    def test_scoped_v2_proofs_and_publication_model(self):
+        result = target_v2.check_targets()
+        self.assertEqual(result['queries'],4)
+        self.assertTrue(result['premiseWitnessRemovedBeforeViolation'])
+        self.assertEqual(result['model']['states'],33410)
+        self.assertEqual(result['model']['transitions'],66562)
+        self.assertEqual(result['model']['progressBound'],258)
+        self.assertFalse(result['wholeLearnerCorrection'])
+
+    def test_source_mutations_rejected(self):
+        mutations = [
+            ('target = reward','target = raw + value'),
+            ('gamma * 0.95','gamma * 0.5'),
+            ('enabled: object = False','enabled: object = True'),
+            ('if not all(isfinite(x) for x in (raw, target)):', 'if False:'),
+            ('if pair is None:', 'if False:'),
+            ('staged.append(pair)', 'return tuple(staged)'),
+            ('from math import isfinite','from math import isfinite\nimport os')]
+        for old,new in mutations:
+            self.assertIn(old,self.source)
+            with self.subTest(old=old),self.assertRaises((RuntimeError,ValueError)):
+                target_v2.check_targets(self.source.replace(old,new))
+
+    def test_premise_witness_does_not_restrict_universal_query(self):
+        x = z3.Real('witness_scope')
+        with self.assertRaisesRegex(RuntimeError,'violating/unknown obligation'):
+            target_v2.certify('scope',z3.BoolVal(True),x==0,[x==0])
+        with self.assertRaisesRegex(RuntimeError,'premise witness failed'):
+            target_v2.certify('vacuous',z3.BoolVal(False),z3.BoolVal(True),[])
+
+    def test_v1_counterexamples_corrected_or_rejected_in_v2_only(self):
+        fixtures = read_json(ROOT / 'formal/research/terminal-counterexamples.json')
+        for entry in fixtures['entries']:
+            r = tuple(float.fromhex(x) for x in entry['rewardHex'])
+            v,g = float.fromhex(entry['criticHex']),float.fromhex(entry['gammaHex'])
+            rows = tuple((reward,v,v,True) for reward in r)
+            result = self.kernel.batch_v2(rows,g,enabled=True)
+            if entry['id']=='CE-RL-010':
+                self.assertEqual(result[0][1].hex(),r[0].hex())
+                self.assertEqual(result[0][1],1.)
+            else:
+                self.assertIsNone(result)
+            self.assertEqual(rows,tuple((reward,v,v,True) for reward in r))
+        # Preserve the original defect and artifact/training semantics.
+        import sequential_learning
+        net = sequential_learning.Network(11,1)
+        for value in net.p.values(): value.fill(0)
+        net.p['b2'][0] = 1e16
+        data = {'s':np.zeros((1,12)),'next':np.zeros((1,12)),
+                'r':np.array([1.]),'done':np.array([True])}
+        _,targets = sequential_learning.advantages(data,net,.99)
+        self.assertEqual(targets[0],0.)
+
+    def test_default_disabled_controls_and_strict_native_inputs(self):
+        row = (1.,0.,0.,True)
+        self.assertIsNone(self.kernel.batch_v2((row,),.99))
+        self.assertIsNone(self.kernel.step_v2(1.,0.,0.,0.,True,.99))
+        for enabled in (False,None,0,1,'true',np.bool_(True)):
+            self.assertIsNone(self.kernel.batch_v2((row,),.99,enabled=enabled))
+        class Hostile:
+            def __eq__(self, other): raise AssertionError('coercion')
+            def __len__(self): raise AssertionError('inspection')
+        for version in (None,1,'gae-targets-v1',Hostile()):
+            self.assertIsNone(self.kernel.batch_v2((row,),.99,enabled=True,version=version))
+        self.assertIsNone(self.kernel.batch_v2(Hostile(),Hostile()))
+        for gamma in (True,1,-.1,1.1,float('nan'),float('inf'),np.float64(.99),Hostile()):
+            self.assertIsNone(self.kernel.batch_v2((row,),gamma,enabled=True))
+        for rows in ([],(),(row,)*257,[row],((),),((1.,0.,0.),),(Hostile(),)):
+            self.assertIsNone(self.kernel.batch_v2(rows,.99,enabled=True))
+        for i in range(4):
+            for bad in (None,Hostile(),float('nan'),float('inf'),1,np.float64(1.)):
+                changed = list(row); changed[i] = bad
+                self.assertIsNone(self.kernel.batch_v2((tuple(changed),),.99,enabled=True))
+
+    def test_signed_zero_extremes_and_overflow(self):
+        import sys
+        for r in (-0.,0.,float.fromhex('0x0.0000000000001p-1022'),sys.float_info.max):
+            pair = self.kernel.step_v2(r,0.,0.,0.,True,.99,enabled=True)
+            self.assertEqual(pair[1].hex(),r.hex())
+        maximum = sys.float_info.max
+        for row in ((maximum,-maximum,0.,True),(maximum,0.,maximum,False)):
+            self.assertIsNone(self.kernel.batch_v2((row,),1.,enabled=True))
+        self.assertIsNone(self.kernel.step_v2(1.,0.,0.,float('inf'),True,.99,enabled=True))
+
+    def test_every_failure_position_and_maximum_batch(self):
+        row = (1.,0.,0.,True)
+        rows = (row,)*256
+        self.assertEqual(self.kernel.batch_v2(rows,.99,enabled=True),((1.,1.),)*256)
+        for i in range(256):
+            changed = rows[:i]+((float('nan'),0.,0.,True),)+rows[i+1:]
+            self.assertIsNone(self.kernel.batch_v2(changed,.99,enabled=True))
+            self.assertTrue(np.isnan(changed[i][0]))
+        first = self.kernel.batch_v2(rows,.99,enabled=True)
+        self.assertIsNone(self.kernel.batch_v2(rows,.99))
+        self.assertEqual(self.kernel.batch_v2(rows,.99,enabled=True),first)
+
+    def test_rational_reference_grid_and_deterministic_sequences(self):
+        from fractions import Fraction as F
+        from itertools import product
+        import math
+        import random
+        count = 0
+        for r,v,n,c,gamma,done in product(*([(-2.,0.,2.)]*4), (0.,.5,1.), (False,True)):
+            pair = self.kernel.step_v2(r,v,n,c,done,gamma,enabled=True)
+            rf,vf,nf,cf,gf = map(F,(r,v,n,c,gamma))
+            raw = rf-vf if done else rf+gf*nf-vf+gf*F(.95)*cf
+            target = rf if done else raw+vf
+            self.assertTrue(math.isclose(pair[0],float(raw),rel_tol=0.,abs_tol=1e-12))
+            self.assertTrue(math.isclose(pair[1],float(target),rel_tol=0.,abs_tol=1e-12))
+            count+=1
+        self.assertEqual(count,486)
+        rng = random.Random(20260928)
+        for _ in range(64):
+            rows = tuple((rng.uniform(-4,4),rng.uniform(-4,4),rng.uniform(-4,4),rng.choice((True,False)))
+                         for _ in range(rng.randint(1,256)))
+            first = self.kernel.batch_v2(rows,.99,enabled=True)
+            self.assertEqual(first,self.kernel.batch_v2(rows,.99,enabled=True))
+            self.assertTrue(all(math.isfinite(x) for pair in first for x in pair))
+            # An exact terminal branch disconnects earlier raw targets from
+            # changes strictly after that terminal, provided both batches admit.
+            cut = next((i for i,row in enumerate(rows[:-1]) if row[3]),None)
+            if cut is not None:
+                changed = rows[:cut+1]+tuple((r+1,v-1,n+2,d) for r,v,n,d in rows[cut+1:])
+                second = self.kernel.batch_v2(changed,.99,enabled=True)
+                self.assertEqual(first[:cut+1],second[:cut+1])
 
 
 if __name__ == '__main__':

@@ -196,6 +196,22 @@
         {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
+        },
+        {
+          "id": "F-RL-TARGET-V2-TERMINAL",
+          "statement": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero."
+        },
+        {
+          "id": "F-RL-TARGET-V2-FINITE",
+          "statement": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence."
+        },
+        {
+          "id": "F-RL-TARGET-V2-REAL",
+          "statement": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem."
+        },
+        {
+          "id": "F-RL-TARGET-V2-PUBLISH",
+          "statement": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists."
         }
       ],
       "invariants": [
@@ -255,6 +271,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_current_numpy_counterexamples_and_downstream_rejection"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_v1_counterexamples_corrected_or_rejected_in_v2_only"
         }
       ]
     },

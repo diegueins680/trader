@@ -14,7 +14,8 @@
     "scripts/formal/training_prefix.py",
     "scripts/formal/artifact_admission.py",
     "scripts/formal/transition_admission.py",
-    "scripts/formal/terminal_numerics.py"
+    "scripts/formal/terminal_numerics.py",
+    "scripts/formal/target_v2.py"
   ],
   "sourceHashes": {
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
@@ -22,14 +23,14 @@
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "7c5e52eb65932ca321026ff53de50346b0b1743a944ab748e847f9c8575d6aec",
-    "scripts/formal/test_integrity.py": "f6811e59e5beaf99c7a950c6ae45e711c499e12308323598b06b6093109452c9",
+    "scripts/formal/verify.py": "c31aa29daa3431e1c625afcbddc90b7d1b54f8f9a50663d4b40a437685278bc0",
+    "scripts/formal/test_integrity.py": "920639085be0d6960724b29d107674b28a1931083c9b7e1057bd59025031675c",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
-    "formal/research/proof-ledger.json": "d80ddeec465cd2f511bb23521e5f5f9695f550e10a455c3d5146897c7cd95323",
+    "formal/research/proof-ledger.json": "c81a377cf0ce433ec8b0bd70820ee67f0cc626ffb0aae3439815978226765211",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -53,7 +54,12 @@
     "formal/research/transition-counterexamples.json": "984b07319602bf5eb639a248ee902a45aace80bbfe73079804a86109e8d0bd23",
     "scripts/formal/terminal_numerics.py": "52944ac0f84a3606c57092af5bba7814f392ca1d0828e864f612f93994a5a59f",
     "formal/research/terminal-numerics-contract.md": "064018076666b20eeedbcb78d775a469d506726beca9871b9678fbccfd5fb9df",
-    "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536"
+    "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
+    "scripts/formal/target_v2.py": "22877616bacb5a3471b4bc248915146d67e10a4cdaaa4b8419ede8874c0f576d",
+    "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+    "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
+    "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
+    "research-notes/registrations/gae-targets-v2-engineering.json": "293eb15ab55924c7b05c28be805ad787c1e821c1d12220f676b973c851f5e4d7"
   },
   "numpy": "2.3.5"
 }

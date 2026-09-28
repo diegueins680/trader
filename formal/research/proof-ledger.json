@@ -73,6 +73,12 @@
       "status": "assumption",
       "statement": "Correctly shaped float64 arrays and Boolean done masks, matching rows, stable primitive bindings and no concurrent mutation. Trusted AST checker and vector-to-scalar correspondence with separate IEEE binary64 RNE operations, not fused reassociation or full interpreter refinement. The finite-product theorem requires finite next value AND later carry; finite network outputs do not ensure finite carry. Batch normalization is outside the noninterference claim.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TARGET-V2",
+      "status": "assumption",
+      "statement": "Native immutable tuples, native float/bool inputs, stable bindings, separate IEEE binary64 RNE and trusted math.isfinite/Python primitives; source skeleton/scalarization/model abstraction, compiler and solver are trusted. Normal resource availability and terminating primitives; no concurrent monkey patching. No whole-interpreter refinement, normalized-advantage guarantee, nonterminal roundoff bound or full learner correction.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -92,7 +98,9 @@
     "scripts/formal/training_prefix.py",
     "scripts/formal/artifact_admission.py",
     "scripts/formal/transition_admission.py",
-    "scripts/formal/terminal_numerics.py"
+    "scripts/formal/terminal_numerics.py",
+    "scripts/formal/target_v2.py",
+    "scripts/research/gae_targets_v2.py"
   ],
   "entries": [
     {
@@ -936,6 +944,118 @@
       "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
       "counterexample": "formal/research/terminal-counterexamples.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-TERMINAL",
+      "claim": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero.",
+      "criticality": "critical",
+      "formalStatement": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise witnesses and UNSAT violation queries; witness constraints removed before checking universal violations.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-FINITE",
+      "claim": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence.",
+      "criticality": "critical",
+      "formalStatement": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise witnesses and UNSAT violation queries; witness constraints removed before checking universal violations.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-REAL",
+      "claim": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem.",
+      "criticality": "critical",
+      "formalStatement": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise witnesses and UNSAT violation queries; witness constraints removed before checking universal violations.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-PUBLISH",
+      "claim": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists.",
+      "criticality": "critical",
+      "formalStatement": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "33410 states, 66562 transitions, depth/progress bound 258; invariants and strict progress rank checked.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "model_checked"
     }
   ],
   "missionObligations": [
@@ -998,9 +1118,13 @@
         "F-RL-TERMINAL-REAL",
         "F-RL-TERMINAL-FP-MASK",
         "F-RL-TERMINAL-EXACT",
-        "F-RL-TERMINAL-FINITE"
+        "F-RL-TERMINAL-FINITE",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 7,
@@ -1045,9 +1169,13 @@
         "F-RL-TERMINAL-REAL",
         "F-RL-TERMINAL-FP-MASK",
         "F-RL-TERMINAL-EXACT",
-        "F-RL-TERMINAL-FINITE"
+        "F-RL-TERMINAL-FINITE",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 11,
@@ -1169,9 +1297,13 @@
       "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-FIT-PREFIX",
-        "F-RL-COLLECT-PREFIX"
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 23,
@@ -1255,9 +1387,13 @@
       "evidenceRequirements": [
         "F-RL-DEFAULT",
         "F-RL-ARTIFACT-PATH",
-        "F-RL-ARTIFACT-METADATA"
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 32,
@@ -1287,18 +1423,26 @@
       "claim": "Idempotence",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-IDEMPOTENT"
+        "F-RL-SHIELD-IDEMPOTENT",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 36,
       "claim": "Shutdown termination",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 37,
