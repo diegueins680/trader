@@ -1,5 +1,13 @@
 # Canonical Formal Specifications
 
+The [2026-09-28 gap-risk extension](../formal/research/gap-risk-contract.md)
+distinguishes target bounds, post-cost exposure and pathwise loss limits.
+`F-RL-GAP-BOUND`, `F-RL-DRAWDOWN-COMPOSE` and `F-RL-POSTCOST-EXPOSURE`
+are conditional exact-real SMT lemmas. `F-RL-UNCONDITIONAL-FLOOR` is explicitly
+refuted by two replayable witnesses; `F-RL-GAP-CONFORMANCE` checks a finite
+180-case accounting grid. The proof ledger retains whole-system blockers and
+the risk register names the unestablished bounded-jump/debit assumption.
+
 The canonical, machine-readable specification set is [`formal/specifications.json`](../formal/specifications.json). It covers the production Haskell, web, automation, research, deployment, and CI surfaces. `FORMAL_METHODS.md` and `docs/formal-specs-extracted.md` remain deeper explanations of selected trading-critical contracts; if prose conflicts with the registry or executable implementation, the conflict is a verification failure to resolve, not an alternate specification.
 
 ## Semantics

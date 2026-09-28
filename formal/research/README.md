@@ -6,8 +6,9 @@ are unchanged. Start with [the canonical contract and consistency resolutions](c
 
 ## Install and reproduce
 
-Use Python 3.13.3 and GHC 9.4.8. The only new dependency is the MIT-licensed
-Z3 Python distribution 4.15.4.0 (solver reports 4.15.4). Supported wheel hashes
+Use Python 3.13.3 and GHC 9.4.8. The verifier uses the MIT-licensed
+Z3 Python distribution 4.15.4.0 (solver reports 4.15.4) and the existing BSD-licensed
+NumPy 2.3.5 replay dependency. Supported CPython 3.13 wheel hashes
 are pinned for Linux/macOS x86-64/ARM64. Install once:
 
 ```sh
@@ -38,12 +39,21 @@ There is no switch in this work to authorize a candidate, experiment or order.
 
 ## What is checked
 
-- [Nine SMT obligations](../../scripts/formal/proofs.py): IEEE binary64 target
+- [Twelve SMT obligations](../../scripts/formal/proofs.py): IEEE binary64 target
   bounds, evidence precedence, malformed/timeout fallback, disabled behavior,
   stable rescreening, constant lack of authority, integer slice/purge lemmas,
   and exact-real accounting identity. Every negated claim must be UNSAT within
   10 seconds. SAT and UNKNOWN are failures. Acceptance satisfiability is also
   checked so a gate rejecting everything cannot satisfy the suite vacuously.
+- [Gap-risk contract](gap-risk-contract.md): three additional sufficient-condition
+  lemmas over exact reals check jump/debit loss bounds, drawdown composition and
+  post-cost exposure. Each premise has a SAT non-vacuity check. Two explicitly
+  refuted unconditional-floor claims require their prescribed SAT witnesses.
+  The [actual Replay](../../scripts/formal/gap_conformance.py) reproduces these
+  failures and checks 180 two-bar exact-accounting fixtures (3 targets, 5 price
+  ratios, 4 cost multipliers, 3 funding debits), with absolute tolerance 2e-15.
+  No price-path frequency, binary64 universal refinement or real-market risk
+  ceiling is established. The finite grid is engineering conformance evidence.
 - [Finite protocol](../../scripts/formal/lifecycle.py): all 75 reachable states,
   349 directed transitions, maximum shortest-path depth 6, two callers. Search
   reaches a fixed point, not a depth cutoff. Safety is invariant checking;

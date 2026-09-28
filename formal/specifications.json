@@ -122,6 +122,26 @@
           "statement": "Ending wealth less starting wealth equals gross plus funding minus costs minus terminal costs; reward penalty is not cash."
         },
         {
+          "id": "F-RL-GAP-BOUND",
+          "statement": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d."
+        },
+        {
+          "id": "F-RL-DRAWDOWN-COMPOSE",
+          "statement": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1."
+        },
+        {
+          "id": "F-RL-POSTCOST-EXPOSURE",
+          "statement": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic."
+        },
+        {
+          "id": "F-RL-UNCONDITIONAL-FLOOR",
+          "statement": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay."
+        },
+        {
+          "id": "F-RL-GAP-CONFORMANCE",
+          "statement": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence."
+        },
+        {
           "id": "F-RL-LIFECYCLE",
           "statement": "The two-caller abstract protocol never gains authority, forbids new calls while draining and decreases outstanding calls on every completion."
         },
@@ -147,7 +167,7 @@
       "failures": [
         {
           "id": "F-RL-FAIL-CLOSED",
-          "statement": "SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success."
+          "statement": "Unexpected SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success; explicitly refuted claims require their prescribed SAT counterexamples."
         }
       ],
       "evidence": [

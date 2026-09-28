@@ -1,5 +1,12 @@
 # Trader Firm — Risk Register
 
+Gap-risk evidence (2026-09-28): `RL-OFFLINE-001` remains HIGH/OPEN.
+[CE-RL-002/003](../formal/research/gap-counterexamples.json) reproduce capital-floor
+breaches after shielded targets in the offline replay. Conditional real-arithmetic
+[risk lemmas](../formal/research/gap-risk-contract.md) require bounded price moves
+and cash debits; these are unestablished environmental assumptions, not live risk
+guarantees. No production limit or risk lifecycle status changes.
+
 `formal/risk-register.json` is the canonical machine-readable source for risk
 IDs, severities, and lifecycle statuses. This table and the typed Haskell
 projection in `app/Trader/Formal/RiskRegister.hs` must contain exactly the same

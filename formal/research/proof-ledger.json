@@ -37,6 +37,12 @@
       "status": "assumption",
       "statement": "Exact real algebra does not establish binary64 accounting, market fills or calibrated costs.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-GAP",
+      "status": "assumption",
+      "statement": "Return and total-debit bounds in sufficient-condition lemmas are environmental hypotheses, not established crypto-market facts. Pre-bar drifted exposure differs from a proposed target.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -49,7 +55,9 @@
     "scripts/verify.sh",
     "scripts/autoloop.mjs",
     ".github/workflows/ci.yml",
-    "package.json"
+    "package.json",
+    "scripts/formal/gap_risk.py",
+    "scripts/formal/gap_conformance.py"
   ],
   "entries": [
     {
@@ -436,6 +444,166 @@
       "relatedRequirements": [
         "F-RL-NO-PROMOTION"
       ]
+    },
+    {
+      "requirementId": "F-RL-GAP-BOUND",
+      "claim": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d.",
+      "criticality": "critical",
+      "formalStatement": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Premise SAT and negated implication UNSAT, 10-second timeout.",
+      "bounds": "All reals satisfying the stated premises.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-DRAWDOWN-COMPOSE",
+      "claim": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1.",
+      "criticality": "critical",
+      "formalStatement": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Premise SAT and negated implication UNSAT, 10-second timeout.",
+      "bounds": "All reals satisfying the stated premises.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-POSTCOST-EXPOSURE",
+      "claim": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic.",
+      "criticality": "critical",
+      "formalStatement": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Premise SAT and negated implication UNSAT, 10-second timeout.",
+      "bounds": "All reals satisfying the stated premises.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-UNCONDITIONAL-FLOOR",
+      "claim": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Prescribed SAT counterexamples CE-RL-002/003; Replay reproduces both.",
+      "bounds": "Two-bar horizon; 3 targets x 5 price ratios x 4 cost multipliers x 3 funding debits; two fixed rational witnesses.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": "formal/research/gap-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-GAP-CONFORMANCE",
+      "claim": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence.",
+      "criticality": "critical",
+      "formalStatement": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Python/NumPy Replay conformance",
+      "toolVersion": "Python 3.13.3; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/gap_conformance.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "All 180 cases and two counterexamples must reproduce.",
+      "bounds": "Two-bar horizon; 3 targets x 5 price ratios x 4 cost multipliers x 3 funding debits; two fixed rational witnesses.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
     }
   ],
   "missionObligations": [
@@ -492,18 +660,28 @@
       "claim": "Bounded values",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-BOUNDS"
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
     },
     {
       "number": 8,
       "claim": "Accounting",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-ACCOUNT"
+        "F-RL-ACCOUNT",
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
     },
     {
       "number": 9,
@@ -583,24 +761,41 @@
       "number": 18,
       "claim": "Valid transitions",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
     },
     {
       "number": 19,
       "claim": "Terminal accounting",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
     },
     {
       "number": 20,
       "claim": "Action safety",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-BOUNDS"
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
     },
     {
       "number": 21,

@@ -7,6 +7,16 @@
     "privateConstructorChecked": true,
     "seed": 20260920
   },
+  "gapRefutations": {
+    "CE-RL-002": {
+      "endingEquity": "24991/32000",
+      "status": "sat"
+    },
+    "CE-RL-003": {
+      "endingEquity": "199/800",
+      "status": "sat"
+    }
+  },
   "model": {
     "callers": 2,
     "counterexampleToRevocation": [
@@ -21,12 +31,35 @@
     "states": 75,
     "transitions": 349
   },
+  "numpy": "2.3.5",
+  "replayConformance": {
+    "absoluteTolerance": "2e-15",
+    "boundedAccountingTraces": 180,
+    "causalObservationComparisons": 179,
+    "counterexamples": {
+      "CE-RL-002": {
+        "failure": "capital_floor",
+        "flat": true,
+        "rows": 2
+      },
+      "CE-RL-003": {
+        "failure": "capital_floor",
+        "flat": true,
+        "rows": 2
+      }
+    },
+    "unaccountedFailuresRejected": 2,
+    "universalRefinement": false
+  },
   "schemaVersion": 1,
   "smt": {
     "F-RL-ACCOUNT": "unsat",
     "F-RL-AUTH": "unsat",
     "F-RL-CAUSAL-SLICE": "unsat",
     "F-RL-DEFAULT": "unsat",
+    "F-RL-DRAWDOWN-COMPOSE": "unsat",
+    "F-RL-GAP-BOUND": "unsat",
+    "F-RL-POSTCOST-EXPOSURE": "unsat",
     "F-RL-SHIELD-BOUNDS": "unsat",
     "F-RL-SHIELD-FALLBACK": "unsat",
     "F-RL-SHIELD-GUARDS": "unsat",
@@ -39,15 +72,19 @@
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
-    "formal/research/proof-ledger.json": "08f831539fd6030185b168c9940e4f30db295dfe7103917e85e4832bea66434e",
+    "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
+    "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
+    "formal/research/proof-ledger.json": "b0e8296078ce8f750d287d1b9a1731228db74c6d0571e61bfee03960e2715d61",
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
+    "scripts/formal/gap_conformance.py": "e5e900f8aa492c786f61d69d4e791f09dd87833229a3f820c0afefb9d753ac7a",
+    "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
-    "scripts/formal/proofs.py": "1cffa62991e54211a5cd62c67830575904c45a8e5facd0d572405ee7796ad930",
-    "scripts/formal/requirements.txt": "cf3b48befb56078d536a9e4d00ff23bd42635c2e934a8a6cd52462c79d736619",
-    "scripts/formal/test_integrity.py": "ee95fa43406bd6498c2e252f72b942edb2c19c95a6024b3d547bd2872cea93e1",
-    "scripts/formal/verify.py": "820a16126b62c3304342fb72b9faa4869653612b9923b1525a518974e3817c4d",
+    "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
+    "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
+    "scripts/formal/test_integrity.py": "0433e6cee45d1c8ccb23a2c68f425b9ae435d579e3dafab25f8e1e1568532169",
+    "scripts/formal/verify.py": "a2e202d972b252081e758d938e2c8a6e167858c223da2bebee104cbd088d2ef8",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07"
   }
