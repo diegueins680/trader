@@ -491,3 +491,12 @@ successors must pass the existing representation, shape and finiteness predicate
 CE-RL-009 is a deliberate guard-removal mutant. Trusted helper semantics, valid
 risk classification and complete replay/cash accounting refinement remain open;
 whole-mission obligations 18/19 gain partial evidence without becoming complete.
+
+The [terminal-numerics contract](../formal/research/terminal-numerics-contract.md)
+checks source-derived exact-real terminal algebra and conditional binary64 zero
+products. Current-source CE-RL-010/011 refute exact reward reconstruction and
+unconditional finite targets from finite inputs. These refuted claims are
+explicitly recorded, not silently treated as passing safety properties. Their
+reproduction passes CI as negative evidence; it does not resolve the blockers or
+authorize a policy. Batch normalization, complete learner refinement and economic
+impact remain unproved.

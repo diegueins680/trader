@@ -1,5 +1,9 @@
 # Training-transition admission continuation — 2026-09-28
 
+Subsequent [terminal numerical audit](terminal-numerics-followup-2026-09-28.md)
+adds current-source counterexamples. Counts and receipts below describe this
+transition-admission revision only.
+
 **No adoption. The broader mission remains incomplete.** This continuation checks
 the existing training-transition admission boundary without changing replay,
 training algorithms, data, policies, artifacts, registrations, current champion or

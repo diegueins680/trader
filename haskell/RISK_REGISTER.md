@@ -1,5 +1,12 @@
 # Trader Firm — Risk Register
 
+Terminal-target numerical evidence (2026-09-28):
+[CE-RL-010/011](../formal/research/terminal-counterexamples.json) are current-source
+research-learner counterexamples, not mutations. Finite inputs can lose terminal
+reward through cancellation or yield infinity/NaN through residual/carry arithmetic.
+No historical-market impact is established. Exact-real and finite-product proofs
+do not repair these open blockers; `RL-OFFLINE-001` remains HIGH/OPEN.
+
 Training-transition admission evidence (2026-09-28 continuation):
 [source-derived predicates](../formal/research/transition-admission-contract.md)
 establish necessary terminal-flatness and successor-admission conditions under

@@ -73,3 +73,13 @@ is historical context, not a current open task. No comments or messages were
 sent to maintainers. This research neither enabled trading nor changed existing
 production authorization; the checked-in production profile already has its own
 live fleet, so claiming the entire repository was live-disabled would be false.
+
+## PPO/GAE numerical scope — 2026-09-28
+
+The [terminal-target audit](terminal-numerics-followup-2026-09-28.md) identifies
+current-source cancellation and non-finite carry from finite inputs. The GAE
+recurrence has the expected terminal masks, but abstract real-number identities
+do not establish binary64 reconstruction fidelity. The implementation, version,
+frozen trials and rejected policy artifacts remain unchanged. No historical
+prevalence is inferred; a repair must be separately identified and preregistered
+before new financial trials.

@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research assurance: preserve current-source PPO/GAE cancellation and overflow
+  counterexamples; distinguish exact-real terminal algebra from conditional
+  binary64 mask guarantees. No learner repair, retuning or financial rerun;
+  numerical blockers remain explicit in the proof ledger and risk report.
+
 - Research assurance: add source-derived training-transition admission checks, a
   terminal-inventory bypass counterexample and actual replay/collector regressions.
   Preserve frozen research semantics; terminal flatness is not a complete cash-flow

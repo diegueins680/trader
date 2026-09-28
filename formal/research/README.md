@@ -178,3 +178,17 @@ wrappers run everything; no dependency or research implementation changes.
 Scalar/vector helpers and Python semantics remain trusted; terminal flatness
 is not proof of complete cash accounting, correct failure classification or
 simulator fidelity. See the [scope and receipt](../../research-notes/sequential-control-2026-09-17/transition-admission-followup-2026-09-28.md).
+
+## Terminal learning-target numerics
+
+The [contract](terminal-numerics-contract.md), specified at `409b8a89`, separates
+exact-real reconstruction, finite binary64 masked products and two refuted
+stronger claims. CE-RL-010/011 reproduce in the **unchanged** advantages function;
+they are not guard-removal mutants. Three positive queries require SAT premises
+and UNSAT violations; prescribed counterexamples require SAT and actual NumPy
+regressions. No learner repair or new financial experiment is delivered.
+
+Run the existing formal/full wrappers. Six additional tests include 27
+well-conditioned terminal cases and downstream optimizer rejection. Batch
+normalization and full learner/compiler refinement remain outside the proofs.
+See the [findings and receipt](../../research-notes/sequential-control-2026-09-17/terminal-numerics-followup-2026-09-28.md).

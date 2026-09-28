@@ -82,3 +82,8 @@ The [training-transition continuation](transition-admission-followup-2026-09-28.
 adds source-derived terminal/successor admission SMT, CE-RL-009 and helper/replay/
 collector conformance. It establishes necessary admission conditions only; complete
 cash accounting and simulator fidelity remain unproved.
+
+The [terminal-numerics continuation](terminal-numerics-followup-2026-09-28.md)
+adds exact-real/conditional binary64 SMT, current-source CE-RL-010/011, regression
+fixtures and a focused primary-source GAE/PPO update. The numerical failures
+remain unresolved, and no economic trial or frozen learner behavior changes.
