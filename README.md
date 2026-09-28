@@ -25,7 +25,10 @@ replayable loss-floor counterexamples. `bash scripts/verify.sh formal` includes
 actual replay conformance using hash-pinned NumPy and a
 [source-linked causal read-footprint check](formal/research/causal-footprint-contract.md).
 The latter rejects feature-source lookahead and unsupported dependencies under
-explicit base-array/runtime assumptions; historical release timing remains open. No candidate passed; scoped
+explicit base-array/runtime assumptions; historical release timing remains open. The
+[training-prefix check](formal/research/training-prefix-contract.md) also derives
+fit and episode bounds from source, conditional on already admitted arrays; it
+does not establish online causality of the whole historical-panel loader. No candidate passed; scoped
 proofs do not establish a future loss ceiling or complete research acceptance.
 
 The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)

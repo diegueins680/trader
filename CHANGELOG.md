@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research assurance: verify source-derived normalization-prefix and collector
+  episode bounds, preserve leakage/overrun mutant fixtures and connect them to
+  actual runner and NumPy conformance tests. Keep historical-panel admission and
+  full runtime refinement explicitly unproved; no financial rerun or live change.
+
 - Research assurance: derive the existing feature core's read bounds from its Python
   AST and check them with SMT; reject unsupported dependencies and lookahead
   mutations. Add source/NumPy future-corruption conformance without changing
