@@ -7,6 +7,8 @@ Trader is a Haskell trading research and execution system with a React operation
 
 > Live trading can place real orders. Keep `TRADER_BINANCE_LIVE=false` and `TRADER_BOT_TRADE=false` until credentials, risk limits, deployment identity, and exchange permissions have been verified. The browser starts in paper mode and never starts a bot merely because a combo was applied.
 
+The numerical proof drivers use [independent premise and violation queries](formal/research/query-isolation-contract.md). Solver limits and mathematical claims are unchanged; inconclusive results still fail verification.
+
 ## What is included
 
 - Haskell CLI, REST API, backtester, optimizer, and supervised live bots

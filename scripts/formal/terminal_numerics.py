@@ -81,9 +81,14 @@ def prove(name, premise, conclusion):
     solver = z.Solver()
     solver.set(timeout=10000, random_seed=0)
     solver.add(premise)
-    if solver.check() != z.sat:
-        raise RuntimeError(name + ': unsatisfied/unknown premise')
-    solver.add(z.Not(conclusion))
+    result = solver.check()
+    if result != z.sat:
+        detail = solver.reason_unknown() if result == z.unknown else str(result)
+        raise RuntimeError(name + ': unsatisfied/unknown premise: ' + detail)
+    # Independent query: preserve P AND NOT C without incremental solver state.
+    solver = z.Solver()
+    solver.set(timeout=10000, random_seed=0)
+    solver.add(premise, z.Not(conclusion))
     result = solver.check()
     if result != z.unsat:
         detail = str(solver.model()) if result == z.sat else solver.reason_unknown()

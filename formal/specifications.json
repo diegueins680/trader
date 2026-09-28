@@ -151,7 +151,7 @@
         },
         {
           "id": "F-RL-INTEGRITY",
-          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch."
+          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results."
         },
         {
           "id": "F-RL-FEATURE-FOOTPRINT",

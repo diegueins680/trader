@@ -196,3 +196,14 @@ See the [findings and receipt](../../research-notes/sequential-control-2026-09-1
 ## Isolated GAE target v2 kernel
 
 See [contract](target-v2-contract.md), [counterexample disposition](target-v2-counterexamples.json) and [report](../../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md). Three scoped SMT requirements cover terminal reward-bit preservation, finite/disabled admission and exact-real recurrence. A separate 1..256-row publication model checks atomic output and a progress rank. Source skeletons, Python primitives and scalarization remain trusted; no normalized-advantage, whole-learner, market or production refinement is claimed. The kernel is default-disabled and disconnected from the frozen runner. Old numerical refutations remain valid.
+
+## Independent numerical proof queries
+
+The [query-isolation contract](query-isolation-contract.md) separates non-vacuity
+and universal checks in the terminal-numerics and target-v2 proof drivers. Each
+solver receives its complete assertions before its only check; witness constraints
+are confined to the premise query. The pinned 10-second limit and failure behavior
+remain binding. No automatic retry converts unknown/canceled results to success.
+Run `bash scripts/verify.sh formal`; new protocol regressions are included. The
+[engineering registration](../../research-notes/registrations/numerical-query-isolation-engineering.json)
+authorizes three paired synthetic proof timings and zero financial trials.

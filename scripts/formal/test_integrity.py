@@ -683,6 +683,101 @@ class TerminalNumericsTests(unittest.TestCase):
         self.assertNotEqual(a[0],b[0])  # Batch normalization intentionally pools rows.
 
 
+class QueryIsolationTests(unittest.TestCase):
+    """Conformance of the actual two proof drivers; solver semantics remain trusted."""
+
+    def exercise(self, driver, outcomes):
+        premise, conclusion, witness = z3.Bools('qi_p qi_c qi_w')
+        records = []
+
+        class RecordingSolver:
+            def __init__(self):
+                self.index = len(records)
+                self.formulas, self.options, self.checks = [], {}, 0
+                records.append(self)
+
+            def set(self, **options):
+                self.options.update(options)
+
+            def add(self, *formulas):
+                self.formulas.extend(formulas)
+
+            def check(self):
+                self.checks += 1
+                result = outcomes[self.index]
+                if isinstance(result, Exception):
+                    raise result
+                return result
+
+            def model(self):
+                return 'injected counterexample'
+
+            def reason_unknown(self):
+                return 'injected timeout'
+
+        error = None
+        with patch.object(z3, 'Solver', RecordingSolver):
+            try:
+                if driver == 'prove':
+                    terminal_numerics.prove('fixture', premise, conclusion)
+                else:
+                    target_v2.certify('fixture', premise, conclusion, [witness])
+            except RuntimeError as exc:
+                error = exc
+        first = [premise] if driver == 'prove' else [premise, witness]
+        expected = [first, [premise, z3.Not(conclusion)]]
+        for index, solver in enumerate(records):
+            self.assertEqual(solver.options, {'timeout':10000, 'random_seed':0})
+            self.assertEqual(solver.checks, 1)
+            self.assertEqual([f.sexpr() for f in solver.formulas],
+                             [f.sexpr() for f in expected[index]])
+        self.assertEqual(len(records), 2 if outcomes[0] == z3.sat else 1)
+        if len(records) == 2:
+            self.assertIsNot(records[0], records[1])
+        return error
+
+    def test_complete_solver_result_table(self):
+        cases = 0
+        for driver in ('prove','certify'):
+            for first in (z3.sat,z3.unsat,z3.unknown):
+                for second in (z3.sat,z3.unsat,z3.unknown):
+                    with self.subTest(driver=driver,first=first,second=second):
+                        error = self.exercise(driver,(first,second))
+                        self.assertEqual(error is None, first == z3.sat and second == z3.unsat)
+                        if first == z3.unknown or first == z3.sat and second == z3.unknown:
+                            self.assertIn('injected timeout',str(error))
+                        if first == z3.sat and second == z3.sat:
+                            self.assertIn('injected counterexample',str(error))
+                    cases += 1
+        self.assertEqual(cases,18)
+
+    def test_exceptions_from_either_query_are_not_accepted(self):
+        for driver in ('prove','certify'):
+            for index in (0,1):
+                failure = RuntimeError('solver failed')
+                results = [z3.sat,z3.unsat]
+                results[index] = failure
+                with self.subTest(driver=driver,index=index):
+                    self.assertIs(self.exercise(driver,results),failure)
+
+    def test_actual_solver_checks_entire_domain(self):
+        x = z3.Real('qi_entire_domain')
+        for driver in ('prove','certify'):
+            def check(p,c,w):
+                return (terminal_numerics.prove('actual',p,c) if driver == 'prove'
+                        else target_v2.certify('actual',p,c,w))
+            with self.subTest(driver=driver):
+                check(x>=0,x+1>0,[x==0])
+                with self.assertRaises(RuntimeError):
+                    check(z3.BoolVal(True),x==0,[x==0])
+                with self.assertRaises(RuntimeError):
+                    check(z3.BoolVal(False),z3.BoolVal(True),[])
+                # A witness inconsistent with P must not permit a vacuous success.
+                if driver == 'certify':
+                    with self.assertRaises(RuntimeError):
+                        check(x>0,x>=0,[x==0])
+
+
 class TargetV2Tests(unittest.TestCase):
     def setUp(self):
         import gae_targets_v2

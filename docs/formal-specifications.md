@@ -504,3 +504,14 @@ impact remain unproved.
 ## Isolated GAE target v2 kernel
 
 See [contract](../formal/research/target-v2-contract.md) and [report](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md). Three scoped SMT requirements cover terminal reward-bit preservation, finite/disabled admission and exact-real recurrence. A separate 1..256-row publication model checks atomic output and a progress rank. Source skeletons, Python primitives and scalarization remain trusted; no normalized-advantage, whole-learner, market or production refinement is claimed. The kernel is default-disabled and disconnected from the frozen runner. Old numerical refutations remain valid.
+
+### Numerical proof-query isolation (2026-09-28)
+
+The [query-isolation contract](../formal/research/query-isolation-contract.md)
+refines `F-RL-INTEGRITY` for the terminal-numerics and target-v2 checkers. Independent
+solver instances check SAT(P AND W) and UNSAT(P AND NOT C); witness constraints never
+enter the latter query. Timeout, random seed, arithmetic domains and claims remain
+unchanged. Unknown, invalid premises, counterexamples and solver exceptions block
+success. Exact assertion capture, the complete finite result table and actual Z3
+regressions are conformance tests, not a universal proof of the checker. The 22 SMT
+requirements, bounded models and 38 open/partial mission obligations are unchanged.

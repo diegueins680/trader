@@ -142,14 +142,15 @@ def check_publication():
 def certify(name, premise, conclusion, witness):
     solver = z.Solver()
     solver.set(timeout=10000, random_seed=0)
-    solver.add(premise)
-    solver.push()
-    solver.add(*witness)
+    solver.add(premise, *witness)
     result = solver.check()
     if result != z.sat:
-        raise RuntimeError(name + ': premise witness failed: ' + str(result))
-    solver.pop()  # The witness must not constrain the universal violation query.
-    solver.add(z.Not(conclusion))
+        detail = solver.reason_unknown() if result == z.unknown else str(result)
+        raise RuntimeError(name + ': premise witness failed: ' + detail)
+    # The fresh universal query never receives the non-vacuity witness.
+    solver = z.Solver()
+    solver.set(timeout=10000, random_seed=0)
+    solver.add(premise, z.Not(conclusion))
     result = solver.check()
     if result != z.unsat:
         detail = str(solver.model()) if result == z.sat else solver.reason_unknown()

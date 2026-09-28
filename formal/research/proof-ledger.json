@@ -420,9 +420,9 @@
     },
     {
       "requirementId": "F-RL-INTEGRITY",
-      "claim": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch.",
+      "claim": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results.",
       "criticality": "critical",
-      "formalStatement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch.",
+      "formalStatement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results.",
       "assumptions": [
         "A-SOLVER"
       ],
@@ -438,15 +438,17 @@
         "scripts/verify.sh",
         "scripts/autoloop.mjs",
         "package.json",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/target_v2.py"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Malformed ledger and safety mutations are rejected by regression tests.",
-      "bounds": "Declared schema, source hashes and deterministic negative fixtures.",
-      "limitations": "Trusted checker code and reviewed Git changes; not tamper-proof against a maintainer editing the verifier and receipts together.",
+      "result": "Malformed ledger/safety mutations and invalid proof-query results are rejected; exact assertion capture checks premise/witness isolation in the two numerical proof drivers.",
+      "bounds": "Declared schema and deterministic negative fixtures; all 18 pairs of SAT/UNSAT/UNKNOWN statuses across two drivers, four injected check exceptions, exact formula/options capture and actual Z3 regressions.",
+      "limitations": "Trusted checker code and reviewed Git changes; not tamper-proof against a maintainer editing the verifier and receipts together. Query protocol conformance is tested, not a universal Python/solver refinement proof; timing and unknown-result reliability remain environmental limitations.",
       "counterexample": null,
       "status": "property_tested",
       "relatedRequirements": [
