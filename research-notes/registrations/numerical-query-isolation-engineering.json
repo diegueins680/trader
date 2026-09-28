@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "numerical-query-isolation-2026-09-28",
+  "kind": "engineering-only; no financial trial",
+  "hypothesis": "Independent solver contexts improve reliability of existing numerical queries without altering formulas or proof domains.",
+  "formalContract": "formal/research/query-isolation-contract.md",
+  "requirement": "F-RL-INTEGRITY",
+  "baselineCommit": "449d39fd0e24a22179b161f51655eb85f9284a12",
+  "changesAllowed": [
+    "Fresh solver per premise/violation query",
+    "More explicit unknown-result diagnostics"
+  ],
+  "changesProhibited": [
+    "Timeout increase",
+    "Domain restriction",
+    "Changed claim",
+    "Retry within checker",
+    "Trading/training/kernel changes",
+    "Holdout access"
+  ],
+  "solver": "4.15.4",
+  "timeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "benchmarkRounds": 3,
+  "order": [
+    "old,new",
+    "new,old",
+    "old,new"
+  ],
+  "benchmarkCases": [
+    "terminal_numerics.check_terminal",
+    "target_v2.check_targets"
+  ],
+  "recordEveryAttempt": true,
+  "metrics": [
+    "outcome",
+    "elapsedSeconds",
+    "query payload equality"
+  ],
+  "financialTrialBudget": 0,
+  "trainingStepBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "acceptance": [
+    "All existing scoped certificates unchanged",
+    "No witness leakage",
+    "Unknown and exceptions fail closed",
+    "No skipped tests",
+    "Passing formal and full wrappers"
+  ],
+  "limitations": [
+    "No universal checker refinement",
+    "Shared host timing",
+    "No hard runtime guarantee",
+    "38 broader mission obligations remain open/partial"
+  ]
+}
