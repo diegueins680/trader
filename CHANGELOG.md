@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Research assurance: add conditional SMT gap-loss, drawdown-composition and
+  post-cost-exposure lemmas; preserve two actual-replay loss-floor counterexamples
+  and 180 exact-accounting conformance cases. Refresh literature through
+  2026-09-28 and reproduce existing negative reports without new financial trials
+  or holdout access. No candidate, production risk limit or live setting changes.
+
 ## Research assurance — 2026-09-20
 
 - Add `verify.sh formal` and include it in `full`: pinned Z3 binary64/index/accounting lemmas, a bounded research-call model, compiled Haskell conformance, source-bound receipts and explicit proof gaps.

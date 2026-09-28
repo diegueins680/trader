@@ -1,5 +1,17 @@
 # Deliverables and acceptance status
 
+The [2026-09-28 follow-up](gap-risk-review-2026-09-28.md) refreshes primary-source
+surveillance, reproduces all seven archived reports and extends PR #281's scoped
+formal gate. Deliverables 56–74 are indexed by the canonical
+[contract](../../formal/research/contract.md), [gap contract](../../formal/research/gap-risk-contract.md),
+[proof/assumptions/traceability ledger](../../formal/research/proof-ledger.json),
+[models and SMT source](../../scripts/formal/), [results](../../formal/research/results.json),
+[counterexamples](../../formal/research/gap-counterexamples.json),
+[toolchain](../../formal/research/toolchain.json) and [runbook](../../formal/research/README.md).
+Probabilistic market checking is inapplicable without an identified transition
+model. All 38 whole-system obligations remain open/partial; this is navigation
+and scoped evidence, not completion of those deliverables or acceptance gates.
+
 This index distinguishes delivered engineering/negative evidence from the full
 requested acceptance program. **No untouched real-market confirmation, validated
 winner, production integration, shadow admission or paper admission is claimed.**

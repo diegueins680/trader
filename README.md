@@ -19,6 +19,12 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example]
 
 ## Offline sequential-control research
 
+The [2026-09-28 assurance follow-up](research-notes/sequential-control-2026-09-17/gap-risk-review-2026-09-28.md)
+refreshes primary-source surveillance and checks conditional gap-risk lemmas plus
+replayable loss-floor counterexamples. `bash scripts/verify.sh formal` includes
+actual replay conformance using hash-pinned NumPy. No candidate passed; scoped
+proofs do not establish a future loss ceiling or complete research acceptance.
+
 The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)
 adds a 50-paper literature update, current predictor-fidelity audit and a
 preregistered simulated PPO/Double-DQN/CQL comparison. No candidate passed.
