@@ -1,5 +1,12 @@
 # Trader Firm — Risk Register
 
+Training-transition admission evidence (2026-09-28 continuation):
+[source-derived predicates](../formal/research/transition-admission-contract.md)
+establish necessary terminal-flatness and successor-admission conditions under
+trusted scalar/vector helper semantics. Complete cash accounting, genuine risk
+classification and simulator/runtime refinement remain open. `RL-OFFLINE-001`
+remains HIGH/OPEN.
+
 Artifact-admission evidence (2026-09-28 continuation): the
 [source-linked gate model](../formal/research/artifact-admission-contract.md) and
 metadata SMT checks assume trusted helpers and externally supplied expected

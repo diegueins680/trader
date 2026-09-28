@@ -77,3 +77,8 @@ The [artifact-admission continuation](artifact-admission-followup-2026-09-28.md)
 adds conditional loader path/model and metadata SMT evidence, CE-RL-007/008 and
 actual-loader malformed-input regressions. It changes no research result or
 production artifact interface.
+
+The [training-transition continuation](transition-admission-followup-2026-09-28.md)
+adds source-derived terminal/successor admission SMT, CE-RL-009 and helper/replay/
+collector conformance. It establishes necessary admission conditions only; complete
+cash accounting and simulator fidelity remain unproved.

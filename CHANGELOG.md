@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research assurance: add source-derived training-transition admission checks, a
+  terminal-inventory bypass counterexample and actual replay/collector regressions.
+  Preserve frozen research semantics; terminal flatness is not a complete cash-flow
+  or simulator-correctness proof.
+
 - Research assurance: add source-linked offline artifact admission checks, two preserved bypass mutants and constructor-order regressions. Loader semantics and candidate eligibility are unchanged; primitive/provenance trust and broader proof gaps remain explicit.
 
 - Research assurance: verify source-derived normalization-prefix and collector

@@ -34,6 +34,9 @@ The [artifact-admission check](formal/research/artifact-admission-contract.md)
 binds a finite gate model and SMT metadata predicates to the existing offline
 loader. Trusted parser/helper semantics and externally supplied provenance remain
 assumptions; this is not artifact authenticity or production-loader verification.
+The [training-transition check](formal/research/transition-admission-contract.md)
+verifies necessary terminal-flatness and successor-admission predicates from
+source. It does not establish complete liquidation accounting or realistic fills.
 
 The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)
 adds a 50-paper literature update, current predictor-fidelity audit and a

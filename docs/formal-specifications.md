@@ -483,3 +483,11 @@ provenance equality atoms. Neither result proves artifact authenticity, helper
 internals, neural inference or production-loader refinement. CE-RL-007/008 are
 deliberate bypass mutants, not current source defects. Whole-mission obligations
 29/30 gain partial evidence; all 38 obligations remain open/partial.
+
+The [training-transition contract](../formal/research/transition-admission-contract.md)
+adds source-derived integer/binary64 admission checks and collector ordering
+recognition. Terminal inventory must be zero and pending action absent; nonterminal
+successors must pass the existing representation, shape and finiteness predicates.
+CE-RL-009 is a deliberate guard-removal mutant. Trusted helper semantics, valid
+risk classification and complete replay/cash accounting refinement remain open;
+whole-mission obligations 18/19 gain partial evidence without becoming complete.

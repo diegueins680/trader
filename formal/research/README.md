@@ -165,3 +165,16 @@ verified interpreter; supplied provenance is not authenticated. The 75-state
 lifecycle model and 27-state loader model are separate, not a composed system
 proof. No production loader or policy is added. See the
 [scope and receipt](../../research-notes/sequential-control-2026-09-17/artifact-admission-followup-2026-09-28.md).
+
+## Training-transition admission
+
+The [contract](transition-admission-contract.md), specified at `bcc816e0` before
+implementation, adds `F-RL-TRANSITION-ADMISSION`. Three source-derived SMT checks
+use unbounded integer indices and binary64 reward/equity/units. A collector source
+audit binds admission before append. Six regression tests include CE-RL-009,
+30 rejected helper fixtures and 36 actual replay cases. Existing formal/full
+wrappers run everything; no dependency or research implementation changes.
+
+Scalar/vector helpers and Python semantics remain trusted; terminal flatness
+is not proof of complete cash accounting, correct failure classification or
+simulator fidelity. See the [scope and receipt](../../research-notes/sequential-control-2026-09-17/transition-admission-followup-2026-09-28.md).
