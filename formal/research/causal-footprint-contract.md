@@ -29,7 +29,7 @@ public metadata, and prefix-dependent local values. It follows supported Python
 AST expressions/statements and overapproximates dependencies of arithmetic,
 comparisons, reductions and conditionals by the union of input dependencies.
 Every raw-array slice is recorded from its actual AST. For each slice `[l:u)` the
-SMT query checks `24 <= t < n => 0 <= l <= u <= n AND u <= t+1` and non-vacuity.
+SMT query checks `24 <= t < n => 0 <= l <= u <= n AND t-24 <= l AND u <= t+1` and non-vacuity.
 Only unit-stride bounded slices are supported. A read may be rejected even when
 safe; unsupported behavior must never be silently treated as independent.
 
@@ -72,3 +72,11 @@ review rather than silently assuming the old precondition.
 No production source, frozen training implementation, artifact schema, reward,
 configuration, model identifier or dataset is changed. This preserves the prior
 negative experiment's semantics and avoids another adaptive financial trial.
+
+## Preserved counterexample
+
+[CE-RL-004](causal-counterexamples.json) is a deliberate next-bar leakage mutant,
+not an existing defect. At t=24, n=26, changing price[25] from 100 to 200 changes
+the mutant's current features. The original feature function remains unchanged.
+Its fixture must demonstrate SAT of the prescribed violating read, rejection by
+the source checker, and actual NumPy divergence for the mutant only.

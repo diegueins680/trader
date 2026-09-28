@@ -39,7 +39,7 @@ There is no switch in this work to authorize a candidate, experiment or order.
 
 ## What is checked
 
-- [Twelve SMT obligations](../../scripts/formal/proofs.py): IEEE binary64 target
+- [Thirteen SMT obligations](../../scripts/formal/proofs.py): IEEE binary64 target
   bounds, evidence precedence, malformed/timeout fallback, disabled behavior,
   stable rescreening, constant lack of authority, integer slice/purge lemmas,
   and exact-real accounting identity. Every negated claim must be UNSAT within
@@ -54,6 +54,14 @@ There is no switch in this work to authorize a candidate, experiment or order.
   ratios, 4 cost multipliers, 3 funding debits), with absolute tolerance 2e-15.
   No price-path frequency, binary64 universal refinement or real-market risk
   ceiling is established. The finite grid is engineering conformance evidence.
+- [Source-linked causal footprint](causal-footprint-contract.md): a restricted
+  AST dependency checker derives the actual feature slice and uses SMT to prove
+  its bounds for all admitted integer indices. Metadata-only admission helpers
+  have exact AST contracts; unknown calls, hidden inputs and unbounded array reads
+  fail closed. Leakage mutations and 128 future-corruption cases exercise the
+  checker and actual features/observations. The analyzer and NumPy primitive
+  semantics remain trusted; publication timing and full replay-state causality
+  remain open.
 - [Finite protocol](../../scripts/formal/lifecycle.py): all 75 reachable states,
   349 directed transitions, maximum shortest-path depth 6, two callers. Search
   reaches a fixed point, not a depth cutoff. Safety is invariant checking;

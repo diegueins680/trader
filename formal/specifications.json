@@ -154,6 +154,10 @@
           "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch."
         },
         {
+          "id": "F-RL-FEATURE-FOOTPRINT",
+          "statement": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected."
+        },
+        {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
         }
@@ -185,6 +189,11 @@
           "level": "property",
           "path": "scripts/formal/conformance.py",
           "contains": "check_haskell"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_future_and_wrong_window_slices_fail_smt"
         }
       ]
     },

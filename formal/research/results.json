@@ -58,6 +58,7 @@
     "F-RL-CAUSAL-SLICE": "unsat",
     "F-RL-DEFAULT": "unsat",
     "F-RL-DRAWDOWN-COMPOSE": "unsat",
+    "F-RL-FEATURE-FOOTPRINT": "unsat",
     "F-RL-GAP-BOUND": "unsat",
     "F-RL-POSTCOST-EXPOSURE": "unsat",
     "F-RL-SHIELD-BOUNDS": "unsat",
@@ -67,24 +68,46 @@
     "F-RL-SPLIT": "unsat"
   },
   "solver": "4.15.4",
+  "sourceFootprint": {
+    "domain": "unbounded integers 24 <= t < n; ordinary fixed-shape numeric arrays",
+    "function": "market_features",
+    "metadataHelpers": [
+      "_integer",
+      "_real_series"
+    ],
+    "reads": [
+      {
+        "lower": "t - 24",
+        "result": "unsat",
+        "upperExclusive": "t + 1"
+      }
+    ],
+    "requirement": "F-RL-FEATURE-FOOTPRINT",
+    "source": "scripts/research/sequential_env.py",
+    "status": "smt_verified",
+    "universalRuntimeRefinement": false
+  },
   "sourceHashes": {
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
+    "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
+    "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
     "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
-    "formal/research/proof-ledger.json": "b0e8296078ce8f750d287d1b9a1731228db74c6d0571e61bfee03960e2715d61",
+    "formal/research/proof-ledger.json": "646a1206de5b5344ba517949f3044fff688f16b7cab5e1303dc68130f44239e0",
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
+    "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
     "scripts/formal/gap_conformance.py": "e5e900f8aa492c786f61d69d4e791f09dd87833229a3f820c0afefb9d753ac7a",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
-    "scripts/formal/test_integrity.py": "0433e6cee45d1c8ccb23a2c68f425b9ae435d579e3dafab25f8e1e1568532169",
-    "scripts/formal/verify.py": "a2e202d972b252081e758d938e2c8a6e167858c223da2bebee104cbd088d2ef8",
+    "scripts/formal/test_integrity.py": "8ab0653c66cd6a8bd04dff14239a149c103e84c69511b25519a439ad3beb36b0",
+    "scripts/formal/verify.py": "47a79475b42d58c77597625db30cf82d21e80d45455b5e6619367de920886304",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07"
   }

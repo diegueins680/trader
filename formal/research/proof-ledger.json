@@ -43,6 +43,12 @@
       "status": "assumption",
       "statement": "Return and total-debit bounds in sufficient-condition lemmas are environmental hypotheses, not established crypto-market facts. Pre-bar drifted exposure differs from a proposed target.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SOURCE-CAUSAL",
+      "status": "assumption",
+      "statement": "Ordinary fixed-shape base NumPy numeric arrays, unchanged primitive bindings and no concurrent writes; audited metadata helper ASTs and restricted AST interpreter/NumPy argument-only dependency semantics are trusted. No publication-time, caller symbol selection, runtime/compiler or universal observation refinement proof.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -57,7 +63,8 @@
     ".github/workflows/ci.yml",
     "package.json",
     "scripts/formal/gap_risk.py",
-    "scripts/formal/gap_conformance.py"
+    "scripts/formal/gap_conformance.py",
+    "scripts/formal/causal_footprint.py"
   ],
   "entries": [
     {
@@ -604,6 +611,36 @@
       "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
       "counterexample": null,
       "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-FEATURE-FOOTPRINT",
+      "claim": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected.",
+      "criticality": "critical",
+      "formalStatement": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected.",
+      "assumptions": [
+        "A-SOURCE-CAUSAL",
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "restricted Python AST dependency checker and Z3",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/causal_footprint.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/causal_footprint.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Actual source slice bounds satisfy UNSAT violation queries with SAT premises; unsupported AST and leakage mutants fail.",
+      "bounds": "Unbounded integer indices 24<=t<n; source-derived t-24:t+1 slice. 32 seeded paths x 4 future corruptions supplement the static/SMT certificate.",
+      "limitations": "Trusted static checker and primitive dependency semantics, not verified interpreter/NumPy. Same array metadata required. Does not establish availability, fit provenance, recursive replay-state causality, symbol selection or production features. CE-RL-004 is a deliberately introduced mutant, not a defect in the unchanged feature source.",
+      "counterexample": "formal/research/causal-counterexamples.json",
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -612,9 +649,10 @@
       "claim": "No-lookahead",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-CAUSAL-SLICE"
+        "F-RL-CAUSAL-SLICE",
+        "F-RL-FEATURE-FOOTPRINT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
     },
     {
       "number": 2,
@@ -642,9 +680,11 @@
     {
       "number": 5,
       "claim": "Symbol isolation",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-FEATURE-FOOTPRINT"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
     },
     {
       "number": 6,
@@ -753,9 +793,10 @@
       "claim": "Observation causality",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-CAUSAL-SLICE"
+        "F-RL-CAUSAL-SLICE",
+        "F-RL-FEATURE-FOOTPRINT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
     },
     {
       "number": 18,

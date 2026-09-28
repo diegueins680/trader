@@ -462,3 +462,9 @@ abstract two-caller protocol does not establish production concurrency refinemen
 The exact-real accounting identity does not establish binary64 ledger correctness.
 The retained-proposal counterexample refutes revocation by pure mode disabling;
 the unchanged private Haskell proposal type still has no order authorization.
+
+The [source-linked causal footprint contract](../formal/research/causal-footprint-contract.md)
+extends the scoped research gate with actual-AST read-bound extraction and SMT
+checks. This reduces a manually translated index-model gap; it does not prove
+Python/NumPy, caller normalization provenance or historical publication timing.
+The whole-system acceptance obligations remain open or partially verified.

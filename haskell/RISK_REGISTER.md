@@ -1,5 +1,11 @@
 # Trader Firm — Risk Register
 
+Source-linked causality evidence (2026-09-28 continuation): the
+[feature read-footprint check](../formal/research/causal-footprint-contract.md)
+links SMT index bounds to the actual Python AST. Base-array, runtime and primitive
+semantics remain assumptions; publication timing, caller symbol selection and
+full replay-state causality remain open. `RL-OFFLINE-001` stays HIGH/OPEN.
+
 Gap-risk evidence (2026-09-28): `RL-OFFLINE-001` remains HIGH/OPEN.
 [CE-RL-002/003](../formal/research/gap-counterexamples.json) reproduce capital-floor
 breaches after shielded targets in the offline replay. Conditional real-arithmetic
