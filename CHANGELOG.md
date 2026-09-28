@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Research infrastructure: add an explicitly enabled, versioned raw GAE target kernel with direct terminal targets and atomic finite-batch admission. Keep frozen training, artifacts and economic evidence unchanged; normalization and learner integration remain out of scope.
+
+
 - Research assurance: preserve current-source PPO/GAE cancellation and overflow
   counterexamples; distinguish exact-real terminal algebra from conditional
   binary64 mask guarantees. No learner repair, retuning or financial rerun;

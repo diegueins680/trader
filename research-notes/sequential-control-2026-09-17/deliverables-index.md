@@ -87,3 +87,5 @@ The [terminal-numerics continuation](terminal-numerics-followup-2026-09-28.md)
 adds exact-real/conditional binary64 SMT, current-source CE-RL-010/011, regression
 fixtures and a focused primary-source GAE/PPO update. The numerical failures
 remain unresolved, and no economic trial or frozen learner behavior changes.
+
+- [Isolated target-v2 continuation](target-v2-followup-2026-09-28.md): versioned, disabled raw-target correction; scoped proof/model/conformance and benchmarks. No new financial trial or whole-learner correction.

@@ -192,3 +192,7 @@ Run the existing formal/full wrappers. Six additional tests include 27
 well-conditioned terminal cases and downstream optimizer rejection. Batch
 normalization and full learner/compiler refinement remain outside the proofs.
 See the [findings and receipt](../../research-notes/sequential-control-2026-09-17/terminal-numerics-followup-2026-09-28.md).
+
+## Isolated GAE target v2 kernel
+
+See [contract](target-v2-contract.md), [counterexample disposition](target-v2-counterexamples.json) and [report](../../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md). Three scoped SMT requirements cover terminal reward-bit preservation, finite/disabled admission and exact-real recurrence. A separate 1..256-row publication model checks atomic output and a progress rank. Source skeletons, Python primitives and scalarization remain trusted; no normalized-advantage, whole-learner, market or production refinement is claimed. The kernel is default-disabled and disconnected from the frozen runner. Old numerical refutations remain valid.

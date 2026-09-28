@@ -1,5 +1,8 @@
 # Trader Firm — Risk Register
 
+Isolated target-kernel mitigation (2026-09-28): [gae-targets-v2](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and not called by training or production. It corrects terminal reward reconstruction or rejects the two numerical fixtures in that kernel only. The frozen learner retains CE-RL-010/011; `RL-OFFLINE-001` stays HIGH/OPEN.
+
+
 Terminal-target numerical evidence (2026-09-28):
 [CE-RL-010/011](../formal/research/terminal-counterexamples.json) are current-source
 research-learner counterexamples, not mutations. Finite inputs can lose terminal

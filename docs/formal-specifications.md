@@ -500,3 +500,7 @@ explicitly recorded, not silently treated as passing safety properties. Their
 reproduction passes CI as negative evidence; it does not resolve the blockers or
 authorize a policy. Batch normalization, complete learner refinement and economic
 impact remain unproved.
+
+## Isolated GAE target v2 kernel
+
+See [contract](../formal/research/target-v2-contract.md) and [report](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md). Three scoped SMT requirements cover terminal reward-bit preservation, finite/disabled admission and exact-real recurrence. A separate 1..256-row publication model checks atomic output and a progress rank. Source skeletons, Python primitives and scalarization remain trusted; no normalized-advantage, whole-learner, market or production refinement is claimed. The kernel is default-disabled and disconnected from the frozen runner. Old numerical refutations remain valid.

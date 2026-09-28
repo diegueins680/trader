@@ -1,5 +1,8 @@
 # Trader
 
+The separate [GAE target v2 kernel](research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and disconnected from training. It preserves terminal reward bits and rejects non-finite batches; it does not repair or replace the frozen learner.
+
+
 Trader is a Haskell trading research and execution system with a React operations UI. It supports exchange-backed signals, cost-aware backtests, optimizer research, live-bot supervision, formal safety checks, and Fly/Hetzner deployment.
 
 > Live trading can place real orders. Keep `TRADER_BINANCE_LIVE=false` and `TRADER_BOT_TRADE=false` until credentials, risk limits, deployment identity, and exchange permissions have been verified. The browser starts in paper mode and never starts a bot merely because a combo was applied.

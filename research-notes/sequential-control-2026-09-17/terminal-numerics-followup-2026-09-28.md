@@ -1,5 +1,8 @@
 # Terminal learning-target numerical audit — 2026-09-28
 
+Subsequent [target-v2 continuation](target-v2-followup-2026-09-28.md) introduces a
+separate disabled kernel. The frozen learner and refutations below remain unchanged.
+
 **No adoption. Two current-source numerical blockers remain unresolved.** This
 continuation distinguishes terminal masking from accurate and finite learning
 targets. It changes verification infrastructure and documentation only. The frozen
