@@ -63,6 +63,7 @@ def validate_ledger(ledger, root):
     supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked",
+                 "F-RL-TERMINAL-EXACT": "refuted", "F-RL-TERMINAL-FINITE": "refuted",
                  "F-RL-UNCONDITIONAL-FLOOR": "refuted", "F-RL-GAP-CONFORMANCE": "exhaustively_checked"}
     require(set(supported) <= {e["requirementId"] for e in entries}, "missing required certificate")
     for entry in entries:
@@ -102,6 +103,7 @@ def run(record=False, require_complete=False):
     from training_prefix import check_training, REGISTRATION
     from artifact_admission import check_artifact
     from transition_admission import check_transition
+    from terminal_numerics import check_terminal
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -131,6 +133,8 @@ def run(record=False, require_complete=False):
     result['smt'][result['artifactAdmission']['metadata']['requirement']] = 'unsat'
     result['transitionAdmission'] = check_transition()
     result['smt'][result['transitionAdmission']['requirement']] = 'unsat'
+    result['terminalNumerics'] = check_terminal(read_json(ROOT / 'formal/research/terminal-counterexamples.json'))
+    result['smt'].update(result['terminalNumerics']['smt'])
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
     counterexamples = read_json(ROOT / 'formal/research/counterexamples.json')
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
@@ -147,6 +151,7 @@ def run(record=False, require_complete=False):
                       'trainingPrefix': result['trainingPrefix'],
                       'artifactAdmission': result['artifactAdmission'],
                       'transitionAdmission': result['transitionAdmission'],
+                      'terminalNumerics': result['terminalNumerics'],
                       'openMissionObligations': open_count, 'missionComplete': False,
                       'seconds': round(time.monotonic() - started, 3)}, indent=2))
     require(not require_complete or open_count == 0, 'research acceptance blocked by open obligations')

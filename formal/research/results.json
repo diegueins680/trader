@@ -102,6 +102,8 @@
     "F-RL-SHIELD-GUARDS": "unsat",
     "F-RL-SHIELD-IDEMPOTENT": "unsat",
     "F-RL-SPLIT": "unsat",
+    "F-RL-TERMINAL-FP-MASK": "unsat",
+    "F-RL-TERMINAL-REAL": "unsat",
     "F-RL-TRANSITION-ADMISSION": "unsat"
   },
   "solver": "4.15.4",
@@ -135,7 +137,9 @@
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
     "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
-    "formal/research/proof-ledger.json": "fe7de0afc738e32ec00299fc4c45d32e4a34b8849274837199e93bb79fe29300",
+    "formal/research/proof-ledger.json": "d80ddeec465cd2f511bb23521e5f5f9695f550e10a455c3d5146897c7cd95323",
+    "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
+    "formal/research/terminal-numerics-contract.md": "064018076666b20eeedbcb78d775a469d506726beca9871b9678fbccfd5fb9df",
     "formal/research/training-counterexamples.json": "43bc62e7d776bf0e7fc8586a3bed0b3647ab054803095b180385f200d55a6531",
     "formal/research/training-prefix-contract.md": "a38cf1cf417a42cfd06ff6246206f55c97c80f728e2fb39b4a89ae8f64bd175b",
     "formal/research/transition-admission-contract.md": "6f516f853fbe71fb8485d88834d99d91385cf29be64f5775432fe5a996b5c85e",
@@ -150,15 +154,44 @@
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
-    "scripts/formal/test_integrity.py": "303e5b2b28cbcbb491066d6c66f2ef143cd0bc93b77119b23f56fd4befbefed3",
+    "scripts/formal/terminal_numerics.py": "52944ac0f84a3606c57092af5bba7814f392ca1d0828e864f612f93994a5a59f",
+    "scripts/formal/test_integrity.py": "f6811e59e5beaf99c7a950c6ae45e711c499e12308323598b06b6093109452c9",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
-    "scripts/formal/verify.py": "39be035f44e0ff35e763b935f425fb8ce6cdabe6a73c8130f572ab93b8c7bc51",
+    "scripts/formal/verify.py": "7c5e52eb65932ca321026ff53de50346b0b1743a944ab748e847f9c8575d6aec",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "test/sequential_screen_test.py": "abf104317394a10edbf9a2864efaed58d4ab76ff7c239ad4b76a606b6f6b642d"
+  },
+  "terminalNumerics": {
+    "counterexamples": [
+      {
+        "expectedTargets": [
+          "0x0.0p+0"
+        ],
+        "id": "CE-RL-010",
+        "result": "sat"
+      },
+      {
+        "expectedTargets": [
+          "nan",
+          "inf"
+        ],
+        "id": "CE-RL-011",
+        "result": "sat"
+      }
+    ],
+    "normalizedAdvantageNoninterference": false,
+    "positiveQueries": 3,
+    "premiseChecks": 3,
+    "rounding": "RNE binary64; separate operations",
+    "smt": {
+      "F-RL-TERMINAL-FP-MASK": "unsat",
+      "F-RL-TERMINAL-REAL": "unsat"
+    },
+    "universalRuntimeRefinement": false
   },
   "trainingPrefix": {
     "episodeStartRange": [

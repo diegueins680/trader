@@ -67,6 +67,12 @@
       "status": "assumption",
       "statement": "Ordinary stable Replay fields; integer indices and binary64 reward/equity/units, native identity/comparison behavior, stable arrays/helpers, no concurrent mutation or hostile subclasses. The restricted AST translator, Python control flow, _finite_real and successor representation/shape/finiteness predicates are trusted. Admission conditions do not prove cash-flow completeness, fill realism, helper internals or full Replay/compiler refinement.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TERMINAL-NUMERICS",
+      "status": "assumption",
+      "statement": "Correctly shaped float64 arrays and Boolean done masks, matching rows, stable primitive bindings and no concurrent mutation. Trusted AST checker and vector-to-scalar correspondence with separate IEEE binary64 RNE operations, not fused reassociation or full interpreter refinement. The finite-product theorem requires finite next value AND later carry; finite network outputs do not ensure finite carry. Batch normalization is outside the noninterference claim.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -85,7 +91,8 @@
     "scripts/formal/causal_footprint.py",
     "scripts/formal/training_prefix.py",
     "scripts/formal/artifact_admission.py",
-    "scripts/formal/transition_admission.py"
+    "scripts/formal/transition_admission.py",
+    "scripts/formal/terminal_numerics.py"
   ],
   "entries": [
     {
@@ -813,6 +820,122 @@
       "limitations": "Conditional source-skeleton/primitive abstraction, not full runtime or Replay refinement. Zero inventory and no pending action are necessary conditions, not a proof of cash accounting, valid risk classification, realistic fills, learning-target correctness or safety under arbitrary field mutations. Non-binary64 numeric inputs are outside the SMT domain.",
       "counterexample": "formal/research/transition-counterexamples.json",
       "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-REAL",
+      "claim": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded.",
+      "criticality": "critical",
+      "formalStatement": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT negated implications; true terminal Boolean masks and stated arithmetic domain.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-FP-MASK",
+      "claim": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied.",
+      "criticality": "critical",
+      "formalStatement": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT negated implications; true terminal Boolean masks and stated arithmetic domain.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-EXACT",
+      "claim": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness reproduces in actual unchanged NumPy learner; unresolved numeric blocker, not repaired.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-FINITE",
+      "claim": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness reproduces in actual unchanged NumPy learner; unresolved numeric blocker, not repaired.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -871,9 +994,13 @@
       "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-SHIELD-BOUNDS",
-        "F-RL-TRANSITION-ADMISSION"
+        "F-RL-TRANSITION-ADMISSION",
+        "F-RL-TERMINAL-REAL",
+        "F-RL-TERMINAL-FP-MASK",
+        "F-RL-TERMINAL-EXACT",
+        "F-RL-TERMINAL-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them."
     },
     {
       "number": 7,
@@ -914,8 +1041,13 @@
       "number": 10,
       "claim": "Overflow and underflow",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-TERMINAL-REAL",
+        "F-RL-TERMINAL-FP-MASK",
+        "F-RL-TERMINAL-EXACT",
+        "F-RL-TERMINAL-FINITE"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them."
     },
     {
       "number": 11,

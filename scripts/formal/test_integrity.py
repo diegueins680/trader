@@ -11,6 +11,7 @@ import causal_footprint
 import training_prefix
 import artifact_admission
 import transition_admission
+import terminal_numerics
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -583,6 +584,102 @@ class TransitionAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'incomplete training transition'):
                 e.collect({'x':prices},{'x':funding},scale,6,11,20)
         self.assertEqual(len(rejected),1)
+
+
+class TerminalNumericsTests(unittest.TestCase):
+    def setUp(self):
+        import sequential_learning
+        self.learning = sequential_learning
+        self.source = (ROOT / terminal_numerics.SOURCE).read_text()
+        self.fixtures = read_json(ROOT / 'formal/research/terminal-counterexamples.json')
+
+    def critic(self, constant):
+        net = self.learning.Network(11,1)
+        for value in net.p.values():
+            value.fill(0)
+        net.p['b2'][0] = constant
+        return net
+
+    def data(self, rewards):
+        rows = len(rewards)
+        return {'s':np.zeros((rows,12)), 'next':np.zeros((rows,12)),
+                'r':np.asarray(rewards,dtype=np.float64), 'done':np.ones(rows,dtype=bool)}
+
+    def test_scoped_positive_claims_and_prescribed_refutations(self):
+        result = terminal_numerics.check_terminal(self.fixtures,self.source)
+        self.assertEqual(result['positiveQueries'],3)
+        self.assertEqual([x['result'] for x in result['counterexamples']],['sat','sat'])
+
+    def test_missing_masks_and_changed_arithmetic_rejected(self):
+        for old,new in [('(~data["done"])','1.0'),
+                        ('(not data["done"][i])','1.0'),
+                        ('targets = adv + v','targets = adv - v')]:
+            self.assertIn(old,self.source)
+            with self.subTest(new=new),self.assertRaisesRegex(RuntimeError,'violating terminal claim'):
+                terminal_numerics.check_terminal(self.fixtures,self.source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'source skeleton drift'):
+            terminal_numerics.check_terminal(self.fixtures,self.source.replace('reversed(range(len(v)))','range(len(v))'))
+        with self.assertRaisesRegex(ValueError,'unsupported expression'):
+            terminal_numerics.check_terminal(self.fixtures,self.source.replace('targets = adv + v','targets = unknown(adv) + v'))
+        with self.assertRaisesRegex(RuntimeError,'unsatisfied/unknown premise'):
+            terminal_numerics.prove('test',z3.BoolVal(False),z3.BoolVal(True))
+
+    def test_counterexample_receipt_tampering_rejected(self):
+        changed = copy.deepcopy(self.fixtures)
+        changed['entries'][0]['expectedTargets'] = [float(1).hex()]
+        with self.assertRaisesRegex(RuntimeError,'prescribed witness not SAT'):
+            terminal_numerics.check_terminal(changed,self.source)
+
+    def test_current_numpy_counterexamples_and_downstream_rejection(self):
+        for fixture in self.fixtures['entries']:
+            with self.subTest(id=fixture['id']):
+                net = self.critic(float.fromhex(fixture['criticHex']))
+                data = self.data([float.fromhex(x) for x in fixture['rewardHex']])
+                self.assertTrue(np.isfinite(data['r']).all())
+                self.assertTrue(np.isfinite(net.forward(data['s'])).all())
+                self.assertTrue(np.isfinite(net.forward(data['next'])).all())
+                # Expected non-finite results are asserted below, never accepted
+                # as valid training output. Warning policy is local to this fixture.
+                with np.errstate(over='ignore',invalid='ignore'):
+                    adv,targets = self.learning.advantages(data,net,float.fromhex(fixture['gammaHex']))
+                for actual,expected in zip(targets,fixture['expectedTargets']):
+                    if expected == 'nan':
+                        self.assertTrue(np.isnan(actual))
+                    elif expected == 'inf':
+                        self.assertTrue(np.isposinf(actual))
+                    else:
+                        self.assertEqual(float(actual).hex(),expected)
+                if fixture['id'] == 'CE-RL-010':
+                    self.assertNotEqual(targets[0],data['r'][0])
+                else:
+                    self.assertTrue(np.isnan(adv).all())
+                    actor = self.learning.Network(23)
+                    before = {k:v.copy() for k,v in actor.p.items()}
+                    with self.assertRaises(ValueError):
+                        actor.update(data['s'],np.repeat(adv[:,None],3,axis=1),0.001)
+                    self.assertEqual(actor.steps,0)
+                    for key in before:
+                        np.testing.assert_array_equal(actor.p[key],before[key])
+
+    def test_well_conditioned_terminal_grid(self):
+        from itertools import product
+        cases = 0
+        for value,reward,gamma in product((-8.,0.,8.),(-2.,0.,2.),(0.,.99,1.)):
+            data = self.data([reward])
+            _,target = self.learning.advantages(data,self.critic(value),gamma)
+            self.assertEqual(target[0],reward)
+            cases += 1
+        self.assertEqual(cases,27)
+
+    def test_terminal_target_reset_excludes_normalized_advantage_claim(self):
+        net = self.critic(0.)
+        first = self.data([1.,2.,3.])
+        later = self.data([1.,2.,1000.])
+        a,t = self.learning.advantages(first,net,.99)
+        b,u = self.learning.advantages(later,net,.99)
+        self.assertEqual(t[0],u[0])
+        self.assertEqual(t[0],1.)
+        self.assertNotEqual(a[0],b[0])  # Batch normalization intentionally pools rows.
 
 
 if __name__ == '__main__':

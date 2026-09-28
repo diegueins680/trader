@@ -178,6 +178,22 @@
           "statement": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor."
         },
         {
+          "id": "F-RL-TERMINAL-REAL",
+          "statement": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded."
+        },
+        {
+          "id": "F-RL-TERMINAL-FP-MASK",
+          "statement": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied."
+        },
+        {
+          "id": "F-RL-TERMINAL-EXACT",
+          "statement": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target."
+        },
+        {
+          "id": "F-RL-TERMINAL-FINITE",
+          "statement": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs."
+        },
+        {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
         }
@@ -234,6 +250,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_preserved_terminal_inventory_counterexample"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_current_numpy_counterexamples_and_downstream_rejection"
         }
       ]
     },
