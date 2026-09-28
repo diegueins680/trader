@@ -157,12 +157,75 @@ print(json.dumps({'schemaVersion':1,'version':'gae-targets-v2','python':sys.vers
 
 ## Verification receipt
 
-Implementation is frozen at `1f2047eb`. The formal wrapper passed: 49 tests
-(30.172 seconds), 22 scoped SMT requirements and all scoped state/conformance
-checks; the verifier reported 20.267 seconds. The required full wrapper is pending;
-no full-verification claim yet. The initial
+Implementation is frozen at `1f2047eb`; report revision `2b11d799`; specification
+`ea02097e` precedes both. Subsequent receipt changes are documentation only.
+Commands from the isolated worktree:
+
+```bash
+export PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH
+export TRADER_FORMAL_PYTHON=/private/tmp/trader-proof-20260928/bin/python
+"$TRADER_FORMAL_PYTHON" scripts/formal/test_integrity.py TargetV2Tests
+bash scripts/verify.sh formal
+bash scripts/verify.sh full
+bash scripts/verify.sh automation  # unchanged retry after full-run deadline failures
+"$TRADER_FORMAL_PYTHON" scripts/formal/verify.py --require-complete
+```
+
+Pinned tools: Python 3.13.3, NumPy 2.3.5, z3-solver 4.15.4.0 (solver 4.15.4),
+GHC 9.4.8, Cabal 3.12.1.0, fourmolu 0.15.0.0, hlint 3.8 and Node 20.19.0.
+
+- Formal wrapper: **exit 0**, 49 tests (30.172 seconds), 22 scoped SMT requirements
+  and all scoped state/conformance checks; verifier time 20.267 seconds.
+- Full wrapper: **exit 1**. Formal, Haskell build/format/lint/smoke/tests and web
+  typecheck/241 tests/build passed. Automation passed 182/185, failed three,
+  none skipped, in 150.249 seconds. Exact failures:
+  `research-datafeed-scheduler.test.mjs` receipt subprocess `TimeoutExpired`
+  after 10 seconds; `research-edge-campaign.test.mjs` returned null status at
+  its 60-second subprocess deadline; `sequential-screen.test.mjs` returned null
+  status at its 120-second deadline. The scoped verifier reported 18.782 seconds.
+- Unchanged `bash scripts/verify.sh automation` retry: **exit 1**, 183/185 passed,
+  two failed, none skipped, in 121.255 seconds. The scheduler returned null status
+  at its outer 30-second deadline and the edge campaign at 60 seconds; the
+  sequential-contract suite passed on this retry. No test, timeout, environment
+  concurrency setting, assertion or gate changed between attempts.
+- Environmental evidence: one-minute host load averages were 236.804 and 271.855
+  on 16 logical CPUs around these failures. This supports resource contention as
+  an explanation, not a proof of root cause or a substitute for a passing local
+  full command. Unrelated workloads were not stopped. Local full verification
+  remains an unresolved delivery limitation; rerun unchanged on an available
+  host before claiming that gate passed. The PR is not ready for candidate
+  integration, and the 38 broader obligations retain their open/partial status.
+- Remote [CI run 36450058964](https://github.com/diegueins680/trader/actions/runs/36450058964)
+  at `2b11d799`: formal, Haskell, web and automation passed. Docker build and
+  deployment were skipped.
+- Acceptance diagnostic: expected **exit 1**, `ValueError: research acceptance
+  blocked by open obligations`, after reproducing the scoped certificates. All
+  38 broader obligations remain open/partial.
+- Existing separate models/conformance remain unchanged: lifecycle 75 states,
+  349 transitions, two callers, depth 6; artifact path 27 states/40 transitions,
+  depth 13; 20,480 Haskell conformance cases and 180 rational replay traces.
+ The initial
 combined `verify.py --record` attempt failed the existing
 `F-RL-TERMINAL-FP-MASK` check with `violating terminal claim: canceled` under the
 pinned timeout. An unchanged retry passed in 21.060 seconds. The failed log is
 preserved separately; no limit, domain, requirement or assertion was relaxed.
 
+
+Logs and benchmark output remain outside Git. SHA-256 receipts, prefix
+`/private/tmp/trader-targetv2-`, suffix `-20260928.log` except benchmark `.json`:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| record (failed) | `e3aadb71399a5b933d8ce837d03409b592b9c01796a4660a5341441e446a1fe5` |
+| record-retry | `d16c4066a67bb3a44597f918d2fa65e792053a3fdd591936ebb0df6861a308a8` |
+| formal | `0249da047be84ec18318df5d698b6f1dcbe251eb4218c434147c3b14556ff587` |
+| acceptance | `924e91e4939fe545e6f74ace1f4422bef5ed43c12deaa10d61f6e562262c907c` |
+| benchmark | `d0ac9c51c31ecc57391f402b7524bfd57e8631fda09a2ebcfa6a225c05b3d792` |
+| full (failed) | `7469c8dbd69c898247becdb01a8db0e90d241456c111cd7b9ce37332e294911a` |
+| automation-retry (failed) | `7965f8f536fb8100f5b193931d0688adad935fa27a40367a9641080af6f894b4` |
+
+No live authorization, order, authenticated trading experiment, live exploration,
+holdout access, merge, deployment or champion change occurred. No proof placeholder
+was introduced. No promotion, normalization, whole-learner or economic completion
+claim follows from these scoped results. Recommendation: retain the isolated
+engineering kernel for continued offline research; adopt no trading candidate.

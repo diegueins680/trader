@@ -83,3 +83,9 @@ do not establish binary64 reconstruction fidelity. The implementation, version,
 frozen trials and rejected policy artifacts remain unchanged. No historical
 prevalence is inferred; a repair must be separately identified and preregistered
 before new financial trials.
+
+The [isolated gae-targets-v2 kernel](target-v2-followup-2026-09-28.md) now supplies
+direct terminal targets and whole-batch finite-output admission under a distinct,
+default-disabled function contract. It is not connected to PPO, normalization or
+optimizer updates; the frozen learner classification and numerical counterexamples
+above are unchanged. No faithful full-PPO or economic claim follows.
