@@ -1,5 +1,7 @@
 # Trader Firm — Risk Register
 
+PPO objective audit (2026-09-28): [contract](../formal/research/ppo-objective-contract.md) separates exact-real clipping algebra from binary64 safety. CE-RL-012 returns finite loss with NaN gradient; optimizer refusal is tested, the frozen learner remains unchanged and `RL-OFFLINE-001` stays HIGH/OPEN. CE-RL-013 shows the intended absence of a universal clipping multiplier bound; it is not an external action-shield failure.
+
 Numerical proof-query reliability (2026-09-28): [query-isolation contract](../formal/research/query-isolation-contract.md) separates non-vacuity and universal queries without changing arithmetic, domains or the 10-second solver limit. Unknown/canceled checks remain blocking. Timing reliability and trusted solver/compiler semantics remain limitations; no mission obligation or candidate is promoted.
 
 Isolated target-kernel mitigation (2026-09-28): [gae-targets-v2](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and not called by training or production. It corrects terminal reward reconstruction or rejects the two numerical fixtures in that kernel only. The frozen learner retains CE-RL-010/011; `RL-OFFLINE-001` stays HIGH/OPEN.

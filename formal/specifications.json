@@ -212,6 +212,22 @@
         {
           "id": "F-RL-TARGET-V2-PUBLISH",
           "statement": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists."
+        },
+        {
+          "id": "F-RL-PPO-OBJECTIVE",
+          "statement": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256."
+        },
+        {
+          "id": "F-RL-PPO-COEFFICIENT",
+          "statement": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex."
+        },
+        {
+          "id": "F-RL-PPO-FINITE",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs."
+        },
+        {
+          "id": "F-RL-PPO-UNIFORM-CLIP",
+          "statement": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield."
         }
       ],
       "invariants": [

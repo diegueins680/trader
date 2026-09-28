@@ -13,6 +13,7 @@ import artifact_admission
 import transition_admission
 import terminal_numerics
 import target_v2
+import ppo_objective
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -681,6 +682,119 @@ class TerminalNumericsTests(unittest.TestCase):
         self.assertEqual(t[0],u[0])
         self.assertEqual(t[0],1.)
         self.assertNotEqual(a[0],b[0])  # Batch normalization intentionally pools rows.
+
+
+class PPOObjectiveTests(unittest.TestCase):
+    def setUp(self):
+        import sequential_learning
+        self.learning=sequential_learning
+        self.source=(ROOT/ppo_objective.SOURCE).read_text()
+        self.fixtures=read_json(ROOT/'formal/research/ppo-counterexamples.json')
+
+    def test_scoped_algebra_and_prescribed_counterexamples(self):
+        result=ppo_objective.check_ppo(self.fixtures)
+        self.assertEqual(result['queries'],4)
+        self.assertEqual([x['result'] for x in result['counterexamples']],['sat','sat'])
+        self.assertFalse(result['hardTrustRegionVerified'])
+        self.assertFalse(result['softmaxImplementationVerified'])
+
+    def test_objective_and_control_mutants_fail(self):
+        mutations=[('probs[idx, actions] / old_prob','probs[idx, actions] * old_prob'),
+                   ('np.clip(ratio, 0.8, 1.2)','np.clip(ratio, 0.8, 1.3)'),
+                   ('loss = -np.minimum','loss = np.minimum'),
+                   ('(advantage >= 0) & (ratio <= 1.2)','(advantage >= 0) & (ratio >= 1.2)'),
+                   ('active * advantage * ratio / len(actions)','active * advantage * ratio / (2 * len(actions))'),
+                   ('gradient[idx, actions] -= 1','gradient[idx, actions] += 1'),
+                   ('clipped * advantage).mean()','clipped * advantage).sum()'),
+                   ('return float(loss), gradient','return float(loss), gradient / 2')]
+        for old,new in mutations:
+            self.assertIn(old,self.source)
+            with self.subTest(old=old),self.assertRaises((RuntimeError,ValueError)):
+                ppo_objective.check_ppo(self.fixtures,self.source.replace(old,new))
+
+    def test_fixture_tampering_rejected(self):
+        changed=copy.deepcopy(self.fixtures)
+        changed['entries'][0]['lossHex']=float(0).hex()
+        with self.assertRaisesRegex(RuntimeError,'prescribed witness not SAT'):
+            ppo_objective.check_ppo(changed)
+        changed=copy.deepcopy(self.fixtures);changed['entries'].reverse()
+        with self.assertRaisesRegex(ValueError,'roster drift'):
+            ppo_objective.check_ppo(changed)
+
+    def witness(self,entry):
+        logits=np.array([[float.fromhex(x) for x in entry['logitsHex']]])
+        old=np.array([float.fromhex(entry['oldProbabilityHex'])])
+        adv=np.array([float.fromhex(entry['advantageHex'])])
+        self.assertTrue(np.isfinite(logits).all() and np.isfinite(old).all() and np.isfinite(adv).all())
+        self.assertGreater(old[0],0);self.assertLessEqual(old[0],1)
+        probs=self.learning.softmax(logits)
+        self.assertEqual(float(probs[0,entry['action']]).hex(),entry['probabilityHex'])
+        # Expected failure is checked explicitly, never accepted as valid training.
+        with np.errstate(over='ignore',invalid='ignore'):
+            loss,gradient=self.learning.ppo_gradient(logits,np.array([entry['action']]),old,adv)
+        self.assertEqual(loss.hex(),entry['lossHex'])
+        return gradient
+
+    def test_current_source_finite_loss_and_large_multiplier_witnesses(self):
+        for entry in self.fixtures['entries']:
+            gradient=self.witness(entry)
+            if entry['id']=='CE-RL-012':
+                self.assertTrue(np.isnan(gradient).all())
+            else:
+                self.assertTrue(np.isfinite(gradient).all())
+                np.testing.assert_allclose(gradient,[[16/3,-8/3,-8/3]],rtol=0,atol=2e-15)
+                self.assertGreater(abs(gradient[0,0]),1.2)
+
+    def test_invalid_gradient_does_not_publish_optimizer_state(self):
+        gradient=self.witness(self.fixtures['entries'][0])
+        net=self.learning.Network(11)
+        before={field:{k:v.copy() for k,v in getattr(net,field).items()} for field in ('p','m','v')}
+        steps=net.steps
+        with self.assertRaises(ValueError):
+            net.update(np.zeros((1,12)),gradient,.0003)
+        self.assertEqual(net.steps,steps)
+        for field in before:
+            for key in before[field]:
+                np.testing.assert_array_equal(getattr(net,field)[key],before[field][key])
+
+    def test_registered_rational_grid_and_finite_differences(self):
+        from fractions import Fraction as F
+        from itertools import product
+        cases=0
+        lo,hi=F(.8),F(1.2)
+        for wanted,a,n in product((0,.5,.8,1,1.2,1.5,8),(-2,0,2),(1,2,256)):
+            logits=np.tile([-1000.,0.,0.] if wanted==0 else [0.,0.,0.],(n,1))
+            probs=self.learning.softmax(logits)
+            old=np.full(n,1/3 if wanted==0 else probs[0,0]/wanted)
+            ratio=float(probs[0,0]/old[0]);r=F(ratio)
+            loss,gradient=self.learning.ppo_gradient(logits,np.zeros(n,dtype=int),old,np.full(n,float(a)))
+            expected_loss=-a*(min(r,hi) if a>=0 else max(r,lo))
+            active=(a>=0 and r<=hi) or (a<0 and r>=lo)
+            coefficient=F(a)*r/n if active else F(0)
+            expected=[float((F(float(p))-(1 if j==0 else 0))*coefficient) for j,p in enumerate(probs[0])]
+            self.assertAlmostEqual(loss,float(expected_loss),delta=1e-12)
+            np.testing.assert_allclose(gradient,np.tile(expected,(n,1)),rtol=0,atol=1e-12)
+            cases+=1
+        self.assertEqual(cases,63)
+        for ratio,a in product((.5,1.,2.),(-2.,2.)):
+            logits=np.array([[.2,-.1,.4]])
+            old=np.array([self.learning.softmax(logits)[0,0]/ratio]);adv=np.array([a]);actions=np.array([0])
+            loss,gradient=self.learning.ppo_gradient(logits,actions,old,adv)
+            for j in range(3):
+                up=logits.copy();down=logits.copy();up[0,j]+=1e-6;down[0,j]-=1e-6
+                derivative=(self.learning.ppo_gradient(up,actions,old,adv)[0]-self.learning.ppo_gradient(down,actions,old,adv)[0])/2e-6
+                self.assertAlmostEqual(gradient[0,j],derivative,delta=1e-8)
+
+    def test_boundary_convention_with_prescribed_probabilities(self):
+        # Conditional branch conformance, not verification of softmax itself.
+        for center,a in ((.4,-1.),(.6,1.)):
+            for p in (np.nextafter(center,0),center,np.nextafter(center,1)):
+                probs=np.array([[p,(1-p)/2,(1-p)/2]])
+                with patch.object(self.learning,'softmax',return_value=probs):
+                    _,gradient=self.learning.ppo_gradient(np.zeros((1,3)),np.array([0]),np.array([.5]),np.array([a]))
+                ratio=p/.5
+                active=(a>=0 and ratio<=1.2) or (a<0 and ratio>=.8)
+                self.assertEqual(bool(np.any(gradient!=0)),active)
 
 
 class QueryIsolationTests(unittest.TestCase):

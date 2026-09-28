@@ -9,6 +9,8 @@ Trader is a Haskell trading research and execution system with a React operation
 
 The numerical proof drivers use [independent premise and violation queries](formal/research/query-isolation-contract.md). Solver limits and mathematical claims are unchanged; inconclusive results still fail verification.
 
+The [PPO objective audit](formal/research/ppo-objective-contract.md) verifies scoped exact-real branches and preserves a finite-loss/NaN-gradient counterexample in the frozen learner. Objective clipping is not a hard risk bound; no policy is repaired or promoted.
+
 ## What is included
 
 - Haskell CLI, REST API, backtester, optimizer, and supervised live bots

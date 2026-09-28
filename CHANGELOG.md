@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: verify source-linked PPO surrogate algebra and preserve finite-loss/NaN-gradient and nonuniform-clipping witnesses. Keep frozen training and economic evidence unchanged; no full numerical, trust-region or policy-safety guarantee is claimed.
+
 - Formal tooling: isolate numerical premise/witness and universal violation queries; preserve formulas, pinned solver limits and fail-closed behavior. Add complete result-status and assertion-scope regressions without changing trading or training code.
 
 - Research infrastructure: add an explicitly enabled, versioned raw GAE target kernel with direct terminal targets and atomic finite-batch admission. Keep frozen training, artifacts and economic evidence unchanged; normalization and learner integration remain out of scope.

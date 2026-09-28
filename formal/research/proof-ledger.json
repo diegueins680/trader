@@ -79,6 +79,12 @@
       "status": "assumption",
       "statement": "Native immutable tuples, native float/bool inputs, stable bindings, separate IEEE binary64 RNE and trusted math.isfinite/Python primitives; source skeleton/scalarization/model abstraction, compiler and solver are trusted. Normal resource availability and terminating primitives; no concurrent monkey patching. No whole-interpreter refinement, normalized-advantage guarantee, nonterminal roundoff bound or full learner correction.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-PPO-OBJECTIVE",
+      "status": "assumption",
+      "statement": "Ordinary correctly shaped float64 arrays and in-range actions with positive behavior probabilities, stable bindings and no mutation; source scalarization, softmax/simplex and vector correspondence, separate RNE primitives, analytic softmax derivative identity and compiler/solver semantics are trusted. Exact-real claims are not full binary64, NumPy, neural-network or optimizer refinement.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -100,7 +106,8 @@
     "scripts/formal/transition_admission.py",
     "scripts/formal/terminal_numerics.py",
     "scripts/formal/target_v2.py",
-    "scripts/research/gae_targets_v2.py"
+    "scripts/research/gae_targets_v2.py",
+    "scripts/formal/ppo_objective.py"
   ],
   "entries": [
     {
@@ -1058,6 +1065,122 @@
       "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
       "counterexample": "formal/research/target-v2-counterexamples.json",
       "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-PPO-OBJECTIVE",
+      "claim": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256.",
+      "criticality": "high",
+      "formalStatement": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT source-derived negated claims; four queries across the two positive requirements.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PPO-COEFFICIENT",
+      "claim": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex.",
+      "criticality": "high",
+      "formalStatement": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT source-derived negated claims; four queries across the two positive requirements.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PPO-FINITE",
+      "claim": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness and actual unchanged NumPy reproduction.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": "formal/research/ppo-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-PPO-UNIFORM-CLIP",
+      "claim": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness and actual unchanged NumPy reproduction.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": "formal/research/ppo-counterexamples.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -1124,9 +1247,10 @@
         "F-RL-TARGET-V2-TERMINAL",
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH"
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-PPO-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair."
     },
     {
       "number": 7,
@@ -1175,9 +1299,10 @@
         "F-RL-TARGET-V2-TERMINAL",
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH"
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-PPO-FINITE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair."
     },
     {
       "number": 11,

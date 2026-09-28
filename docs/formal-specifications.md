@@ -515,3 +515,15 @@ unchanged. Unknown, invalid premises, counterexamples and solver exceptions bloc
 success. Exact assertion capture, the complete finite result table and actual Z3
 regressions are conformance tests, not a universal proof of the checker. The 22 SMT
 requirements, bounded models and 38 open/partial mission obligations are unchanged.
+
+### PPO objective and numeric scope (2026-09-28)
+
+The [PPO objective contract](../formal/research/ppo-objective-contract.md) adds two
+source-derived exact-real requirements and two explicit refutations. Ratio, clipped
+loss and active multiplier follow the registered branches; conditional simplex
+components sum to zero. Literals are represented as exact rationals of their
+binary64 values. The proofs do not certify NumPy softmax, floating-point accuracy,
+a hard trust region, convergence or economic results. CE-RL-012 preserves finite
+loss with NaN gradient; CE-RL-013 preserves the intended lack of a uniform clipping
+multiplier cap. Actual-source regressions, source mutants and optimizer-state
+preservation tests supplement proofs. All 38 broader obligations remain blockers.

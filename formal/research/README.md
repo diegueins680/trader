@@ -207,3 +207,12 @@ remain binding. No automatic retry converts unknown/canceled results to success.
 Run `bash scripts/verify.sh formal`; new protocol regressions are included. The
 [engineering registration](../../research-notes/registrations/numerical-query-isolation-engineering.json)
 authorizes three paired synthetic proof timings and zero financial trials.
+
+## PPO surrogate audit
+
+The [contract](ppo-objective-contract.md) is specified before the source-linked
+checker. Two exact-real SMT requirements cover ratio/loss and coefficient branches;
+[prescribed witnesses](ppo-counterexamples.json) refute unconditional numeric
+finiteness and a universal clipping multiplier cap. `bash scripts/verify.sh formal`
+runs the checks plus seven new regressions. Full softmax/NumPy/runtime refinement
+and learner correction remain open. No trading or training code changes.
