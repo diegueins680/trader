@@ -130,3 +130,7 @@ its post-call limit neither preempts a stalled call nor bounds end-to-end runtim
 These are unchanged semantics, not a new policy or a whole-neural-network proof.
 CE-RL-017 preserves the pending-call model. Full deadline/production readiness
 remains unverified and all economic rejection decisions stand.
+
+## OPE assurance continuation (2026-09-30)
+
+The [source-linked audit](ope-algebra-followup-2026-09-30.md) separates exact-real ESS/WIS/DR algebra from a preserved general-helper ESS underflow witness. The current deterministic six-step weights are checked separately. The source remains unchanged; all 108 invalid OPE batches retain their status and no new economic or holdout evidence is produced. WDR/MAGIC are not implemented by the existing ordinary DR plus trajectory WIS helper.

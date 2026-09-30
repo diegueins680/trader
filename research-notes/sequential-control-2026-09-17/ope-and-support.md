@@ -29,3 +29,7 @@ support guarantee. Unsupported valid observations request neutral exposure;
 invalid observations terminate. No policy has demonstrated reliable live
 counterfactual support. Behavior cloning imitates the modal uniform action and
 is deliberately weak; its result cannot establish superiority over the champion.
+
+## OPE assurance continuation (2026-09-30)
+
+The [source-linked audit](ope-algebra-followup-2026-09-30.md) separates exact-real ESS/WIS/DR algebra from a preserved general-helper ESS underflow witness. The current deterministic six-step weights are checked separately. The source remains unchanged; all 108 invalid OPE batches retain their status and no new economic or holdout evidence is produced. WDR/MAGIC are not implemented by the existing ordinary DR plus trajectory WIS helper.

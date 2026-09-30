@@ -99,3 +99,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [Optimizer publication continuation](optimizer-publication-followup-2026-09-30.md): source-bound staging model, conditional clipping theorem, instrumented partial-publication counterexample and optimizer literature update. No learner change or financial rerun.
 
 - [Inference boundary continuation](inference-boundary-followup-2026-09-30.md): conditional guard/selection SMT, one-call model, explicit pending-call liveness limitation, source-linked conformance and current shielding literature. No policy or production change.
+
+- [OPE algebra continuation](ope-algebra-followup-2026-09-30.md): conditional ESS/WIS/DR SMT, preserved helper underflow witness, current-producer bounded checks and OPE literature update. No original OPE rerun or financial trial.
