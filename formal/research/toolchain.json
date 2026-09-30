@@ -16,7 +16,8 @@
     "scripts/formal/transition_admission.py",
     "scripts/formal/terminal_numerics.py",
     "scripts/formal/target_v2.py",
-    "scripts/formal/ppo_objective.py"
+    "scripts/formal/ppo_objective.py",
+    "scripts/formal/value_objective.py"
   ],
   "sourceHashes": {
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
@@ -24,14 +25,14 @@
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "a15c7a7b66d68e045d0b500ac6e8e19ef02e64b04c1041a219b6f799822d71af",
-    "scripts/formal/test_integrity.py": "879cd7429ca12cafc0f29576354dd0ebedfe4426b16edd116e98b6dec30e93d1",
+    "scripts/formal/verify.py": "48ed8c3e4d2bc54ccdc681a36affb2e843dad9dae5aaab944ba85b7c63a62b53",
+    "scripts/formal/test_integrity.py": "3ad44b58a97f56e22924d6c244ae87c14aafa74959618962db1e7aa1547024e9",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
-    "formal/research/proof-ledger.json": "09e39dc4fe233fcbb4fd439a8d17b6852b31167a2fc9cafa966283c1d273bf15",
+    "formal/research/proof-ledger.json": "7b4c7856d14ee00d50142a797eb0f981e19965d1d630f98d4bc07d7e9a22cd19",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -66,7 +67,11 @@
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
-    "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534"
+    "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
+    "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
+    "formal/research/value-counterexamples.json": "41b79fd17c6d969f3392438d2af8c94602d0679fbd6602df3159ec665476dcda",
+    "formal/research/value-objective-contract.md": "588f5a0be6bde1517440dab9236fb8a8c44b8827bd7725acfae3880ed3e5a7a7",
+    "research-notes/registrations/value-objective-audit-engineering.json": "73382abdea417dadeb8bc3b6cd61e7f36d20bade9a0a7649731f6c5a599f877f"
   },
   "numpy": "2.3.5"
 }

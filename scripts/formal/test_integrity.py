@@ -14,6 +14,7 @@ import transition_admission
 import terminal_numerics
 import target_v2
 import ppo_objective
+import value_objective
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1023,6 +1024,136 @@ class TargetV2Tests(unittest.TestCase):
                 changed = rows[:cut+1]+tuple((r+1,v-1,n+2,d) for r,v,n,d in rows[cut+1:])
                 second = self.kernel.batch_v2(changed,.99,enabled=True)
                 self.assertEqual(first[:cut+1],second[:cut+1])
+
+
+class ValueObjectiveTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_learning
+        self.learning=sequential_learning
+        self.fixtures=read_json(ROOT/'formal/research/value-counterexamples.json')
+        self.source=(ROOT/value_objective.SOURCE).read_text()
+
+    def test_scoped_value_certificates(self):
+        result=value_objective.check_values(self.fixtures)
+        self.assertEqual(result['queries'],2)
+        self.assertEqual(set(result['smt']),{'F-RL-DOUBLE-TARGET','F-RL-CQL-GRADIENT'})
+        self.assertEqual([x['result'] for x in result['counterexamples']],['sat','sat'])
+        self.assertFalse(result['transcendentalsVerified'])
+        self.assertFalse(result['fullTrainingRefinement'])
+        self.assertFalse(result['policyLowerBoundVerified'])
+
+    def test_source_mutants_fail(self):
+        mutants=[
+            ('greedy = np.argmax(net.forward(nxt), axis=1)','greedy = np.argmax(target.forward(nxt), axis=1)'),
+            ('target.forward(nxt)[np.arange(64), greedy]','net.forward(nxt)[np.arange(64), greedy]'),
+            ('0.99**horizon * (~buffer["done"][idx])','0.9**horizon * (~buffer["done"][idx])'),
+            ('(~buffer["done"][idx])','buffer["done"][idx]'),
+            ('residual = q[idx, actions] - targets','residual = q[idx, actions] + targets'),
+            ('grad[idx, actions] = residual / n','grad[idx, actions] = -residual / n'),
+            ('grad += alpha * penalty / n','grad += alpha * penalty / (2*n)'),
+            ('penalty[idx, actions] -= 1','penalty[idx, actions] += 1'),
+            ('0.5 * np.mean(residual**2)','0.25 * np.mean(residual**2)'),
+            ('alpha * np.mean(logsumexp - q[idx, actions])','alpha * np.mean(logsumexp + q[idx, actions])'),
+            ('return float(loss), grad\n','return float(loss), grad / 2\n'),
+            ('np.log(np.exp(q - m[:, None]).sum(1))','np.log(np.exp(q).sum(1))')]
+        for before,after in mutants:
+            with self.subTest(mutation=after):
+                self.assertIn(before,self.source)
+                with self.assertRaises((ValueError,RuntimeError)):
+                    value_objective.check_values(self.fixtures,self.source.replace(before,after,1))
+
+    def test_fixture_drift_fails(self):
+        for change in ('loss','roster'):
+            fixture=copy.deepcopy(self.fixtures)
+            if change=='loss':fixture['entries'][1]['shiftedLossHex']=float(1).hex()
+            else:fixture['entries'].reverse()
+            with self.assertRaises((ValueError,RuntimeError)):
+                value_objective.check_values(fixture)
+
+    def test_target_grid_against_independent_reference(self):
+        from itertools import product
+        expressions=value_objective.extract(self.source)
+        # Compile exactly the audited source slice, including actual NumPy argmax.
+        greedy=ast.parse(value_objective.TARGET).body[0]
+        target=ast.Assign(targets=[ast.Name(id='targets',ctx=ast.Store())],value=expressions['target'])
+        code=compile(ast.fix_missing_locations(ast.Module(body=[greedy,target],type_ignores=[])),'target-slice','exec')
+        triples=list(product((-1.,0.,1.),repeat=3));cases=0
+        class Forward:
+            def __init__(self,values):self.values=values
+            def forward(self,_):return self.values
+        for horizon in (1,3,6):
+            rows=list(product(triples,triples,(-1.,0.,1.),(False,True)))
+            for start in range(0,len(rows),64):
+                batch=rows[start:start+64];actual_count=len(batch)
+                batch+=batch[-1:]*(64-actual_count)
+                online=np.array([v[0] for v in batch]);target_q=np.array([v[1] for v in batch])
+                rewards=np.array([v[2] for v in batch]);done=np.array([v[3] for v in batch])
+                scope={'np':np,'net':Forward(online),'target':Forward(target_q),'nxt':None,
+                       'buffer':{'r':rewards,'done':done},'idx':np.arange(64),'horizon':horizon}
+                exec(code,scope)
+                for i,(o,t,r,d) in enumerate(batch[:actual_count]):
+                    chosen=max(range(3),key=lambda j:o[j])
+                    expected=r if d else r+(.99**horizon)*t[chosen]
+                    self.assertEqual(scope['greedy'][i],chosen)
+                    self.assertEqual(scope['targets'][i],expected)
+                    cases+=1
+        self.assertEqual(cases,13122)
+
+    def test_gradient_grid_and_finite_differences(self):
+        from itertools import product
+        from math import exp,fsum,log
+        cases=0
+        for values,a,y,alpha,n in product(((-1.,0.,1.),(0.,0.,0.),(1.,-1.,.5)),range(3),(-1.,0.,1.),(0.,.1,1.),(1,2,64,256)):
+            q=np.tile(values,(n,1));actions=np.full(n,a);targets=np.full(n,y)
+            loss,gradient=self.learning.bellman_gradient(q,actions,targets,alpha)
+            exps=[exp(x-max(values)) for x in values];den=fsum(exps);p=[v/den for v in exps]
+            residual=values[a]-y
+            expected=[((residual if j==a else 0)+alpha*(p[j]-(j==a)))/n for j in range(3)]
+            regularizer=log(den)+(max(values)-values[a])
+            self.assertAlmostEqual(loss,.5*residual**2+alpha*regularizer,delta=1e-12)
+            np.testing.assert_allclose(gradient,np.tile(expected,(n,1)),rtol=0,atol=1e-12)
+            cases+=1
+        self.assertEqual(cases,324)
+        for a,alpha in product(range(3),(0.,.1,1.)):
+            q=np.array([[.2,-.1,.4]]);actions=np.array([a]);targets=np.array([.7])
+            _,gradient=self.learning.bellman_gradient(q,actions,targets,alpha)
+            for j in range(3):
+                up=q.copy();down=q.copy();up[0,j]+=1e-6;down[0,j]-=1e-6
+                derivative=(self.learning.bellman_gradient(up,actions,targets,alpha)[0]-self.learning.bellman_gradient(down,actions,targets,alpha)[0])/2e-6
+                self.assertAlmostEqual(gradient[0,j],derivative,delta=1e-8)
+
+    def test_current_source_numeric_witnesses(self):
+        for entry in self.fixtures['entries']:
+            q=np.array([[float.fromhex(v) for v in entry['qHex']]])
+            target=np.array([float.fromhex(entry['targetHex'])]);alpha=float.fromhex(entry['alphaHex'])
+            self.assertTrue(np.isfinite(q).all() and np.isfinite(target).all())
+            with np.errstate(over='ignore',invalid='ignore'):
+                intermediate=np.log(np.exp(q-q.max(1)[:,None]).sum(1))[0]
+                loss,gradient=self.learning.bellman_gradient(q,np.array([entry['action']]),target,alpha)
+            self.assertEqual(float(intermediate).hex(),entry['logIntermediateHex'])
+            self.assertTrue(np.isfinite(gradient).all())
+            if entry['id']=='CE-RL-014':
+                self.assertTrue(np.isnan(loss));np.testing.assert_array_equal(gradient,np.zeros((1,3)))
+            else:
+                original,original_gradient=self.learning.bellman_gradient(np.zeros((1,3)),np.array([0]),np.array([0.]),alpha)
+                self.assertEqual(loss.hex(),entry['shiftedLossHex'])
+                self.assertEqual(original.hex(),entry['originalLossHex'])
+                self.assertNotEqual(loss,original)
+                np.testing.assert_array_equal(gradient,original_gradient)
+
+    def test_nan_loss_is_not_an_optimizer_input(self):
+        entry=self.fixtures['entries'][0]
+        q=np.array([[float.fromhex(v) for v in entry['qHex']]])
+        with np.errstate(over='ignore',invalid='ignore'):
+            loss,gradient=self.learning.bellman_gradient(q,np.array([2]),np.array([float.fromhex(entry['targetHex'])]),0.)
+        self.assertTrue(np.isnan(loss))
+        net=self.learning.Network(11)
+        before={k:v.copy() for k,v in net.p.items()}
+        net.update(np.zeros((1,12)),gradient,.001)
+        self.assertEqual(net.steps,1)
+        for k in before:np.testing.assert_array_equal(net.p[k],before[k])
 
 
 if __name__ == '__main__':

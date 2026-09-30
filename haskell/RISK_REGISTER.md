@@ -1,5 +1,8 @@
 # Trader Firm — Risk Register
 
+Value-objective audit (2026-09-30): [contract](../formal/research/value-objective-contract.md) records CE-RL-014/015: finite value inputs can produce a NaN loss at zero CQL weight or lose the conservative loss under a common shift. Finite gradients can pass optimizer admission despite invalid loss. The learner is unchanged and `RL-OFFLINE-001` remains HIGH/OPEN.
+
+
 PPO objective audit (2026-09-28): [contract](../formal/research/ppo-objective-contract.md) separates exact-real clipping algebra from binary64 safety. CE-RL-012 returns finite loss with NaN gradient; optimizer refusal is tested, the frozen learner remains unchanged and `RL-OFFLINE-001` stays HIGH/OPEN. CE-RL-013 shows the intended absence of a universal clipping multiplier bound; it is not an external action-shield failure.
 
 Numerical proof-query reliability (2026-09-28): [query-isolation contract](../formal/research/query-isolation-contract.md) separates non-vacuity and universal queries without changing arithmetic, domains or the 10-second solver limit. Unknown/canceled checks remain blocking. Timing reliability and trusted solver/compiler semantics remain limitations; no mission obligation or candidate is promoted.

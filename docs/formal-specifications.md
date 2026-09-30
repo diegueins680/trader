@@ -527,3 +527,15 @@ a hard trust region, convergence or economic results. CE-RL-012 preserves finite
 loss with NaN gradient; CE-RL-013 preserves the intended lack of a uniform clipping
 multiplier cap. Actual-source regressions, source mutants and optimizer-state
 preservation tests supplement proofs. All 38 broader obligations remain blockers.
+
+### Value-based target and objective scope (2026-09-30)
+
+The [contract](../formal/research/value-objective-contract.md) adds two scoped SMT
+requirements and two refutations. The target slice selects with the online network
+and evaluates with the target network; the CQL gradient has bounded conservative
+components under an assumed exact-real simplex. No machine-checked logarithm,
+softmax derivative or CQL policy lower-bound theorem is claimed. CE-RL-014/015
+reproduce helper loss failures without proving full-training reachability. Actual
+NumPy source tests, 13,122 target-grid cases, 324 gradient cases and 27 ordinary
+finite-difference comparisons supplement the proofs. All 38 broader obligations
+remain open/partial; no financial trial, champion or live behavior changes.

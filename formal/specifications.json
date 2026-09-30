@@ -228,6 +228,22 @@
         {
           "id": "F-RL-PPO-UNIFORM-CLIP",
           "statement": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield."
+        },
+        {
+          "id": "F-RL-DOUBLE-TARGET",
+          "statement": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount."
+        },
+        {
+          "id": "F-RL-CQL-GRADIENT",
+          "statement": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0."
+        },
+        {
+          "id": "F-RL-Q-FINITE",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss."
+        },
+        {
+          "id": "F-RL-CQL-SHIFT",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients."
         }
       ],
       "invariants": [

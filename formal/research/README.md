@@ -216,3 +216,12 @@ checker. Two exact-real SMT requirements cover ratio/loss and coefficient branch
 finiteness and a universal clipping multiplier cap. `bash scripts/verify.sh formal`
 runs the checks plus seven new regressions. Full softmax/NumPy/runtime refinement
 and learner correction remain open. No trading or training code changes.
+
+## Value-based objective audit
+
+The [contract](value-objective-contract.md) precedes the target-slice and full
+loss-function AST audit. Conditional exact-real SMT checks cover Double DQN
+selection/evaluation and CQL gradient components. [Numeric witnesses](value-counterexamples.json)
+show NaN loss with a zero gradient at alpha zero, and conservative-loss cancellation
+under a common shift. Logarithm/softmax calculus and runtime semantics remain
+trusted. The formal wrapper runs seven new regressions; no training code changes.

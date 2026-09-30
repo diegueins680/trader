@@ -85,6 +85,12 @@
       "status": "assumption",
       "statement": "Ordinary correctly shaped float64 arrays and in-range actions with positive behavior probabilities, stable bindings and no mutation; source scalarization, softmax/simplex and vector correspondence, separate RNE primitives, analytic softmax derivative identity and compiler/solver semantics are trusted. Exact-real claims are not full binary64, NumPy, neural-network or optimizer refinement.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-VALUE-OBJECTIVE",
+      "status": "assumption",
+      "statement": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -107,7 +113,8 @@
     "scripts/formal/terminal_numerics.py",
     "scripts/formal/target_v2.py",
     "scripts/research/gae_targets_v2.py",
-    "scripts/formal/ppo_objective.py"
+    "scripts/formal/ppo_objective.py",
+    "scripts/formal/value_objective.py"
   ],
   "entries": [
     {
@@ -1181,6 +1188,122 @@
       "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
       "counterexample": "formal/research/ppo-counterexamples.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-DOUBLE-TARGET",
+      "claim": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount.",
+      "criticality": "high",
+      "formalStatement": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise and UNSAT negated source-linked claim; one query per positive requirement.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-CQL-GRADIENT",
+      "claim": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0.",
+      "criticality": "high",
+      "formalStatement": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise and UNSAT negated source-linked claim; one query per positive requirement.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-Q-FINITE",
+      "claim": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness with trusted logarithm intermediate and actual unchanged NumPy reproduction.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": "formal/research/value-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-CQL-SHIFT",
+      "claim": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness with trusted logarithm intermediate and actual unchanged NumPy reproduction.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": "formal/research/value-counterexamples.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -1248,9 +1371,11 @@
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
         "F-RL-TARGET-V2-PUBLISH",
-        "F-RL-PPO-FINITE"
+        "F-RL-PPO-FINITE",
+        "F-RL-Q-FINITE",
+        "F-RL-CQL-SHIFT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established."
     },
     {
       "number": 7,
@@ -1300,9 +1425,11 @@
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
         "F-RL-TARGET-V2-PUBLISH",
-        "F-RL-PPO-FINITE"
+        "F-RL-PPO-FINITE",
+        "F-RL-Q-FINITE",
+        "F-RL-CQL-SHIFT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established."
     },
     {
       "number": 11,

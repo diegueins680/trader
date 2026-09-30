@@ -1,5 +1,8 @@
 # Trader
 
+The [value-objective audit](formal/research/value-objective-contract.md) checks Double DQN target selection and conditional CQL gradient algebra. Preserved finite-input loss failures block any numerical-safety claim; the frozen learner and champion are unchanged.
+
+
 The separate [GAE target v2 kernel](research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and disconnected from training. It preserves terminal reward bits and rejects non-finite batches; it does not repair or replace the frozen learner.
 
 
