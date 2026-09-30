@@ -101,3 +101,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [Inference boundary continuation](inference-boundary-followup-2026-09-30.md): conditional guard/selection SMT, one-call model, explicit pending-call liveness limitation, source-linked conformance and current shielding literature. No policy or production change.
 
 - [OPE algebra continuation](ope-algebra-followup-2026-09-30.md): conditional ESS/WIS/DR SMT, preserved helper underflow witness, current-producer bounded checks and OPE literature update. No original OPE rerun or financial trial.
+
+- [Exact ESS diagnostic continuation](ess-v2-followup-2026-09-30.md): default-disabled rational infrastructure, accumulator SMT, bounded publication model, counterexample mitigation confined to v2, conformance and synthetic CPU benchmark. No frozen-estimator integration or OPE rerun.
