@@ -17,6 +17,7 @@ import ppo_objective
 import value_objective
 import optimizer_publication
 import inference_boundary
+import ope_algebra
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1445,6 +1446,139 @@ class InferenceBoundaryTests(unittest.TestCase):
             expected = (-.25, 0., .25)[scores.index(max(scores))]
             with patch.object(self.learning.time, 'perf_counter_ns', side_effect=[0, 1]):
                 self.assertEqual(self.learning.infer(net, observation, enabled=True), (expected, 1e-6))
+
+
+class OPEAlgebraTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import sequential_evaluation
+        self.evaluation = sequential_evaluation
+        self.source = (ROOT / ope_algebra.SOURCE).read_text()
+        self.fixtures = read_json(ROOT / 'formal/research/ope-counterexamples.json')
+        self.registration = read_json(ROOT / ope_algebra.REGISTRATION)
+
+    def test_certificates_and_witness(self):
+        result = ope_algebra.check_ope(self.fixtures, self.registration)
+        self.assertEqual(len(result['smt']), 3)
+        self.assertEqual(result['queries'], 8)
+        self.assertEqual(result['premiseChecks'], 8)
+        self.assertEqual(result['counterexample']['result'], 'sat')
+        self.assertFalse(result['runtimeRefinement'])
+        self.assertFalse(result['statisticalReliabilityVerified'])
+
+    def test_source_mutants_fail(self):
+        changes = [('np.cumprod(pi / b, axis=1)', 'pi / b'),
+                   ('gamma ** np.arange(r.shape[1])', 'np.ones(r.shape[1])'),
+                   ('gamma * v[:, 1:] - q', 'v[:, 1:] - q'),
+                   ('gamma * v[:, 1:] - q', 'gamma * v[:, 1:]'),
+                   ('v[:, 0] + np.sum', 'np.sum'),
+                   ('w.sum()**2 / (w @ w)', 'w.sum() / (w @ w)'),
+                   ('w.sum()**2 / (w @ w)', 'w.sum()**2 / w.sum()'),
+                   ('w @ returns / w.sum()', 'w @ returns / (w @ w)'),
+                   ('np.any(v[:, -1] != 0)', 'np.any(v[:, -1] < 0)'),
+                   ('"reliable": False', '"reliable": True'),
+                   ('"weightClipping": "none"', '"weightClipping": "one"')]
+        for old, new in changes:
+            with self.subTest(old=old):
+                self.assertIn(old, self.source)
+                with self.assertRaises((RuntimeError, ValueError)):
+                    ope_algebra.check_ope(self.fixtures, self.registration, self.source.replace(old, new))
+
+    def test_fixture_and_registration_mutants_fail(self):
+        for key, value in [('expectedESS', 2), ('expectedNonzero', 0), ('horizon', 5),
+                           ('targetProbabilityHex', '0x1.0000000000000p-99')]:
+            altered = copy.deepcopy(self.fixtures); altered['entries'][0][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                ope_algebra.check_witness(altered, self.registration)
+        altered = copy.deepcopy(self.registration); altered['originalOpeReruns'] = 1
+        with self.assertRaises(ValueError):
+            ope_algebra.check_witness(self.fixtures, altered)
+
+    def test_unknown_and_vacuous_results_fail(self):
+        class Unknown:
+            def set(self, **kwargs): pass
+            def add(self, *args): pass
+            def check(self): return z3.unknown
+            def reason_unknown(self): return 'registered synthetic unknown'
+        with patch.object(ope_algebra.z, 'Solver', Unknown):
+            with self.assertRaises(RuntimeError):
+                ope_algebra.check_witness(self.fixtures, self.registration)
+            with self.assertRaises(RuntimeError):
+                ope_algebra.check_real(ope_algebra.extract(self.source))
+        for premise, conclusion in [(z3.BoolVal(False), z3.BoolVal(True)),
+                                    (z3.BoolVal(True), z3.BoolVal(False))]:
+            with self.assertRaises(RuntimeError):
+                ope_algebra.certify('ope-mutant', premise, conclusion, [])
+
+    def test_prescribed_underflow_public_helper(self):
+        e = self.fixtures['entries'][0]; shape = (e['episodes'], e['horizon'])
+        r = np.full(shape, e['reward'], dtype=float)
+        a = np.zeros(shape, dtype=int); b = np.full(shape, e['behaviorProbability'], dtype=float)
+        pi = np.full(shape, float.fromhex(e['targetProbabilityHex']))
+        q = np.full(shape, e['q'], dtype=float); v = np.full((shape[0], shape[1]+1), e['v'], dtype=float)
+        prior = np.geterr()
+        with np.errstate(under='ignore'):
+            weights = np.cumprod(pi/b, axis=1)[:, -1]
+            self.assertEqual([x.hex() for x in weights], [e['expectedFinalWeightHex']]*2)
+            result = self.evaluation.ope_estimates(r, a, b, pi, q, v, e['gamma'])
+        self.assertEqual(result['effectiveSampleSize'], e['expectedESS'])
+        self.assertEqual(result['nonzeroTrajectories'], e['expectedNonzero'])
+        self.assertEqual(result['weightedIS'], e['expectedWIS'])
+        self.assertFalse(result['reliable'])
+        with np.errstate(under='raise'), self.assertRaisesRegex(ValueError, 'non-finite OPE arithmetic'):
+            self.evaluation.ope_estimates(r, a, b, pi, q, v, e['gamma'])
+        self.assertEqual(np.geterr(), prior)
+
+    def test_two_weight_real_reference_grid(self):
+        from fractions import Fraction as F
+        from itertools import product
+        cases = 0
+        for weights in product(self.registration['weightGrid'], repeat=2):
+            if not sum(weights): continue
+            for returns in product(self.registration['returnGrid'], repeat=2):
+                r = np.array(returns, dtype=float).reshape(2, 1)
+                b = np.full((2, 1), .25); pi = np.array(weights, dtype=float).reshape(2, 1)*.25
+                result = self.evaluation.ope_estimates(r, np.zeros((2, 1), dtype=int), b, pi,
+                                                     np.zeros((2, 1)), np.zeros((2, 2)), 1.)
+                ess = F(sum(weights)**2, sum(x*x for x in weights))
+                wis = F(sum(w*r for w, r in zip(weights, returns)), sum(weights))
+                self.assertAlmostEqual(result['effectiveSampleSize'], float(ess), delta=1e-14)
+                self.assertAlmostEqual(result['weightedIS'], float(wis), delta=1e-14)
+                self.assertGreaterEqual(result['effectiveSampleSize'], 1)
+                self.assertLessEqual(result['effectiveSampleSize'], 2)
+                cases += 1
+        self.assertEqual(cases, 135)
+
+    def test_dr_telescoping_grid_and_assumption(self):
+        from fractions import Fraction as F
+        cases = 0
+        for size in range(1, 7):
+            for gamma in self.registration['discountGrid']:
+                r = np.array([(-1)**i*(i+1) for i in range(size)], dtype=float).reshape(1, size)
+                v = np.array(list(range(1, size+1))+[0], dtype=float).reshape(1, size+1)
+                args = (r, np.zeros((1, size), dtype=int), np.full((1, size), .5), np.full((1, size), .5))
+                result = self.evaluation.ope_estimates(*args, v[:, :-1], v, gamma)
+                reference = sum(F(int(x))*F(gamma)**i for i, x in enumerate(r[0]))
+                self.assertAlmostEqual(result['doublyRobust'], float(reference), delta=1e-14)
+                # pi=b alone does not force pathwise DR=return when Q differs from V.
+                different = self.evaluation.ope_estimates(*args, v[:, :-1]+1, v, gamma)
+                self.assertNotEqual(different['doublyRobust'], float(reference))
+                cases += 1
+        self.assertEqual(cases, 18)
+
+    def test_current_six_step_weight_bounds(self):
+        from itertools import product
+        patterns = list(product((0., 1.), repeat=6))
+        weights = np.cumprod(np.array(patterns)/(1/3), axis=1)[:, -1]
+        self.assertEqual(len(patterns), 64)
+        self.assertEqual(set(weights), {0., 729.})
+        # Extract the actual ESS expression, not a reimplemented numerical formula.
+        node = ope_algebra.extract(self.source)['ess']
+        code = compile(ast.fix_missing_locations(ast.Expression(body=node)), 'source-ess', 'eval')
+        for count in range(201):
+            w = np.array([729.]*count+[0.]*(200-count))
+            self.assertEqual(eval(code, {'w': w, 'float': float}), float(count))
 
 
 if __name__ == '__main__':

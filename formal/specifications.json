@@ -264,6 +264,18 @@
         {
           "id": "F-RL-INFER-PATH",
           "statement": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition."
+        },
+        {
+          "id": "F-RL-OPE-ESS-REAL",
+          "statement": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling."
+        },
+        {
+          "id": "F-RL-OPE-WIS-REAL",
+          "statement": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling."
+        },
+        {
+          "id": "F-RL-OPE-DR-TELESCOPE",
+          "statement": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic."
         }
       ],
       "invariants": [
@@ -284,6 +296,10 @@
         {
           "id": "F-RL-INFER-DEADLINE",
           "statement": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return."
+        },
+        {
+          "id": "F-RL-OPE-FP-SUPPORT",
+          "statement": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero."
         }
       ],
       "evidence": [

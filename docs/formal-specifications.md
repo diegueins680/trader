@@ -556,3 +556,16 @@ remain open; the correction does not relax any acceptance gate or change trainin
 ## Inference admission and liveness audit
 
 The [contract](../formal/research/inference-boundary-contract.md) binds the unchanged inference predicates, action constants and one-call admission model. Two conditional SMT results cover measured-time guards and first-maximum action selection. CE-RL-017 preserves the pending-call lasso; no timeout or cancellation transition exists. Output validation/selection follows the final clock read. Ordinary Exception fallback is distinct from BaseException, clock or predicate failures. No full runtime/neural refinement, end-to-end latency guarantee or production authority is established. Existing formal/full wrappers enforce this scope.
+
+## OPE algebra and underflow audit
+
+The [contract](../formal/research/ope-algebra-contract.md) fixes two-trajectory exact-real ESS/WIS
+bounds and scale invariance, plus DR telescoping for horizons 1..6 conditional on
+unit weights, q_t=v_t and zero terminal bootstrap. Eight independent SAT-premise
+and UNSAT-violation checks cover three requirements. The [prescribed fixture](../formal/research/ope-counterexamples.json)
+refutes positive-weight ESS positivity in the public binary64 helper under ignored
+underflow; raised underflow produces an explicit error. All 64 deterministic
+six-step target patterns and 201 support-count cases check the current restricted
+weight domain separately. These are engineering cases, not market OPE evidence.
+Eight new integrity tests run in formal/full; no new tool or frozen-estimator change.
+Runtime refinement, unbiasedness, confidence coverage and behavior support remain open.

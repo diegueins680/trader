@@ -1,5 +1,7 @@
 # Trader
 
+The [OPE algebra audit](formal/research/ope-algebra-contract.md) checks conditional estimator identities and preserves an ESS underflow fixture. It does not establish reliable policy evaluation or change the frozen estimator; the fixture is outside the current deterministic six-step OPE weight domain.
+
 The [inference boundary audit](formal/research/inference-boundary-contract.md) checks conditional proposal guards and first-maximum selection. The 20 ms gate measures a completed call; it does not preempt stalled inference or bound later validation/selection. No policy behavior changes.
 
 The [optimizer publication audit](formal/research/optimizer-publication-contract.md) distinguishes checked prepublication staging from sequential attribute stores. An instrumented interruption leaves mixed state (CE-RL-016); the frozen optimizer is unchanged and concurrent atomicity remains an acceptance blocker.

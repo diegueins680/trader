@@ -103,6 +103,12 @@
       "status": "assumption",
       "statement": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-OPE-ALGEBRA",
+      "status": "assumption",
+      "statement": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -128,7 +134,8 @@
     "scripts/formal/ppo_objective.py",
     "scripts/formal/value_objective.py",
     "scripts/formal/optimizer_publication.py",
-    "scripts/formal/inference_boundary.py"
+    "scripts/formal/inference_boundary.py",
+    "scripts/formal/ope_algebra.py"
   ],
   "entries": [
     {
@@ -1525,6 +1532,122 @@
       "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
       "counterexample": "formal/research/inference-counterexamples.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-OPE-ESS-REAL",
+      "claim": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling.",
+      "criticality": "high",
+      "formalStatement": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation queries; six horizon queries for DR.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPE-WIS-REAL",
+      "claim": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling.",
+      "criticality": "high",
+      "formalStatement": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation queries; six horizon queries for DR.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPE-DR-TELESCOPE",
+      "claim": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic.",
+      "criticality": "high",
+      "formalStatement": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation queries; six horizon queries for DR.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPE-FP-SUPPORT",
+      "claim": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT underflow witness plus actual public-helper regression.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": "formal/research/ope-counterexamples.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -1597,9 +1720,10 @@
         "F-RL-CQL-SHIFT",
         "F-RL-INFER-ADMISSION",
         "F-RL-INFER-SELECTION",
-        "F-RL-INFER-PATH"
+        "F-RL-INFER-PATH",
+        "F-RL-OPE-FP-SUPPORT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability."
     },
     {
       "number": 7,
@@ -1654,9 +1778,10 @@
         "F-RL-TARGET-V2-PUBLISH",
         "F-RL-PPO-FINITE",
         "F-RL-Q-FINITE",
-        "F-RL-CQL-SHIFT"
+        "F-RL-CQL-SHIFT",
+        "F-RL-OPE-FP-SUPPORT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability."
     },
     {
       "number": 11,

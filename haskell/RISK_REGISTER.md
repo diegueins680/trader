@@ -1,5 +1,7 @@
 # Trader Firm — Risk Register
 
+OPE numerical evidence (2026-09-30): [contract](../formal/research/ope-algebra-contract.md) records CE-RL-018, where squared positive weights underflow and ESS reports zero. This prescribed helper fixture is outside the current deterministic six-step weight domain. Exact-real identities do not establish binary64 accuracy or statistical reliability; `RL-OFFLINE-001` stays HIGH/OPEN.
+
 Inference timing evidence (2026-09-30): [contract](../formal/research/inference-boundary-contract.md) and CE-RL-017 preserve the known non-preemptive call limitation. Measured time excludes later output validation/selection; predicate, clock and cancellation failures remain assumptions or open scope. `RL-OFFLINE-001` stays HIGH/OPEN.
 
 Optimizer publication evidence (2026-09-30): [contract](../formal/research/optimizer-publication-contract.md) and CE-RL-016 expose partial publication under an injected interruption. Prepublication failure tests and a single-writer model do not establish concurrent atomicity. Rounded gradient-norm bounds remain assumptions; `RL-OFFLINE-001` stays HIGH/OPEN and the learner is unchanged.
