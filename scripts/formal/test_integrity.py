@@ -16,6 +16,7 @@ import target_v2
 import ppo_objective
 import value_objective
 import optimizer_publication
+import inference_boundary
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1319,6 +1320,131 @@ class OptimizerPublicationTests(unittest.TestCase):
         for name,values in fixture['state'].items():
             for key,expected in values.items():
                 np.testing.assert_allclose(getattr(net,name)[key],expected,rtol=1e-13,atol=1e-15)
+
+
+class InferenceBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import sequential_learning
+        self.learning = sequential_learning
+        self.source = (ROOT / inference_boundary.SOURCE).read_text()
+        self.env = (ROOT / inference_boundary.ENV).read_text()
+        self.fixtures = read_json(ROOT / 'formal/research/inference-counterexamples.json')
+
+    def test_certificates_and_pending_lasso(self):
+        result = inference_boundary.check_inference(self.fixtures)
+        self.assertEqual(len(result['smt']), 2)
+        self.assertEqual(result['model']['states'], 9)
+        self.assertFalse(result['model']['preemptionVerified'])
+        self.assertFalse(result['runtimeRefinement'])
+        self.assertEqual(result['model']['deadlineCounterexample'],
+                         {'prefix': ['enable', 'admit_observation'], 'cycle': ['pending']})
+
+    def test_source_and_constant_mutants_fail(self):
+        changes = [('enabled is not True or not _finite_real_vector(observation, FEATURE_COUNT)',
+                    'enabled is not True and not _finite_real_vector(observation, FEATURE_COUNT)'),
+                   ('0 <= elapsed <= 20', '0 <= elapsed <= 21'),
+                   ('0 <= elapsed <= 20', 'elapsed <= 20'),
+                   ('_finite_real_vector(out, 3)', '_finite_real_vector(out, 2)'),
+                   ('enabled: bool = False', 'enabled: bool = True'),
+                   ('np.argmax(out)', 'np.argmin(out)'),
+                   ('except Exception:\n', 'except BaseException:\n'),
+                   ('not np.ma.isMaskedArray(value)', 'True'),
+                   ('value.dtype.kind in "iuf"', 'value.dtype.kind in "biuf"')]
+        for before, after in changes:
+            with self.subTest(mutation=after):
+                self.assertIn(before, self.source)
+                with self.assertRaises((ValueError, RuntimeError)):
+                    inference_boundary.check_inference(self.fixtures, self.source.replace(before, after, 1))
+        for before, after in [('[-0.25, 0.0, 0.25]', '[-0.5, 0.0, 0.5]'), ('FEATURE_COUNT = 12', 'FEATURE_COUNT = 11')]:
+            with self.assertRaises(ValueError):
+                inference_boundary.check_inference(self.fixtures, env=self.env.replace(before, after, 1))
+
+    def test_model_and_fixture_mutations_fail(self):
+        for key, value in [('prefix', []), ('cycle', []), ('elapsedNanoseconds', 20000000), ('expectedProposal', 0.)]:
+            fixture = copy.deepcopy(self.fixtures); fixture['entries'][0][key] = value
+            with self.assertRaises((ValueError, RuntimeError)):
+                inference_boundary.check_inference(fixture)
+        original = inference_boundary.transitions
+        def bypass(state):
+            if state == ('entry', 0): yield 'bypass', ('proposal', 0)
+            else: yield from original(state)
+        with patch.object(inference_boundary, 'transitions', bypass), self.assertRaisesRegex(RuntimeError, 'bypass'):
+            inference_boundary.check_inference(self.fixtures)
+        def no_pending(state):
+            for event, nxt in original(state):
+                if event != 'pending': yield event, nxt
+        with patch.object(inference_boundary, 'transitions', no_pending), self.assertRaisesRegex(RuntimeError, 'lasso'):
+            inference_boundary.check_inference(self.fixtures)
+
+    def test_score_timing_grid_matches_first_maximum(self):
+        from itertools import product
+        registration = read_json(ROOT / 'research-notes/registrations/inference-boundary-audit-engineering.json')
+        net = self.learning.Network(11); count = 0
+        for scores in product(registration['scoreGrid'], repeat=3):
+            expected = (-.25, 0., .25)[scores.index(max(scores))]
+            for elapsed in registration['elapsedNanoseconds']:
+                with self.subTest(scores=scores, elapsed=elapsed), \
+                     patch.object(net, 'forward', return_value=np.array(scores, dtype=float)) as forward, \
+                     patch.object(self.learning.time, 'perf_counter_ns', side_effect=[123, 123 + elapsed]):
+                    proposal, measured = self.learning.infer(net, np.zeros(12), enabled=True)
+                    self.assertEqual(proposal, expected if 0 <= elapsed <= 20000000 else None)
+                    self.assertEqual(measured, elapsed / 1e6)
+                    forward.assert_called_once()
+                    count += 1
+        self.assertEqual(count, registration['syntheticScoreTimingCases'])
+
+    def test_invalid_representations_and_disabled_call_suppression(self):
+        net = self.learning.Network(11)
+        invalid = lambda n: [None, [0.] * n, np.zeros(n, dtype=bool), np.zeros(n, dtype=complex),
+                             np.zeros(n, dtype=object), np.zeros(n - 1), np.zeros((1, n)),
+                             np.full(n, np.nan), np.full(n, np.inf),
+                             np.ma.array(np.zeros(n), mask=False), np.ma.array(np.zeros(n), mask=True)]
+        for enabled in (False, None, 1, 'true', np.bool_(True), np.array([True])):
+            with patch.object(net, 'forward') as forward, patch.object(self.learning.time, 'perf_counter_ns', side_effect=[0, 1]):
+                self.assertIsNone(self.learning.infer(net, np.zeros(12), enabled=enabled)[0])
+                forward.assert_not_called()
+        for observation in invalid(12):
+            with patch.object(net, 'forward') as forward, patch.object(self.learning.time, 'perf_counter_ns', side_effect=[0, 1]):
+                self.assertIsNone(self.learning.infer(net, observation, enabled=True)[0])
+                forward.assert_not_called()
+        for output in invalid(3):
+            with patch.object(net, 'forward', return_value=output), patch.object(self.learning.time, 'perf_counter_ns', side_effect=[0, 1]):
+                self.assertIsNone(self.learning.infer(net, np.zeros(12), enabled=True)[0])
+
+    def test_late_call_order_and_post_measurement_validation(self):
+        events = []; clock = iter((0, self.fixtures['entries'][0]['elapsedNanoseconds']))
+        def now():
+            events.append('clock'); return next(clock)
+        def forward(observation):
+            events.append('forward_enter'); events.append('forward_return')
+            return np.array([0., 0., 1.])
+        original = self.learning._finite_real_vector
+        def validate(value, width):
+            events.append('observation' if width == 12 else 'output')
+            return original(value, width)
+        net = self.learning.Network(11)
+        with patch.object(net, 'forward', side_effect=forward), \
+             patch.object(self.learning.time, 'perf_counter_ns', side_effect=now), \
+             patch.object(self.learning, '_finite_real_vector', side_effect=validate):
+            proposal, elapsed = self.learning.infer(net, np.zeros(12), enabled=True)
+        self.assertIsNone(proposal); self.assertEqual(elapsed, 25.)
+        self.assertEqual(events, ['clock', 'observation', 'forward_enter', 'forward_return', 'clock', 'output'])
+
+    def test_exception_scope_and_unchanged_network_parity(self):
+        net = self.learning.Network(11)
+        with patch.object(net, 'forward', side_effect=ValueError('fixture')), \
+             patch.object(self.learning.time, 'perf_counter_ns', side_effect=[0, 1]):
+            self.assertIsNone(self.learning.infer(net, np.zeros(12), enabled=True)[0])
+        with patch.object(net, 'forward', side_effect=KeyboardInterrupt('fixture')), \
+             patch.object(self.learning.time, 'perf_counter_ns', return_value=0), self.assertRaises(KeyboardInterrupt):
+            self.learning.infer(net, np.zeros(12), enabled=True)
+        for observation in (np.zeros(12), np.ones(12), -np.ones(12)):
+            scores = net.forward(observation).tolist()
+            expected = (-.25, 0., .25)[scores.index(max(scores))]
+            with patch.object(self.learning.time, 'perf_counter_ns', side_effect=[0, 1]):
+                self.assertEqual(self.learning.infer(net, observation, enabled=True), (expected, 1e-6))
 
 
 if __name__ == '__main__':

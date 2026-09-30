@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: verify unchanged inference admission/selection predicates and preserve a pending-call liveness counterexample. Document the post-call timing boundary without adding cancellation, changing policies or relaxing acceptance gates.
+
 - Research assurance: qualify optimizer failure preservation to prepublication failures; model ordered stores and preserve an instrumented interruption counterexample. Add conditional exact-real gradient clipping checks without changing training or relaxing atomicity gates.
 
 - Research assurance: audit unchanged Double DQN target/CQL gradient semantics and preserve NaN-loss and common-shift cancellation witnesses. Conditional SMT checks and conformance tests do not establish CQL policy lower bounds or candidate readiness.

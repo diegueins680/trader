@@ -252,6 +252,18 @@
         {
           "id": "F-RL-GRADIENT-CLIP",
           "statement": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one."
+        },
+        {
+          "id": "F-RL-INFER-ADMISSION",
+          "statement": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics."
+        },
+        {
+          "id": "F-RL-INFER-SELECTION",
+          "statement": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics."
+        },
+        {
+          "id": "F-RL-INFER-PATH",
+          "statement": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition."
         }
       ],
       "invariants": [
@@ -268,6 +280,10 @@
         {
           "id": "F-RL-OPTIMIZER-ATOMIC",
           "statement": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state."
+        },
+        {
+          "id": "F-RL-INFER-DEADLINE",
+          "statement": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return."
         }
       ],
       "evidence": [

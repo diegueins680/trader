@@ -97,6 +97,12 @@
       "status": "assumption",
       "statement": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-INFERENCE-BOUNDARY",
+      "status": "assumption",
+      "statement": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -121,7 +127,8 @@
     "scripts/research/gae_targets_v2.py",
     "scripts/formal/ppo_objective.py",
     "scripts/formal/value_objective.py",
-    "scripts/formal/optimizer_publication.py"
+    "scripts/formal/optimizer_publication.py",
+    "scripts/formal/inference_boundary.py"
   ],
   "entries": [
     {
@@ -1398,6 +1405,126 @@
       "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
       "counterexample": "formal/research/optimizer-counterexamples.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-INFER-ADMISSION",
+      "claim": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics.",
+      "criticality": "high",
+      "formalStatement": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; all binary64 elapsed values and admission booleans.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-INFER-SELECTION",
+      "claim": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics.",
+      "criticality": "high",
+      "formalStatement": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation over three exact real scores.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-INFER-PATH",
+      "claim": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition.",
+      "criticality": "high",
+      "formalStatement": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Reachable fixed-point search; explicit pending-call cycle is retained, not removed by fairness assumptions.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-INFER-DEADLINE",
+      "claim": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "CE-RL-017 reaches a nonterminal pending self-loop. Synthetic clock conformance separately shows 25 ms late-return rejection after forward; no measured physical-latency claim.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": "formal/research/inference-counterexamples.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -1467,9 +1594,12 @@
         "F-RL-TARGET-V2-PUBLISH",
         "F-RL-PPO-FINITE",
         "F-RL-Q-FINITE",
-        "F-RL-CQL-SHIFT"
+        "F-RL-CQL-SHIFT",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
     },
     {
       "number": 7,
@@ -1481,9 +1611,12 @@
         "F-RL-DRAWDOWN-COMPOSE",
         "F-RL-POSTCOST-EXPOSURE",
         "F-RL-UNCONDITIONAL-FLOOR",
-        "F-RL-GAP-CONFORMANCE"
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
     },
     {
       "number": 8,
@@ -1635,9 +1768,12 @@
       "claim": "Invalid output fallback",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-FALLBACK"
+        "F-RL-SHIELD-FALLBACK",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
     },
     {
       "number": 22,
@@ -1739,9 +1875,12 @@
         "F-RL-TARGET-V2-TERMINAL",
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH"
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
     },
     {
       "number": 32,
@@ -1794,9 +1933,10 @@
         "F-RL-TARGET-V2-TERMINAL",
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH"
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-INFER-DEADLINE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-017 records a nonreturning inference model; this does not model or verify server shutdown or cancellation."
     },
     {
       "number": 37,

@@ -72,3 +72,7 @@ scheduler deadlines. Python clock semantics:
 https://docs.python.org/3.13/library/time.html#time.perf_counter_ns . A measurement
 primitive is not a cancellation primitive. Exact source and timing assumptions
 must remain distinct from policy quality or market safety.
+
+## Source-order clarification
+
+The second clock read precedes output validation and argmax. Its duration excludes those later operations; even a promptly returning forward call does not yield an end-to-end wrapper deadline proof. Valid equal scores retain first-index selection (short exposure), not a new uncertainty/abstention rule. Invalid representations still reject under the stated predicate assumptions.

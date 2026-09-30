@@ -235,3 +235,7 @@ preserves partial-publication CE-RL-016; actual opcode-instrumented tests distin
 failure before publication from interruption between stores. No unconditional
 atomicity, floating-norm, Adam convergence or full implementation theorem is claimed.
 The existing formal/full wrappers run the new checks without new dependencies.
+
+## Inference admission and liveness audit
+
+The [contract](inference-boundary-contract.md) binds the unchanged inference predicates, action constants and one-call admission model. Two conditional SMT results cover measured-time guards and first-maximum action selection. CE-RL-017 preserves the pending-call lasso; no timeout or cancellation transition exists. Output validation/selection follows the final clock read. Ordinary Exception fallback is distinct from BaseException, clock or predicate failures. No full runtime/neural refinement, end-to-end latency guarantee or production authority is established. Existing formal/full wrappers enforce this scope.

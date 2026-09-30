@@ -552,3 +552,7 @@ F-RL-OPTIMIZER-ATOMIC is refuted by CE-RL-016 in an observer/interruption extens
 and a deliberate CPython opcode-instrumented regression. This is not an unassisted
 thread-race or historical-occurrence claim. Broader atomicity and race freedom
 remain open; the correction does not relax any acceptance gate or change training.
+
+## Inference admission and liveness audit
+
+The [contract](../formal/research/inference-boundary-contract.md) binds the unchanged inference predicates, action constants and one-call admission model. Two conditional SMT results cover measured-time guards and first-maximum action selection. CE-RL-017 preserves the pending-call lasso; no timeout or cancellation transition exists. Output validation/selection follows the final clock read. Ordinary Exception fallback is distinct from BaseException, clock or predicate failures. No full runtime/neural refinement, end-to-end latency guarantee or production authority is established. Existing formal/full wrappers enforce this scope.
