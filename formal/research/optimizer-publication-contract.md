@@ -79,3 +79,7 @@ https://docs.python.org/3.13/reference/simple_stmts.html#assignment-statements ;
 Kingma and Ba, https://arxiv.org/abs/1412.6980 ; Reddi et al.,
 https://arxiv.org/abs/1904.09237 . Optimizer equations do not supply transaction
 or unconditional convergence guarantees. No external code or PDF is committed.
+
+## Execution-time instrumentation limitation
+
+Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception. See https://docs.python.org/3.13/reference/datamodel.html#frame.f_trace_opcodes . The explicit interruption transition remains a model assumption; this limitation was discovered while checking primary documentation and does not change the registered witness or frozen learner.

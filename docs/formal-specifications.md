@@ -435,7 +435,7 @@ controls, overflowing clipping norms and invalid Adam arithmetic. Four witnesses
 cover actor/critic cold/warm norm overflow, control admission before gradients,
 late failures without partial mutation, and stored pre-repair numerical parity.
 Parameters, moments and the counter are published only after complete validation.
-This preserves pre-existing state on failure, including pre-existing corruption;
+This preserves pre-existing state on failures before publication under non-mutating helpers and a single writer, including pre-existing corruption;
 it is not state repair, a complete optimizer representation contract or a
 convergence claim. `RL-OFFLINE-001` remains HIGH/OPEN.
 
@@ -539,3 +539,16 @@ reproduce helper loss failures without proving full-training reachability. Actua
 NumPy source tests, 13,122 target-grid cases, 324 gradient cases and 27 ordinary
 finite-difference comparisons supplement the proofs. All 38 broader obligations
 remain open/partial; no financial trial, champion or live behavior changes.
+
+### Optimizer publication and interruption scope (2026-09-30)
+
+The [contract](../formal/research/optimizer-publication-contract.md) resolves the
+broad failure wording in A-SEQUENTIAL-RESEARCH-R25 against actual sequential
+attribute stores. F-RL-OPTIMIZER-PUBLISH checks a single-call model with 32 staging
+cuts and four stores, under non-mutating primitives and uninterrupted final stores.
+F-RL-GRADIENT-CLIP checks exact-real clipping conditional on norm >= abs(grad).
+That premise is not a proved property of the rounded NumPy norm.
+F-RL-OPTIMIZER-ATOMIC is refuted by CE-RL-016 in an observer/interruption extension
+and a deliberate CPython opcode-instrumented regression. This is not an unassisted
+thread-race or historical-occurrence claim. Broader atomicity and race freedom
+remain open; the correction does not relax any acceptance gate or change training.

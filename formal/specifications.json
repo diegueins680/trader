@@ -244,6 +244,14 @@
         {
           "id": "F-RL-CQL-SHIFT",
           "statement": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients."
+        },
+        {
+          "id": "F-RL-OPTIMIZER-PUBLISH",
+          "statement": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates."
+        },
+        {
+          "id": "F-RL-GRADIENT-CLIP",
+          "statement": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one."
         }
       ],
       "invariants": [
@@ -256,6 +264,10 @@
         {
           "id": "F-RL-FAIL-CLOSED",
           "statement": "Unexpected SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success; explicitly refuted claims require their prescribed SAT counterexamples."
+        },
+        {
+          "id": "F-RL-OPTIMIZER-ATOMIC",
+          "statement": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state."
         }
       ],
       "evidence": [
@@ -450,7 +462,7 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R25",
-          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. A failed update leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
+          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. Under non-mutating helpers and a single writer, a failure before publication leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Final attribute stores are sequential and require uninterrupted successful completion; interruption or concurrent observation is not atomic (CE-RL-016). Stronger atomicity remains an unresolved acceptance obligation. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R26",

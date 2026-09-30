@@ -91,6 +91,12 @@
       "status": "assumption",
       "statement": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-OPTIMIZER-PUBLICATION",
+      "status": "assumption",
+      "statement": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -114,7 +120,8 @@
     "scripts/formal/target_v2.py",
     "scripts/research/gae_targets_v2.py",
     "scripts/formal/ppo_objective.py",
-    "scripts/formal/value_objective.py"
+    "scripts/formal/value_objective.py",
+    "scripts/formal/optimizer_publication.py"
   ],
   "entries": [
     {
@@ -1304,6 +1311,93 @@
       "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
       "counterexample": "formal/research/value-counterexamples.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-OPTIMIZER-PUBLISH",
+      "claim": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates.",
+      "criticality": "high",
+      "formalStatement": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates.",
+      "assumptions": [
+        "A-OPTIMIZER-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state fixed-point checker and exact-real Z3 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/optimizer_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/optimizer_publication.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Reachable fixed point and strict progress rank checked; implementation conformance is separately tested.",
+      "bounds": "One call, four parameter keys, 32 validation/staging cuts and four ordered stores; extended model has one observer and interruption after a partial store prefix. Exact real scalar gradient/norm with norm >= abs(grad).",
+      "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-GRADIENT-CLIP",
+      "claim": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one.",
+      "criticality": "high",
+      "formalStatement": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one.",
+      "assumptions": [
+        "A-OPTIMIZER-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state fixed-point checker and exact-real Z3 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/optimizer_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/optimizer_publication.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise and UNSAT violation in independent pinned solver queries.",
+      "bounds": "One call, four parameter keys, 32 validation/staging cuts and four ordered stores; extended model has one observer and interruption after a partial store prefix. Exact real scalar gradient/norm with norm >= abs(grad).",
+      "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPTIMIZER-ATOMIC",
+      "claim": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state.",
+      "assumptions": [
+        "A-OPTIMIZER-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state fixed-point checker and exact-real Z3 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/optimizer_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/optimizer_publication.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "CE-RL-016 reaches mask 1 after publishing p and interrupting before m; explicit opcode instrumentation reproduces the witness.",
+      "bounds": "One call, four parameter keys, 32 validation/staging cuts and four ordered stores; extended model has one observer and interruption after a partial store prefix. Exact real scalar gradient/norm with norm >= abs(grad).",
+      "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "counterexample": "formal/research/optimizer-counterexamples.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -1662,15 +1756,21 @@
       "number": 33,
       "claim": "Atomicity",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-OPTIMIZER-PUBLISH",
+        "F-RL-OPTIMIZER-ATOMIC"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged."
     },
     {
       "number": 34,
       "claim": "Race freedom",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-OPTIMIZER-PUBLISH",
+        "F-RL-OPTIMIZER-ATOMIC"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged."
     },
     {
       "number": 35,

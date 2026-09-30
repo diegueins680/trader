@@ -1,5 +1,7 @@
 # Trader
 
+The [optimizer publication audit](formal/research/optimizer-publication-contract.md) distinguishes checked prepublication staging from sequential attribute stores. An instrumented interruption leaves mixed state (CE-RL-016); the frozen optimizer is unchanged and concurrent atomicity remains an acceptance blocker.
+
 The [value-objective audit](formal/research/value-objective-contract.md) checks Double DQN target selection and conditional CQL gradient algebra. Preserved finite-input loss failures block any numerical-safety claim; the frozen learner and champion are unchanged.
 
 

@@ -225,3 +225,13 @@ selection/evaluation and CQL gradient components. [Numeric witnesses](value-coun
 show NaN loss with a zero gradient at alpha zero, and conservative-loss cancellation
 under a common shift. Logarithm/softmax calculus and runtime semantics remain
 trusted. The formal wrapper runs seven new regressions; no training code changes.
+
+## Optimizer publication audit
+
+[Specification](optimizer-publication-contract.md), [counterexample](optimizer-counterexamples.json)
+and `optimizer_publication.py` check unchanged source structure, finite-state
+staging and conditional exact-real gradient clipping. The observer extension
+preserves partial-publication CE-RL-016; actual opcode-instrumented tests distinguish
+failure before publication from interruption between stores. No unconditional
+atomicity, floating-norm, Adam convergence or full implementation theorem is claimed.
+The existing formal/full wrappers run the new checks without new dependencies.

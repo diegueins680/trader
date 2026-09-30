@@ -86,3 +86,14 @@ No new model, dependency, configuration, live exploration, order authorization o
 automatic promotion is introduced. Deployment of this research-code repair does
 not promote a research policy. Existing live execution settings must be preserved;
 they are not represented as globally disabled.
+
+## Scope correction — 2026-09-30
+
+The earlier failure-preservation evidence covers failures **before publication**,
+under non-mutating helpers and a single writer. Final tuple assignment performs
+sequential attribute stores; it is not an all-interruption transaction. See the
+[publication contract](../../formal/research/optimizer-publication-contract.md)
+and [CE-RL-016](../../formal/research/optimizer-counterexamples.json). Deliberate
+opcode instrumentation observes mixed state and interrupts before the second
+store. Existing numerical repair and golden behavior are unchanged. The stronger
+atomicity requirement remains an unresolved acceptance blocker.

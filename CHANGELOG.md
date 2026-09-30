@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: qualify optimizer failure preservation to prepublication failures; model ordered stores and preserve an instrumented interruption counterexample. Add conditional exact-real gradient clipping checks without changing training or relaxing atomicity gates.
+
 - Research assurance: audit unchanged Double DQN target/CQL gradient semantics and preserve NaN-loss and common-shift cancellation witnesses. Conditional SMT checks and conformance tests do not establish CQL policy lower bounds or candidate readiness.
 
 - Research assurance: verify source-linked PPO surrogate algebra and preserve finite-loss/NaN-gradient and nonuniform-clipping witnesses. Keep frozen training and economic evidence unchanged; no full numerical, trust-region or policy-safety guarantee is claimed.

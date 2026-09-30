@@ -15,6 +15,7 @@ import terminal_numerics
 import target_v2
 import ppo_objective
 import value_objective
+import optimizer_publication
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1154,6 +1155,170 @@ class ValueObjectiveTests(unittest.TestCase):
         net.update(np.zeros((1,12)),gradient,.001)
         self.assertEqual(net.steps,1)
         for k in before:np.testing.assert_array_equal(net.p[k],before[k])
+
+
+class OptimizerPublicationTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_learning
+        self.learning=sequential_learning
+        self.source=(ROOT/optimizer_publication.SOURCE).read_text()
+        self.fixtures=read_json(ROOT/'formal/research/optimizer-counterexamples.json')
+
+    def test_model_and_clip_certificate(self):
+        r=optimizer_publication.check_optimizer(self.fixtures)
+        self.assertEqual(r['smt'],{'F-RL-GRADIENT-CLIP':'unsat'})
+        self.assertEqual(r['singleWriter']['gates'],32)
+        self.assertEqual(r['singleWriter']['states'],69)
+        self.assertEqual(r['singleWriter']['maxShortestDepth'],36)
+        self.assertEqual(r['observerExtension']['observedMasks'],[0,1,3,7])
+        self.assertFalse(r['concurrentAtomicityVerified'])
+        self.assertFalse(r['floatingNormPremiseVerified'])
+
+    def test_source_mutants_fail(self):
+        changes=[
+            ('steps = int(self.steps) + 1','self.steps = int(self.steps) + 1\n                steps = self.steps'),
+            ('if not all(np.isfinite(v).all() for state in (params, moments, variances)','if not all(np.isfinite(v).all() for state in (params,)'),
+            ('if not np.isfinite(norm):','if norm < 0:'),
+            ('grad / max(1.0, norm)','grad * max(1.0, norm)'),
+            ('grad / max(1.0, norm)','grad / max(0.5, norm)'),
+            ('self.p, self.m, self.v, self.steps = params, moments, variances, steps','self.m, self.p, self.v, self.steps = moments, params, variances, steps'),
+            ('h = np.tanh(x @ self.p["w1"] + self.p["b1"])','self.p["w1"] *= 2\n        h = np.tanh(x @ self.p["w1"] + self.p["b1"])'),
+            ('moments[k] = 0.9 * self.m[k] + 0.1 * g','self.m[k] = 0.9 * self.m[k] + 0.1 * g\n                    moments[k] = self.m[k]')]
+        for before,after in changes:
+            with self.subTest(mutation=after):
+                self.assertIn(before,self.source)
+                with self.assertRaises((ValueError,RuntimeError)):
+                    optimizer_publication.check_optimizer(self.fixtures,self.source.replace(before,after,1))
+
+    def test_fixture_and_model_mutants_fail(self):
+        for key,value in (('normalMasks',[0,15]),('interruptedMask',0),('trace',[])):
+            fixture=copy.deepcopy(self.fixtures);fixture['entries'][0][key]=value
+            with self.assertRaises(ValueError):optimizer_publication.check_optimizer(fixture)
+        original=optimizer_publication.transitions
+        def stalled(state,gates,fields,extended):
+            if state==(0,False,-1):yield 'pass:stalled',state
+            else:yield from original(state,gates,fields,extended)
+        with patch.object(optimizer_publication,'transitions',stalled),self.assertRaisesRegex(RuntimeError,'rank'):
+            optimizer_publication.check_optimizer(self.fixtures)
+
+    def snapshot(self,net):
+        return ({k:getattr(net,k) for k in ('p','m','v')},
+                {k:{name:v.copy() for name,v in getattr(net,k).items()} for k in ('p','m','v')},net.steps)
+
+    def test_gradient_helper_preserves_inputs_and_optimizer_state(self):
+        from itertools import product
+        for seed,outputs,warm in product((11,23,47),(1,3),(False,True)):
+            net=self.learning.Network(seed,outputs)
+            x=np.arange(24,dtype=float).reshape(2,12)/24
+            dz=np.ones((2,outputs))*.1
+            if warm:net.update(x,dz,.001)
+            refs,values,steps=self.snapshot(net);before_x=x.copy();before_dz=dz.copy()
+            gradients=net.gradients(x,dz)
+            self.assertEqual(set(gradients),{'w1','b1','w2','b2'})
+            self.assertEqual(net.steps,steps)
+            np.testing.assert_array_equal(x,before_x)
+            np.testing.assert_array_equal(dz,before_dz)
+            for field in refs:
+                self.assertIs(getattr(net,field),refs[field])
+                for name in values[field]:
+                    np.testing.assert_array_equal(getattr(net,field)[name],values[field][name])
+                    for gradient in gradients.values():
+                        self.assertFalse(np.shares_memory(gradient,getattr(net,field)[name]))
+
+    def test_prepublication_failure_matrix_preserves_references_and_values(self):
+        from itertools import product
+        count=0
+        for seed,outputs,warm,fault in product((11,23,47),(1,3),(False,True),('rate','counter','gradient','norm','candidate')):
+            net=self.learning.Network(seed,outputs);x=np.ones((2,12))*.1;dz=np.ones((2,outputs))*.1
+            if warm:net.update(x,dz,.001)
+            rate=.001
+            if fault=='rate':rate=float('nan')
+            if fault=='counter':net.steps=-1
+            if fault=='candidate':net.v['b2'][:]=-1
+            refs,values,steps=self.snapshot(net);errors=np.geterr().copy()
+            gradients=net.gradients(x,dz)
+            if fault in ('gradient','norm'):
+                for a in gradients.values():a[:]=float('nan') if fault=='gradient' else 1e200
+            with self.subTest(seed=seed,outputs=outputs,warm=warm,fault=fault):
+                with patch.object(net,'gradients',return_value=gradients),np.errstate(all='ignore'):
+                    with self.assertRaises(ValueError):net.update(x,dz,rate)
+                    self.assertEqual(np.geterr(),dict.fromkeys(errors,'ignore'))
+                self.assertEqual(np.geterr(),errors)
+                self.assertEqual(net.steps,steps)
+                for field in refs:
+                    self.assertIs(getattr(net,field),refs[field])
+                    for name in values[field]:np.testing.assert_array_equal(getattr(net,field)[name],values[field][name])
+                count+=1
+        self.assertEqual(count,60)
+
+    def trace_update(self,net,outputs,interrupt):
+        import sys,dis
+        old=(net.p,net.m,net.v,net.steps);events=[]
+        code=self.learning.Network.update.__code__;ops={i.offset:i for i in dis.get_instructions(code)}
+        def mask():
+            return sum(int((getattr(net,k) is not v) if k!='steps' else net.steps!=v)<<i
+                       for i,(k,v) in enumerate(zip(('p','m','v','steps'),old)))
+        def trace(frame,event,arg):
+            if frame.f_code is code:
+                if event=='call':
+                    # Install the local hook explicitly before requesting opcodes.
+                    frame.f_trace=trace
+                    frame.f_trace_opcodes=True
+                if event=='opcode':
+                    op=ops.get(frame.f_lasti)
+                    if op and op.opname=='STORE_ATTR':
+                        events.append(mask())
+                        if interrupt and op.argval=='m':raise RuntimeError('registered publication interruption')
+                if event=='return' and not interrupt:events.append(mask())
+                return trace
+        prior=sys.gettrace();caller=sys._getframe();old_flag=caller.f_trace_opcodes
+        caught=None
+        try:
+            caller.f_trace_opcodes=True
+            sys.settrace(trace)
+            net.update(np.ones((2,12))*.1,np.ones((2,outputs))*.1,.001)
+        except RuntimeError as exc:
+            caught=str(exc)
+        finally:
+            sys.settrace(prior);caller.f_trace_opcodes=old_flag
+        self.assertIs(sys.gettrace(),prior)
+        self.assertEqual(caller.f_trace_opcodes,old_flag)
+        self.assertEqual(caught,'registered publication interruption' if interrupt else None)
+        return events,mask()
+
+    def test_opcode_observation_and_interruption_conformance(self):
+        from itertools import product
+        entry=self.fixtures['entries'][0];cases=0
+        for seed,outputs,warm,interrupt in product((11,23,47),(1,3),(False,True),(False,True)):
+            net=self.learning.Network(seed,outputs)
+            if warm:net.update(np.ones((2,12))*.1,np.ones((2,outputs))*.1,.001)
+            with self.subTest(seed=seed,outputs=outputs,warm=warm,interrupt=interrupt):
+                events,mask=self.trace_update(net,outputs,interrupt)
+                self.assertEqual(events,[0,1] if interrupt else entry['normalMasks'])
+                self.assertEqual(mask,entry['interruptedMask'] if interrupt else 15)
+                cases+=1
+        self.assertEqual(cases,24)
+
+    def test_clip_grid_and_existing_golden(self):
+        from fractions import Fraction as F
+        from itertools import product
+        clip,_,_=optimizer_publication.extract(self.source)
+        code=compile(ast.fix_missing_locations(ast.Expression(body=clip)),'source-clip','eval')
+        for grad,extra in product((-2.,-1.,-.5,0.,.5,1.,2.),(0.,1.,10.)):
+            norm=abs(grad)+extra;result=eval(code,{'grad':grad,'norm':norm,'max':max})
+            reference=F(grad)/max(F(1),F(norm))
+            self.assertAlmostEqual(result,float(reference),delta=1e-15)
+            self.assertLessEqual(abs(result),1)
+            self.assertLessEqual(abs(result),abs(grad))
+        net=self.learning.Network(11);x=np.arange(48).reshape(4,12)/48;dz=np.arange(12).reshape(4,3)/12-.5
+        for i in range(3):net.update(x,dz*(i+1),np.float64(.0003))
+        fixture=read_json(ROOT/'test/fixtures/sequential-adam-v1.json')
+        self.assertEqual(net.steps,fixture['steps'])
+        for name,values in fixture['state'].items():
+            for key,expected in values.items():
+                np.testing.assert_allclose(getattr(net,name)[key],expected,rtol=1e-13,atol=1e-15)
 
 
 if __name__ == '__main__':

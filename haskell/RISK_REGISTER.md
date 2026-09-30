@@ -1,5 +1,7 @@
 # Trader Firm — Risk Register
 
+Optimizer publication evidence (2026-09-30): [contract](../formal/research/optimizer-publication-contract.md) and CE-RL-016 expose partial publication under an injected interruption. Prepublication failure tests and a single-writer model do not establish concurrent atomicity. Rounded gradient-norm bounds remain assumptions; `RL-OFFLINE-001` stays HIGH/OPEN and the learner is unchanged.
+
 Value-objective audit (2026-09-30): [contract](../formal/research/value-objective-contract.md) records CE-RL-014/015: finite value inputs can produce a NaN loss at zero CQL weight or lose the conservative loss under a common shift. Finite gradients can pass optimizer admission despite invalid loss. The learner is unchanged and `RL-OFFLINE-001` remains HIGH/OPEN.
 
 
