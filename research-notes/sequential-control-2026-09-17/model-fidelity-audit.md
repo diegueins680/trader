@@ -99,3 +99,13 @@ verify full softmax, array/runtime or learner behavior. CE-RL-012 returns finite
 with NaN gradient; CE-RL-013 confirms the intended absence of a universal multiplier
 cap. Keep the current learner frozen and rejected; no implicit successor or
 financial rerun. Objective fidelity alone cannot justify candidate adoption.
+
+## Value-based continuation — 2026-09-30
+
+The [focused audit](value-objective-followup-2026-09-30.md) checks the unchanged
+Double DQN target slice and scalar CQL gradient. The former preserves the named
+selection/evaluation mechanism; the latter is a fixed-alpha CQL(H)-inspired
+regularizer, not the original Atari QR-DQN reproduction. Conditional exact-real
+SMT results do not establish conservative policy-value bounds or full training
+correctness. CE-RL-014/015 preserve NaN loss and common-shift cancellation in the
+current helper. All economic rejection decisions and identifiers remain unchanged.

@@ -93,3 +93,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [Numerical query-isolation continuation](query-isolation-followup-2026-09-28.md): independent proof-query contexts, exact assertion/status conformance and every registered timing attempt. Existing arithmetic claims and all economic gates are unchanged.
 
 - [PPO objective continuation](ppo-objective-followup-2026-09-28.md): source-linked surrogate algebra, scoped coefficient semantics, current-source numerical witnesses and focused primary-source review. No learner correction or financial experiment.
+
+- [Value-based objective continuation](value-objective-followup-2026-09-30.md): target/gradient fidelity, numerical loss witnesses, conditional SMT and conformance, and focused 2025/2026 literature screening. No training change or financial rerun.
