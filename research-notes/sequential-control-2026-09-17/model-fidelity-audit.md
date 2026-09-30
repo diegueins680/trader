@@ -119,3 +119,14 @@ conditionally checked; rounded norm bounds remain open. CE-RL-016 refutes the
 strong all-interruption publication model and preserves a pinned-runtime diagnostic.
 The opcode exception has documented interpreter limitations. Learner identifiers,
 parameters, formulas, economic rejection and champion behavior are unchanged.
+
+## Inference boundary continuation — 2026-09-30
+
+The [audit](inference-boundary-followup-2026-09-30.md) confirms representation and
+measured-time admission, first-maximum tie breaking and fixed bounded proposals.
+Equal valid scores select short exposure; this wrapper has no uncertainty-aware
+abstention rule. The second clock read precedes output validation and selection;
+its post-call limit neither preempts a stalled call nor bounds end-to-end runtime.
+These are unchanged semantics, not a new policy or a whole-neural-network proof.
+CE-RL-017 preserves the pending-call model. Full deadline/production readiness
+remains unverified and all economic rejection decisions stand.
