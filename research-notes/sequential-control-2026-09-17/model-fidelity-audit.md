@@ -109,3 +109,13 @@ regularizer, not the original Atari QR-DQN reproduction. Conditional exact-real
 SMT results do not establish conservative policy-value bounds or full training
 correctness. CE-RL-014/015 preserve NaN loss and common-shift cancellation in the
 current helper. All economic rejection decisions and identifiers remain unchanged.
+
+## Optimizer publication continuation — 2026-09-30
+
+The [audit](optimizer-publication-followup-2026-09-30.md) classifies the unchanged
+optimizer as Adam with explicit global clipping and validation/staging semantics,
+not an unconditional convergence or transaction guarantee. Exact-real clipping is
+conditionally checked; rounded norm bounds remain open. CE-RL-016 refutes the
+strong all-interruption publication model and preserves a pinned-runtime diagnostic.
+The opcode exception has documented interpreter limitations. Learner identifiers,
+parameters, formulas, economic rejection and champion behavior are unchanged.
