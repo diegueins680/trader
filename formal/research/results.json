@@ -40,6 +40,32 @@
     "privateConstructorChecked": true,
     "seed": 20260920
   },
+  "exactESSV2": {
+    "exactPrimitiveSemanticsAssumed": true,
+    "isolation": {
+      "dynamicImportExclusionProved": false,
+      "existingResearchImports": 0
+    },
+    "model": {
+      "maxShortestDepth": 515,
+      "maximumRows": 256,
+      "orderAuthorizationTransitions": 0,
+      "persistentState": false,
+      "rankBound": 517,
+      "runtimeRefinement": false,
+      "search": "reachable_fixed_point",
+      "states": 66309,
+      "terminalStuttering": true,
+      "transitions": 99718
+    },
+    "premiseChecks": 3,
+    "queries": 3,
+    "smt": {
+      "F-RL-ESS-V2-ACCUMULATE": "unsat",
+      "F-RL-ESS-V2-BOUNDS": "unsat"
+    },
+    "statisticalReliabilityVerified": false
+  },
   "gapRefutations": {
     "CE-RL-002": {
       "endingEquity": "24991/32000",
@@ -273,6 +299,8 @@
     "F-RL-DEFAULT": "unsat",
     "F-RL-DOUBLE-TARGET": "unsat",
     "F-RL-DRAWDOWN-COMPOSE": "unsat",
+    "F-RL-ESS-V2-ACCUMULATE": "unsat",
+    "F-RL-ESS-V2-BOUNDS": "unsat",
     "F-RL-FEATURE-FOOTPRINT": "unsat",
     "F-RL-FIT-PREFIX": "unsat",
     "F-RL-GAP-BOUND": "unsat",
@@ -326,6 +354,7 @@
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
+    "formal/research/ess-v2-contract.md": "a4f73a8e95156068f44131e63137fdd9871641599615cae5efa91e08b441e400",
     "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
     "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
     "formal/research/inference-boundary-contract.md": "31d8e3cbc412bd519365542d5db3c9eccc42d07346bafac8141a053bd2cc67d6",
@@ -336,7 +365,7 @@
     "formal/research/optimizer-publication-contract.md": "f614e5e64994695b27068c6ce7db780c887600a6e2c8c256894ebfb12690ac35",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "3c93f846147953b1ec9a5623ef59ca8957a9a8103f1277790253aab70cbac11a",
+    "formal/research/proof-ledger.json": "9d663c70ebba24d2248bb398bf02322394c37ee2d488c8b44ba12f2bf9be8346",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
     "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
@@ -349,6 +378,7 @@
     "formal/research/value-counterexamples.json": "41b79fd17c6d969f3392438d2af8c94602d0679fbd6602df3159ec665476dcda",
     "formal/research/value-objective-contract.md": "588f5a0be6bde1517440dab9236fb8a8c44b8827bd7725acfae3880ed3e5a7a7",
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
+    "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14",
     "research-notes/registrations/gae-targets-v2-engineering.json": "293eb15ab55924c7b05c28be805ad787c1e821c1d12220f676b973c851f5e4d7",
     "research-notes/registrations/inference-boundary-audit-engineering.json": "79a56c520b05c76bbe941dd56645b3cc7bd5702474e3830831d7c90619d01f76",
     "research-notes/registrations/numerical-query-isolation-engineering.json": "fa70b6d59e461b2b2b337a55f911c5541891783edd5e8e79b7f37ea7c63e9af5",
@@ -360,6 +390,7 @@
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
+    "scripts/formal/ess_v2.py": "bdaa6f53c38117b14f60fd291f8b5b93c224f3c5b9e0b0cb146c522d2d9b8661",
     "scripts/formal/gap_conformance.py": "e5e900f8aa492c786f61d69d4e791f09dd87833229a3f820c0afefb9d753ac7a",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
     "scripts/formal/inference_boundary.py": "b5c567d975661a28f1e7fb8b884b71e98210c20b9deba97cdf6d068432a18ead",
@@ -371,11 +402,12 @@
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "3f990138a974672511a7eb30254a82d8ca020fabd6ed3b3c1833ffa449cfc945",
+    "scripts/formal/test_integrity.py": "8443f18dee8511c4b91ce5619751cb5ae1d1c1c5f54ff433dafcc289e312b691",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "ec9d7e8867862478e2e5718f1bcda8587d855b7684a0c8f2c87a720e3c9fea15",
+    "scripts/formal/verify.py": "73a2dbfef361a7007e93f26f152540a54947f7bbc3a3d744d2622f2e40d92ded",
+    "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",

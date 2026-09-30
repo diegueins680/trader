@@ -18,6 +18,7 @@ import value_objective
 import optimizer_publication
 import inference_boundary
 import ope_algebra
+import ess_v2
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1579,6 +1580,168 @@ class OPEAlgebraTests(unittest.TestCase):
         for count in range(201):
             w = np.array([729.]*count+[0.]*(200-count))
             self.assertEqual(eval(code, {'w': w, 'float': float}), float(count))
+
+
+class ExactESSV2Tests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import ess_rational_v2
+        self.kernel = ess_rational_v2
+        self.source = (ROOT / ess_v2.SOURCE).read_text()
+        self.registration = read_json(ROOT / ess_v2.REGISTRATION)
+
+    @staticmethod
+    def reference(weights):
+        from fractions import Fraction
+        pairs = [w.as_integer_ratio() for w in weights]
+        denominator = max(d for _, d in pairs)
+        integers = [n*(denominator//d) for n, d in pairs]
+        squares = sum(n*n for n in integers)
+        return Fraction(sum(integers)**2, squares) if squares else Fraction(0)
+
+    def test_certificates_and_bounded_model(self):
+        result = ess_v2.check_ess(self.registration)
+        self.assertEqual(len(result['smt']), 2)
+        self.assertEqual(result['queries'], 3)
+        self.assertEqual(result['model']['states'], 66309)
+        self.assertEqual(result['model']['transitions'], 99718)
+        self.assertEqual(result['model']['maxShortestDepth'], 515)
+        self.assertFalse(result['model']['runtimeRefinement'])
+        self.assertFalse(result['statisticalReliabilityVerified'])
+
+    def test_source_mutants_fail(self):
+        changes = [('total + weight', 'total + weight * 2'),
+                   ('squares + weight * weight', 'squares + weight'),
+                   ('squares + weight * weight', 'squares + total * weight'),
+                   ('total * total / squares', 'Fraction(1)'),
+                   ('total * total / squares', 'total / squares'),
+                   ('Fraction(0) if squares == 0', 'Fraction(1) if squares == 0'),
+                   ('enabled: object = False', 'enabled: object = True'),
+                   ('type(weights) is not tuple', 'type(weights) is not list'),
+                   ('MAX_ROWS = 256', 'MAX_ROWS = 257'),
+                   ('type(value) is float', 'isinstance(value, float)'),
+                   ('isfinite(value) and value >= 0', 'value >= 0'),
+                   ('Fraction.from_float(value)', 'Fraction(int(value))'),
+                   ('return Fraction(0) if squares == 0 else total * total / squares',
+                    'return float(Fraction(0) if squares == 0 else total * total / squares)')]
+        for old, new in changes:
+            with self.subTest(old=old):
+                self.assertIn(old, self.source)
+                with self.assertRaises((ValueError, RuntimeError)):
+                    ess_v2.check_ess(self.registration, self.source.replace(old, new))
+
+    def test_fail_closed_solver_model_registration_and_isolation(self):
+        class Unknown:
+            def set(self, **kwargs): pass
+            def add(self, *args): pass
+            def check(self): return z3.unknown
+            def reason_unknown(self): return 'registered synthetic unknown'
+        with patch.object(ess_v2.z, 'Solver', Unknown), self.assertRaises(RuntimeError):
+            ess_v2.check_arithmetic(ess_v2.extract(self.source))
+        original = ess_v2.transitions
+        def bypass(state, maximum):
+            yield from original(state, maximum)
+            if state[0] == 'validate' and state[2] == 0:
+                yield ('accumulate', state[1], 0)
+        with patch.object(ess_v2, 'transitions', bypass), self.assertRaises(RuntimeError):
+            ess_v2.check_publication(4)
+        def early(state, maximum):
+            yield from original(state, maximum)
+            if state[0] == 'accumulate' and state[2] == 0:
+                yield ('positive', 0, 0)
+        with patch.object(ess_v2, 'transitions', early), self.assertRaises(RuntimeError):
+            ess_v2.check_publication(4)
+        registration = copy.deepcopy(self.registration); registration['maxRows'] = 257
+        with self.assertRaises(ValueError): ess_v2.check_ess(registration)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); folder = root/'scripts/research'; folder.mkdir(parents=True)
+            (folder/'consumer.py').write_text('from ess_rational_v2 import effective_sample_size_v2\n')
+            with patch.object(ess_v2, 'ROOT', root), self.assertRaises(ValueError):
+                ess_v2.check_isolation()
+
+    def test_default_admission_and_no_coercion(self):
+        from fractions import Fraction
+        class Hostile:
+            def __float__(self): raise RuntimeError('coercion')
+            def __iter__(self): raise RuntimeError('iteration')
+            def __len__(self): raise RuntimeError('length')
+            def __eq__(self, other): raise RuntimeError('equality')
+        class TupleSubclass(tuple): pass
+        class FloatSubclass(float): pass
+        class StringSubclass(str): pass
+        call = self.kernel.effective_sample_size_v2
+        for flag in (False, None, 0, 1, 'true', np.bool_(True), Hostile()):
+            self.assertIsNone(call(Hostile(), enabled=flag))
+        self.assertIsNone(call(Hostile()))
+        for version in (None, 2, b'ess-rational-v2', 'bad', StringSubclass(self.kernel.VERSION), Hostile()):
+            self.assertIsNone(call(Hostile(), enabled=True, version=version))
+        bad = [None, [], [1.], (), (1.,)*257, np.ones(2), iter([1.]), Hostile(),
+               TupleSubclass((1.,)), (FloatSubclass(1.),), (True,), (1,), (Fraction(1),),
+               (np.float64(1.),), (float('nan'),), (float('inf'),), (-float('inf'),), (-1.,), (Hostile(),)]
+        with patch.object(self.kernel.Fraction, 'from_float') as convert:
+            for weights in bad:
+                with self.subTest(type=type(weights)):
+                    self.assertIsNone(call(weights, enabled=True))
+            convert.assert_not_called()
+        self.assertEqual(call((0., -0.), enabled=True), Fraction(0))
+
+    def test_every_bad_element_position_precedes_arithmetic(self):
+        call = self.kernel.effective_sample_size_v2
+        with patch.object(self.kernel.Fraction, 'from_float') as convert:
+            for position in range(256):
+                weights = [1.]*256; weights[position] = float('nan')
+                self.assertIsNone(call(tuple(weights), enabled=True))
+            convert.assert_not_called()
+
+    def test_extremes_and_preserved_counterexample(self):
+        from fractions import Fraction
+        call = self.kernel.effective_sample_size_v2
+        fixture = read_json(ROOT/'formal/research/ope-counterexamples.json')['entries'][0]
+        weight = float.fromhex(fixture['expectedFinalWeightHex'])
+        self.assertEqual(call((weight, weight), enabled=True), Fraction(2))
+        extremes = [float.fromhex(v) for v in self.registration['extremeHexValues']]
+        for n in (1, 2, 200, 256):
+            for value in (0., *extremes):
+                weights = (value,)*n
+                expected = Fraction(n if value else 0)
+                self.assertEqual(call(weights, enabled=True), expected)
+            weights = tuple(extremes[i % len(extremes)] for i in range(n))
+            self.assertEqual(call(weights, enabled=True), self.reference(weights))
+        # Exact input arithmetic cannot reconstruct positive values lost upstream.
+        self.assertEqual(call((0., 0.), enabled=True), Fraction(0))
+
+    def test_fixed_grid_against_integer_reference(self):
+        from itertools import product
+        count = 0
+        for n in self.registration['gridLengths']:
+            for weights in product(map(float, self.registration['grid']), repeat=n):
+                result = self.kernel.effective_sample_size_v2(weights, enabled=True)
+                self.assertEqual(result, self.reference(weights))
+                self.assertEqual(result == 0, all(w == 0 for w in weights))
+                if result:
+                    self.assertGreaterEqual(result, 1); self.assertLessEqual(result, n)
+                count += 1
+        self.assertEqual(count, 340)
+
+    def test_seeded_scale_permutation_and_replay_properties(self):
+        import math
+        import random
+        rng = random.Random(self.registration['randomSeed'])
+        call = self.kernel.effective_sample_size_v2
+        for case in range(self.registration['randomCases']):
+            size = rng.randint(*self.registration['randomLengthRange'])
+            weights = tuple(math.ldexp(1., rng.randint(*self.registration['randomPowerOfTwoExponentRange'])) for _ in range(size))
+            before = tuple(w.hex() for w in weights)
+            result = call(weights, enabled=True)
+            self.assertEqual(result, self.reference(weights))
+            self.assertEqual(call(weights, enabled=True), result)
+            shuffled = list(weights); rng.shuffle(shuffled)
+            self.assertEqual(call(tuple(shuffled), enabled=True), result)
+            for exponent in self.registration['scalePowers']:
+                self.assertEqual(call(tuple(math.ldexp(w, exponent) for w in weights), enabled=True), result)
+            self.assertEqual(tuple(w.hex() for w in weights), before)
+            self.assertIsNone(call(weights))
 
 
 if __name__ == '__main__':

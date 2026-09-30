@@ -109,6 +109,12 @@
       "status": "assumption",
       "statement": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ESS-V2",
+      "status": "assumption",
+      "statement": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -135,7 +141,9 @@
     "scripts/formal/value_objective.py",
     "scripts/formal/optimizer_publication.py",
     "scripts/formal/inference_boundary.py",
-    "scripts/formal/ope_algebra.py"
+    "scripts/formal/ope_algebra.py",
+    "scripts/formal/ess_v2.py",
+    "scripts/research/ess_rational_v2.py"
   ],
   "entries": [
     {
@@ -1648,6 +1656,90 @@
       "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
       "counterexample": "formal/research/ope-counterexamples.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-ESS-V2-ACCUMULATE",
+      "claim": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics.",
+      "criticality": "high",
+      "formalStatement": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics.",
+      "assumptions": [
+        "A-ESS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 exact-real SMT and finite-state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ess_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/ess_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; base and inductive-step checks for the accumulator.",
+      "bounds": "Native immutable tuples of 1..256 finite nonnegative binary64 weights; exact rational output. Exact-real induction lemma allows k>=0, stronger than the integer count domain. Publication model sizes 1..256.",
+      "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ESS-V2-BOUNDS",
+      "claim": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed.",
+      "criticality": "high",
+      "formalStatement": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed.",
+      "assumptions": [
+        "A-ESS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 exact-real SMT and finite-state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ess_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/ess_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; base and inductive-step checks for the accumulator.",
+      "bounds": "Native immutable tuples of 1..256 finite nonnegative binary64 weights; exact rational output. Exact-real induction lemma allows k>=0, stronger than the integer count domain. Publication model sizes 1..256.",
+      "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ESS-V2-PUBLISH",
+      "claim": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists.",
+      "criticality": "high",
+      "formalStatement": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists.",
+      "assumptions": [
+        "A-ESS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 exact-real SMT and finite-state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ess_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/ess_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "66309 states, 99718 transitions; strict rank bound 517, max shortest depth 515.",
+      "bounds": "Native immutable tuples of 1..256 finite nonnegative binary64 weights; exact rational output. Exact-real induction lemma allows k>=0, stronger than the integer count domain. Publication model sizes 1..256.",
+      "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "counterexample": null,
+      "status": "model_checked"
     }
   ],
   "missionObligations": [
@@ -1721,9 +1813,12 @@
         "F-RL-INFER-ADMISSION",
         "F-RL-INFER-SELECTION",
         "F-RL-INFER-PATH",
-        "F-RL-OPE-FP-SUPPORT"
+        "F-RL-OPE-FP-SUPPORT",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
     },
     {
       "number": 7,
@@ -1779,9 +1874,12 @@
         "F-RL-PPO-FINITE",
         "F-RL-Q-FINITE",
         "F-RL-CQL-SHIFT",
-        "F-RL-OPE-FP-SUPPORT"
+        "F-RL-OPE-FP-SUPPORT",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
     },
     {
       "number": 11,
@@ -1910,9 +2008,12 @@
         "F-RL-TARGET-V2-TERMINAL",
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH"
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
     },
     {
       "number": 23,
@@ -1956,9 +2057,12 @@
       "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-DEFAULT",
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
     },
     {
       "number": 28,
@@ -2003,9 +2107,12 @@
         "F-RL-TARGET-V2-PUBLISH",
         "F-RL-INFER-ADMISSION",
         "F-RL-INFER-SELECTION",
-        "F-RL-INFER-PATH"
+        "F-RL-INFER-PATH",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
     },
     {
       "number": 32,

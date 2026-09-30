@@ -1,5 +1,7 @@
 # Trader
 
+The isolated [exact ESS diagnostic](formal/research/ess-v2-contract.md) is disabled by default. It uses rational arithmetic to avoid weight-moment underflow; it is not connected to the frozen OPE estimator and cannot establish policy reliability.
+
 The [OPE algebra audit](formal/research/ope-algebra-contract.md) checks conditional estimator identities and preserves an ESS underflow fixture. It does not establish reliable policy evaluation or change the frozen estimator; the fixture is outside the current deterministic six-step OPE weight domain.
 
 The [inference boundary audit](formal/research/inference-boundary-contract.md) checks conditional proposal guards and first-maximum selection. The 20 ms gate measures a completed call; it does not preempt stalled inference or bound later validation/selection. No policy behavior changes.

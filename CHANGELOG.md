@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research infrastructure: add a versioned, default-disabled exact ESS diagnostic with source-linked accumulator bounds and bounded publication checks. Preserve frozen OPE results and CE-RL-018; no policy or estimator integration.
+
 - Research assurance: verify scoped ESS/WIS and DR algebra; preserve positive-weight ESS underflow as CE-RL-018 and distinguish it from current deterministic short-OPE weights. No OPE rerun, learner change or promotion.
 
 - Research assurance: verify unchanged inference admission/selection predicates and preserve a pending-call liveness counterexample. Document the post-call timing boundary without adding cancellation, changing policies or relaxing acceptance gates.

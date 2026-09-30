@@ -276,6 +276,18 @@
         {
           "id": "F-RL-OPE-DR-TELESCOPE",
           "statement": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic."
+        },
+        {
+          "id": "F-RL-ESS-V2-ACCUMULATE",
+          "statement": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics."
+        },
+        {
+          "id": "F-RL-ESS-V2-BOUNDS",
+          "statement": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed."
+        },
+        {
+          "id": "F-RL-ESS-V2-PUBLISH",
+          "statement": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists."
         }
       ],
       "invariants": [

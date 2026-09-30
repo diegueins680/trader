@@ -1,5 +1,7 @@
 # Trader Firm — Risk Register
 
+Exact ESS diagnostic (2026-09-30): [contract](../formal/research/ess-v2-contract.md) introduces a disabled, disconnected rational kernel. Its supplied-weight arithmetic avoids CE-RL-018 locally; the frozen helper retains the witness. Upstream lost weights, statistical support, full runtime refinement and promotion remain unresolved. `RL-OFFLINE-001` remains HIGH/OPEN.
+
 OPE numerical evidence (2026-09-30): [contract](../formal/research/ope-algebra-contract.md) records CE-RL-018, where squared positive weights underflow and ESS reports zero. This prescribed helper fixture is outside the current deterministic six-step weight domain. Exact-real identities do not establish binary64 accuracy or statistical reliability; `RL-OFFLINE-001` stays HIGH/OPEN.
 
 Inference timing evidence (2026-09-30): [contract](../formal/research/inference-boundary-contract.md) and CE-RL-017 preserve the known non-preemptive call limitation. Measured time excludes later output validation/selection; predicate, clock and cancellation failures remain assumptions or open scope. `RL-OFFLINE-001` stays HIGH/OPEN.

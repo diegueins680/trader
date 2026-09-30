@@ -252,3 +252,16 @@ six-step target patterns and 201 support-count cases check the current restricte
 weight domain separately. These are engineering cases, not market OPE evidence.
 Eight new integrity tests run in formal/full; no new tool or frozen-estimator change.
 Runtime refinement, unbiasedness, confidence coverage and behavior support remain open.
+
+## Isolated exact ESS diagnostic
+
+The [contract](ess-v2-contract.md) specifies native immutable admitted weights,
+exact Fraction conversion/accumulation, zero-mass output and bounded positive ESS.
+Source-derived SMT base/step/bound lemmas and a 1..256-row publication model
+run in formal/full. The model has 66,309 reachable states, 99,718 transitions,
+maximum shortest depth 515 and strict rank bound 517 under terminating primitives.
+Eight new tests cover extreme weights, invalid admission and exact-reference
+conformance. `ess-rational-v2` defaults disabled and is not imported by existing
+research consumers. Dynamic import exclusion and full Python/Fraction refinement
+are not proved. CE-RL-018 remains in the frozen helper; no statistical or policy
+claim is repaired by this independent arithmetic diagnostic.
