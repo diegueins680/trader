@@ -1,5 +1,7 @@
 # Offline research verification runbook
 
+Funding boundary audit (2026-10-01): [contract](funding-boundary-contract.md), [registration](../../research-notes/registrations/funding-boundary-audit-engineering.json), and [CE-RL-019](funding-counterexamples.json) connect conditional timestamp proofs to the unchanged loader and synthetic regressions. `bash scripts/verify.sh formal` checks the SMT/loop scope; `bash scripts/verify.sh full` also exercises the full CSV loader and replay refusal. No new dependency or market data.
+
 This is a **scoped assurance gate**, not research acceptance. The rejected
 sequential-control screen, champion, protected datasets and production permissions
 are unchanged. Start with [the canonical contract and consistency resolutions](contract.md).

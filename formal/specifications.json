@@ -288,6 +288,14 @@
         {
           "id": "F-RL-ESS-V2-PUBLISH",
           "statement": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists."
+        },
+        {
+          "id": "F-RL-FUNDING-GRID",
+          "statement": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics."
+        },
+        {
+          "id": "F-RL-FUNDING-ENDPOINT",
+          "statement": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]]."
         }
       ],
       "invariants": [
@@ -312,6 +320,10 @@
         {
           "id": "F-RL-OPE-FP-SUPPORT",
           "statement": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero."
+        },
+        {
+          "id": "F-RL-FUNDING-FINITE",
+          "statement": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients."
         }
       ],
       "evidence": [
@@ -364,6 +376,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_v1_counterexamples_corrected_or_rejected_in_v2_only"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_preserved_funding_overflow_full_loader_and_replay_refusal"
         }
       ]
     },

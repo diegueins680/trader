@@ -1,5 +1,7 @@
 # Trader
 
+The [funding boundary audit](formal/research/funding-boundary-contract.md) checks conditional settlement-to-bar mapping and preserves synthetic finite-input overflow (CE-RL-019). It does not change the loader or establish historical occurrence or provider availability.
+
 The isolated [exact ESS diagnostic](formal/research/ess-v2-contract.md) is disabled by default. It uses rational arithmetic to avoid weight-moment underflow; it is not connected to the frozen OPE estimator and cannot establish policy reliability.
 
 The [OPE algebra audit](formal/research/ope-algebra-contract.md) checks conditional estimator identities and preserves an ESS underflow fixture. It does not establish reliable policy evaluation or change the frozen estimator; the fixture is outside the current deterministic six-step OPE weight domain.

@@ -1,5 +1,7 @@
 # Canonical Formal Specifications
 
+The [funding boundary audit](../formal/research/funding-boundary-contract.md) adds conditional registered-grid and left-endpoint SMT obligations plus a refuted finite-output claim. CE-RL-019 is synthetic negative evidence, not a historical incident.
+
 The [2026-09-28 gap-risk extension](../formal/research/gap-risk-contract.md)
 distinguishes target bounds, post-cost exposure and pathwise loss limits.
 `F-RL-GAP-BOUND`, `F-RL-DRAWDOWN-COMPOSE` and `F-RL-POSTCOST-EXPOSURE`

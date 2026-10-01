@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: add conditional development funding timestamp proofs and synthetic overflow regressions, including full-loader and replay refusal checks. Preserve frozen data/learner behavior and all promotion blockers.
+
 - Research infrastructure: add a versioned, default-disabled exact ESS diagnostic with source-linked accumulator bounds and bounded publication checks. Preserve frozen OPE results and CE-RL-018; no policy or estimator integration.
 
 - Research assurance: verify scoped ESS/WIS and DR algebra; preserve positive-weight ESS underflow as CE-RL-018 and distinguish it from current deterministic short-OPE weights. No OPE rerun, learner change or promotion.

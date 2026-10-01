@@ -1373,6 +1373,53 @@ class SequentialContracts(unittest.TestCase):
             p.write_bytes(b" " * 65537)
             with self.assertRaises(ValueError): load_policy(p, hashlib.sha256(p.read_bytes()).hexdigest(), meta)
 
+    def funding_loader_fixture(self, folder, events, count=3):
+        panel, settlements = Path(folder)/'panel.csv', Path(folder)/'settlements.csv'
+        panel.write_text('symbol,openTime,closeTime,close\n'+''.join(
+            f'BTCUSDT,{i*1000},{i*1000+999},{100+i*.01}\n' for i in range(count)))
+        settlements.write_text('symbol,fundingTime,fundingRate,resolvedMarkPrice\n'+''.join(
+            f'BTCUSDT,{t},{rate},{mark}\n' for t,rate,mark in events))
+        spec = {'data': {'panelSha256':runner.digest(panel),'settlementsSha256':runner.digest(settlements),
+                        'symbols':['BTCUSDT'],'startOpenTime':0,'endOpenTime':(count-1)*1000,
+                        'intervalMilliseconds':1000,'rowsPerSymbol':count}}
+        return panel,settlements,spec
+
+    def test_full_loader_funding_endpoint_contract(self):
+        for t,index in [(-1,0),(999,0),(1000,1),(1999,1),(2000,2),(2999,2),(3000,None)]:
+            with self.subTest(timestamp=t), tempfile.TemporaryDirectory() as folder:
+                args = self.funding_loader_fixture(folder,[(t,.25,4.)])
+                if index is None:
+                    with self.assertRaisesRegex(ValueError,'funding beyond development'): load_development(*args)
+                else:
+                    _,funding,_ = load_development(*args)
+                    expected = np.zeros(3);expected[index]=1.
+                    np.testing.assert_array_equal(funding['BTCUSDT'],expected)
+                    self.assertFalse(funding['BTCUSDT'].flags.writeable)
+
+    def test_preserved_funding_overflow_full_loader_and_replay_refusal(self):
+        reg = json.loads((REGISTRATION.parent/'funding-boundary-audit-engineering.json').read_text())
+        old_policy = np.geterr().copy()
+        for name,case in reg['overflowWitnesses'].items():
+            events = [(25000+i,r,float.fromhex(m)) for i,(r,m) in enumerate(zip(case['rates'],case['marks']))]
+            for policy in reg['numpyErrorPolicies']:
+                with self.subTest(witness=name,policy=policy), tempfile.TemporaryDirectory() as folder:
+                    args = self.funding_loader_fixture(folder,events,count=30)
+                    with np.errstate(over=policy,invalid=policy):
+                        if name == 'sum' and policy == 'raise':
+                            with self.assertRaises(FloatingPointError): load_development(*args)
+                        else:
+                            prices,funding,_ = load_development(*args)
+                            self.assertTrue(np.isposinf(funding['BTCUSDT'][25]))
+                            self.assertFalse(funding['BTCUSDT'].flags.writeable)
+                            scale = Scale.fit([prices['BTCUSDT']])
+                            replay = Replay(prices['BTCUSDT'],funding['BTCUSDT'],24,30,1,scale,enabled=True)
+                            replay.step(0.)
+                            self.assertEqual(replay.failure,'invalid_market_transition')
+                            self.assertTrue(replay.done)
+                            self.assertEqual(replay.equity,1.)
+                            self.assertEqual(replay.rows,[])
+        self.assertEqual(np.geterr(),old_policy)
+
     def test_data_admission_rejects_unregistered_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td)/"x.csv"; p.write_text("not registered data")

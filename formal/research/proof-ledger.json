@@ -115,6 +115,12 @@
       "status": "assumption",
       "statement": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-FUNDING-BOUNDARY",
+      "status": "assumption",
+      "statement": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -143,7 +149,8 @@
     "scripts/formal/inference_boundary.py",
     "scripts/formal/ope_algebra.py",
     "scripts/formal/ess_v2.py",
-    "scripts/research/ess_rational_v2.py"
+    "scripts/research/ess_rational_v2.py",
+    "scripts/formal/funding_boundary.py"
   ],
   "entries": [
     {
@@ -1740,6 +1747,93 @@
       "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
       "counterexample": null,
       "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-GRID",
+      "claim": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics.",
+      "criticality": "high",
+      "formalStatement": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics.",
+      "assumptions": [
+        "A-FUNDING-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 integer/binary64 SMT and synthetic implementation conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/funding_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/funding_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; exact integer timestamp semantics.",
+      "bounds": "Grid: all 4910 registered indices. Endpoint: integer times, positive spacing, count>=1, conditional search relation. Conformance: 32 synthetic timestamps and 14730 registered-grid neighbors; no market observations.",
+      "limitations": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem. Frozen loader unchanged; product overflow returns infinity even under raised NumPy policy, sum overflow raises under that policy. Replay rejects an invalid encountered transition; complete environment refinement remains open.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-ENDPOINT",
+      "claim": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]].",
+      "criticality": "high",
+      "formalStatement": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]].",
+      "assumptions": [
+        "A-FUNDING-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 integer/binary64 SMT and synthetic implementation conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/funding_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/funding_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; exact integer timestamp semantics.",
+      "bounds": "Grid: all 4910 registered indices. Endpoint: integer times, positive spacing, count>=1, conditional search relation. Conformance: 32 synthetic timestamps and 14730 registered-grid neighbors; no market observations.",
+      "limitations": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem. Frozen loader unchanged; product overflow returns infinity even under raised NumPy policy, sum overflow raises under that policy. Replay rejects an invalid encountered transition; complete environment refinement remains open.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-FINITE",
+      "claim": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients.",
+      "assumptions": [
+        "A-FUNDING-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 integer/binary64 SMT and synthetic implementation conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/funding_boundary.py",
+      "artifact": "formal/research/funding-counterexamples.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/funding_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Two prescribed SAT overflow witnesses; extracted-loop and full-loader regressions.",
+      "bounds": "Grid: all 4910 registered indices. Endpoint: integer times, positive spacing, count>=1, conditional search relation. Conformance: 32 synthetic timestamps and 14730 registered-grid neighbors; no market observations.",
+      "limitations": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem. Frozen loader unchanged; product overflow returns infinity even under raised NumPy policy, sum overflow raises under that policy. Replay rejects an invalid encountered transition; complete environment refinement remains open.",
+      "counterexample": "CE-RL-019",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -1751,9 +1845,12 @@
         "F-RL-CAUSAL-SLICE",
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-FIT-PREFIX",
-        "F-RL-COLLECT-PREFIX"
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 2,
@@ -1816,9 +1913,12 @@
         "F-RL-OPE-FP-SUPPORT",
         "F-RL-ESS-V2-ACCUMULATE",
         "F-RL-ESS-V2-BOUNDS",
-        "F-RL-ESS-V2-PUBLISH"
+        "F-RL-ESS-V2-PUBLISH",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 7,
@@ -1847,9 +1947,12 @@
         "F-RL-DRAWDOWN-COMPOSE",
         "F-RL-POSTCOST-EXPOSURE",
         "F-RL-UNCONDITIONAL-FLOOR",
-        "F-RL-GAP-CONFORMANCE"
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 9,
@@ -1877,9 +1980,12 @@
         "F-RL-OPE-FP-SUPPORT",
         "F-RL-ESS-V2-ACCUMULATE",
         "F-RL-ESS-V2-BOUNDS",
-        "F-RL-ESS-V2-PUBLISH"
+        "F-RL-ESS-V2-PUBLISH",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 11,

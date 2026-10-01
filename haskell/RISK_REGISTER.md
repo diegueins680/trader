@@ -1,5 +1,7 @@
 # Trader Firm — Risk Register
 
+Funding boundary evidence (2026-10-01): [contract](../formal/research/funding-boundary-contract.md) records CE-RL-019 product/sum overflow from finite synthetic inputs. Scoped endpoint proofs do not prove provider availability; replay rejects the encountered invalid transition. Frozen loader unchanged; `RL-OFFLINE-001` remains HIGH/OPEN.
+
 Exact ESS diagnostic (2026-09-30): [contract](../formal/research/ess-v2-contract.md) introduces a disabled, disconnected rational kernel. Its supplied-weight arithmetic avoids CE-RL-018 locally; the frozen helper retains the witness. Upstream lost weights, statistical support, full runtime refinement and promotion remain unresolved. `RL-OFFLINE-001` remains HIGH/OPEN.
 
 OPE numerical evidence (2026-09-30): [contract](../formal/research/ope-algebra-contract.md) records CE-RL-018, where squared positive weights underflow and ESS reports zero. This prescribed helper fixture is outside the current deterministic six-step weight domain. Exact-real identities do not establish binary64 accuracy or statistical reliability; `RL-OFFLINE-001` stays HIGH/OPEN.

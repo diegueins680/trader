@@ -21,7 +21,8 @@
     "scripts/formal/optimizer_publication.py",
     "scripts/formal/inference_boundary.py",
     "scripts/formal/ope_algebra.py",
-    "scripts/formal/ess_v2.py"
+    "scripts/formal/ess_v2.py",
+    "scripts/formal/funding_boundary.py"
   ],
   "sourceHashes": {
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
@@ -29,14 +30,14 @@
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "73a2dbfef361a7007e93f26f152540a54947f7bbc3a3d744d2622f2e40d92ded",
-    "scripts/formal/test_integrity.py": "8443f18dee8511c4b91ce5619751cb5ae1d1c1c5f54ff433dafcc289e312b691",
+    "scripts/formal/verify.py": "85493e224c5e1a303c3661500f375b0b9cffafcede392fb43211336c8e164ce8",
+    "scripts/formal/test_integrity.py": "8cff31b171c4bbc945fbeede03e9f589f27485d27b46591ee55d475c5c665174",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
-    "formal/research/proof-ledger.json": "9d663c70ebba24d2248bb398bf02322394c37ee2d488c8b44ba12f2bf9be8346",
+    "formal/research/proof-ledger.json": "8ec3f5fbf806d24e10b52d9fd9f30b1de7dfca0828eabffed61d7b567a92aaa1",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -50,7 +51,7 @@
     "formal/research/training-prefix-contract.md": "a38cf1cf417a42cfd06ff6246206f55c97c80f728e2fb39b4a89ae8f64bd175b",
     "formal/research/training-counterexamples.json": "43bc62e7d776bf0e7fc8586a3bed0b3647ab054803095b180385f200d55a6531",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
-    "test/sequential_screen_test.py": "abf104317394a10edbf9a2864efaed58d4ab76ff7c239ad4b76a606b6f6b642d",
+    "test/sequential_screen_test.py": "c8d365e228ee4e7a5ec4b9bd06f725a671510b9806a2a5b93b7ca836f9cf5176",
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-counterexamples.json": "0ffc100916d1af5646e985441529e4941d3b16e8fbc12f108a036c1d0f678315",
@@ -93,7 +94,11 @@
     "scripts/formal/ess_v2.py": "bdaa6f53c38117b14f60fd291f8b5b93c224f3c5b9e0b0cb146c522d2d9b8661",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "formal/research/ess-v2-contract.md": "a4f73a8e95156068f44131e63137fdd9871641599615cae5efa91e08b441e400",
-    "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14"
+    "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14",
+    "scripts/formal/funding_boundary.py": "e3d15552b403cb380dd26d6bb9b8a07516fdc2db8dc75bc25b2ee5dfaefca42a",
+    "formal/research/funding-boundary-contract.md": "97a8cc3e97751b714a33b1874ced95c80ca06c9e536aba3ff09394d15ade566e",
+    "formal/research/funding-counterexamples.json": "9cd363cfbc7ad8fa2e93aa296d3194fe2253090bb21a7cc3d4859701e7940752",
+    "research-notes/registrations/funding-boundary-audit-engineering.json": "cc16f1ff23ba0012bc3fb1d3f09edcf3a14742d49ebb64223c9c83858e7fc398"
   },
   "numpy": "2.3.5"
 }

@@ -19,6 +19,7 @@ import optimizer_publication
 import inference_boundary
 import ope_algebra
 import ess_v2
+import funding_boundary
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1743,6 +1744,96 @@ class ExactESSV2Tests(unittest.TestCase):
             self.assertEqual(tuple(w.hex() for w in weights), before)
             self.assertIsNone(call(weights))
 
+
+
+class FundingBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.reg = funding_boundary.registration()
+        self.source = (ROOT/funding_boundary.SOURCE).read_text()
+        self.expr, self.loop = funding_boundary.extract(self.source, self.reg['sourceFunctionASTSha256'])
+        self.apply = funding_boundary.compiled_loop(self.loop)
+
+    def test_conditional_certificates_and_prescribed_witnesses(self):
+        result = funding_boundary.check_funding()
+        self.assertEqual(len(result['smt']), 2)
+        self.assertEqual(result['grid']['rows'], 4910)
+        fixture = read_json(ROOT/'formal/research/funding-counterexamples.json')
+        self.assertEqual(result['witnesses'], fixture['outcomes'])
+
+    def test_source_mutants_rejected(self):
+        changes = [('side="left"', 'side="right"'), ('if j >= len(f)', 'if j > len(f)'),
+                   ('f[j] +=', 'f[j] ='), ('closes = times + spec["intervalMilliseconds"] - 1',
+                                           'closes = times + spec["intervalMilliseconds"]'),
+                   ('pd.read_csv(BytesIO(panel_bytes))', 'pd.read_csv(panel)'),
+                   ('hashlib.sha256(panel_bytes).hexdigest() != spec["panelSha256"]', 'False')]
+        for old,new in changes:
+            self.assertIn(old,self.source)
+            with self.subTest(change=new), self.assertRaises(ValueError):
+                funding_boundary.extract(self.source.replace(old,new), self.reg['sourceFunctionASTSha256'])
+
+    def test_grid_formula_and_registration_mutants_fail_smt(self):
+        spec = read_json(ROOT/'research-notes/registrations/sequential-control-screen-v1.json')['data']
+        changed = copy.deepcopy(self.expr)
+        changed['closes'] = ast.parse('times + spec["intervalMilliseconds"]', mode='eval').body
+        with self.assertRaises(RuntimeError): funding_boundary.grid_certificate(changed,spec)
+        for field,delta in [('rowsPerSymbol',1),('endOpenTime',1),('startOpenTime',-1)]:
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                funding_boundary.grid_certificate(self.expr,dict(spec,**{field:spec[field]+delta}))
+
+    def test_synthetic_linear_reference(self):
+        reg = self.reg['syntheticGrid']; closes = [9,19,29]
+        count = 0
+        for t in range(reg['eventStart'],reg['eventStopInclusive']+1):
+            index = next((i for i,c in enumerate(closes) if t <= c),len(closes))
+            if index == len(closes):
+                with self.assertRaisesRegex(ValueError,'beyond development'):
+                    funding_boundary.apply_events(self.apply,closes,[(t,.25,4.)])
+            else:
+                f = funding_boundary.apply_events(self.apply,closes,[(t,.25,4.)])
+                expected = np.zeros(3); expected[index] = 1.
+                np.testing.assert_array_equal(f,expected)
+            count += 1
+        self.assertEqual(count,32)
+
+    def test_all_registered_grid_neighbors(self):
+        spec = read_json(ROOT/'research-notes/registrations/sequential-control-screen-v1.json')['data']
+        closes = np.arange(spec['startOpenTime'],spec['endOpenTime']+1,
+                           spec['intervalMilliseconds'],dtype=np.int64)+spec['intervalMilliseconds']-1
+        count = 0
+        for i,c in enumerate(closes):
+            for delta in self.reg['boundaryOffsets']:
+                t = int(c)+delta
+                # Independent linear reference, not another searchsorted call.
+                expected = next((j for j,end in enumerate(closes) if t <= end),len(closes))
+                if expected == len(closes):
+                    with self.assertRaises(ValueError):
+                        funding_boundary.apply_events(self.apply,closes,[(t,.25,4.)])
+                else:
+                    f = funding_boundary.apply_events(self.apply,closes,[(t,.25,4.)])
+                    self.assertEqual(f[expected],1.)
+                    self.assertEqual(np.count_nonzero(f),1)
+                count += 1
+        self.assertEqual(count,14730)
+
+    def test_signed_and_zero_coefficients_preserve_bucket_accounting(self):
+        f = funding_boundary.apply_events(self.apply,[9,19,29],
+                                         [(-1,.5,4.),(10,.5,4.),(11,-.25,4.),(19,0.,4.),(20,-.5,4.)])
+        np.testing.assert_array_equal(f,[2.,1.,-2.])
+
+    def test_unknown_solver_fails(self):
+        class Unknown:
+            def set(self, **kw): pass
+            def add(self, *args): pass
+            def check(self): return z3.unknown
+            def reason_unknown(self): return 'synthetic unknown'
+        with patch.object(funding_boundary.z,'Solver',Unknown), self.assertRaises(RuntimeError):
+            funding_boundary.endpoint_certificate()
+        with patch.object(funding_boundary.z,'Solver',Unknown), self.assertRaises(ValueError):
+            funding_boundary.overflow_evidence(self.apply,self.reg)
+
+    def test_registration_drift_fails(self):
+        with patch.object(funding_boundary,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
+            funding_boundary.registration()
 
 if __name__ == '__main__':
     unittest.main()

@@ -63,7 +63,7 @@ def validate_ledger(ledger, root):
     supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
-                 "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
+                 "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
                  "F-RL-OPTIMIZER-PUBLISH": "model_checked", "F-RL-OPTIMIZER-ATOMIC": "refuted",
                  "F-RL-Q-FINITE": "refuted", "F-RL-CQL-SHIFT": "refuted",
                  "F-RL-PPO-FINITE": "refuted", "F-RL-PPO-UNIFORM-CLIP": "refuted",
@@ -115,6 +115,7 @@ def run(record=False, require_complete=False):
     from inference_boundary import check_inference
     from ope_algebra import check_ope, REGISTRATION as OPE_REGISTRATION
     from ess_v2 import check_ess, REGISTRATION as ESS_REGISTRATION
+    from funding_boundary import check_funding
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -160,6 +161,8 @@ def run(record=False, require_complete=False):
     result['smt'].update(result['opeAlgebra']['smt'])
     result['exactESSV2'] = check_ess(read_json(ROOT / ESS_REGISTRATION))
     result['smt'].update(result['exactESSV2']['smt'])
+    result['fundingBoundary'] = check_funding()
+    result['smt'].update(result['fundingBoundary']['smt'])
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
     counterexamples = read_json(ROOT / 'formal/research/counterexamples.json')
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
@@ -184,6 +187,7 @@ def run(record=False, require_complete=False):
                       'inferenceBoundary': result['inferenceBoundary'],
                       'opeAlgebra': result['opeAlgebra'],
                       'exactESSV2': result['exactESSV2'],
+                      'fundingBoundary': result['fundingBoundary'],
                       'openMissionObligations': open_count, 'missionComplete': False,
                       'seconds': round(time.monotonic() - started, 3)}, indent=2))
     require(not require_complete or open_count == 0, 'research acceptance blocked by open obligations')
