@@ -64,3 +64,7 @@ The [ess-rational-v2 continuation](ess-v2-followup-2026-09-30.md) retains a disa
 ## Funding boundary audit (2026-10-01)
 
 The [funding audit](funding-boundary-followup-2026-10-01.md) separates source-linked timestamp semantics from finite coefficient assumptions. Synthetic CE-RL-019 refutes universal finite loader outputs; downstream replay rejects the encountered invalid transition. Historical prevalence is not established, the source is unchanged and no new economic evidence is produced.
+
+## Replay ordering audit (2026-10-01)
+
+The [ordering audit](replay-order-followup-2026-10-01.md) distinguishes delayed policy targets from compulsory terminal reconciliation. Scoped finite-state/SMT evidence and synthetic actual-helper traces retain both costs for terminal entry/liquidation. Early rejected or insolvent calls can retain simulated state; universal cash/runtime/production refinement and promotion gates remain unresolved.

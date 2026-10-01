@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-01",
+  "scope": "synthetic replay event-order engineering; no financial trial",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "eb2379496f1197a47d794188a3783f02b501bfd2",
+  "specificationCommit": "c390a7a9",
+  "sourceFreeze": "843e1590404405a374ea09e5a95dd54e3524c308",
+  "registration": "research-notes/registrations/replay-order-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "probe",
+      "command": "python: replay_order.check_replay_order()",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-order-probe-20261001.log",
+      "sha256": "bedb5c819ba689669ccd0861b3b3dd7734b0d3e9b3ec6cc33299b49100dad4b8",
+      "disposition": "Initial abstraction passed: 2820 states/3418 transitions; superseded by explicit ghost-check tags"
+    },
+    {
+      "stage": "conformance-probe",
+      "command": "python: replay_order.check_replay_order(); replay_order.check_conformance(registration())",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-order-conformance-probe-20261001.log",
+      "sha256": "12ffaa22896c8bc54746b68ad965e28aed43f824e4f4dab7bc36d1fffcc57270",
+      "disposition": "Strengthened model and 486 grid traces/eight cases/terminal fixture passed"
+    },
+    {
+      "stage": "targeted",
+      "command": "python scripts/formal/test_integrity.py ReplayOrderTests",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-order-targeted-20261001.log",
+      "sha256": "2cfa27c470c95a3962137424a9314289ffa010e62633bd97af32720b30063d6a",
+      "disposition": "Seven tests passed"
+    },
+    {
+      "stage": "record",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-order-record-20261001.log",
+      "sha256": "cf6babcda403e2d8d3dd2546dea3fc2ae09db111c62de5047936545a894af968",
+      "disposition": "Final source-bound receipt recorded"
+    },
+    {
+      "stage": "formal",
+      "command": "bash scripts/verify.sh formal",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-order-formal-20261001.log",
+      "sha256": "0efd86342a940b79cc53e2ecae5a0e3f89dc8a18b2a699ff1615b7986e08fc74",
+      "disposition": "111 integrity tests and 37 scoped SMT requirements passed"
+    },
+    {
+      "stage": "full",
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-order-full-20261001.log",
+      "sha256": "b6b4337def6434bb284dce6370241bae48bbc29f56c30907462aa124f2cf1e21",
+      "disposition": "Formal/Haskell/web/automation passed"
+    },
+    {
+      "stage": "acceptance",
+      "command": "python scripts/formal/verify.py --require-complete",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-order-acceptance-20261001.log",
+      "sha256": "9e409c7fcc426daebd9691e602ca4bbe538449cdccefb849a137e52cbe99ac4e",
+      "disposition": "Expected acceptance refusal; not a passing acceptance gate"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000,
+    "automationPandas": "2.3.3"
+  },
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36803840508",
+    "headSha": "843e1590404405a374ea09e5a95dd54e3524c308",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "externalReceipt": "/private/tmp/trader-order-ci-final-20261001.json",
+    "sha256": "9a5c7510b520a98b01f3969e3479e1de0570923e6d26021dac3233fe8da88259"
+  },
+  "conformance": {
+    "integrityTests": 111,
+    "newIntegrityTests": 7,
+    "sourceMutants": 8,
+    "smtMutants": 4,
+    "modelMutants": 6,
+    "invalidTraceOrders": 3,
+    "gridTraces": 486,
+    "namedScenarios": 8,
+    "terminalWitnesses": 1,
+    "totalSMTRequirements": 37,
+    "newSMTRequirements": 1,
+    "lockedSources": 78,
+    "newCurrentSourceCounterexample": false,
+    "frozenSimulatorUnchanged": true
+  },
+  "replayOrder": {
+    "conformance": {
+      "gridTraces": 486,
+      "scenarios": {
+        "inherited_pending": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": 2,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "insolvency": {
+          "costs": 0.0,
+          "done": true,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "invalid_gate": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "pending": -1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "invalid_market": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "pending": 1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "missed_fill": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "ordinary": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.99975,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "partial_fill": {
+          "costs": 0.000125,
+          "done": false,
+          "equity": 0.999875,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.00125
+        },
+        "solvent_risk": {
+          "costs": 0.00025,
+          "done": true,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "liquidate",
+            "append_row"
+          ],
+          "units": 0.0
+        }
+      },
+      "scope": "instrumented actual helpers/row publication; no universal refinement",
+      "terminalRoundTrip": {
+        "costs": 0.0005,
+        "done": true,
+        "equity": 0.9995,
+        "failure": null,
+        "pending": -1,
+        "rows": 1,
+        "t": 1,
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "liquidate",
+          "append_row"
+        ],
+        "units": 0.0
+      }
+    },
+    "model": {
+      "distinctInitialStates": 84,
+      "maxShortestDepth": 48,
+      "productionLifecycleProof": false,
+      "progressBound": 48,
+      "runtimeRefinement": false,
+      "scope": "one abstract replay call; final reward check or explicit early return",
+      "search": "complete reachable fixed point",
+      "states": 2876,
+      "terminalStuttering": true,
+      "transitions": 3474
+    },
+    "smt": {
+      "F-RL-REPLAY-DUE": "unsat"
+    }
+  },
+  "verificationTimings": {
+    "targeted": {
+      "integritySeconds": [
+        2.729
+      ],
+      "certificateSeconds": []
+    },
+    "formal": {
+      "integritySeconds": [
+        46.922
+      ],
+      "certificateSeconds": [
+        13.803
+      ]
+    },
+    "full": {
+      "integritySeconds": [
+        48.779
+      ],
+      "certificateSeconds": [
+        11.913
+      ]
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Source binding plus finite projected-trace conformance, not full runtime refinement",
+    "Single call with at most six remaining bars; longer-remaining states excluded",
+    "Ghost stage checks and nondeterministic risk/solvency abstraction are trusted modeling choices",
+    "Helper termination/no hidden effects assumed; no physical deadline or crash/concurrency proof",
+    "End node reaches final reward check; a non-finite reward may still raise",
+    "Target/liquidation events count helper attempts, not guaranteed quantity or correct cash",
+    "Early rejected and insolvent paths can retain simulated inventory/pending data",
+    "No first-seen/revision causality, financial efficacy, execution realism, production readiness or authorization claim"
+  ]
+}

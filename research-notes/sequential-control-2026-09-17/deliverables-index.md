@@ -105,3 +105,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [Exact ESS diagnostic continuation](ess-v2-followup-2026-09-30.md): default-disabled rational infrastructure, accumulator SMT, bounded publication model, counterexample mitigation confined to v2, conformance and synthetic CPU benchmark. No frozen-estimator integration or OPE rerun.
 
 - [Funding boundary continuation](funding-boundary-followup-2026-10-01.md): conditional settlement endpoint/grid SMT, CE-RL-019 product/sum overflow, full-loader synthetic conformance and replay refusal. No historical data or protected outcome access.
+
+- [Replay ordering continuation](replay-order-followup-2026-10-01.md): source-bound one-call model, policy-target due-time SMT, 486 actual synthetic grid traces, and explicit terminal round-trip costs. No simulator change or new economic evidence.
