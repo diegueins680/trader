@@ -60,3 +60,7 @@ The [source-linked audit](ope-algebra-followup-2026-09-30.md) separates exact-re
 ## Isolated exact ESS diagnostic (2026-09-30)
 
 The [ess-rational-v2 continuation](ess-v2-followup-2026-09-30.md) retains a disabled, disconnected exact-arithmetic diagnostic. CE-RL-018 is mitigated only for supplied weights in that new kernel; the frozen helper and all 108 invalid OPE batches are unchanged. Exact weight concentration does not establish behavior support, estimator efficiency or candidate readiness.
+
+## Funding boundary audit (2026-10-01)
+
+The [funding audit](funding-boundary-followup-2026-10-01.md) separates source-linked timestamp semantics from finite coefficient assumptions. Synthetic CE-RL-019 refutes universal finite loader outputs; downstream replay rejects the encountered invalid transition. Historical prevalence is not established, the source is unchanged and no new economic evidence is produced.

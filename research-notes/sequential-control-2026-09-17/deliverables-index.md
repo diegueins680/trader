@@ -19,7 +19,7 @@ Future protected registrations cannot be completed by opening them early.
 
 | Requested artifacts | Location / status |
 |---|---|
-| 1–3 Literature, matrix, fidelity audit | literature-review.md; paper-matrix.csv (51 rows after audit source refresh); model-fidelity-audit.md; prior full financial review linked |
+| 1–3 Literature, matrix, fidelity audit | literature-review.md; paper-matrix.csv (55 entries including focused audit updates); model-fidelity-audit.md; prior full financial review linked |
 | 4–6 Gap matrix, selection, preregistration | model-fidelity-audit.md; candidate-scorecard.md; ../registrations/sequential-control-screen-v1.json |
 | 7–10 Manifests, full registry, data/license, costs | experiment-manifest.json; experiment-registry.csv (19,548 terminal entries); data-source-license-manifest.json; cost-execution-and-robustness.md |
 | 11–13 Ablation, robustness, decision | cost-execution-and-robustness.md; all-seed-results.csv; final-decision-memo.md; only registered inventory ablation trained |
@@ -103,3 +103,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [OPE algebra continuation](ope-algebra-followup-2026-09-30.md): conditional ESS/WIS/DR SMT, preserved helper underflow witness, current-producer bounded checks and OPE literature update. No original OPE rerun or financial trial.
 
 - [Exact ESS diagnostic continuation](ess-v2-followup-2026-09-30.md): default-disabled rational infrastructure, accumulator SMT, bounded publication model, counterexample mitigation confined to v2, conformance and synthetic CPU benchmark. No frozen-estimator integration or OPE rerun.
+
+- [Funding boundary continuation](funding-boundary-followup-2026-10-01.md): conditional settlement endpoint/grid SMT, CE-RL-019 product/sum overflow, full-loader synthetic conformance and replay refusal. No historical data or protected outcome access.
