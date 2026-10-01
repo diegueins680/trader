@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: specify and check replay admission/mark/risk/fill/liquidation ordering, clarify policy-target versus terminal-liquidation timing, and preserve terminal round-trip costs without changing the simulator.
+
 - Research assurance: add conditional development funding timestamp proofs and synthetic overflow regressions, including full-loader and replay refusal checks. Preserve frozen data/learner behavior and all promotion blockers.
 
 - Research infrastructure: add a versioned, default-disabled exact ESS diagnostic with source-linked accumulator bounds and bounded publication checks. Preserve frozen OPE results and CE-RL-018; no policy or estimator integration.

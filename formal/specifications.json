@@ -296,6 +296,14 @@
         {
           "id": "F-RL-FUNDING-ENDPOINT",
           "statement": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]]."
+        },
+        {
+          "id": "F-RL-REPLAY-DUE",
+          "statement": "For source-derived pending due=d+1+delay with integer delay in {0,1}, an admitted policy-target fill requires clear prior risk, a present pending target and an endpoint strictly after originating decision d; compulsory terminal liquidation is distinct."
+        },
+        {
+          "id": "F-RL-REPLAY-ORDER",
+          "statement": "In the source-bound single-call replay abstraction for 1..6 remaining bars, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets, admission precedes effects, old-position marking precedes risk and due target attempts, terminal handling precedes its row, and the complete finite graph reaches an end-of-call node under terminating helper assumptions."
         }
       ],
       "invariants": [
@@ -381,6 +389,11 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_preserved_funding_overflow_full_loader_and_replay_refusal"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_actual_grid_and_preserved_terminal_round_trip"
         }
       ]
     },
@@ -533,7 +546,7 @@
       "ensures": [
         {
           "id": "A-SEQUENTIAL-RESEARCH-E1",
-          "statement": "Every simulated fill occurs after its decision, old inventory earns price/funding through the endpoint, and fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
+          "statement": "Every simulated policy-target fill occurs after its originating decision. Mandatory terminal liquidation occurs at the current terminal endpoint after old inventory earns that interval's price/funding; entry and liquidation costs both apply if a pending target fills at that endpoint. Fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-E2",

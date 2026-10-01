@@ -20,6 +20,7 @@ import inference_boundary
 import ope_algebra
 import ess_v2
 import funding_boundary
+import replay_order
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1834,6 +1835,92 @@ class FundingBoundaryTests(unittest.TestCase):
     def test_registration_drift_fails(self):
         with patch.object(funding_boundary,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
             funding_boundary.registration()
+
+
+class ReplayOrderTests(unittest.TestCase):
+    def setUp(self):
+        self.reg = replay_order.registration()
+        self.source = (ROOT/replay_order.SOURCE).read_text()
+        self.nodes = replay_order.extract(self.source,self.reg['sourceFunctionASTSha256'])
+
+    def test_source_bound_certificates(self):
+        result = replay_order.check_replay_order()
+        self.assertEqual(result['smt'],{'F-RL-REPLAY-DUE':'unsat'})
+        self.assertEqual(result['model']['states'],2876)
+        self.assertEqual(result['model']['transitions'],3474)
+        self.assertEqual(result['model']['distinctInitialStates'],84)
+        self.assertEqual(result['model']['progressBound'],48)
+        self.assertFalse(result['model']['runtimeRefinement'])
+
+    def test_source_mutants_fail(self):
+        changes = [('self.t + 1 + self.execution.extra_delay','self.t + self.execution.extra_delay'),
+                   ('self.pending[0] <= self.t','self.pending[0] >= self.t'),
+                   ('self.t += 1','self.t += 2'),
+                   ('self.equity += gross + funding','self.equity += gross'),
+                   ('self.pending = None','self.pending = (self.t, 0.0)'),
+                   ('self._trade(0.0, terminal=True)','self._trade(0.0, terminal=False)'),
+                   ('if isfinite(self.equity) and self.equity > 0:','if True:'),
+                   ('self.extra_delay not in (0, 1)','self.extra_delay not in (-1, 0, 1)')]
+        for old,new in changes:
+            self.assertIn(old,self.source)
+            with self.subTest(change=new), self.assertRaises(ValueError):
+                replay_order.extract(self.source.replace(old,new),self.reg['sourceFunctionASTSha256'])
+
+    def test_due_and_guard_mutants_fail_smt(self):
+        due,guard = self.nodes
+        with self.assertRaises(RuntimeError):
+            replay_order.due_certificate(ast.parse('self.t + self.execution.extra_delay',mode='eval').body,guard)
+        for text in ('self.pending[0] <= self.t',
+                     'self.failure is None and self.pending is not None',
+                     'self.pending is not None and self.pending[0] <= self.t'):
+            with self.subTest(guard=text), self.assertRaises(RuntimeError):
+                replay_order.due_certificate(due,ast.parse(text,mode='eval').body)
+
+    def test_model_bypasses_and_stall_fail(self):
+        def changed(kind):
+            def transition(s):
+                if kind == 'gate' and s.phase == 'guard':
+                    return [('bypass',replay_order.replace(s,phase='mark',observed=True,bar_valid=True))]
+                if kind == 'risk' and s.phase == 'risk':
+                    return [('bypass',replay_order.replace(s,phase='fill_check'))]
+                if kind == 'early_fill' and s.phase == 'fill_check' and s.pending > s.t:
+                    return [('target_fill',replay_order.replace(s,phase='postfill_risk',pending=-1,fills=s.fills+1))]
+                if kind == 'cancel' and s.phase == 'cancel':
+                    return [('bypass',replay_order.replace(s,phase='liquidate_check'))]
+                if kind == 'terminal' and s.phase == 'after_row' and s.terminal:
+                    return [('next_bar',replay_order.replace(s,phase='bar'))]
+                if kind == 'stall' and s.phase == 'risk': return [('stall',s)]
+                return replay_order.successors(s)
+            return transition
+        for kind in ('gate','risk','early_fill','cancel','terminal','stall'):
+            with self.subTest(mutation=kind), self.assertRaises(RuntimeError):
+                replay_order.check_model(self.reg,changed(kind))
+
+    def test_actual_grid_and_preserved_terminal_round_trip(self):
+        result = replay_order.check_conformance(self.reg)
+        self.assertEqual(result,read_json(ROOT/'formal/research/replay-order-fixtures.json')['conformance'])
+        self.assertEqual(result['gridTraces'],486)
+        self.assertEqual(result['terminalRoundTrip']['costs'],.0005)
+        self.assertEqual(result['scenarios']['insolvency']['units'],.0025)
+        self.assertEqual(result['scenarios']['solvent_risk']['units'],0.)
+
+    def test_trace_order_mutants_are_not_model_traces(self):
+        state = replay_order.State('guard',1,1,0,-1)
+        for trace in (['target_fill','mark_old_and_advance','liquidate','append_row'],
+                      ['mark_old_and_advance','target_fill','append_row','liquidate'],
+                      ['mark_old_and_advance','target_fill','liquidate','append_row','append_row']):
+            self.assertEqual(replay_order.matching_states(state,trace),set())
+
+    def test_unknown_fails_and_registration_drift_rejects(self):
+        class Unknown:
+            def set(self,**kw): pass
+            def add(self,*args): pass
+            def check(self): return z3.unknown
+            def reason_unknown(self): return 'synthetic unknown'
+        with patch.object(replay_order.z,'Solver',Unknown), self.assertRaises(RuntimeError):
+            replay_order.due_certificate(*self.nodes)
+        with patch.object(replay_order,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
+            replay_order.registration()
 
 if __name__ == '__main__':
     unittest.main()

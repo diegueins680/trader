@@ -1,5 +1,7 @@
 # Trader
 
+The [replay ordering audit](formal/research/replay-order-contract.md) distinguishes delayed policy targets from compulsory terminal liquidation at the endpoint. A finite-call model and synthetic actual-helper traces check event ordering; full runtime and numeric-accounting refinement remain open.
+
 The [funding boundary audit](formal/research/funding-boundary-contract.md) checks conditional settlement-to-bar mapping and preserves synthetic finite-input overflow (CE-RL-019). It does not change the loader or establish historical occurrence or provider availability.
 
 The isolated [exact ESS diagnostic](formal/research/ess-v2-contract.md) is disabled by default. It uses rational arithmetic to avoid weight-moment underflow; it is not connected to the frozen OPE estimator and cannot establish policy reliability.

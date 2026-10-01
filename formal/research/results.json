@@ -319,6 +319,155 @@
     "unaccountedFailuresRejected": 2,
     "universalRefinement": false
   },
+  "replayOrder": {
+    "conformance": {
+      "gridTraces": 486,
+      "scenarios": {
+        "inherited_pending": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": 2,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "insolvency": {
+          "costs": 0.0,
+          "done": true,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "invalid_gate": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "pending": -1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "invalid_market": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "pending": 1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "missed_fill": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "ordinary": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.99975,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "partial_fill": {
+          "costs": 0.000125,
+          "done": false,
+          "equity": 0.999875,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.00125
+        },
+        "solvent_risk": {
+          "costs": 0.00025,
+          "done": true,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "liquidate",
+            "append_row"
+          ],
+          "units": 0.0
+        }
+      },
+      "scope": "instrumented actual helpers/row publication; no universal refinement",
+      "terminalRoundTrip": {
+        "costs": 0.0005,
+        "done": true,
+        "equity": 0.9995,
+        "failure": null,
+        "pending": -1,
+        "rows": 1,
+        "t": 1,
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "liquidate",
+          "append_row"
+        ],
+        "units": 0.0
+      }
+    },
+    "model": {
+      "distinctInitialStates": 84,
+      "maxShortestDepth": 48,
+      "productionLifecycleProof": false,
+      "progressBound": 48,
+      "runtimeRefinement": false,
+      "scope": "one abstract replay call; final reward check or explicit early return",
+      "search": "complete reachable fixed point",
+      "states": 2876,
+      "terminalStuttering": true,
+      "transitions": 3474
+    },
+    "smt": {
+      "F-RL-REPLAY-DUE": "unsat"
+    }
+  },
   "schemaVersion": 1,
   "smt": {
     "F-RL-ACCOUNT": "unsat",
@@ -346,6 +495,7 @@
     "F-RL-POSTCOST-EXPOSURE": "unsat",
     "F-RL-PPO-COEFFICIENT": "unsat",
     "F-RL-PPO-OBJECTIVE": "unsat",
+    "F-RL-REPLAY-DUE": "unsat",
     "F-RL-SHIELD-BOUNDS": "unsat",
     "F-RL-SHIELD-FALLBACK": "unsat",
     "F-RL-SHIELD-GUARDS": "unsat",
@@ -400,8 +550,10 @@
     "formal/research/optimizer-publication-contract.md": "f614e5e64994695b27068c6ce7db780c887600a6e2c8c256894ebfb12690ac35",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "8ec3f5fbf806d24e10b52d9fd9f30b1de7dfca0828eabffed61d7b567a92aaa1",
+    "formal/research/proof-ledger.json": "e566594d1cfe396d299b8dbe15e54d6d64cc74ddc3015570f0ede3b48e4e95af",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
+    "formal/research/replay-order-contract.md": "c3670d42a9ca555823caaa42419c8c22b5f756a937dc35993aec586e318f731b",
+    "formal/research/replay-order-fixtures.json": "2c44f45007f86a9d84103ad4a06f92e8a9d2fcfbab60dccdcc32a4ba62d9f3fc",
     "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
     "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
     "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
@@ -421,6 +573,7 @@
     "research-notes/registrations/ope-algebra-audit-engineering.json": "7c9b5f1c5b03888f8fbd7705c70a03e6b949fb227ff52e60d2f78a6e9e6c097c",
     "research-notes/registrations/optimizer-publication-audit-engineering.json": "53818517bb3294667608dd84c291869e4a6d589254b70e38924603156388af6e",
     "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
+    "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "research-notes/registrations/value-objective-audit-engineering.json": "73382abdea417dadeb8bc3b6cd61e7f36d20bade9a0a7649731f6c5a599f877f",
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
@@ -436,14 +589,15 @@
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
+    "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "8cff31b171c4bbc945fbeede03e9f589f27485d27b46591ee55d475c5c665174",
+    "scripts/formal/test_integrity.py": "08c88c3ac9ebf9eac303f79cd34b19b734d2c1056268601030f57a840992f168",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "85493e224c5e1a303c3661500f375b0b9cffafcede392fb43211336c8e164ce8",
+    "scripts/formal/verify.py": "5c7caa0f46ab6a189a18e36da72121e1f800e100bb76fc63742207602b66a327",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",

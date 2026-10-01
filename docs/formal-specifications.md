@@ -1,5 +1,7 @@
 # Canonical Formal Specifications
 
+The [replay event-order contract](../formal/research/replay-order-contract.md) clarifies A-SEQUENTIAL-RESEARCH-E1: policy targets fill later than their decision; mandatory liquidation reconciles at the terminal endpoint. The source-bound finite model and due-time SMT do not prove numeric accounting or production lifecycle.
+
 The [funding boundary audit](../formal/research/funding-boundary-contract.md) adds conditional registered-grid and left-endpoint SMT obligations plus a refuted finite-output claim. CE-RL-019 is synthetic negative evidence, not a historical incident.
 
 The [2026-09-28 gap-risk extension](../formal/research/gap-risk-contract.md)

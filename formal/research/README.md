@@ -1,5 +1,7 @@
 # Offline research verification runbook
 
+Replay ordering (2026-10-01): [contract](replay-order-contract.md), [registration](../../research-notes/registrations/replay-order-audit-engineering.json) and [fixtures](replay-order-fixtures.json) connect a one-call finite model, due-time SMT and 486 synthetic actual-helper traces. `bash scripts/verify.sh formal` and `full` reproduce the scoped checks. No new dependency or simulator change.
+
 Funding boundary audit (2026-10-01): [contract](funding-boundary-contract.md), [registration](../../research-notes/registrations/funding-boundary-audit-engineering.json), and [CE-RL-019](funding-counterexamples.json) connect conditional timestamp proofs to the unchanged loader and synthetic regressions. `bash scripts/verify.sh formal` checks the SMT/loop scope; `bash scripts/verify.sh full` also exercises the full CSV loader and replay refusal. No new dependency or market data.
 
 This is a **scoped assurance gate**, not research acceptance. The rejected

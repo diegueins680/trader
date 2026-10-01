@@ -82,3 +82,9 @@ Python statement and Boolean short-circuit semantics were checked against the
 [language reference](https://docs.python.org/3.13/reference/compound_stmts.html#the-while-statement)
 and [expression reference](https://docs.python.org/3.13/reference/expressions.html#boolean-operations).
 They support explicit assumptions, not runtime refinement or market claims.
+
+The model final node means an early explicit return or reaching the final reward
+check. A non-finite reward can still raise there; no finite reward theorem is
+claimed. Visible target-fill events count helper attempts (including zero, partial
+or missed fills), not guaranteed filled quantity. Ghost observation/data/risk and
+terminal-handling tags record which checks precede effects in the abstraction.
