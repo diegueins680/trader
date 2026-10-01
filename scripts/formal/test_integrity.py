@@ -21,6 +21,7 @@ import ope_algebra
 import ess_v2
 import funding_boundary
 import replay_order
+import replay_cutoff
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1921,6 +1922,73 @@ class ReplayOrderTests(unittest.TestCase):
             replay_order.due_certificate(*self.nodes)
         with patch.object(replay_order,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
             replay_order.registration()
+
+class ReplayCutoffTests(unittest.TestCase):
+    def setUp(self):
+        self.reg = replay_cutoff.registration()
+        self.source = (ROOT/self.reg['orderingModel']).read_text()
+        self.guard = replay_cutoff.extract(self.source,self.reg['orderingModelSha256'])
+
+    def test_cutoff_certificate_and_complete_graph(self):
+        result = replay_cutoff.check_replay_cutoff()
+        self.assertEqual(result['smt'],{'F-RL-REPLAY-CUTOFF':'unsat'})
+        self.assertEqual(result['model']['states'],3596)
+        self.assertEqual(result['model']['transitions'],4340)
+        self.assertEqual(result['model']['distinctInitialStates'],102)
+        self.assertEqual(result['model']['progressBound'],48)
+        self.assertFalse(result['model']['runtimeRefinement'])
+        self.assertEqual(result['lifts']['reachableClassSevenStates'],720)
+        self.assertEqual(result['lifts']['successorComparisons'],3600)
+        fixtures = read_json(ROOT/'formal/research/replay-cutoff-fixtures.json')
+        self.assertEqual(result['badAbstraction'],fixtures['badAbstraction'])
+        self.assertEqual(result['conformance'],fixtures['conformance'])
+
+    def test_cutoff_six_fails_universal_query(self):
+        with self.assertRaises(RuntimeError):
+            replay_cutoff.cutoff_certificate(self.guard,6)
+
+    def test_source_dependency_drift_rejected_even_after_rehash(self):
+        import hashlib
+        mutants = [('s.failed or s.t == s.limit','s.failed or s.t >= s.limit'),
+                   ('s.pending < 0','s.pending < s.limit'),
+                   ('pending=-1,fills=s.fills+1','pending=-1,fills=s.fills+1,limit=6'),
+                   ('replace(s,phase=phase,**kw)','replace(s,phase=phase,limit=6,**kw)')]
+        for old,new in mutants:
+            self.assertIn(old,self.source)
+            changed = self.source.replace(old,new)
+            with self.subTest(change=new), self.assertRaises(ValueError):
+                replay_cutoff.extract(changed,hashlib.sha256(changed.encode()).hexdigest())
+        with self.assertRaises(ValueError):
+            replay_cutoff.extract(self.source+'\n',self.reg['orderingModelSha256'])
+
+    def test_lift_mutant_with_new_limit_dependence_rejected(self):
+        def mutant(state):
+            if state.limit > 7 and state.phase == 'terminal_check':
+                return [('incorrect_terminal',replay_order.replace(state,phase='return'))]
+            return replay_order.successors(state)
+        with self.assertRaises(RuntimeError):
+            replay_cutoff.check_lifts(self.reg,mutant)
+
+    def test_nonterminal_six_bar_call_and_forced_terminal_mismatch(self):
+        actual = replay_order.conformance_case(horizon=6,remaining=7)
+        replay_cutoff.match_actual(actual,6,0)
+        self.assertFalse(actual['done'])
+        self.assertNotIn('liquidate',actual['trace'])
+        wrong = dict(actual,done=True)
+        with self.assertRaises(RuntimeError):
+            replay_cutoff.match_actual(wrong,6,0)
+
+    def test_unknown_and_registration_drift_fail(self):
+        class Unknown:
+            def set(self,**kw): pass
+            def add(self,*args): pass
+            def check(self): return z3.unknown
+            def reason_unknown(self): return 'synthetic unknown'
+        with patch.object(replay_cutoff.z,'Solver',Unknown), self.assertRaises(RuntimeError):
+            replay_cutoff.cutoff_certificate(self.guard)
+        with patch.object(replay_cutoff,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
+            replay_cutoff.registration()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -304,6 +304,14 @@
         {
           "id": "F-RL-REPLAY-ORDER",
           "statement": "In the source-bound single-call replay abstraction for 1..6 remaining bars, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets, admission precedes effects, old-position marking precedes risk and due target attempts, terminal handling precedes its row, and the complete finite graph reaches an end-of-call node under terminating helper assumptions."
+        },
+        {
+          "id": "F-RL-REPLAY-CUTOFF",
+          "statement": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R."
+        },
+        {
+          "id": "F-RL-REPLAY-QUOTIENT",
+          "statement": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement."
         }
       ],
       "invariants": [
@@ -394,6 +402,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_actual_grid_and_preserved_terminal_round_trip"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_nonterminal_six_bar_call_and_forced_terminal_mismatch"
         }
       ]
     },

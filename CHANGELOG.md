@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: verify a seven-or-more-bars ordering abstraction, preserve the nonterminal six-bar-call regression, and tighten synthetic trace conformance after a false-terminal mutation. No simulator or production behavior changes.
+
 - Research assurance: specify and check replay admission/mark/risk/fill/liquidation ordering, clarify policy-target versus terminal-liquidation timing, and preserve terminal round-trip costs without changing the simulator.
 
 - Research assurance: add conditional development funding timestamp proofs and synthetic overflow regressions, including full-loader and replay refusal checks. Preserve frozen data/learner behavior and all promotion blockers.

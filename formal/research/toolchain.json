@@ -23,7 +23,8 @@
     "scripts/formal/ope_algebra.py",
     "scripts/formal/ess_v2.py",
     "scripts/formal/funding_boundary.py",
-    "scripts/formal/replay_order.py"
+    "scripts/formal/replay_order.py",
+    "scripts/formal/replay_cutoff.py"
   ],
   "sourceHashes": {
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
@@ -31,14 +32,14 @@
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "5c7caa0f46ab6a189a18e36da72121e1f800e100bb76fc63742207602b66a327",
-    "scripts/formal/test_integrity.py": "08c88c3ac9ebf9eac303f79cd34b19b734d2c1056268601030f57a840992f168",
+    "scripts/formal/verify.py": "d145667ae30c2d3e1354e1148b65d8de6d4eb13fadc519b24b3cec2e545262ee",
+    "scripts/formal/test_integrity.py": "7f7d24dbbc3471b39b8f3d200e6b4f169f1ccb7ea801ada4b54ecf06afad4eda",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
-    "formal/research/proof-ledger.json": "e566594d1cfe396d299b8dbe15e54d6d64cc74ddc3015570f0ede3b48e4e95af",
+    "formal/research/proof-ledger.json": "5f5a59ff1e28a19701553d6b0e491b23485ffeeb1d9071e2e05dcff42cf860a5",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -103,7 +104,11 @@
     "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
     "formal/research/replay-order-contract.md": "c3670d42a9ca555823caaa42419c8c22b5f756a937dc35993aec586e318f731b",
     "formal/research/replay-order-fixtures.json": "2c44f45007f86a9d84103ad4a06f92e8a9d2fcfbab60dccdcc32a4ba62d9f3fc",
-    "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616"
+    "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
+    "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
+    "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
+    "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
+    "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc"
   },
   "numpy": "2.3.5"
 }

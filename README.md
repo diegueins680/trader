@@ -1,5 +1,7 @@
 # Trader
 
+The [replay cutoff audit](formal/research/replay-cutoff-contract.md) extends ordering coverage to a seven-or-more-bars class using an integer SMT lemma and finite model checking. Actual observation/reward equivalence remains unproved; no financial trial or simulator change is introduced.
+
 The [replay ordering audit](formal/research/replay-order-contract.md) distinguishes delayed policy targets from compulsory terminal liquidation at the endpoint. A finite-call model and synthetic actual-helper traces check event ordering; full runtime and numeric-accounting refinement remain open.
 
 The [funding boundary audit](formal/research/funding-boundary-contract.md) checks conditional settlement-to-bar mapping and preserves synthetic finite-input overflow (CE-RL-019). It does not change the loader or establish historical occurrence or provider availability.

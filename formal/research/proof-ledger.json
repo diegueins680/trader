@@ -127,6 +127,12 @@
       "status": "assumption",
       "statement": "Stable ordinary Replay state; returning and exception-free shield/observation/market/_trade/_risk primitives until the final reward check; Python control flow, AST translation and source-to-model abstraction trusted. Ghost admission/check tags record abstract ordering only. Helper attempts are not guaranteed fills. No numeric accounting, full runtime refinement, concurrency, physical deadline or production lifecycle proof.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REPLAY-CUTOFF",
+      "status": "assumption",
+      "statement": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -157,7 +163,8 @@
     "scripts/formal/ess_v2.py",
     "scripts/research/ess_rational_v2.py",
     "scripts/formal/funding_boundary.py",
-    "scripts/formal/replay_order.py"
+    "scripts/formal/replay_order.py",
+    "scripts/formal/replay_cutoff.py"
   ],
   "entries": [
     {
@@ -1897,6 +1904,66 @@
       "limitations": "Stable ordinary Replay state; returning and exception-free shield/observation/market/_trade/_risk primitives until the final reward check; Python control flow, AST translation and source-to-model abstraction trusted. Ghost admission/check tags record abstract ordering only. Helper attempts are not guaranteed fills. No numeric accounting, full runtime refinement, concurrency, physical deadline or production lifecycle proof. Invalid early returns can retain simulated inventory/pending data. Final reward failure is not ruled out.",
       "counterexample": null,
       "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-REPLAY-CUTOFF",
+      "claim": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R.",
+      "criticality": "high",
+      "formalStatement": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R.",
+      "assumptions": [
+        "A-REPLAY-CUTOFF",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST and integer SMT; explicit-state model checking; finite lift and synthetic trace conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/replay_cutoff.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/replay_cutoff.py",
+        "scripts/formal/replay_order.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT premise witness and UNSAT violation query; arbitrary positive integer remaining length.",
+      "bounds": "Cutoff 7; horizon 1/3/6; delay 0/1; pending absent/1/2. Five finite lift samples 7,8,12,97,2^63. Actual trace remaining lengths 7,8,12.",
+      "limitations": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation. Failure traces still use nondeterministic risk categories. All 38 broader mission obligations remain open/partial.",
+      "counterexample": "formal/research/replay-cutoff-fixtures.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REPLAY-QUOTIENT",
+      "claim": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement.",
+      "criticality": "high",
+      "formalStatement": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement.",
+      "assumptions": [
+        "A-REPLAY-CUTOFF",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST and integer SMT; explicit-state model checking; finite lift and synthetic trace conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/replay_cutoff.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/replay_cutoff.py",
+        "scripts/formal/replay_order.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "3596 states, 4340 transitions, 102 initial states; depth/progress 48. 720 class-seven states, 3600 lifted comparisons, 486 synthetic grid traces plus eight scenarios.",
+      "bounds": "Cutoff 7; horizon 1/3/6; delay 0/1; pending absent/1/2. Five finite lift samples 7,8,12,97,2^63. Actual trace remaining lengths 7,8,12.",
+      "limitations": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation. Failure traces still use nondeterministic risk categories. All 38 broader mission obligations remain open/partial.",
+      "counterexample": "formal/research/replay-cutoff-fixtures.json",
+      "status": "model_checked"
     }
   ],
   "missionObligations": [
@@ -2111,9 +2178,11 @@
         "F-RL-FIT-PREFIX",
         "F-RL-COLLECT-PREFIX",
         "F-RL-REPLAY-DUE",
-        "F-RL-REPLAY-ORDER"
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
     },
     {
       "number": 18,
@@ -2127,9 +2196,11 @@
         "F-RL-GAP-CONFORMANCE",
         "F-RL-TRANSITION-ADMISSION",
         "F-RL-REPLAY-DUE",
-        "F-RL-REPLAY-ORDER"
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
     },
     {
       "number": 19,
@@ -2143,9 +2214,11 @@
         "F-RL-GAP-CONFORMANCE",
         "F-RL-TRANSITION-ADMISSION",
         "F-RL-REPLAY-DUE",
-        "F-RL-REPLAY-ORDER"
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
     },
     {
       "number": 20,
@@ -2190,9 +2263,11 @@
         "F-RL-ESS-V2-BOUNDS",
         "F-RL-ESS-V2-PUBLISH",
         "F-RL-REPLAY-DUE",
-        "F-RL-REPLAY-ORDER"
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
     },
     {
       "number": 23,
