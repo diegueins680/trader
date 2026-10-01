@@ -68,3 +68,5 @@ The [funding audit](funding-boundary-followup-2026-10-01.md) separates source-li
 ## Replay ordering audit (2026-10-01)
 
 The [ordering audit](replay-order-followup-2026-10-01.md) distinguishes delayed policy targets from compulsory terminal reconciliation. Scoped finite-state/SMT evidence and synthetic actual-helper traces retain both costs for terminal entry/liquidation. Early rejected or insolvent calls can retain simulated state; universal cash/runtime/production refinement and promotion gates remain unresolved.
+
+The [cutoff audit](replay-cutoff-followup-2026-10-01.md) extends the ordering abstraction to a seven-or-more-bars class. Integer SMT and finite graph/conformance evidence preserve the distinction between a six-bar call and a later episode endpoint. A false-terminal trace-matcher counterexample was corrected and retained. Actual observations/rewards, multi-call runtime behavior and all broader promotion requirements remain unresolved; no adoption follows.

@@ -107,3 +107,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [Funding boundary continuation](funding-boundary-followup-2026-10-01.md): conditional settlement endpoint/grid SMT, CE-RL-019 product/sum overflow, full-loader synthetic conformance and replay refusal. No historical data or protected outcome access.
 
 - [Replay ordering continuation](replay-order-followup-2026-10-01.md): source-bound one-call model, policy-target due-time SMT, 486 actual synthetic grid traces, and explicit terminal round-trip costs. No simulator change or new economic evidence.
+
+- [Replay cutoff continuation](replay-cutoff-followup-2026-10-01.md): integer cutoff lemma, complete class-seven ordering graph, 3,600 lifted successor checks, 486 longer-call traces and a resolved checker counterexample. No new financial evidence.
