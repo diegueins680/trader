@@ -1,5 +1,7 @@
 # Trader
 
+The [reward accounting audit](formal/research/reward-accounting-contract.md) distinguishes call-relative learning reward from compounded economic return. Source-derived real identities and synthetic tolerance checks preserve the existing simulator/reporter; no candidate or live behavior is introduced.
+
 The [replay cutoff audit](formal/research/replay-cutoff-contract.md) extends ordering coverage to a seven-or-more-bars class using an integer SMT lemma and finite model checking. Actual observation/reward equivalence remains unproved; no financial trial or simulator change is introduced.
 
 The [replay ordering audit](formal/research/replay-order-contract.md) distinguishes delayed policy targets from compulsory terminal liquidation at the endpoint. A finite-call model and synthetic actual-helper traces check event ordering; full runtime and numeric-accounting refinement remain open.

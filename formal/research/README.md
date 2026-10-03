@@ -1,5 +1,7 @@
 # Offline research verification runbook
 
+Reward accounting (2026-10-03): [contract](reward-accounting-contract.md), [registration](../../research-notes/registrations/reward-accounting-audit-engineering.json), [fixtures](reward-accounting-fixtures.json). Seven SAT-premise/UNSAT-violation pairs cover three real-arithmetic requirements; a separate SAT witness refutes additive reward-as-return interpretation. Both wrappers run 1,944 synthetic episode checks. No new dependency.
+
 Replay cutoff (2026-10-01): [contract](replay-cutoff-contract.md), [registration](../../research-notes/registrations/replay-cutoff-audit-engineering.json) and [fixtures](replay-cutoff-fixtures.json) preserve the earlier six-bar certificate while adding an integer branch lemma, a 3,596-state graph and longer-call traces. Both canonical verification wrappers reproduce the scoped evidence offline.
 
 Replay ordering (2026-10-01): [contract](replay-order-contract.md), [registration](../../research-notes/registrations/replay-order-audit-engineering.json) and [fixtures](replay-order-fixtures.json) connect a one-call finite model, due-time SMT and 486 synthetic actual-helper traces. `bash scripts/verify.sh formal` and `full` reproduce the scoped checks. No new dependency or simulator change.

@@ -22,6 +22,7 @@ import ess_v2
 import funding_boundary
 import replay_order
 import replay_cutoff
+import reward_accounting
 import numpy as np
 import gap_risk
 import gap_conformance
@@ -1988,6 +1989,83 @@ class ReplayCutoffTests(unittest.TestCase):
             replay_cutoff.cutoff_certificate(self.guard)
         with patch.object(replay_cutoff,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
             replay_cutoff.registration()
+
+
+class RewardAccountingTests(unittest.TestCase):
+    def setUp(self):
+        self.reg = reward_accounting.registration()
+        self.sources = [(ROOT/p).read_text() for p in reward_accounting.SOURCES]
+        self.nodes = reward_accounting.extract(self.sources,self.reg['sourceFunctionASTSha256'])
+
+    def test_source_certificates_and_registered_grid(self):
+        result = reward_accounting.check_reward_accounting()
+        self.assertEqual(len(result['smt']),3)
+        self.assertEqual(result['satUnsatPairs'],7)
+        self.assertEqual(result['nonadditivity']['status'],'refuted')
+        self.assertEqual(result['conformance']['gridEpisodes'],1944)
+        self.assertTrue(result['conformance']['cashResidualWithinTolerance'])
+        self.assertTrue(result['conformance']['rewardResidualWithinTolerance'])
+        expected = read_json(ROOT/'formal/research/reward-accounting-fixtures.json')
+        self.assertEqual(result['nonadditivity'],expected['nonadditivity'])
+        self.assertEqual(result['conformance']['failureScenarios'],expected['failureScenarios'])
+        self.assertEqual(result['conformance']['nonadditiveReplay'],expected['nonadditiveReplay'])
+
+    def test_arithmetic_mutants_fail_universal_queries(self):
+        mutations = [('reward','100 * ((self.equity - before) / self.equity - self.execution.risk_penalty * penalty)'),
+                     ('reward','100 * ((self.equity - before) / before + self.execution.risk_penalty * penalty)'),
+                     ('mark','gross + funding - 1'),
+                     ('debit',"sum(terms[k] for k in ('fee', 'spread', 'slippage'))"),
+                     ('debit',"2 * sum(terms[k] for k in ('fee', 'spread', 'slippage', 'impact'))"),
+                     ('merge','costs[k]'),('net','self.equity / old_equity + 1'),
+                     ('rowPenalty','self.execution.risk_penalty * exposure**2 * x[5]**2'),
+                     ('metric','equity[-1]'),('initialPenalty','1')]
+        for key,value in mutations:
+            nodes = dict(self.nodes); nodes[key]=ast.parse(value,mode='eval').body
+            with self.subTest(key=key,expression=value), self.assertRaises(RuntimeError):
+                reward_accounting.certificates(nodes)
+
+    def test_source_drift_rejected(self):
+        for index,old,new in [(0,'self.equity += gross + funding','self.equity += gross'),
+                              (0,'penalty += exposure**2 * x[5]**2','penalty += exposure * x[5]**2'),
+                              (1,'"netReturn": equity[-1] - 1','"netReturn": sum(r)'),
+                              (1,'rel_tol=1e-10','rel_tol=1')]:
+            sources=list(self.sources); self.assertIn(old,sources[index]); sources[index]=sources[index].replace(old,new)
+            with self.subTest(change=new), self.assertRaises(ValueError):
+                reward_accounting.extract(sources,self.reg['sourceFunctionASTSha256'])
+
+    def test_report_rejects_cash_or_return_tampering(self):
+        from sequential_evaluation import economic
+        for field,delta in [('fee',.01),('net',.01),('equity',.01)]:
+            env = reward_accounting.replay_case(.25,1,0,3,1.,0.,'alternating',.01)
+            reward_accounting.check_episode(env,.25,1e-11)
+            env.rows[1][field]+=delta
+            with self.subTest(field=field), self.assertRaises(ValueError): economic(env)
+
+    def test_nonadditive_witness_reports_economic_loss(self):
+        env = reward_accounting.replay_case(.25,1,0,3,0.,0.,'flat',0.)
+        env.prices[25:28]=[100.,110.,99.]
+        result=reward_accounting.check_episode(env,.25,1e-11)
+        self.assertAlmostEqual(sum(result['rewards']),0.,places=11)
+        self.assertAlmostEqual(result['netReturn'],-1/1600,places=11)
+        self.assertGreater(abs(sum(result['rewards'])-100*result['netReturn']),.06)
+
+    def test_unsupported_translation_fails_closed(self):
+        for value in ('unknown(1)', 'x**3', "sum(terms[k] for k in ('fee', unknown))", 'sum(terms[k] for k in ())'):
+            with self.subTest(expression=value), self.assertRaises(ValueError):
+                reward_accounting.real(ast.parse(value,mode='eval').body,{'x':z3.RealVal(1)})
+
+    def test_unknown_and_registration_drift_fail(self):
+        class Unknown:
+            def set(self,**kw): pass
+            def add(self,*args): pass
+            def check(self): return z3.unknown
+            def reason_unknown(self): return 'synthetic unknown'
+        with patch.object(reward_accounting.z,'Solver',Unknown), self.assertRaises(RuntimeError):
+            reward_accounting.certificates(self.nodes)
+        with patch.object(reward_accounting.z,'Solver',Unknown), self.assertRaises(RuntimeError):
+            reward_accounting.nonadditive_certificate(self.nodes)
+        with patch.object(reward_accounting,'REGISTRATION_SHA256','0'*64), self.assertRaises(ValueError):
+            reward_accounting.registration()
 
 
 if __name__ == '__main__':

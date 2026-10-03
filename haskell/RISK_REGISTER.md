@@ -1,5 +1,7 @@
 # Trader Firm — Risk Register
 
+Reward accounting evidence (2026-10-03): [contract](../formal/research/reward-accounting-contract.md) separates call-relative reward from compounded economic return. The reporter correctly records the preserved synthetic loss. Exact-real SMT and tolerance tests do not discharge floating-point/production refinement; `RL-OFFLINE-001` remains HIGH/OPEN.
+
 Replay cutoff evidence (2026-10-01): [contract](../formal/research/replay-cutoff-contract.md) extends abstract single-call ordering through an integer cutoff lemma and class-seven graph. Observation/reward and Haskell runtime refinement remain open. A checker mutation is preserved and corrected; `RL-OFFLINE-001` remains HIGH/OPEN.
 
 Replay ordering evidence (2026-10-01): [contract](../formal/research/replay-order-contract.md) checks a source-bound single-call abstraction and synthetic helper traces. Terminal liquidation is distinct from a delayed policy target; early rejected calls can retain simulated state. Runtime, cash arithmetic and production lifecycle remain open; `RL-OFFLINE-001` remains HIGH/OPEN.

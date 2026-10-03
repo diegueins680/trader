@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: verify source-derived reward/wealth reconciliation, clarify floating-point tolerances, and preserve a counterexample to additive reward-as-return interpretation. Frozen simulation and economic reporting remain unchanged.
+
 - Research assurance: verify a seven-or-more-bars ordering abstraction, preserve the nonterminal six-bar-call regression, and tighten synthetic trace conformance after a false-terminal mutation. No simulator or production behavior changes.
 
 - Research assurance: specify and check replay admission/mark/risk/fill/liquidation ordering, clarify policy-target versus terminal-liquidation timing, and preserve terminal round-trip costs without changing the simulator.

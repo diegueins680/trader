@@ -133,6 +133,12 @@
       "status": "assumption",
       "statement": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REWARD-ACCOUNTING",
+      "status": "assumption",
+      "statement": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -164,7 +170,8 @@
     "scripts/research/ess_rational_v2.py",
     "scripts/formal/funding_boundary.py",
     "scripts/formal/replay_order.py",
-    "scripts/formal/replay_cutoff.py"
+    "scripts/formal/replay_cutoff.py",
+    "scripts/formal/reward_accounting.py"
   ],
   "entries": [
     {
@@ -1964,6 +1971,126 @@
       "limitations": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation. Failure traces still use nondeterministic risk categories. All 38 broader mission obligations remain open/partial.",
       "counterexample": "formal/research/replay-cutoff-fixtures.json",
       "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ROW-RECONCILE",
+      "claim": "In exact reals with positive starting equity, the extracted Replay mark, sequential target/liquidation cost debits, merged cost fields and row return reconcile ending wealth and net return; fill quantities and cost formation are assumed, not proved.",
+      "criticality": "high",
+      "formalStatement": "In exact reals with positive starting equity, the extracted Replay mark, sequential target/liquidation cost debits, merged cost fields and row return reconcile ending wealth and net return; fill quantities and cost formation are assumed, not proved.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT-premise/UNSAT-violation queries; seven pairs across three requirements, including source penalty initialization and invariant preservation.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-WEALTH-FOLD",
+      "claim": "SMT checks the positive-wealth product invariant base and induction step using the source row-return expression: P=E/E0 implies P*(1+r)=E_next/E0; the source economic metric equals that ratio minus one when E0=1.",
+      "criticality": "high",
+      "formalStatement": "SMT checks the positive-wealth product invariant base and induction step using the source row-return expression: P=E/E0 implies P*(1+r)=E_next/E0; the source economic metric equals that ratio minus one when E0=1.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT-premise/UNSAT-violation queries; seven pairs across three requirements, including source penalty initialization and invariant preservation.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REWARD-RECONCILE",
+      "claim": "SMT checks the source penalty accumulator base, nonnegative induction step and call identity: returned reward plus summed noncash row penalties equals 100 times the call-relative equity change in exact reals with positive starting equity.",
+      "criticality": "high",
+      "formalStatement": "SMT checks the source penalty accumulator base, nonnegative induction step and call identity: returned reward plus summed noncash row penalties equals 100 times the call-relative equity change in exact reals with positive starting equity.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT-premise/UNSAT-violation queries; seven pairs across three requirements, including source penalty initialization and invariant preservation.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REWARD-ADDITIVE",
+      "claim": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return.",
+      "criticality": "high",
+      "formalStatement": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness: returns 0,+1/40,-1/40, reward sum 0, ending wealth 1599/1600; actual reporter correctly records economic loss.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": "formal/research/reward-accounting-fixtures.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -2080,9 +2207,13 @@
         "F-RL-GAP-CONFORMANCE",
         "F-RL-FUNDING-GRID",
         "F-RL-FUNDING-ENDPOINT",
-        "F-RL-FUNDING-FINITE"
+        "F-RL-FUNDING-FINITE",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-REWARD-RECONCILE",
+        "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
     },
     {
       "number": 9,
@@ -2198,9 +2329,13 @@
         "F-RL-REPLAY-DUE",
         "F-RL-REPLAY-ORDER",
         "F-RL-REPLAY-CUTOFF",
-        "F-RL-REPLAY-QUOTIENT"
+        "F-RL-REPLAY-QUOTIENT",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-REWARD-RECONCILE",
+        "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
     },
     {
       "number": 19,
@@ -2216,9 +2351,13 @@
         "F-RL-REPLAY-DUE",
         "F-RL-REPLAY-ORDER",
         "F-RL-REPLAY-CUTOFF",
-        "F-RL-REPLAY-QUOTIENT"
+        "F-RL-REPLAY-QUOTIENT",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-REWARD-RECONCILE",
+        "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
     },
     {
       "number": 20,

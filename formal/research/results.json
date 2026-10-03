@@ -669,6 +669,96 @@
       "F-RL-REPLAY-DUE": "unsat"
     }
   },
+  "rewardAccounting": {
+    "conformance": {
+      "absoluteTolerance": 1e-11,
+      "cashResidualWithinTolerance": true,
+      "failureScenarios": {
+        "insolvency": {
+          "cashError": 0.0,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "netReturn": -2.0,
+          "positiveWealth": false,
+          "rewardError": 0.0,
+          "rewards": [
+            -200.0
+          ],
+          "rows": 1
+        },
+        "invalid_gate": {
+          "cashError": 0.0,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "netReturn": null,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            0.0
+          ],
+          "rows": 0
+        },
+        "invalid_market": {
+          "cashError": 0.0,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "netReturn": null,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            0.0
+          ],
+          "rows": 0
+        },
+        "solvent_risk": {
+          "cashError": 0.0,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "netReturn": -0.25025,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            -25.025
+          ],
+          "rows": 1
+        }
+      },
+      "gridEpisodes": 1944,
+      "nonadditiveReplay": {
+        "cashError": 0.0,
+        "equity": 0.9993749999999999,
+        "failure": null,
+        "netReturn": -0.0006250000000000977,
+        "positiveWealth": true,
+        "rewardError": 8.881784197001252e-16,
+        "rewards": [
+          0.0,
+          2.499999999999991,
+          -2.5000000000000013
+        ],
+        "rows": 3
+      },
+      "relativeTolerance": 1e-11,
+      "rewardResidualWithinTolerance": true,
+      "scope": "deterministic synthetic tests; no universal binary64 error bound"
+    },
+    "nonadditivity": {
+      "economicReturn": "-1/1600",
+      "finalEquity": "1599/1600",
+      "requirement": "F-RL-REWARD-ADDITIVE",
+      "scope": "interpretation counterexample; not a defect in current economic reporting",
+      "solverResult": "sat",
+      "status": "refuted",
+      "summedReward": "0"
+    },
+    "satUnsatPairs": 7,
+    "scope": "exact-real source arithmetic and induction obligations; no full runtime refinement",
+    "smt": {
+      "F-RL-REWARD-RECONCILE": "unsat",
+      "F-RL-ROW-RECONCILE": "unsat",
+      "F-RL-WEALTH-FOLD": "unsat"
+    }
+  },
   "schemaVersion": 1,
   "smt": {
     "F-RL-ACCOUNT": "unsat",
@@ -698,6 +788,8 @@
     "F-RL-PPO-OBJECTIVE": "unsat",
     "F-RL-REPLAY-CUTOFF": "unsat",
     "F-RL-REPLAY-DUE": "unsat",
+    "F-RL-REWARD-RECONCILE": "unsat",
+    "F-RL-ROW-RECONCILE": "unsat",
     "F-RL-SHIELD-BOUNDS": "unsat",
     "F-RL-SHIELD-FALLBACK": "unsat",
     "F-RL-SHIELD-GUARDS": "unsat",
@@ -708,7 +800,8 @@
     "F-RL-TARGET-V2-TERMINAL": "unsat",
     "F-RL-TERMINAL-FP-MASK": "unsat",
     "F-RL-TERMINAL-REAL": "unsat",
-    "F-RL-TRANSITION-ADMISSION": "unsat"
+    "F-RL-TRANSITION-ADMISSION": "unsat",
+    "F-RL-WEALTH-FOLD": "unsat"
   },
   "solver": "4.15.4",
   "sourceFootprint": {
@@ -752,12 +845,14 @@
     "formal/research/optimizer-publication-contract.md": "f614e5e64994695b27068c6ce7db780c887600a6e2c8c256894ebfb12690ac35",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "5f5a59ff1e28a19701553d6b0e491b23485ffeeb1d9071e2e05dcff42cf860a5",
+    "formal/research/proof-ledger.json": "2982e695924ad946af48f67bd58811430855ed56207771ea9e5f43407f3afd72",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
     "formal/research/replay-order-contract.md": "c3670d42a9ca555823caaa42419c8c22b5f756a937dc35993aec586e318f731b",
     "formal/research/replay-order-fixtures.json": "2c44f45007f86a9d84103ad4a06f92e8a9d2fcfbab60dccdcc32a4ba62d9f3fc",
+    "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
+    "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
     "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
     "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
     "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
@@ -779,6 +874,7 @@
     "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
     "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc",
     "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
+    "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "research-notes/registrations/value-objective-audit-engineering.json": "73382abdea417dadeb8bc3b6cd61e7f36d20bade9a0a7649731f6c5a599f877f",
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
@@ -797,13 +893,14 @@
     "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
     "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
+    "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "7f7d24dbbc3471b39b8f3d200e6b4f169f1ccb7ea801ada4b54ecf06afad4eda",
+    "scripts/formal/test_integrity.py": "0a08f5da9ca24d82afecfb92da7dd8989a8927f3e3b8357bcd6f53ed579d253d",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "d145667ae30c2d3e1354e1148b65d8de6d4eb13fadc519b24b3cec2e545262ee",
+    "scripts/formal/verify.py": "537d7675960034b5af2721938b8232e8a112da9e28b13c50e1e7124a509b0adf",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
