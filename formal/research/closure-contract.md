@@ -13,6 +13,8 @@ an evidence-based assessment. Preserve historical receipts; replace this rule.
 
 Each numbered obligation retains its original title and a reviewed affected
 scope, closure criteria, concrete remaining work, and implementation paths.
+[The canonical contract registry](obligation-contracts.json) fixes each number, title, scope, criterion, implementation path and required certificate set independently of status updates. The validator rejects ledger/contract drift. Semantic sufficiency of this mapping is explicitly a source-review assumption; certificate existence alone cannot establish it.
+
 `requiredCertificates` names sufficient certificates for that exact scope, not
 merely related supporting lemmas. An empty list is never sufficient evidence.
 `blockers` names outstanding work, including applicable counterexamples.

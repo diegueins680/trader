@@ -1,5 +1,8 @@
 # Trader Firm — Risk Register
 
+Closure audit (2026-10-03): [criteria and scope](../formal/research/obligation-closure-audit.md) replace the impossible completion guard (CE-RL-021). Default-disabled is closed only for the delivered offline boundaries under explicit language/runtime assumptions. The remaining 37 obligations, numerical counterexamples and economic rejection keep `RL-OFFLINE-001` HIGH/OPEN. Earlier 38-open counts below are historical.
+
+
 Reward accounting evidence (2026-10-03): [contract](../formal/research/reward-accounting-contract.md) separates call-relative reward from compounded economic return. The reporter correctly records the preserved synthetic loss. Exact-real SMT and tolerance tests do not discharge floating-point/production refinement; `RL-OFFLINE-001` remains HIGH/OPEN.
 
 Replay cutoff evidence (2026-10-01): [contract](../formal/research/replay-cutoff-contract.md) extends abstract single-call ordering through an integer cutoff lemma and class-seven graph. Observation/reward and Haskell runtime refinement remain open. A checker mutation is preserved and corrected; `RL-OFFLINE-001` remains HIGH/OPEN.

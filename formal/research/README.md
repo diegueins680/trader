@@ -1,5 +1,8 @@
 # Offline research verification runbook
 
+Closure correction (2026-10-03): [contract](closure-contract.md), [all-38 audit](obligation-closure-audit.md), and [CE-RL-021](closure-counterexamples.json). Source-derived finite default paths close obligation 31 for the delivered offline boundary. Same-run certificates are required for closure; 37 other obligations and both research acceptance gates remain blocked.
+
+
 Reward accounting (2026-10-03): [contract](reward-accounting-contract.md), [registration](../../research-notes/registrations/reward-accounting-audit-engineering.json), [fixtures](reward-accounting-fixtures.json). Seven SAT-premise/UNSAT-violation pairs cover three real-arithmetic requirements; a separate SAT witness refutes additive reward-as-return interpretation. Both wrappers run 1,944 synthetic episode checks. No new dependency.
 
 Replay cutoff (2026-10-01): [contract](replay-cutoff-contract.md), [registration](../../research-notes/registrations/replay-cutoff-audit-engineering.json) and [fixtures](replay-cutoff-fixtures.json) preserve the earlier six-bar certificate while adding an integer branch lemma, a 3,596-state graph and longer-call traces. Both canonical verification wrappers reproduce the scoped evidence offline.
@@ -41,7 +44,7 @@ A separate acceptance diagnostic deliberately fails today:
 "${TRADER_FORMAL_PYTHON:-python3}" scripts/formal/verify.py --require-complete
 ```
 
-It reports all 38 requested whole-system obligations as open/partially verified.
+It computes 37 unresolved obligations and one closed affected-scope obligation. The count is not hardcoded.
 A green scoped gate does not make this draft ready for candidate integration.
 There is no switch in this work to authorize a candidate, experiment or order.
 
@@ -114,7 +117,7 @@ The ledger separates `smt_verified`, `model_checked`, `property_tested`, and
 `open`; the schema accepts the requested vocabulary but the verifier refuses to
 upgrade a claim to an unsupported verification class. The 38-item mission map
 is deliberately more demanding than the narrow completed lemmas. It records
-full implementation obligations as unresolved, even where a lemma is useful.
+explicit remaining implementation blockers; sufficient source-bound certificates can close an affected-scope obligation. Supporting lemmas alone do not establish closure.
 No broad “formally verified system” claim is made.
 
 `CE-RL-001` is a preserved [counterexample](counterexamples.json) to an overly

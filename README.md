@@ -1,5 +1,8 @@
 # Trader
 
+The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: default-disabled behavior is closed for the delivered offline boundary; 37 obligations and separate economic-evidence gates remain unresolved.
+
+
 The [reward accounting audit](formal/research/reward-accounting-contract.md) distinguishes call-relative learning reward from compounded economic return. Source-derived real identities and synthetic tolerance checks preserve the existing simulator/reporter; no candidate or live behavior is introduced.
 
 The [replay cutoff audit](formal/research/replay-cutoff-contract.md) extends ordering coverage to a seven-or-more-bars class using an integer SMT lemma and finite model checking. Actual observation/reward equivalence remains unproved; no financial trial or simulator change is introduced.

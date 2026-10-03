@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "offline research assurance only; not mission completion",
+  "scope": "Evidence-driven closure for the 38 affected-system obligations; formal closure is separate from economic acceptance.",
   "assumptions": [
     {
       "id": "A-FP",
@@ -139,6 +139,12 @@
       "status": "assumption",
       "statement": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-DEFAULT-PATH",
+      "status": "assumption",
+      "statement": "Trusted ordinary Python AST/identity/short-circuit execution, GHC constructors and guard order, defined arguments, returning monotonic clock; no runtime patching or compiler corruption. Explicit research command invocation opts into simulation; no production candidate integration exists.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -171,7 +177,8 @@
     "scripts/formal/funding_boundary.py",
     "scripts/formal/replay_order.py",
     "scripts/formal/replay_cutoff.py",
-    "scripts/formal/reward_accounting.py"
+    "scripts/formal/reward_accounting.py",
+    "scripts/formal/default_paths.py"
   ],
   "entries": [
     {
@@ -2091,6 +2098,67 @@
       "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
       "counterexample": "formal/research/reward-accounting-fixtures.json",
       "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-DEFAULT-PATH",
+      "claim": "For the enumerated delivered offline entry points, source-derived default control paths return absent before inspecting policy/data arguments; Haskell defaults to Disabled, Python enabled defaults to False, and saved policy metadata sets enabled to False. This exhaustively checked finite control abstraction assumes ordinary source execution and a returning clock.",
+      "criticality": "critical",
+      "formalStatement": "For the enumerated delivered offline entry points, source-derived default control paths return absent before inspecting policy/data arguments; Haskell defaults to Disabled, Python enabled defaults to False, and saved policy metadata sets enabled to False. This exhaustively checked finite control abstraction assumes ordinary source execution and a returning clock.",
+      "assumptions": [
+        "A-DEFAULT-PATH",
+        "A-SOLVER"
+      ],
+      "tool": "source-derived finite path enumeration",
+      "toolVersion": "closure-v1 / Python 3.13.3",
+      "sourceModel": "scripts/formal/default_paths.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/default_paths.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced finite default-path certificate and adversarial closure admission regressions; no universal compiler theorem.",
+      "bounds": "Four Python entry points times two enabled identity classes; two Haskell modes; all 38 ledger entries audited.",
+      "limitations": "Trusted checker/language semantics; empirical and production integration gates remain separate. Validator tests are not a formal proof.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-CLOSURE",
+      "claim": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value.",
+      "criticality": "critical",
+      "formalStatement": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value.",
+      "assumptions": [
+        "A-DEFAULT-PATH",
+        "A-SOLVER"
+      ],
+      "tool": "Python unittest",
+      "toolVersion": "closure-v1 / Python 3.13.3",
+      "sourceModel": "formal/research/closure-contract.md",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/verify.py",
+        "scripts/formal/test_integrity.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced finite default-path certificate and adversarial closure admission regressions; no universal compiler theorem.",
+      "bounds": "Four Python entry points times two enabled identity classes; two Haskell modes; all 38 ledger entries audited.",
+      "limitations": "Trusted checker/language semantics; empirical and production integration gates remain separate. Validator tests are not a formal proof.",
+      "counterexample": "CE-RL-021",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -2107,7 +2175,18 @@
         "F-RL-FUNDING-ENDPOINT",
         "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every admitted observation uses event/release/first-seen/revision times <= decision and preprocessing respects the registered fold.",
+      "nextAction": "Specify an availability-bearing dataset record and prove its admission-to-feature composition before a new data campaign.",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Provider availability is assumed; no complete admission-to-observation refinement."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 2,
@@ -2118,7 +2197,18 @@
         "F-RL-FIT-PREFIX",
         "F-RL-COLLECT-PREFIX"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
+      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every training/calibration/validation/holdout access lies in its disjoint registered region after purge and embargo.",
+      "nextAction": "Verify runner dataset selection and split-manifest validation against all registered regions.",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py"
+      ],
+      "blockers": [
+        "Index lemmas do not cover file selection and full dataset admission."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 3,
@@ -2128,14 +2218,36 @@
         "F-RL-FIT-PREFIX",
         "F-RL-COLLECT-PREFIX"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
+      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every fitted scale depends only on admitted training rows and evaluation cannot mutate it.",
+      "nextAction": "Compose Scale.fit prefix and immutable snapshot evidence with runner fold-selection proof.",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Fit-prefix evidence does not establish caller region provenance and all stored-transform use."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 4,
       "claim": "Revision timing",
       "status": "open",
       "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "A revision is visible only at or after its release or first observation, whichever the availability contract requires.",
+      "nextAction": "Add versioned timestamp admission to an unfrozen research data path; reject unverifiable revision records.",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py"
+      ],
+      "blockers": [
+        "Current OHLCV/funding input has no sufficient point-in-time revision witness."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 5,
@@ -2144,7 +2256,18 @@
       "evidenceRequirements": [
         "F-RL-FEATURE-FOOTPRINT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Each local observation reads only its declared symbol; global inputs must be explicitly tagged.",
+      "nextAction": "Verify symbol-keyed panel admission and caller-to-array binding; add cross-symbol mutation regressions.",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py"
+      ],
+      "blockers": [
+        "Single-array feature proof does not certify panel symbol selection."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 6,
@@ -2175,7 +2298,19 @@
         "F-RL-FUNDING-ENDPOINT",
         "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
+      "nextAction": "Create a separately versioned numeric repair track, connect checked targets/updates and funding validation, then prove the full output path.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Unresolved CE-RL-010/011/012/014/019; safe v2 kernels are disconnected from the frozen learner."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 7,
@@ -2192,7 +2327,18 @@
         "F-RL-INFER-SELECTION",
         "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Shielded targets and post-cost positions respect registered hard bounds under explicit gap/solvency assumptions.",
+      "nextAction": "Separate proposal bounds from realized exposure; specify rejection/liquidation under loss and quantify admissible gap assumptions.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "blockers": [
+        "Unconditional capital-floor claim is refuted; bounded targets alone do not bound realized exposure after gaps."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 8,
@@ -2213,14 +2359,36 @@
         "F-RL-REWARD-RECONCILE",
         "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every wealth, fee, funding and liquidation debit reconciles actual binary64 execution within a stated error bound or rejects.",
+      "nextAction": "Prove bounded arithmetic error and failure rules for a versioned replay accounting core.",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py"
+      ],
+      "blockers": [
+        "Exact-real row identities lack full binary64 error/refinement bounds and calibrated fill semantics."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 9,
       "claim": "Rounding",
       "status": "open",
       "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
+      "nextAction": "Keep this integration blocker; identify concrete Binance rounding functions and exact unit/rounding domains before adapter work.",
+      "implementationFiles": [
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "blockers": [
+        "No order adapter is introduced; inherited Binance rounding is not certified by the research model."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 10,
@@ -2246,7 +2414,19 @@
         "F-RL-FUNDING-ENDPOINT",
         "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
+      "nextAction": "Repair and compose numeric admission/publication in a versioned successor rather than count isolated kernels as repairs.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "CE-RL-010/011/012/014/018/019 remain in frozen training, OPE or loading paths."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 11,
@@ -2255,7 +2435,19 @@
       "evidenceRequirements": [
         "F-RL-AUTH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "No research value can construct an authorized order capability across the delivered import/call graph.",
+      "nextAction": "Check production dependency exclusion and typed order constructors across all reachable call sites.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "Private Haskell constructor and constant authority are checked; whole import/effect graph is not certified."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 12,
@@ -2264,7 +2456,18 @@
       "evidenceRequirements": [
         "F-RL-SHIELD-GUARDS"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every consumed action passes the deterministic shield and cannot race around it.",
+      "nextAction": "Prove proposal-to-consumer composition, including rejection and rescreening at consumption.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "blockers": [
+        "Pure proposal guard is checked; replay consumers and any future runtime bridge are not fully refined."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 13,
@@ -2274,7 +2477,18 @@
         "F-RL-AUTH",
         "F-RL-LIFECYCLE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Research/replay/shadow/paper modes cannot obtain a live-order capability.",
+      "nextAction": "Verify effect/import separation and lifecycle-to-capability mapping; retain no live bridge.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "Finite client model has no authority by construction; production capability graph is unproved."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 14,
@@ -2283,21 +2497,54 @@
       "evidenceRequirements": [
         "F-RL-LIFECYCLE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
+      "nextAction": "Extract actual runtime admission transitions and match every drain/start race to the state model.",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "Two-caller abstract model does not refine actual server admission/cancellation."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 15,
       "claim": "Position ownership",
       "status": "open",
       "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "At most one live owner exists per protected position identity.",
+      "nextAction": "Inventory actual owner-key transactions and certify uniqueness before any integration; do not alter production ownership.",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/BotStartSemantics.hs"
+      ],
+      "blockers": [
+        "Research introduces no owner; inherited ownership atomicity has no certificate in this ledger."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 16,
       "claim": "Reconciliation",
       "status": "open",
       "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Live readiness implies successful inventory and ownership reconciliation.",
+      "nextAction": "Extract readiness/reconciliation transition predicates and discharge the implication on actual server code.",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/BotSnapshotRecovery.hs"
+      ],
+      "blockers": [
+        "No research readiness adapter exists; server readiness implication is unverified here."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 17,
@@ -2313,7 +2560,18 @@
         "F-RL-REPLAY-CUTOFF",
         "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Current policy observation is invariant under changes to data first available after the decision.",
+      "nextAction": "Compose availability admission, feature footprint and complete replay-state observation projection.",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Feature/index lemmas do not cover all state/history inputs and actual availability."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 18,
@@ -2335,7 +2593,17 @@
         "F-RL-REWARD-RECONCILE",
         "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every replay transition preserves state/ledger invariants or terminates in a specified failure state.",
+      "nextAction": "Verify full transition composition with a bounded numeric core and preserved counterexample fixtures.",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py"
+      ],
+      "blockers": [
+        "Ordering abstractions and real algebra lack complete numeric runtime refinement."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 19,
@@ -2357,7 +2625,18 @@
         "F-RL-REWARD-RECONCILE",
         "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every terminal path records flat inventory or explicit failed liquidation and accounts all terminal costs exactly as specified.",
+      "nextAction": "Prove each terminal branch, including insolvency, unavailable prices and rejected liquidation, against ledger publication.",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py"
+      ],
+      "blockers": [
+        "Failure paths and binary64 debit/refinement remain outside the exact-real identities."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 20,
@@ -2373,7 +2652,18 @@
         "F-RL-REPLAY-DUE",
         "F-RL-REPLAY-ORDER"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every executed action satisfies all hard constraints, independent of policy output.",
+      "nextAction": "Specify the complete offline hard-constraint domain and prove transition-level enforcement before adding any execution bridge.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "blockers": [
+        "Target shield is not a full position/margin/liquidity/risk-budget implementation; gap counterexamples remain."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 21,
@@ -2385,7 +2675,18 @@
         "F-RL-INFER-SELECTION",
         "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
+      "limitations": "Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
+      "nextAction": "Implement a separate bounded worker/cancellation interface with typed absent results; model check timeout and late-result races.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "blockers": [
+        "CE-RL-017: post-call elapsed check cannot preempt a nonreturning forward call."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 22,
@@ -2406,7 +2707,20 @@
         "F-RL-REPLAY-CUTOFF",
         "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
+      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Pinned data, configuration, seed and artifact yield the same replay transitions and economic report.",
+      "nextAction": "Specify deterministic evaluation without wall-clock-dependent selection; compare complete reproducible archives on pinned runtime.",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py"
+      ],
+      "blockers": [
+        "Source pins and local traces do not certify the full runner, BLAS and timed inference path."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 23,
@@ -2415,7 +2729,19 @@
       "evidenceRequirements": [
         "F-RL-LIFECYCLE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "A candidate cannot mutate its promotion state or authorize successor artifacts.",
+      "nextAction": "Audit actual write destinations and promotion consumers; verify an immutable artifact/promotion boundary.",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "Abstract lifecycle has no promotion operation, but actual filesystem write capabilities are not constrained by it."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 24,
@@ -2424,7 +2750,18 @@
       "evidenceRequirements": [
         "F-RL-LIFECYCLE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Production execution cannot mutate policy parameters.",
+      "nextAction": "Verify that production entry points cannot reach research training/update functions or writable candidate state.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "No deployed policy exists; no checked production dependency/effect exclusion certificate."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 25,
@@ -2433,7 +2770,18 @@
       "evidenceRequirements": [
         "F-RL-LIFECYCLE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Candidate promotion follows all mandatory evidence stages without skipping or self-promotion.",
+      "nextAction": "Define a versioned promotion state machine and typed transition guard before any challenger activation.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py"
+      ],
+      "blockers": [
+        "Existing two-caller lifecycle models calls, not a concrete persistent candidate promotion service."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 26,
@@ -2442,7 +2790,19 @@
       "evidenceRequirements": [
         "F-RL-LIFECYCLE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "No delivered transition can grant live authorization to a new candidate.",
+      "nextAction": "Certify separation between candidate artifacts and live-order construction across repository entry points.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs"
+      ],
+      "blockers": [
+        "Non-authorizing proposals are checked; full production reachability is not certified."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 27,
@@ -2457,7 +2817,19 @@
         "F-RL-REPLAY-DUE",
         "F-RL-REPLAY-ORDER"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
+      "limitations": "The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Disable/rollback prevents new candidate effects and leaves no residual authorization, exposure, ownership or persistence changes.",
+      "nextAction": "Define rollback at consumer boundary and prove old proposals remain non-authorizing after disable.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py"
+      ],
+      "blockers": [
+        "CE-RL-001 retains immutable proposals; no complete runtime revocation/persistence refinement."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 28,
@@ -2466,7 +2838,19 @@
       "evidenceRequirements": [
         "F-RL-AUTH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Challenger failure cannot modify champion configuration/artifacts or selection.",
+      "nextAction": "Audit and restrict archive destinations and candidate-to-selector dependencies; prove champion paths unreachable from failure handlers.",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "F-RL-AUTH is not a proof about filesystem or champion selector writes."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 29,
@@ -2476,7 +2860,17 @@
         "F-RL-ARTIFACT-PATH",
         "F-RL-ARTIFACT-METADATA"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
+      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
+      "nextAction": "Compose decoder, hash, schema, immutable parameter admission and activation with explicit version compatibility.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py"
+      ],
+      "blockers": [
+        "Gate abstraction trusts helper/provenance semantics and does not refine every decoder path."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 30,
@@ -2486,28 +2880,44 @@
         "F-RL-ARTIFACT-PATH",
         "F-RL-ARTIFACT-METADATA"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
+      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Hash/provenance mismatch prevents loading or activation.",
+      "nextAction": "Verify hash-before-decode relation and immutable expected provenance inputs across all loaders.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Expected provenance trust and complete hash-to-decoded-object composition remain assumptions."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 31,
       "claim": "Default-disabled",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
+        "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
-        "F-RL-ARTIFACT-PATH",
-        "F-RL-ARTIFACT-METADATA",
-        "F-RL-TARGET-V2-TERMINAL",
-        "F-RL-TARGET-V2-FINITE",
-        "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH",
-        "F-RL-INFER-ADMISSION",
-        "F-RL-INFER-SELECTION",
-        "F-RL-INFER-PATH",
-        "F-RL-ESS-V2-ACCUMULATE",
-        "F-RL-ESS-V2-BOUNDS",
-        "F-RL-ESS-V2-PUBLISH"
+        "F-RL-ARTIFACT-METADATA"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
+      "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit.",
+      "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
+      "closureCriteria": "All delivered candidate inference/proposal/numeric entry points default to absent and persisted policy enabled flags remain False.",
+      "nextAction": "Closed for delivered offline boundary; reopen before any new entry point, production integration or changed default.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/ess_rational_v2.py"
+      ],
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-DEFAULT-PATH",
+        "F-RL-DEFAULT",
+        "F-RL-ARTIFACT-METADATA"
+      ]
     },
     {
       "number": 32,
@@ -2516,7 +2926,19 @@
       "evidenceRequirements": [
         "F-RL-SHIELD-GUARDS"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Invalid configuration cannot weaken hard safety constraints.",
+      "nextAction": "Verify configuration parsing, bounds and immutable handoff to shield/replay consumers.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Checked evidence booleans do not validate the truth or provenance of risk configuration."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 33,
@@ -2526,7 +2948,17 @@
         "F-RL-OPTIMIZER-PUBLISH",
         "F-RL-OPTIMIZER-ATOMIC"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged."
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
+      "nextAction": "Implement a separately versioned immutable optimizer-state snapshot and single publication point; model interrupted commit.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py"
+      ],
+      "blockers": [
+        "CE-RL-016 shows mixed optimizer fields under reentrant observation or interruption."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 34,
@@ -2536,7 +2968,19 @@
         "F-RL-OPTIMIZER-PUBLISH",
         "F-RL-OPTIMIZER-ATOMIC"
       ],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged."
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
+      "nextAction": "After atomic state publication, verify synchronization and actual lifecycle call interleavings.",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/GracefulShutdown.hs"
+      ],
+      "blockers": [
+        "CE-RL-016 and unrefined server lifecycle leave concurrent visibility unproved."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 35,
@@ -2549,7 +2993,19 @@
         "F-RL-TARGET-V2-REAL",
         "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
+      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
+      "nextAction": "Define request identity and atomic deduplication at any future effect boundary; verify retry transitions.",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs"
+      ],
+      "blockers": [
+        "Pure shield idempotence does not cover persistent operation identifiers or consumer retries."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 36,
@@ -2563,21 +3019,77 @@
         "F-RL-TARGET-V2-PUBLISH",
         "F-RL-INFER-DEADLINE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-017 records a nonreturning inference model; this does not model or verify server shutdown or cancellation."
+      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-017 records a nonreturning inference model; this does not model or verify server shutdown or cancellation.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
+      "nextAction": "Implement and model cancellation/timeout/failure states, then connect actual shutdown to the rank argument.",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "blockers": [
+        "CE-RL-017 nonreturning inference and absent runtime cancellation defeat unconditional liveness."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 37,
       "claim": "Recovery",
       "status": "open",
       "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Interrupted recoverable work resumes without violating safety or duplicating irreversible effects.",
+      "nextAction": "Specify durable checkpoints and idempotent recovery transitions; inject crashes at each publication boundary.",
+      "implementationFiles": [
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "blockers": [
+        "Snapshot recovery and research archive publication have no composed crash/restart model."
+      ],
+      "requiredCertificates": []
     },
     {
       "number": 38,
       "claim": "No permanent lockout",
       "status": "open",
       "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
+      "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "scripts/research/run_sequential_screen.py",
+        "haskell/app/Trader/App/GracefulShutdown.hs"
+      ],
+      "blockers": [
+        "No isolation/fair scheduling model connects candidate failures to continued server progress."
+      ],
+      "requiredCertificates": []
+    }
+  ],
+  "researchAcceptanceGates": [
+    {
+      "id": "economic_evidence",
+      "status": "open",
+      "criteria": "Preregistered untouched real historical confirmation, identical champion/adopted-combo baselines, realistic costs and delay, all seeds, DSR>=0.95, PBO<=0.20, valid OPE/support, acceptable drawdown/tails and complete ablations or a completed rigorous rejection campaign.",
+      "blockers": [
+        "Current evidence is contaminated-development rejection; no matched champion or independent final confirmation.",
+        "All 108 OPE estimates were invalid; no candidate may be promoted."
+      ],
+      "evidence": []
+    },
+    {
+      "id": "reproducible_delivery",
+      "status": "open",
+      "criteria": "All required research artifacts, literature through execution date, scope-complete formal closure, full verification and reviewable draft delivery with no production authorization.",
+      "blockers": [
+        "Remaining formal obligations and research coverage gaps are not satisfied by a green scoped wrapper."
+      ],
+      "evidence": []
     }
   ]
 }

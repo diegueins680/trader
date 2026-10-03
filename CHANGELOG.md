@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Research assurance: replace the impossible obligation-closure restriction with same-run certificate validation, audit all 38 closure criteria, and close delivered default-disabled control paths. Preserve unresolved production, numerical and economic gates.
+
+
 - Research assurance: verify source-derived reward/wealth reconciliation, clarify floating-point tolerances, and preserve a counterexample to additive reward-as-return interpretation. Frozen simulation and economic reporting remain unchanged.
 
 - Research assurance: verify a seven-or-more-bars ordering abstraction, preserve the nonterminal six-bar-call regression, and tighten synthetic trace conformance after a false-terminal mutation. No simulator or production behavior changes.

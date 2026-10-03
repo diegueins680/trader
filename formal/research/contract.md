@@ -98,3 +98,7 @@ of consistency of every prose requirement, runtime and deployment in the repo.
 All broader mandatory obligations are tracked explicitly rather than being
 silently narrowed to this proof scope. No candidate becomes eligible for review,
 shadow, paper or live activation from this verification work.
+
+## Closure correction — 2026-10-03
+
+The original open-only validator was inconsistent with eventual evidence-based completion. [Closure v1](closure-contract.md) resolves it and preserves CE-RL-021. Obligation 31 is closed for the delivered default control paths; the other 37 retain precise blockers. Production integration requirements are retained rather than silently removed as inapplicable. Evidence sufficiency is a reviewed specification judgment, not a theorem inferred from the number of lemmas.

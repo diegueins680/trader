@@ -328,6 +328,14 @@
         {
           "id": "F-RL-REWARD-ADDITIVE",
           "statement": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return."
+        },
+        {
+          "id": "F-RL-DEFAULT-PATH",
+          "statement": "For the enumerated delivered offline entry points, source-derived default control paths return absent before inspecting policy/data arguments; Haskell defaults to Disabled, Python enabled defaults to False, and saved policy metadata sets enabled to False. This exhaustively checked finite control abstraction assumes ordinary source execution and a returning clock."
+        },
+        {
+          "id": "F-RL-CLOSURE",
+          "statement": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value."
         }
       ],
       "invariants": [

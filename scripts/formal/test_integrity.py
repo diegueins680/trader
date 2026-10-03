@@ -2068,5 +2068,136 @@ class RewardAccountingTests(unittest.TestCase):
             reward_accounting.registration()
 
 
+class ObligationClosureTests(unittest.TestCase):
+    def setUp(self):
+        self.ledger = read_json(ROOT / 'formal/research/proof-ledger.json')
+
+    def test_real_default_obligation_closed_others_remain(self):
+        from verify import validate_obligations
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 37)
+        self.assertEqual(self.ledger['missionObligations'][30]['status'], 'exhaustively_checked')
+
+    def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
+        from verify import acceptance_summary
+        # Validator-only fixture: no assertion about other trading requirements.
+        obligations = copy.deepcopy(self.ledger['missionObligations'])
+        for item in obligations:
+            item.update(status='exhaustively_checked', blockers=[],
+                        requiredCertificates=['F-RL-DEFAULT-PATH'], evidenceRequirements=['F-RL-DEFAULT-PATH'])
+        contracts = [{k:o[k] for k in ('number','claim','scope','closureCriteria','requiredCertificates','implementationFiles')} for o in obligations]
+        result = acceptance_summary(obligations, self.ledger['entries'],
+                                    {'F-RL-DEFAULT-PATH': 'exhaustively_checked'},
+                                    self.ledger['researchAcceptanceGates'], ROOT, contracts)
+        self.assertEqual(result['openMissionObligations'], 0)
+        self.assertTrue(result['formalObligationsComplete'])
+        self.assertFalse(result['missionComplete'])
+        # Acceptance becomes reachable only with separate reviewed, hashed evidence.
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'evidence.txt').write_text('synthetic validator fixture, not market evidence')
+            gates = copy.deepcopy(self.ledger['researchAcceptanceGates'])
+            for gate in gates:
+                gate.update(status='satisfied', blockers=[], evidence=[{'path': 'evidence.txt',
+                    'sha256': hashlib.sha256((root / 'evidence.txt').read_bytes()).hexdigest()}])
+            self.assertTrue(acceptance_summary(obligations, self.ledger['entries'],
+                {'F-RL-DEFAULT-PATH': 'exhaustively_checked'}, gates, root, contracts)['missionComplete'])
+            (root / 'evidence.txt').write_text('changed')
+            with self.assertRaisesRegex(ValueError, 'evidence drift'):
+                acceptance_summary(obligations, self.ledger['entries'],
+                    {'F-RL-DEFAULT-PATH': 'exhaustively_checked'}, gates, root, contracts)
+
+    def test_missing_wrong_and_unverified_certificates_cannot_close(self):
+        from verify import validate_obligations
+        for mutate in (
+            lambda o: o.update(requiredCertificates=[]),
+            lambda o: o.update(requiredCertificates=['F-RL-INTEGRITY'], evidenceRequirements=['F-RL-INTEGRITY']),
+            lambda o: o.update(requiredCertificates=['missing']),
+            lambda o: o.update(blockers=['unresolved implementation path']),
+            lambda o: o.update(scope=''),
+            lambda o: o.update(status='proved'),
+            lambda o: o.update(requiredCertificates=['F-RL-DEFAULT-PATH','F-RL-DEFAULT-PATH']),
+        ):
+            data = copy.deepcopy(self.ledger['missionObligations'])
+            mutate(data[30])
+            with self.assertRaises(ValueError):
+                validate_obligations(data, self.ledger['entries'])
+        for reproduced in ({}, {'F-RL-DEFAULT-PATH':'unknown'}, {'F-RL-DEFAULT-PATH':'property_tested'}):
+            with self.assertRaisesRegex(ValueError, 'not reproduced'):
+                validate_obligations(self.ledger['missionObligations'], self.ledger['entries'], reproduced)
+
+    def test_every_remaining_obligation_has_action_and_code(self):
+        for item in self.ledger['missionObligations']:
+            self.assertTrue(item['closureCriteria'])
+            self.assertTrue(item['nextAction'])
+            for path in item['implementationFiles']:
+                self.assertTrue((ROOT / path).is_file(), path)
+        witness = read_json(ROOT / 'formal/research/closure-counterexamples.json')['entries'][0]['witness']
+        # Preserves the previous validator's unreachable-completion defect.
+        self.assertEqual(set(witness['permittedStatuses']), set(witness['countedAsOpen']))
+        self.assertEqual(witness['minimumOpenCount'], 38)
+
+    def test_research_gate_failures_are_independent(self):
+        from verify import acceptance_summary
+        reproduced = {e['requirementId']:e['status'] for e in self.ledger['entries']}
+        for mutate in (lambda g:g.pop(), lambda g:g[0].update(status='satisfied'),
+                       lambda g:g[0].update(status='unknown'), lambda g:g[0].update(blockers=[])):
+            gates = copy.deepcopy(self.ledger['researchAcceptanceGates'])
+            mutate(gates)
+            with self.assertRaises(ValueError):
+                acceptance_summary(self.ledger['missionObligations'], self.ledger['entries'], reproduced, gates, ROOT)
+
+
+class DefaultPathTests(unittest.TestCase):
+    def setUp(self):
+        import default_paths as d
+        self.d = d
+        self.sources = {p:(ROOT / p).read_text() for p in {d.HASKELL, *(p for p, _ in d.ENTRY_POINTS)}}
+
+    def test_actual_source_paths(self):
+        receipt = self.d.check_defaults(self.sources)
+        self.assertEqual(receipt['booleanCases'], 8)
+        self.assertEqual(receipt['haskellModes'], 2)
+
+    def test_source_mutations_rejected(self):
+        for path, name in self.d.ENTRY_POINTS:
+            source = self.sources[path]
+            for old, new in [('= False', '= True'), ('enabled is not True', 'enabled is True'),
+                             ('if enabled is not True or', 'if enabled is not True and')]:
+                with self.subTest(entry=name, mutation=new), self.assertRaises(ValueError):
+                    self.d.check_python(source.replace(old, new), name)
+            tree = ast.parse(source)
+            fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+            fn.body.insert(0, ast.parse('dangerous_effect()').body[0])
+            with self.assertRaises(ValueError):
+                self.d.check_python(ast.unparse(tree), name)
+        hs = self.sources[self.d.HASKELL]
+        for old,new in [('defaultResearchMode = Disabled','defaultResearchMode = OfflineReplayV1'),
+                        ('mode /= OfflineReplayV1 = Nothing','mode == OfflineReplayV1 = Nothing'),
+                        ('= Nothing','= Just (ResearchProposal target)')]:
+            with self.assertRaises(ValueError):
+                self.d.check_haskell(hs.replace(old,new))
+        source = self.sources[self.d.ENTRY_POINTS[0][0]]
+        for old,new in [('"enabled": False','"enabled": True'),
+                        ('raw = (json.dumps(value','value["enabled"] = True\n    raw = (json.dumps(value')]:
+            with self.assertRaises(ValueError):
+                self.d.check_saved_default(source.replace(old,new))
+
+    def test_defaults_do_not_evaluate_opaque_arguments(self):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import sequential_learning as learning
+        from gae_targets_v2 import step_v2, batch_v2
+        from ess_rational_v2 import effective_sample_size_v2
+        class Poison:
+            def __getattribute__(self, name):
+                raise AssertionError('disabled path read an argument: ' + name)
+        poison = Poison()
+        self.assertIsNone(learning.infer(poison, poison)[0])
+        self.assertIsNone(step_v2(poison, poison, poison, poison, poison, poison))
+        self.assertIsNone(batch_v2(poison, poison))
+        self.assertIsNone(effective_sample_size_v2(poison))
+
+
 if __name__ == '__main__':
     unittest.main()

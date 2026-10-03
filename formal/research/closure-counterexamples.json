@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-RL-021",
+      "claim": "The original mission validator permits certified closure.",
+      "status": "refuted",
+      "sourceCommit": "cff26552cb22c28e073e4cf30c20611d5cce1db9",
+      "witness": {
+        "permittedStatuses": [
+          "open",
+          "partially_verified"
+        ],
+        "countedAsOpen": [
+          "open",
+          "partially_verified"
+        ],
+        "numberOfObligations": 38,
+        "minimumOpenCount": 38
+      },
+      "resolution": "Replace the impossible status restriction with certificate sufficiency and same-run reproduction; synthetic all-certified ledgers must reach zero while economic gates remain independent.",
+      "regression": "scripts/formal/test_integrity.py:ObligationClosureTests"
+    }
+  ]
+}

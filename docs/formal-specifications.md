@@ -1,5 +1,8 @@
 # Canonical Formal Specifications
 
+Current closure status (2026-10-03): [all 38 audited obligations](../formal/research/obligation-closure-audit.md) now have explicit criteria. Obligation 31 is `exhaustively_checked` for the enumerated offline defaults; 37 remain open/partial. Earlier all-38 statements below describe historical audit snapshots. Formal completion is computed separately from empirical research acceptance.
+
+
 The [reward accounting contract](../formal/research/reward-accounting-contract.md) adds exact-real row, wealth-fold and reward identities plus a refuted additive-reward interpretation. Synthetic conformance is not a binary64 error proof. Existing lifecycle/order models retain their scoped assumptions.
 
 The [replay cutoff contract](../formal/research/replay-cutoff-contract.md) adds F-RL-REPLAY-CUTOFF (integer SMT) and F-RL-REPLAY-QUOTIENT (finite ordering model). Class seven represents longer calls only for ordering; time-to-end observations and rewards are not equivalent under the projection.
