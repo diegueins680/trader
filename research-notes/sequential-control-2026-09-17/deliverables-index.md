@@ -109,3 +109,5 @@ remain unresolved, and no economic trial or frozen learner behavior changes.
 - [Replay ordering continuation](replay-order-followup-2026-10-01.md): source-bound one-call model, policy-target due-time SMT, 486 actual synthetic grid traces, and explicit terminal round-trip costs. No simulator change or new economic evidence.
 
 - [Replay cutoff continuation](replay-cutoff-followup-2026-10-01.md): integer cutoff lemma, complete class-seven ordering graph, 3,600 lifted successor checks, 486 longer-call traces and a resolved checker counterexample. No new financial evidence.
+
+- [Reward accounting continuation](reward-accounting-followup-2026-10-03.md): source-derived real row/reward identities, wealth-fold induction obligations, 1,944 synthetic episodes and a counterexample to summed reward-as-return interpretation. Frozen reporting correctly retains the loss.
