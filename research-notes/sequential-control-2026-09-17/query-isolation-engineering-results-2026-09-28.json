@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "449d39fd0e24a22179b161f51655eb85f9284a12",
+  "testedCommit": "525f9b8284ff3b13ad6e5285a81eb68df34d4a11",
+  "python": "3.13.3",
+  "z3": "4.15.4",
+  "sourceHashes": {
+    "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
+    "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a"
+  },
+  "hostLoadAtEnd": [
+    41.34814453125,
+    24.27197265625,
+    18.66943359375
+  ],
+  "attempts": [
+    {
+      "round": 1,
+      "variant": "old",
+      "case": "terminal",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 4.722185991005972
+    },
+    {
+      "round": 1,
+      "variant": "old",
+      "case": "target",
+      "outcome": "failure",
+      "error": "RuntimeError: F-RL-TARGET-V2-FINITE: premise witness failed: unknown",
+      "seconds": 11.833255454985192
+    },
+    {
+      "round": 1,
+      "variant": "new",
+      "case": "terminal",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 2.348853761999635
+    },
+    {
+      "round": 1,
+      "variant": "new",
+      "case": "target",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 0.41504846600582823
+    },
+    {
+      "round": 2,
+      "variant": "new",
+      "case": "terminal",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 2.1338467489986215
+    },
+    {
+      "round": 2,
+      "variant": "new",
+      "case": "target",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 0.403197157982504
+    },
+    {
+      "round": 2,
+      "variant": "old",
+      "case": "terminal",
+      "outcome": "failure",
+      "error": "RuntimeError: F-RL-TERMINAL-FP-MASK: violating terminal claim: canceled",
+      "seconds": 10.774829105997924
+    },
+    {
+      "round": 2,
+      "variant": "old",
+      "case": "target",
+      "outcome": "failure",
+      "error": "RuntimeError: F-RL-TARGET-V2-FINITE: premise witness failed: unknown",
+      "seconds": 12.301530636992538
+    },
+    {
+      "round": 3,
+      "variant": "old",
+      "case": "terminal",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 10.240458685002523
+    },
+    {
+      "round": 3,
+      "variant": "old",
+      "case": "target",
+      "outcome": "failure",
+      "error": "RuntimeError: F-RL-TARGET-V2-FINITE: premise witness failed: unknown",
+      "seconds": 12.019642489991384
+    },
+    {
+      "round": 3,
+      "variant": "new",
+      "case": "terminal",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 3.5639190019865055
+    },
+    {
+      "round": 3,
+      "variant": "new",
+      "case": "target",
+      "outcome": "pass",
+      "payloadEqual": true,
+      "seconds": 0.24963388298056088
+    }
+  ],
+  "scope": "Synthetic proof timing; no trading or training; shared-host timing is not a deadline guarantee"
+}

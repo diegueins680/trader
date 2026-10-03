@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "id": "reward-accounting-audit-v1-2026-10-03",
+  "kind": "engineering only; no financial trial",
+  "sourceCommit": "3bb08dac9b6faee15bd2211db16bf4eea9520911",
+  "formalContract": "formal/research/reward-accounting-contract.md",
+  "requirements": [
+    "F-RL-ROW-RECONCILE",
+    "F-RL-WEALTH-FOLD",
+    "F-RL-REWARD-RECONCILE",
+    "F-RL-REWARD-ADDITIVE"
+  ],
+  "sourceFunctionASTSha256": {
+    "Replay.step": "e8f789bc9a49c3512ea5486ec031bb31532b64d81423c53b7160423e89328948",
+    "Replay._trade": "edcd69fca68a70939171c394d2ee582ec365d7b61fb071e169cbfbc270327f3a",
+    "economic": "b9636a05838ea74c9e0f0beb1d99f312368b560d3cf2532e0817e8826cc28ef3",
+    "_admit_economic_ledger": "a1757350c0d499b632a5da242d6903d751c9be4e88cdf69b80bd4d8acc1b8588"
+  },
+  "financialTrialBudget": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "algebra": {
+    "domain": "exact reals; nonzero positive starting and intermediate wealth",
+    "perBarTradeCalls": [
+      0,
+      1,
+      2
+    ],
+    "costTerms": [
+      "fee",
+      "spread",
+      "slippage",
+      "impact"
+    ],
+    "rewardPenalty": "noncash; no policy-invariance or risk-constraint theorem",
+    "fold": "base and induction step; finite positive-wealth paths",
+    "horizons": [
+      1,
+      3,
+      6
+    ]
+  },
+  "conformance": {
+    "targets": [
+      -0.25,
+      0.0,
+      0.25
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "extraDelays": [
+      0,
+      1
+    ],
+    "remainingBars": [
+      3,
+      7,
+      12
+    ],
+    "costMultipliers": [
+      0.0,
+      1.0,
+      2.0
+    ],
+    "fundingCoefficients": [
+      -0.02,
+      0.0,
+      0.02
+    ],
+    "pricePatterns": [
+      "flat",
+      "alternating"
+    ],
+    "riskPenalties": [
+      0.0,
+      0.01
+    ],
+    "absoluteTolerance": 1e-11,
+    "relativeTolerance": 1e-11,
+    "initialEquity": 1.0,
+    "initialUnits": 0.0,
+    "trainingPrefixEndInclusive": 24,
+    "invalidScenarios": [
+      "invalid_gate",
+      "invalid_market",
+      "solvent_risk",
+      "insolvency"
+    ],
+    "pricePatternDefinition": {
+      "prefix": "25 values of 100 through index 24",
+      "flat": "every subsequent price 100",
+      "alternating": "price at relative bar i>=1 is 100*(1+0.01*(-1)**i)",
+      "funding": "constant registered coefficient at each subsequent bar; prefix zero"
+    },
+    "failureDefinitions": {
+      "invalid_gate": "valid=False on first call",
+      "invalid_market": "next price NaN on first call",
+      "solvent_risk": "initial units .0025; next funding coefficient 100; default costs",
+      "insolvency": "initial units .0025; next funding coefficient 800; default costs"
+    }
+  },
+  "prescribedNonadditivity": {
+    "start": 24,
+    "futurePrices": [
+      100,
+      110,
+      99
+    ],
+    "target": "1/4",
+    "horizon": 1,
+    "costMultiplier": 0,
+    "funding": 0,
+    "riskPenalty": 0,
+    "exactCallReturns": [
+      "0",
+      "1/40",
+      "-1/40"
+    ],
+    "exactFinalEquity": "1599/1600",
+    "exactSummedReward": "0",
+    "exactEconomicReturn": "-1/1600",
+    "interpretation": "refutes sum of percent rewards equals 100 times total net return, not the current economic reporter"
+  },
+  "solverSeed": 0,
+  "solverTimeoutMilliseconds": 10000,
+  "failureConditions": [
+    "Source or registration drift",
+    "Unexpected SAT/UNKNOWN/timeout",
+    "Synthetic ledger/reward reconciliation error",
+    "Nonadditivity witness fails to reproduce",
+    "Economic report unexpectedly equates summed rewards to net return",
+    "Protected data access"
+  ],
+  "limitations": [
+    "Exact-real identities do not prove binary64 error bounds or finite outputs",
+    "Trusted AST/primitive/helper semantics; no universal runtime refinement",
+    "Only existing ordering model supports event sequence; no new production lifecycle proof",
+    "No calibrated execution, empirical efficacy or new data claim"
+  ],
+  "promotion": "None; frozen simulation, learner, reports and champion preserved"
+}

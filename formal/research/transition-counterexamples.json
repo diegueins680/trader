@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "scope": "Deliberate source mutation; no existing defect or financial experiment claimed.",
+  "entries": [
+    {
+      "id": "CE-RL-009",
+      "requirement": "F-RL-TRANSITION-ADMISSION",
+      "replace": "and env.units == 0",
+      "with": "and True",
+      "left": 30,
+      "t": 33,
+      "stop": 34,
+      "horizon": 3,
+      "equity": 1.0,
+      "reward": 0.0,
+      "units": 0.25,
+      "done": true,
+      "failure": null,
+      "pending": null,
+      "next": null,
+      "observed": "Original helper rejects unliquidated terminal inventory; compiled mutant admits it; source-derived SMT finds a violating state."
+    }
+  ]
+}

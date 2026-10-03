@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-30",
+  "scope": "engineering and literature continuation; no financial rerun",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "ec3c5b2ada09151f374fac2d5bae31a3712d5e08",
+  "specificationCommit": "de04744b",
+  "sourceFreeze": "299c07f25ab8ebd078bbb5b151102ed31a42fe61",
+  "registration": "research-notes/registrations/value-objective-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "targeted-initial",
+      "exitCode": 1,
+      "command": "python scripts/formal/test_integrity.py ValueObjectiveTests",
+      "externalLog": "/private/tmp/trader-value-objective-targeted-initial-20260930.log",
+      "sha256": "ccecc743d05acf7072343fefb44a9296dea253596fa58b87f1b2010712f5f238",
+      "disposition": "mutation fixture error; retained failure"
+    },
+    {
+      "stage": "targeted",
+      "exitCode": 0,
+      "command": "python scripts/formal/test_integrity.py ValueObjectiveTests",
+      "externalLog": "/private/tmp/trader-value-objective-targeted-20260930.log",
+      "sha256": "be58901f32edd1e8169d7705b59c1460ecdda49535064079a5750c6023f9cf62",
+      "disposition": "passed"
+    },
+    {
+      "stage": "record",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-value-objective-record-20260930.log",
+      "sha256": "df97ab1166a279dacbdc23d8639aa78bb582681d01147281d885cbd704666d25",
+      "disposition": "passed"
+    },
+    {
+      "stage": "formal",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh formal",
+      "externalLog": "/private/tmp/trader-value-objective-formal-20260930.log",
+      "sha256": "27bf47708d07a2cf559740eee39d82dbaf4a698de17424c6e8117432d424d238",
+      "disposition": "passed"
+    },
+    {
+      "stage": "full",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh full",
+      "externalLog": "/private/tmp/trader-value-objective-full-20260930.log",
+      "sha256": "0336f9f787dd2437a2ad7bcf966d54ff96b12b372f4faf51a499b7f811673b98",
+      "disposition": "passed"
+    },
+    {
+      "stage": "acceptance",
+      "exitCode": 1,
+      "command": "python scripts/formal/verify.py --require-complete",
+      "externalLog": "/private/tmp/trader-value-objective-acceptance-20260930.log",
+      "sha256": "5f9b77e9c453381725e3acb1a745ae7a5b471e11a7315d171989bb2aea6c4b14",
+      "disposition": "expected acceptance refusal; not a pass"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36652227711",
+    "result": "success",
+    "jobs": [
+      "formal",
+      "haskell",
+      "web",
+      "automation"
+    ],
+    "dockerAndDeployment": "skipped",
+    "externalReceipt": "/private/tmp/trader-value-objective-ci-20260930.json",
+    "sha256": "6f24022105d586fba25b6a903f57081acac34b332d00a07d930bdd42ca0b20be"
+  },
+  "conformance": {
+    "integrityTests": 66,
+    "newIntegrityTests": 7,
+    "sourceMutants": 12,
+    "targetGridCases": 13122,
+    "gradientGridCases": 324,
+    "finiteDifferenceComponents": 27,
+    "totalScopedSMTRequirements": 26,
+    "newSMTRequirements": [
+      "F-RL-DOUBLE-TARGET",
+      "F-RL-CQL-GRADIENT"
+    ],
+    "newRefutedRequirements": [
+      "F-RL-Q-FINITE",
+      "F-RL-CQL-SHIFT"
+    ],
+    "counterexamples": [
+      "CE-RL-014",
+      "CE-RL-015"
+    ]
+  },
+  "financialTrials": 0,
+  "trainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Trusted transcendental and runtime semantics",
+    "No full training-loop refinement",
+    "No paper policy-value theorem transfer",
+    "No counterexample reachability from registered training proven",
+    "No historical prevalence established"
+  ]
+}

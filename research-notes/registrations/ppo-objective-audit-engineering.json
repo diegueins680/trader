@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "id": "ppo-objective-audit-2026-09-28",
+  "kind": "engineering and fidelity audit only",
+  "formalContract": "formal/research/ppo-objective-contract.md",
+  "sourceCommit": "55087255e1d1397fc1cd8ab7bb7024d2e550564d",
+  "hypothesis": "The clipped surrogate has the intended exact-arithmetic branches but does not guarantee a uniform update bound or finite binary64 gradient arithmetic.",
+  "financialTrialBudget": 0,
+  "trainingStepBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "hyperparameterSearch": "None",
+  "candidateChanges": "None; current learner remains frozen",
+  "fixtures": [
+    "positive-subnormal old probability",
+    "negative advantage with ratio eight",
+    "rational branch grid",
+    "finite differences away from kinks",
+    "clipping boundary conventions",
+    "source mutations"
+  ],
+  "ratioGrid": [
+    0,
+    0.5,
+    0.8,
+    1,
+    1.2,
+    1.5,
+    8
+  ],
+  "advantageGrid": [
+    -2,
+    0,
+    2
+  ],
+  "batchSizes": [
+    1,
+    2,
+    256
+  ],
+  "formalRequirements": [
+    "F-RL-PPO-OBJECTIVE",
+    "F-RL-PPO-COEFFICIENT",
+    "F-RL-PPO-FINITE",
+    "F-RL-PPO-UNIFORM-CLIP"
+  ],
+  "failureConditions": [
+    "Unknown positive obligation",
+    "SAT violation of positive claim",
+    "Unreproduced numerical witness",
+    "Source drift",
+    "Any financial or holdout access"
+  ],
+  "promotion": "None; verification artifacts and failures only",
+  "limitations": [
+    "No universal runtime refinement",
+    "No floating-point accuracy theorem",
+    "No hard trust region",
+    "No empirical prevalence claim"
+  ]
+}

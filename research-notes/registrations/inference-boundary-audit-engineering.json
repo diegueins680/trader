@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "inference-boundary-audit-2026-09-30",
+  "kind": "engineering/formal audit only",
+  "sourceCommit": "b9c1f05c5922f8b00f5300837083a06f1b235274",
+  "formalContract": "formal/research/inference-boundary-contract.md",
+  "hypothesis": "Source guards enforce post-return proposal admission; no preemptive timeout exists.",
+  "financialTrialBudget": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "candidateChanges": "None",
+  "requirements": [
+    "F-RL-INFER-ADMISSION",
+    "F-RL-INFER-SELECTION",
+    "F-RL-INFER-PATH",
+    "F-RL-INFER-DEADLINE"
+  ],
+  "modelBounds": {
+    "calls": 1,
+    "scores": 3,
+    "flags": 5,
+    "pendingSelfLoop": true
+  },
+  "scoreGrid": [
+    -1,
+    0,
+    1
+  ],
+  "elapsedNanoseconds": [
+    -1,
+    0,
+    19999999,
+    20000000,
+    20000001,
+    25000000
+  ],
+  "syntheticScoreTimingCases": 162,
+  "counterexample": {
+    "id": "CE-RL-017",
+    "prefix": [
+      "enable",
+      "admit_observation"
+    ],
+    "cycle": [
+      "pending"
+    ],
+    "simulatedElapsedNanoseconds": 25000000,
+    "expectedProposal": null,
+    "scope": "abstract nontermination and synthetic clock order; no measured latency or actual hanging thread"
+  },
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "promotion": "None; bounded inference/liveness remains open",
+  "failureConditions": [
+    "Unknown SMT result",
+    "Source/model/fixture drift",
+    "Guard invariant violation",
+    "Unreproduced prescribed fixture",
+    "Any financial or holdout access"
+  ]
+}

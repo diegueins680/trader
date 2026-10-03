@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "id": "replay-order-audit-v1-2026-10-01",
+  "kind": "engineering only; no financial trial",
+  "sourceCommit": "eb2379496f1197a47d794188a3783f02b501bfd2",
+  "sourceFunctionASTSha256": {
+    "Replay.step": "e8f789bc9a49c3512ea5486ec031bb31532b64d81423c53b7160423e89328948",
+    "Replay._trade": "edcd69fca68a70939171c394d2ee582ec365d7b61fb071e169cbfbc270327f3a",
+    "Replay._risk": "59dfb6c5911f38736f4289870cf86ca73d147b58983e697c995f5588dad7df79",
+    "Execution.__post_init__": "75e286ef18b28603dfff1b0775d9e7354f951a51f1465921bd87d5ec04d8d05c"
+  },
+  "formalContract": "formal/research/replay-order-contract.md",
+  "requirements": [
+    "F-RL-REPLAY-DUE",
+    "F-RL-REPLAY-ORDER"
+  ],
+  "financialTrialBudget": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "model": {
+    "remainingBars": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "extraDelays": [
+      0,
+      1
+    ],
+    "initialPendingDue": [
+      null,
+      1,
+      2
+    ],
+    "riskCategories": [
+      "clear",
+      "solvent_failure",
+      "insolvent_failure"
+    ],
+    "fullReachability": true
+  },
+  "conformance": {
+    "targets": [
+      -0.25,
+      0.0,
+      0.25
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "extraDelays": [
+      0,
+      1
+    ],
+    "remainingBars": [
+      1,
+      2,
+      6
+    ],
+    "initialUnits": [
+      -0.0025,
+      0.0,
+      0.0025
+    ],
+    "nextBarReturns": [
+      -0.01,
+      0.0,
+      0.01
+    ],
+    "fundingCoefficient": 0.02,
+    "scenarios": [
+      "ordinary",
+      "invalid_gate",
+      "invalid_market",
+      "solvent_risk",
+      "insolvency",
+      "inherited_pending",
+      "partial_fill",
+      "missed_fill"
+    ]
+  },
+  "solverSeed": 0,
+  "solverTimeoutMilliseconds": 10000,
+  "promotion": "None; frozen Replay unchanged; no live capabilities",
+  "failureConditions": [
+    "Unexpected SMT SAT/UNKNOWN/timeout",
+    "Reachable order invariant failure",
+    "Nonterminal cycle/deadlock",
+    "Source/registration drift",
+    "Actual replay trace ordering mismatch",
+    "Protected-data access"
+  ],
+  "limitations": [
+    "Trusted primitive/callee semantics and source-to-model abstraction",
+    "No universal runtime refinement, physical deadline or concurrency proof",
+    "Terminal liquidation differs from a policy-target submission",
+    "No floating accounting, market realism, statistical or profitability proof"
+  ]
+}

@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-30",
+  "scope": "engineering/formal/literature continuation only",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "5d724155910fde228ea58e3d525813f19733d16c",
+  "specificationCommit": "8e8eff8a",
+  "sourceFreeze": "c67125085e0cd55d2a00371d73730babeb1e5e47",
+  "registration": "research-notes/registrations/optimizer-publication-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "probe",
+      "exitCode": 0,
+      "command": "Initial standalone CPython opcode diagnostic; superseded setup",
+      "externalLog": "/private/tmp/trader-optimizer-probe-20260930.log",
+      "sha256": "a33bae677901615c41dd1bf85e559911deb4337ce74d9e0e2892579c19e77bfe",
+      "disposition": "incomplete normal trace [15]; interruption trace reproduced; not a conformance pass"
+    },
+    {
+      "stage": "probe-configured",
+      "exitCode": 1,
+      "command": "Standalone CPython opcode diagnostic with caller opcode flag",
+      "externalLog": "/private/tmp/trader-optimizer-probe-configured-20260930.log",
+      "sha256": "7581b317e4285605151f4c4913fbf88d1abb916db393abaa324b75fc9b94f042",
+      "disposition": "Python assertion failed: normal events still missing; enclosing output-display shell exit was not the Python exit"
+    },
+    {
+      "stage": "probe-explicit",
+      "exitCode": 0,
+      "command": "Standalone CPython diagnostic with explicit target-frame local trace hook",
+      "externalLog": "/private/tmp/trader-optimizer-probe-explicit-20260930.log",
+      "sha256": "7d6d659cab5848d10adb86b80bf6af01b33bb2a907ebbd0b1a40d8e805e1eee2",
+      "disposition": "prescribed normal and interrupted traces reproduced; pinned-runtime diagnostic only"
+    },
+    {
+      "stage": "targeted",
+      "exitCode": 0,
+      "command": "python scripts/formal/test_integrity.py OptimizerPublicationTests",
+      "externalLog": "/private/tmp/trader-optimizer-targeted-20260930.log",
+      "sha256": "fba008ddae15d2124219390e10ac968bb1dfe4e84f0caec4e5b73fb76a66f9da",
+      "disposition": "six initial tests passed"
+    },
+    {
+      "stage": "targeted-final",
+      "exitCode": 0,
+      "command": "python scripts/formal/test_integrity.py OptimizerPublicationTests",
+      "externalLog": "/private/tmp/trader-optimizer-targeted-final-20260930.log",
+      "sha256": "5362f6e2d0194e526917a510b9b2955f38e00c3551b8a8f1ec4d4e9d44de0e7f",
+      "disposition": "seven tests passed after adding helper-purity coverage"
+    },
+    {
+      "stage": "record",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-optimizer-record-20260930.log",
+      "sha256": "ecc1f37256dd74bc3964193462566b90c6d264537ceca9e58f9468b3324ec51d",
+      "disposition": "initial scoped result recorded"
+    },
+    {
+      "stage": "formal",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh formal",
+      "externalLog": "/private/tmp/trader-optimizer-formal-20260930.log",
+      "sha256": "dddc2d873381ae8e4661e62b3adb0cc62ca651b9db43447ebe8f730e3dde9756",
+      "disposition": "initial formal gate passed before adding primary-documentation tracing limitation"
+    },
+    {
+      "stage": "record-final",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-optimizer-record-final-20260930.log",
+      "sha256": "ec97d3616306d5ab1f8ba0c1dd5a59f39232d128667a5cb36d25640e17a5a5b0",
+      "disposition": "result recorded with limitation and revised source hashes"
+    },
+    {
+      "stage": "formal-final",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh formal",
+      "externalLog": "/private/tmp/trader-optimizer-formal-final-20260930.log",
+      "sha256": "747e67062da90529de2f5ad12b1694ba7d8ca383c94bfac1b7fa89647842ddc6",
+      "disposition": "passed; 73 integrity tests, 27 scoped SMT obligations"
+    },
+    {
+      "stage": "full",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh full",
+      "externalLog": "/private/tmp/trader-optimizer-full-20260930.log",
+      "sha256": "dc8587aed8eaef8388dba7e04398a275fc7e5128a27564db593870c877a03528",
+      "disposition": "passed; no check skipped or weakened"
+    },
+    {
+      "stage": "acceptance",
+      "exitCode": 1,
+      "command": "python scripts/formal/verify.py --require-complete",
+      "externalLog": "/private/tmp/trader-optimizer-acceptance-20260930.log",
+      "sha256": "a879a011a43de00a8286b3d56485a799122ad6bd162061895467e2592e309659",
+      "disposition": "expected acceptance refusal; not a pass"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36655374126",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "externalReceipt": "/private/tmp/trader-optimizer-ci-20260930.json",
+    "sha256": "2be62049a732fb51000741d03d254677202adf814340e1b996a358e858c98eab"
+  },
+  "conformance": {
+    "integrityTests": 73,
+    "newIntegrityTests": 7,
+    "sourceMutants": 8,
+    "fixtureMutants": 3,
+    "modelTransitionMutants": 1,
+    "helperPurityCases": 12,
+    "prepublicationFailures": 60,
+    "opcodeTraceCases": 24,
+    "clipGridCases": 21,
+    "existingGoldenUpdates": 3,
+    "newModelRequirement": "F-RL-OPTIMIZER-PUBLISH",
+    "newSMTRequirement": "F-RL-GRADIENT-CLIP",
+    "newRefutedRequirement": "F-RL-OPTIMIZER-ATOMIC",
+    "counterexample": "CE-RL-016",
+    "totalSMTRequirements": 27
+  },
+  "optimizerPublication": {
+    "concurrentAtomicityVerified": false,
+    "floatingNormPremiseVerified": false,
+    "observerExtension": {
+      "calls": 1,
+      "counterexample": [
+        "pass:controls",
+        "pass:gradient_computation",
+        "pass:gradient_finiteness",
+        "pass:norm_computation",
+        "pass:norm_finiteness",
+        "pass:step_increment",
+        "pass:local_allocation",
+        "pass:w1:g",
+        "pass:w1:moments[k]",
+        "pass:w1:variances[k]",
+        "pass:w1:m",
+        "pass:w1:v",
+        "pass:w1:params[k]",
+        "pass:b1:g",
+        "pass:b1:moments[k]",
+        "pass:b1:variances[k]",
+        "pass:b1:m",
+        "pass:b1:v",
+        "pass:b1:params[k]",
+        "pass:w2:g",
+        "pass:w2:moments[k]",
+        "pass:w2:variances[k]",
+        "pass:w2:m",
+        "pass:w2:v",
+        "pass:w2:params[k]",
+        "pass:b2:g",
+        "pass:b2:moments[k]",
+        "pass:b2:variances[k]",
+        "pass:b2:m",
+        "pass:b2:v",
+        "pass:b2:params[k]",
+        "pass:candidate_finiteness",
+        "store:p",
+        "observe",
+        "interrupt"
+      ],
+      "gates": 32,
+      "maxShortestDepth": 37,
+      "observedMasks": [
+        0,
+        1,
+        3,
+        7
+      ],
+      "observers": 1,
+      "parameterKeys": 4,
+      "progressRankBound": 73,
+      "publicationFields": [
+        "p",
+        "m",
+        "v",
+        "steps"
+      ],
+      "search": "reachable_fixed_point",
+      "states": 159,
+      "transitions": 271
+    },
+    "premiseChecks": 1,
+    "queries": 1,
+    "singleWriter": {
+      "calls": 1,
+      "counterexample": null,
+      "gates": 32,
+      "maxShortestDepth": 36,
+      "observedMasks": [],
+      "observers": 0,
+      "parameterKeys": 4,
+      "progressRankBound": 72,
+      "publicationFields": [
+        "p",
+        "m",
+        "v",
+        "steps"
+      ],
+      "search": "reachable_fixed_point",
+      "states": 69,
+      "transitions": 101
+    },
+    "smt": {
+      "F-RL-GRADIENT-CLIP": "unsat"
+    },
+    "universalRuntimeRefinement": false
+  },
+  "benchmarks": {
+    "kind": "observed verification run times; not inference or policy-training benchmarks",
+    "formalIntegritySeconds": 16.431,
+    "formalCertificateSeconds": 5.862,
+    "fullIntegritySeconds": 14.289,
+    "fullCertificateSeconds": 6.813
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "syntheticEngineeringUpdateCalls": "nonzero; explicit failure, warm-state, tracing and golden conformance fixtures only",
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Opcode exception has documented undefined-interpreter-behavior caveat; pinned-runtime diagnostic only",
+    "Trusted non-mutating primitives and AST/model abstraction",
+    "Uninterrupted final stores assumed for narrow theorem",
+    "No multi-writer/runtime/production refinement",
+    "No rounded norm premise or Adam update/convergence guarantee",
+    "No historical counterexample frequency or trading efficacy established"
+  ],
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  }
+}

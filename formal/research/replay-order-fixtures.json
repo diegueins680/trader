@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "classification": "expected simulator semantics; not an implementation defect or market evidence",
+  "source": "scripts/research/sequential_env.py",
+  "conformance": {
+    "gridTraces": 486,
+    "scenarios": {
+      "ordinary": {
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": 0.0025,
+        "equity": 0.99975,
+        "costs": 0.00025
+      },
+      "invalid_gate": {
+        "trace": [],
+        "t": 0,
+        "rows": 0,
+        "pending": -1,
+        "failure": "invalid_observation_or_position",
+        "done": true,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0
+      },
+      "invalid_market": {
+        "trace": [],
+        "t": 0,
+        "rows": 0,
+        "pending": 1,
+        "failure": "invalid_market_transition",
+        "done": true,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0
+      },
+      "solvent_risk": {
+        "trace": [
+          "mark_old_and_advance",
+          "liquidate",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": "capital_floor",
+        "done": true,
+        "units": 0.0,
+        "equity": 0.74975,
+        "costs": 0.00025
+      },
+      "insolvency": {
+        "trace": [
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": "equity_exhausted",
+        "done": true,
+        "units": 0.0025,
+        "equity": -1.0,
+        "costs": 0.0
+      },
+      "inherited_pending": {
+        "trace": [
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": 2,
+        "failure": null,
+        "done": false,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0.0
+      },
+      "partial_fill": {
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": 0.00125,
+        "equity": 0.999875,
+        "costs": 0.000125
+      },
+      "missed_fill": {
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0.0
+      }
+    },
+    "terminalRoundTrip": {
+      "trace": [
+        "mark_old_and_advance",
+        "target_fill",
+        "liquidate",
+        "append_row"
+      ],
+      "t": 1,
+      "rows": 1,
+      "pending": -1,
+      "failure": null,
+      "done": true,
+      "units": 0.0,
+      "equity": 0.9995,
+      "costs": 0.0005
+    },
+    "scope": "instrumented actual helpers/row publication; no universal refinement"
+  }
+}

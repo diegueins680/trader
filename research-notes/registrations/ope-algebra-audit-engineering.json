@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "id": "ope-algebra-audit-2026-09-30",
+  "kind": "engineering/formal audit only",
+  "sourceCommit": "4ff4166786604e0b6b35a51082f59a317c543a1d",
+  "formalContract": "formal/research/ope-algebra-contract.md",
+  "financialTrialBudget": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "requirements": [
+    "F-RL-OPE-ESS-REAL",
+    "F-RL-OPE-WIS-REAL",
+    "F-RL-OPE-DR-TELESCOPE",
+    "F-RL-OPE-FP-SUPPORT"
+  ],
+  "weightGrid": [
+    0,
+    1,
+    2,
+    4
+  ],
+  "returnGrid": [
+    -2,
+    0,
+    3
+  ],
+  "discountGrid": [
+    0,
+    0.5,
+    1
+  ],
+  "horizonBounds": [
+    1,
+    6
+  ],
+  "realMetricEpisodes": 2,
+  "deterministicTargetPatterns": 64,
+  "currentEpisodeCountGrid": [
+    0,
+    200
+  ],
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "counterexample": {
+    "id": "CE-RL-018",
+    "episodes": 2,
+    "horizon": 6,
+    "behaviorProbability": 1,
+    "targetProbabilityHex": "0x1.0000000000000p-100",
+    "reward": 1,
+    "q": 0,
+    "v": 0,
+    "gamma": 1,
+    "expectedFinalWeightHex": "0x1.0000000000000p-600",
+    "expectedESS": 0,
+    "expectedNonzero": 2,
+    "expectedWIS": 6,
+    "underflowModes": [
+      "ignore",
+      "raise"
+    ]
+  },
+  "promotion": "None; algebra does not prove reliable OPE",
+  "failureConditions": [
+    "Unknown/timeout positive SMT query",
+    "Source/model/fixture drift",
+    "Unreproduced prescribed witness",
+    "Any market or protected-data access"
+  ]
+}

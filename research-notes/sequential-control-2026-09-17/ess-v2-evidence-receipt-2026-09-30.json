@@ -1,0 +1,398 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-30",
+  "scope": "isolated diagnostic engineering; no financial trial",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "2f8181dac9e4cba324c30fc40c165f0a6b7297e6",
+  "specificationCommit": "494cdddb",
+  "sourceFreeze": "36fbaf33ee5fdf72ebf0694f39fac62b19808910",
+  "registration": "research-notes/registrations/ess-v2-engineering.json",
+  "checks": [
+    {
+      "stage": "initial-proof",
+      "command": "python: ess_v2.check_ess(registration)",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-initial-proof-20260930.log",
+      "sha256": "b7abc6e019d4380a90ac445034955979059c1fb1aa7e6e8daf84f93ccc6f517e",
+      "disposition": "Initial scoped certificate probe passed"
+    },
+    {
+      "stage": "targeted",
+      "command": "python scripts/formal/test_integrity.py ExactESSV2Tests",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-targeted-20260930.log",
+      "sha256": "a83b17cd427588e2bf426d85a23b8b36658ba6593ede322b73a70e59eaed877c",
+      "disposition": "Initial eight targeted tests passed"
+    },
+    {
+      "stage": "record",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-record-20260930.log",
+      "sha256": "8da198cb38b62a574a2dcad0d3e656ab65acd318a2f19dfd9aa19cd8fd59e110",
+      "disposition": "Initial receipt recorded"
+    },
+    {
+      "stage": "targeted-final",
+      "command": "python scripts/formal/test_integrity.py ExactESSV2Tests",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-targeted-final-20260930.log",
+      "sha256": "10d49daa8c86b4932f1e7c60b0bfb38407708c7aab90bc7a1c673351f9953a5e",
+      "disposition": "Eight tests with 13 source mutants passed after explicit formula identities and sequential translation"
+    },
+    {
+      "stage": "record-final",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-record-final-20260930.log",
+      "sha256": "e9282b3f6372ba50d7887336a6611266644fa0085819fe7dc84f3ed969f33449",
+      "disposition": "Final source-bound certificate receipt recorded"
+    },
+    {
+      "stage": "formal",
+      "command": "bash scripts/verify.sh formal",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-formal-20260930.log",
+      "sha256": "6aff89d550de5c3961f1797c3f8f9937425b8ac13c164d7bfa5bdcf9689d0a19",
+      "disposition": "96 integrity tests and 34 scoped SMT requirements passed"
+    },
+    {
+      "stage": "full",
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-essv2-full-20260930.log",
+      "sha256": "f36866085cb7b53240d201fe0d27187b4c58934020c863d46f90fb39ad848fd8",
+      "disposition": "Formal/Haskell/web/automation passed; no skipped or weakened tests"
+    },
+    {
+      "stage": "acceptance",
+      "command": "python scripts/formal/verify.py --require-complete",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-essv2-acceptance-20260930.log",
+      "sha256": "5803cf709706e7369f08d5ee7c3149e35e3905549c5a75f928fdcaf4a443a477",
+      "disposition": "Expected acceptance refusal; not a pass"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000
+  },
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36710073468",
+    "headSha": "36fbaf33ee5fdf72ebf0694f39fac62b19808910",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "externalReceipt": "/private/tmp/trader-essv2-ci-final-20260930.json",
+    "sha256": "a39f403c74dfc3c108b4d0a23c45bac70ed369759030a21704d29e46b0bb11d6"
+  },
+  "conformance": {
+    "integrityTests": 96,
+    "newIntegrityTests": 8,
+    "sourceMutants": 13,
+    "modelMutants": 2,
+    "fixedGridCases": 340,
+    "seededPropertyCases": 64,
+    "seed": 20260930,
+    "invalidElementPositions": 256,
+    "totalSMTRequirements": 34,
+    "lockedSources": 70,
+    "newRequirements": [
+      "F-RL-ESS-V2-ACCUMULATE",
+      "F-RL-ESS-V2-BOUNDS",
+      "F-RL-ESS-V2-PUBLISH"
+    ],
+    "parentWitness": "CE-RL-018",
+    "parentWitnessRemainsInFrozenHelper": true
+  },
+  "exactESSV2": {
+    "exactPrimitiveSemanticsAssumed": true,
+    "isolation": {
+      "dynamicImportExclusionProved": false,
+      "existingResearchImports": 0
+    },
+    "model": {
+      "maxShortestDepth": 515,
+      "maximumRows": 256,
+      "orderAuthorizationTransitions": 0,
+      "persistentState": false,
+      "rankBound": 517,
+      "runtimeRefinement": false,
+      "search": "reachable_fixed_point",
+      "states": 66309,
+      "terminalStuttering": true,
+      "transitions": 99718
+    },
+    "premiseChecks": 3,
+    "queries": 3,
+    "smt": {
+      "F-RL-ESS-V2-ACCUMULATE": "unsat",
+      "F-RL-ESS-V2-BOUNDS": "unsat"
+    },
+    "statisticalReliabilityVerified": false
+  },
+  "diagnosticBenchmark": {
+    "exitCode": 0,
+    "command": "python /private/tmp/trader-essv2-benchmark.py; exact source reproduced in followup report",
+    "externalOutput": "/private/tmp/trader-essv2-benchmark-20260930.json",
+    "sha256": "f4fc8bd46b47cfb40b8db0fdeff3877c520a1c72f5c4bfd66e2e777ababc988a",
+    "result": {
+      "version": "ess-rational-v2",
+      "python": "3.13.3",
+      "machine": "x86_64",
+      "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+      "rows": [
+        {
+          "size": 1,
+          "scenario": "zero",
+          "calls": 25,
+          "medianMilliseconds": 0.00654,
+          "maximumMilliseconds": 0.065739,
+          "outputNumeratorBits": 0,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 1,
+          "scenario": "tiny",
+          "calls": 25,
+          "medianMilliseconds": 0.013662,
+          "maximumMilliseconds": 0.027614,
+          "outputNumeratorBits": 1,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 1,
+          "scenario": "maximum",
+          "calls": 25,
+          "medianMilliseconds": 0.013074,
+          "maximumMilliseconds": 0.017932,
+          "outputNumeratorBits": 1,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 1,
+          "scenario": "mixed",
+          "calls": 25,
+          "medianMilliseconds": 0.013688,
+          "maximumMilliseconds": 0.016395,
+          "outputNumeratorBits": 1,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 2,
+          "scenario": "zero",
+          "calls": 25,
+          "medianMilliseconds": 0.009337,
+          "maximumMilliseconds": 0.013417,
+          "outputNumeratorBits": 0,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 2,
+          "scenario": "tiny",
+          "calls": 25,
+          "medianMilliseconds": 0.024079,
+          "maximumMilliseconds": 0.029644,
+          "outputNumeratorBits": 2,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 2,
+          "scenario": "maximum",
+          "calls": 25,
+          "medianMilliseconds": 0.018886,
+          "maximumMilliseconds": 0.029544,
+          "outputNumeratorBits": 2,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 2,
+          "scenario": "mixed",
+          "calls": 25,
+          "medianMilliseconds": 0.036636,
+          "maximumMilliseconds": 0.045802,
+          "outputNumeratorBits": 949,
+          "outputDenominatorBits": 949
+        },
+        {
+          "size": 200,
+          "scenario": "zero",
+          "calls": 25,
+          "medianMilliseconds": 0.674795,
+          "maximumMilliseconds": 0.728084,
+          "outputNumeratorBits": 0,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 200,
+          "scenario": "tiny",
+          "calls": 25,
+          "medianMilliseconds": 2.02785,
+          "maximumMilliseconds": 2.061766,
+          "outputNumeratorBits": 8,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 200,
+          "scenario": "maximum",
+          "calls": 25,
+          "medianMilliseconds": 1.10712,
+          "maximumMilliseconds": 1.265617,
+          "outputNumeratorBits": 8,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 200,
+          "scenario": "mixed",
+          "calls": 25,
+          "medianMilliseconds": 5.102291,
+          "maximumMilliseconds": 5.374841,
+          "outputNumeratorBits": 4209,
+          "outputDenominatorBits": 4203
+        },
+        {
+          "size": 256,
+          "scenario": "zero",
+          "calls": 25,
+          "medianMilliseconds": 0.840395,
+          "maximumMilliseconds": 0.996608,
+          "outputNumeratorBits": 0,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 256,
+          "scenario": "tiny",
+          "calls": 25,
+          "medianMilliseconds": 2.665683,
+          "maximumMilliseconds": 4.207131,
+          "outputNumeratorBits": 9,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 256,
+          "scenario": "maximum",
+          "calls": 25,
+          "medianMilliseconds": 2.065195,
+          "maximumMilliseconds": 2.909411,
+          "outputNumeratorBits": 9,
+          "outputDenominatorBits": 1
+        },
+        {
+          "size": 256,
+          "scenario": "mixed",
+          "calls": 25,
+          "medianMilliseconds": 7.877403,
+          "maximumMilliseconds": 8.764765,
+          "outputNumeratorBits": 4208,
+          "outputDenominatorBits": 4202
+        }
+      ],
+      "passedEngineeringBudget": true,
+      "maximumMillisecondsBudget": 500,
+      "sourceSHA256": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
+      "scope": "synthetic diagnostic only; no policy inference or proved wall-clock bound"
+    },
+    "scriptSha256": "8c4e3fa0293488587136a0077713814c8bc8fcd5cb89f830ca1dc32983faed0a",
+    "limitations": "Single nonisolated run; not policy inference or hard deadline evidence; output bit lengths are not heap use."
+  },
+  "verificationTimings": {
+    "targeted": {
+      "integritySeconds": [
+        1.675
+      ],
+      "certificateSeconds": []
+    },
+    "targeted-final": {
+      "integritySeconds": [
+        3.17
+      ],
+      "certificateSeconds": []
+    },
+    "formal": {
+      "integritySeconds": [
+        19.298
+      ],
+      "certificateSeconds": [
+        6.126
+      ]
+    },
+    "full": {
+      "integritySeconds": [
+        9.895
+      ],
+      "certificateSeconds": [
+        4.556
+      ]
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Exact primitive, Python/AST/solver semantics are assumptions, not full refinement",
+    "SMT checks base/step/result identities; ghost loop count and runtime correspondence require trusted interpretation",
+    "Finite-state liveness assumes terminating primitives and normal resources; not a deadline/recovery proof",
+    "No upstream weight-underflow reconstruction or statistical ESS/behavior-support guarantee",
+    "Static import isolation does not prove arbitrary dynamic code cannot import the module",
+    "CE-RL-018 is mitigated only in the isolated new kernel, not repaired in the frozen helper",
+    "No policy/estimator integration, financial result or protected outcome accessed"
+  ]
+}

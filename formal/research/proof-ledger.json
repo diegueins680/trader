@@ -37,6 +37,108 @@
       "status": "assumption",
       "statement": "Exact real algebra does not establish binary64 accounting, market fills or calibrated costs.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-GAP",
+      "status": "assumption",
+      "statement": "Return and total-debit bounds in sufficient-condition lemmas are environmental hypotheses, not established crypto-market facts. Pre-bar drifted exposure differs from a proposed target.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SOURCE-CAUSAL",
+      "status": "assumption",
+      "statement": "Ordinary fixed-shape base NumPy numeric arrays, unchanged primitive bindings and no concurrent writes; audited metadata helper ASTs and restricted AST interpreter/NumPy argument-only dependency semantics are trusted. No publication-time, caller symbol selection, runtime/compiler or universal observation refinement proof.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TRAIN-PREFIX",
+      "status": "assumption",
+      "statement": "Checked fold setup is entered with admitted ordinary fixed-shape numeric arrays and stable symbol/split bindings. Python slicing/range/RNG, NumPy reductions, Scale constructor snapshots and the restricted AST checker are trusted; no hostile subclasses, aliases or concurrent writers. Whole-panel admission and full Replay/compiler refinement remain unproved.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ARTIFACT-ADMISSION",
+      "status": "assumption",
+      "statement": "Ordinary Path/bytes and JSON built-ins, stable globals and externally supplied expected metadata; no concurrent mutation, hostile subclass or monkeypatch. Python control flow, JSON/hashlib/NumPy, validators and Network constructor are trusted. The audited AST checker is not a verified interpreter; finite atomic gates do not prove helper internals or cryptographic authenticity.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TRANSITION-ADMISSION",
+      "status": "assumption",
+      "statement": "Ordinary stable Replay fields; integer indices and binary64 reward/equity/units, native identity/comparison behavior, stable arrays/helpers, no concurrent mutation or hostile subclasses. The restricted AST translator, Python control flow, _finite_real and successor representation/shape/finiteness predicates are trusted. Admission conditions do not prove cash-flow completeness, fill realism, helper internals or full Replay/compiler refinement.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TERMINAL-NUMERICS",
+      "status": "assumption",
+      "statement": "Correctly shaped float64 arrays and Boolean done masks, matching rows, stable primitive bindings and no concurrent mutation. Trusted AST checker and vector-to-scalar correspondence with separate IEEE binary64 RNE operations, not fused reassociation or full interpreter refinement. The finite-product theorem requires finite next value AND later carry; finite network outputs do not ensure finite carry. Batch normalization is outside the noninterference claim.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-TARGET-V2",
+      "status": "assumption",
+      "statement": "Native immutable tuples, native float/bool inputs, stable bindings, separate IEEE binary64 RNE and trusted math.isfinite/Python primitives; source skeleton/scalarization/model abstraction, compiler and solver are trusted. Normal resource availability and terminating primitives; no concurrent monkey patching. No whole-interpreter refinement, normalized-advantage guarantee, nonterminal roundoff bound or full learner correction.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-PPO-OBJECTIVE",
+      "status": "assumption",
+      "statement": "Ordinary correctly shaped float64 arrays and in-range actions with positive behavior probabilities, stable bindings and no mutation; source scalarization, softmax/simplex and vector correspondence, separate RNE primitives, analytic softmax derivative identity and compiler/solver semantics are trusted. Exact-real claims are not full binary64, NumPy, neural-network or optimizer refinement.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-VALUE-OBJECTIVE",
+      "status": "assumption",
+      "statement": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-OPTIMIZER-PUBLICATION",
+      "status": "assumption",
+      "statement": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-INFERENCE-BOUNDARY",
+      "status": "assumption",
+      "statement": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-OPE-ALGEBRA",
+      "status": "assumption",
+      "statement": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ESS-V2",
+      "status": "assumption",
+      "statement": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-FUNDING-BOUNDARY",
+      "status": "assumption",
+      "statement": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REPLAY-ORDER",
+      "status": "assumption",
+      "statement": "Stable ordinary Replay state; returning and exception-free shield/observation/market/_trade/_risk primitives until the final reward check; Python control flow, AST translation and source-to-model abstraction trusted. Ghost admission/check tags record abstract ordering only. Helper attempts are not guaranteed fills. No numeric accounting, full runtime refinement, concurrency, physical deadline or production lifecycle proof.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REPLAY-CUTOFF",
+      "status": "assumption",
+      "statement": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REWARD-ACCOUNTING",
+      "status": "assumption",
+      "statement": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -49,7 +151,27 @@
     "scripts/verify.sh",
     "scripts/autoloop.mjs",
     ".github/workflows/ci.yml",
-    "package.json"
+    "package.json",
+    "scripts/formal/gap_risk.py",
+    "scripts/formal/gap_conformance.py",
+    "scripts/formal/causal_footprint.py",
+    "scripts/formal/training_prefix.py",
+    "scripts/formal/artifact_admission.py",
+    "scripts/formal/transition_admission.py",
+    "scripts/formal/terminal_numerics.py",
+    "scripts/formal/target_v2.py",
+    "scripts/research/gae_targets_v2.py",
+    "scripts/formal/ppo_objective.py",
+    "scripts/formal/value_objective.py",
+    "scripts/formal/optimizer_publication.py",
+    "scripts/formal/inference_boundary.py",
+    "scripts/formal/ope_algebra.py",
+    "scripts/formal/ess_v2.py",
+    "scripts/research/ess_rational_v2.py",
+    "scripts/formal/funding_boundary.py",
+    "scripts/formal/replay_order.py",
+    "scripts/formal/replay_cutoff.py",
+    "scripts/formal/reward_accounting.py"
   ],
   "entries": [
     {
@@ -369,9 +491,9 @@
     },
     {
       "requirementId": "F-RL-INTEGRITY",
-      "claim": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch.",
+      "claim": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results.",
       "criticality": "critical",
-      "formalStatement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch.",
+      "formalStatement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results.",
       "assumptions": [
         "A-SOLVER"
       ],
@@ -387,15 +509,17 @@
         "scripts/verify.sh",
         "scripts/autoloop.mjs",
         "package.json",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/target_v2.py"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Malformed ledger and safety mutations are rejected by regression tests.",
-      "bounds": "Declared schema, source hashes and deterministic negative fixtures.",
-      "limitations": "Trusted checker code and reviewed Git changes; not tamper-proof against a maintainer editing the verifier and receipts together.",
+      "result": "Malformed ledger/safety mutations and invalid proof-query results are rejected; exact assertion capture checks premise/witness isolation in the two numerical proof drivers.",
+      "bounds": "Declared schema and deterministic negative fixtures; all 18 pairs of SAT/UNSAT/UNKNOWN statuses across two drivers, four injected check exceptions, exact formula/options capture and actual Z3 regressions.",
+      "limitations": "Trusted checker code and reviewed Git changes; not tamper-proof against a maintainer editing the verifier and receipts together. Query protocol conformance is tested, not a universal Python/solver refinement proof; timing and unknown-result reliability remain environmental limitations.",
       "counterexample": null,
       "status": "property_tested",
       "relatedRequirements": [
@@ -436,6 +560,1537 @@
       "relatedRequirements": [
         "F-RL-NO-PROMOTION"
       ]
+    },
+    {
+      "requirementId": "F-RL-GAP-BOUND",
+      "claim": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d.",
+      "criticality": "critical",
+      "formalStatement": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Premise SAT and negated implication UNSAT, 10-second timeout.",
+      "bounds": "All reals satisfying the stated premises.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-DRAWDOWN-COMPOSE",
+      "claim": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1.",
+      "criticality": "critical",
+      "formalStatement": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Premise SAT and negated implication UNSAT, 10-second timeout.",
+      "bounds": "All reals satisfying the stated premises.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-POSTCOST-EXPOSURE",
+      "claim": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic.",
+      "criticality": "critical",
+      "formalStatement": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Premise SAT and negated implication UNSAT, 10-second timeout.",
+      "bounds": "All reals satisfying the stated premises.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-UNCONDITIONAL-FLOOR",
+      "claim": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/gap_risk.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Prescribed SAT counterexamples CE-RL-002/003; Replay reproduces both.",
+      "bounds": "Two-bar horizon; 3 targets x 5 price ratios x 4 cost multipliers x 3 funding debits; two fixed rational witnesses.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": "formal/research/gap-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-GAP-CONFORMANCE",
+      "claim": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence.",
+      "criticality": "critical",
+      "formalStatement": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence.",
+      "assumptions": [
+        "A-GAP",
+        "A-ACCOUNT",
+        "A-FP",
+        "A-SOLVER"
+      ],
+      "tool": "Python/NumPy Replay conformance",
+      "toolVersion": "Python 3.13.3; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/gap_conformance.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/gap_risk.py",
+        "scripts/formal/gap_conformance.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/gap_conformance.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "All 180 cases and two counterexamples must reproduce.",
+      "bounds": "Two-bar horizon; 3 targets x 5 price ratios x 4 cost multipliers x 3 funding debits; two fixed rational witnesses.",
+      "limitations": "No universal binary64 or compiler refinement, observed jump/debit bound, calibrated execution, or future loss/profit guarantee. Whole-system acceptance remains blocked.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-FEATURE-FOOTPRINT",
+      "claim": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected.",
+      "criticality": "critical",
+      "formalStatement": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected.",
+      "assumptions": [
+        "A-SOURCE-CAUSAL",
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "restricted Python AST dependency checker and Z3",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/causal_footprint.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/causal_footprint.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Actual source slice bounds satisfy UNSAT violation queries with SAT premises; unsupported AST and leakage mutants fail.",
+      "bounds": "Unbounded integer indices 24<=t<n; source-derived t-24:t+1 slice. 32 seeded paths x 4 future corruptions supplement the static/SMT certificate.",
+      "limitations": "Trusted static checker and primitive dependency semantics, not verified interpreter/NumPy. Same array metadata required. Does not establish availability, fit provenance, recursive replay-state causality, symbol selection or production features. CE-RL-004 is a deliberately introduced mutant, not a defect in the unchanged feature source.",
+      "counterexample": "formal/research/causal-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FIT-PREFIX",
+      "claim": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics.",
+      "criticality": "critical",
+      "formalStatement": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics.",
+      "assumptions": [
+        "A-TRAIN-PREFIX",
+        "A-SOURCE-CAUSAL",
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "restricted Python AST source skeletons and Z3 integer bounds",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/training_prefix.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/training_prefix.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh automation",
+      "result": "Source-derived integer implications have SAT premises and UNSAT violations; all nine registered fold/horizon inequalities checked.",
+      "bounds": "Unbounded integer source lengths/stops; fit 25<=T<=N; collect L>=121; three frozen folds x horizons 1/3/6.",
+      "limitations": "Trusted parser, source-skeleton checker and primitive/constructor semantics, not verified Python execution. Entire historical panel is validated before fit; no online admission noninterference. Episode theorem assumes Replay boundary semantics and does not prove all transition reads, learning or rewards. Six-bar gap is not two additive purge/embargo regions.",
+      "counterexample": "formal/research/training-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-COLLECT-PREFIX",
+      "claim": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix.",
+      "criticality": "critical",
+      "formalStatement": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix.",
+      "assumptions": [
+        "A-TRAIN-PREFIX",
+        "A-SOURCE-CAUSAL",
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "restricted Python AST source skeletons and Z3 integer bounds",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/training_prefix.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/training_prefix.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh automation",
+      "result": "Source-derived integer implications have SAT premises and UNSAT violations; all nine registered fold/horizon inequalities checked.",
+      "bounds": "Unbounded integer source lengths/stops; fit 25<=T<=N; collect L>=121; three frozen folds x horizons 1/3/6.",
+      "limitations": "Trusted parser, source-skeleton checker and primitive/constructor semantics, not verified Python execution. Entire historical panel is validated before fit; no online admission noninterference. Episode theorem assumes Replay boundary semantics and does not prove all transition reads, learning or rewards. Six-bar gap is not two additive purge/embargo regions.",
+      "counterexample": "formal/research/training-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-PATH",
+      "claim": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives.",
+      "criticality": "critical",
+      "formalStatement": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives.",
+      "assumptions": [
+        "A-ARTIFACT-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "audited Python AST gate abstraction and exhaustive exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/artifact_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/artifact_admission.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "27 states, 40 transitions, maximum depth 13; terminal gates stutter and cannot escape.",
+      "bounds": "13 ordered atomic gates, 27 states, 40 transitions, depth 13; unbounded abstract strings and Boolean equality/identity atoms for the metadata SMT checks.",
+      "limitations": "Source-skeleton recognition and conditional primitive abstraction, not full Python/helper/runtime refinement. Expected provenance is unauthenticated; equality does not prove training provenance, SHA security, finite neural inference, Haskell artifact loading or promotion eligibility. Actual-loader conformance tests supplement rather than prove refinement.",
+      "counterexample": "formal/research/artifact-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-METADATA",
+      "claim": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions.",
+      "criticality": "critical",
+      "formalStatement": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions.",
+      "assumptions": [
+        "A-ARTIFACT-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "source-derived Boolean/string predicates and Z3",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/artifact_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/artifact_admission.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Two SAT-premise and UNSAT-violation checks of actual source predicates; deliberate bypass mutants fail.",
+      "bounds": "13 ordered atomic gates, 27 states, 40 transitions, depth 13; unbounded abstract strings and Boolean equality/identity atoms for the metadata SMT checks.",
+      "limitations": "Source-skeleton recognition and conditional primitive abstraction, not full Python/helper/runtime refinement. Expected provenance is unauthenticated; equality does not prove training provenance, SHA security, finite neural inference, Haskell artifact loading or promotion eligibility. Actual-loader conformance tests supplement rather than prove refinement.",
+      "counterexample": "formal/research/artifact-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TRANSITION-ADMISSION",
+      "claim": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor.",
+      "criticality": "critical",
+      "formalStatement": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor.",
+      "assumptions": [
+        "A-TRANSITION-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "audited Python AST predicates and Z3 integer/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/transition_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/transition_admission.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Three SAT-premise/UNSAT-violation checks of actual admission expressions; collector source ordering is audited; CE-RL-009 removes a necessary terminal guard and is rejected.",
+      "bounds": "Unbounded integer indices and categorical failure/done tags; all IEEE binary64 reward/equity/units values; abstract successor representation/shape/finiteness and absence atoms. Thirty rejected helper fixtures and 36 actual replay cases supplement proof.",
+      "limitations": "Conditional source-skeleton/primitive abstraction, not full runtime or Replay refinement. Zero inventory and no pending action are necessary conditions, not a proof of cash accounting, valid risk classification, realistic fills, learning-target correctness or safety under arbitrary field mutations. Non-binary64 numeric inputs are outside the SMT domain.",
+      "counterexample": "formal/research/transition-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-REAL",
+      "claim": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded.",
+      "criticality": "critical",
+      "formalStatement": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT negated implications; true terminal Boolean masks and stated arithmetic domain.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-FP-MASK",
+      "claim": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied.",
+      "criticality": "critical",
+      "formalStatement": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT negated implications; true terminal Boolean masks and stated arithmetic domain.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-EXACT",
+      "claim": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness reproduces in actual unchanged NumPy learner; unresolved numeric blocker, not repaired.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-TERMINAL-FINITE",
+      "claim": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs.",
+      "assumptions": [
+        "A-TERMINAL-NUMERICS",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/terminal_numerics.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/terminal_numerics.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness reproduces in actual unchanged NumPy learner; unresolved numeric blocker, not repaired.",
+      "bounds": "Unbounded exact reals for terminal algebra; all binary64 next/carry values finite and discount in [0,1] for masked products. Fixed binary64 hex witnesses: critic 1e16/reward 1, and critic -2^1023/rewards [1,2^1023].",
+      "limitations": "Trusted parser/scalarization/NumPy semantics, not full learner refinement. Current-source cancellation and overflow are not repaired and cannot be described as future-market evidence or as observed in the historical experiments. Batch normalization can couple rows; finite inputs alone do not imply finite intermediates.",
+      "counterexample": "formal/research/terminal-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-TERMINAL",
+      "claim": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero.",
+      "criticality": "critical",
+      "formalStatement": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise witnesses and UNSAT violation queries; witness constraints removed before checking universal violations.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-FINITE",
+      "claim": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence.",
+      "criticality": "critical",
+      "formalStatement": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise witnesses and UNSAT violation queries; witness constraints removed before checking universal violations.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-REAL",
+      "claim": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem.",
+      "criticality": "critical",
+      "formalStatement": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 exact-real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise witnesses and UNSAT violation queries; witness constraints removed before checking universal violations.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-TARGET-V2-PUBLISH",
+      "claim": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists.",
+      "criticality": "critical",
+      "formalStatement": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists.",
+      "assumptions": [
+        "A-TARGET-V2",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/target_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/gae_targets_v2.py",
+        "scripts/formal/target_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "33410 states, 66562 transitions, depth/progress bound 258; invariants and strict progress rank checked.",
+      "bounds": "Rows 1..256, immutable native inputs; exact real algebra and separate binary64 RNE. Discount [0,1]; lambda .95. Native input/primitive semantics explicitly trusted.",
+      "limitations": "Disconnected, default-disabled raw-target kernel only. No normalization, training adapter, full runtime refinement, neural-policy or economic guarantee. Frozen learner and CE-RL-010/011 remain unchanged and unresolved there.",
+      "counterexample": "formal/research/target-v2-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-PPO-OBJECTIVE",
+      "claim": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256.",
+      "criticality": "high",
+      "formalStatement": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT source-derived negated claims; four queries across the two positive requirements.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PPO-COEFFICIENT",
+      "claim": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex.",
+      "criticality": "high",
+      "formalStatement": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premises and UNSAT source-derived negated claims; four queries across the two positive requirements.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PPO-FINITE",
+      "claim": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness and actual unchanged NumPy reproduction.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": "formal/research/ppo-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-PPO-UNIFORM-CLIP",
+      "claim": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield.",
+      "assumptions": [
+        "A-PPO-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ppo_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/ppo_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness and actual unchanged NumPy reproduction.",
+      "bounds": "Real selected probability [0,1], old probability (0,1], ratio>=0, arbitrary real advantage, integer batch size 1..256, three-action simplex; fixed one-row binary64 witnesses with old probability 2^-1074 or represented 1/24.",
+      "limitations": "Trusted source translator, primitive/softmax and vector semantics; no full derivative calculus, runtime, optimizer, learning or market proof. CE-RL-012 is an unresolved numeric output blocker; CE-RL-013 is an intended mechanism limitation, not a shield failure. No historical prevalence is inferred.",
+      "counterexample": "formal/research/ppo-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-DOUBLE-TARGET",
+      "claim": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount.",
+      "criticality": "high",
+      "formalStatement": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise and UNSAT negated source-linked claim; one query per positive requirement.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-CQL-GRADIENT",
+      "claim": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0.",
+      "criticality": "high",
+      "formalStatement": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise and UNSAT negated source-linked claim; one query per positive requirement.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-Q-FINITE",
+      "claim": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss.",
+      "criticality": "critical",
+      "formalStatement": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness with trusted logarithm intermediate and actual unchanged NumPy reproduction.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": "formal/research/value-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-CQL-SHIFT",
+      "claim": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients.",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE",
+        "A-SOLVER"
+      ],
+      "tool": "restricted source AST and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/value_objective.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness with trusted logarithm intermediate and actual unchanged NumPy reproduction.",
+      "bounds": "Three actions; horizon 1/3/6; real rewards and Q values; integer batch size 1..256; alpha>=0 and exact simplex. Numeric probes are one row with maxFloat or common shift 2^54; separate binary64 RNE and prescribed log(2)/log(3) intermediates.",
+      "limitations": "Ordinary aligned float64 arrays and in-range actions, stable bindings and no mutation; trusted NumPy first-argmax/vector-to-scalar semantics, softmax and logarithm/derivative identities, prescribed transcendental intermediates, separate IEEE binary64 RNE, Python/compiler/solver and AST translator. No full training-loop or runtime refinement, policy lower-bound theorem, end-to-end witness reachability or historical prevalence. Learner remains frozen. CE-RL-014/015 remain unresolved helper-level numeric blockers; gradient-only optimizer admission is not finite-loss admission.",
+      "counterexample": "formal/research/value-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-OPTIMIZER-PUBLISH",
+      "claim": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates.",
+      "criticality": "high",
+      "formalStatement": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates.",
+      "assumptions": [
+        "A-OPTIMIZER-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state fixed-point checker and exact-real Z3 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/optimizer_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/optimizer_publication.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Reachable fixed point and strict progress rank checked; implementation conformance is separately tested.",
+      "bounds": "One call, four parameter keys, 32 validation/staging cuts and four ordered stores; extended model has one observer and interruption after a partial store prefix. Exact real scalar gradient/norm with norm >= abs(grad).",
+      "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-GRADIENT-CLIP",
+      "claim": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one.",
+      "criticality": "high",
+      "formalStatement": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one.",
+      "assumptions": [
+        "A-OPTIMIZER-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state fixed-point checker and exact-real Z3 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/optimizer_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/optimizer_publication.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "SAT premise and UNSAT violation in independent pinned solver queries.",
+      "bounds": "One call, four parameter keys, 32 validation/staging cuts and four ordered stores; extended model has one observer and interruption after a partial store prefix. Exact real scalar gradient/norm with norm >= abs(grad).",
+      "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPTIMIZER-ATOMIC",
+      "claim": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state.",
+      "assumptions": [
+        "A-OPTIMIZER-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state fixed-point checker and exact-real Z3 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/optimizer_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/optimizer_publication.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "CE-RL-016 reaches mask 1 after publishing p and interrupting before m; explicit opcode instrumentation reproduces the witness.",
+      "bounds": "One call, four parameter keys, 32 validation/staging cuts and four ordered stores; extended model has one observer and interruption after a partial store prefix. Exact real scalar gradient/norm with norm >= abs(grad).",
+      "limitations": "Trusted exact source skeleton, AST translator, Python/NumPy/runtime and ordinary base arrays; helpers do not mutate shared inputs, primitive operations terminate, one writer, and final stores succeed uninterrupted for the narrow theorem. No full runtime refinement, multi-writer safety or unassisted thread-race evidence. The real clipping norm premise is not proved for rounded NumPy reductions; no Adam step-size, convergence or economic guarantee. Instrumentation observes and injects an exception deliberately; no historical occurrence is claimed. Stronger atomicity remains a blocker. Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception.",
+      "counterexample": "formal/research/optimizer-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-INFER-ADMISSION",
+      "claim": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics.",
+      "criticality": "high",
+      "formalStatement": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; all binary64 elapsed values and admission booleans.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-INFER-SELECTION",
+      "claim": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics.",
+      "criticality": "high",
+      "formalStatement": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation over three exact real scores.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-INFER-PATH",
+      "claim": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition.",
+      "criticality": "high",
+      "formalStatement": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Reachable fixed-point search; explicit pending-call cycle is retained, not removed by fairness assumptions.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-INFER-DEADLINE",
+      "claim": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return.",
+      "assumptions": [
+        "A-INFERENCE-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "source AST, finite-state checker and Z3 real/IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/inference_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "CE-RL-017 reaches a nonterminal pending self-loop. Synthetic clock conformance separately shows 25 ms late-return rejection after forward; no measured physical-latency claim.",
+      "bounds": "One call, five flag bits, three scores, actions -1/4,0,1/4. All binary64 elapsed values/admission booleans and three exact real scores. Pending call explicitly permits infinite stuttering.",
+      "limitations": "Trusted AST/model translation, ordinary base numeric arrays, stable bindings/constants and NumPy finite/first-argmax semantics; no full runtime or neural-policy refinement. Predicate, clock and BaseException failures are not caught by the forward Exception handler. The elapsed proof starts from the final scalar, not clock conversion or authenticity; measured time excludes later output validation and selection. Nonreturning forward has no preemption; proposal is not an authorized order. No staleness, uncertainty, policy quality, economic value or actual deadline guarantee.",
+      "counterexample": "formal/research/inference-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-OPE-ESS-REAL",
+      "claim": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling.",
+      "criticality": "high",
+      "formalStatement": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation queries; six horizon queries for DR.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPE-WIS-REAL",
+      "claim": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling.",
+      "criticality": "high",
+      "formalStatement": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation queries; six horizon queries for DR.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPE-DR-TELESCOPE",
+      "claim": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic.",
+      "criticality": "high",
+      "formalStatement": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation queries; six horizon queries for DR.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-OPE-FP-SUPPORT",
+      "claim": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero.",
+      "assumptions": [
+        "A-OPE-ALGEBRA",
+        "A-SOLVER"
+      ],
+      "tool": "source AST and Z3 exact-real / IEEE binary64 SMT",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ope_algebra.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/ope_algebra.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT underflow witness plus actual public-helper regression.",
+      "bounds": "Two real trajectory weights and returns; positive real common scale; DR horizons 1..6. Prescribed two-row six-step binary64 RNE witness. Conformance grids: 135 weight/return cases, 18 DR cases, 64 deterministic patterns, 201 support counts.",
+      "limitations": "Trusted AST translation, admitted base arrays, stable bindings and NumPy cumprod, reduction and broadcast semantics; no full runtime refinement. Exact-real algebra does not establish binary64 accuracy, unbiasedness, behavior support, confidence coverage or statistical reliability. DR additionally assumes q_t=v_t pathwise; equal policies alone are insufficient. CE-RL-018 is a general-helper witness and is outside the current deterministic six-step short-OPE weight domain. Underflow-raise callers get ValueError. No original OPE rerun or market prevalence claim.",
+      "counterexample": "formal/research/ope-counterexamples.json",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-ESS-V2-ACCUMULATE",
+      "claim": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics.",
+      "criticality": "high",
+      "formalStatement": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics.",
+      "assumptions": [
+        "A-ESS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 exact-real SMT and finite-state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ess_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/ess_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; base and inductive-step checks for the accumulator.",
+      "bounds": "Native immutable tuples of 1..256 finite nonnegative binary64 weights; exact rational output. Exact-real induction lemma allows k>=0, stronger than the integer count domain. Publication model sizes 1..256.",
+      "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ESS-V2-BOUNDS",
+      "claim": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed.",
+      "criticality": "high",
+      "formalStatement": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed.",
+      "assumptions": [
+        "A-ESS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 exact-real SMT and finite-state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ess_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/ess_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; base and inductive-step checks for the accumulator.",
+      "bounds": "Native immutable tuples of 1..256 finite nonnegative binary64 weights; exact rational output. Exact-real induction lemma allows k>=0, stronger than the integer count domain. Publication model sizes 1..256.",
+      "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ESS-V2-PUBLISH",
+      "claim": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists.",
+      "criticality": "high",
+      "formalStatement": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists.",
+      "assumptions": [
+        "A-ESS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 exact-real SMT and finite-state exploration",
+      "toolVersion": "Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/ess_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/formal/ess_v2.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "66309 states, 99718 transitions; strict rank bound 517, max shortest depth 515.",
+      "bounds": "Native immutable tuples of 1..256 finite nonnegative binary64 weights; exact rational output. Exact-real induction lemma allows k>=0, stronger than the integer count domain. Publication model sizes 1..256.",
+      "limitations": "Trusted Python 3.13.3 native-type/isfinite checks, exact float-to-Fraction conversion and integer/rational primitives, AST translation and solver; stable bindings and normal resources. Ghost processed-count maps the source loop to the model; base/step SMT lemmas are not full interpreter or Fraction refinement. Model liveness assumes terminating primitives. No allocation-recovery, physical deadline, upstream weight-underflow recovery, statistical effective-sample-size or behavior-support guarantee. Diagnostic remains disconnected from frozen OPE/training and production; no policy result is repaired or promoted.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-GRID",
+      "claim": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics.",
+      "criticality": "high",
+      "formalStatement": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics.",
+      "assumptions": [
+        "A-FUNDING-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 integer/binary64 SMT and synthetic implementation conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/funding_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/funding_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; exact integer timestamp semantics.",
+      "bounds": "Grid: all 4910 registered indices. Endpoint: integer times, positive spacing, count>=1, conditional search relation. Conformance: 32 synthetic timestamps and 14730 registered-grid neighbors; no market observations.",
+      "limitations": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem. Frozen loader unchanged; product overflow returns infinity even under raised NumPy policy, sum overflow raises under that policy. Replay rejects an invalid encountered transition; complete environment refinement remains open.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-ENDPOINT",
+      "claim": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]].",
+      "criticality": "high",
+      "formalStatement": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]].",
+      "assumptions": [
+        "A-FUNDING-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 integer/binary64 SMT and synthetic implementation conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/funding_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/funding_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT premise and UNSAT violation; exact integer timestamp semantics.",
+      "bounds": "Grid: all 4910 registered indices. Endpoint: integer times, positive spacing, count>=1, conditional search relation. Conformance: 32 synthetic timestamps and 14730 registered-grid neighbors; no market observations.",
+      "limitations": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem. Frozen loader unchanged; product overflow returns infinity even under raised NumPy policy, sum overflow raises under that policy. Replay rejects an invalid encountered transition; complete environment refinement remains open.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-FINITE",
+      "claim": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients.",
+      "criticality": "high",
+      "formalStatement": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients.",
+      "assumptions": [
+        "A-FUNDING-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, Z3 integer/binary64 SMT and synthetic implementation conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/funding_boundary.py",
+      "artifact": "formal/research/funding-counterexamples.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/funding_boundary.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Two prescribed SAT overflow witnesses; extracted-loop and full-loader regressions.",
+      "bounds": "Grid: all 4910 registered indices. Endpoint: integer times, positive spacing, count>=1, conditional search relation. Conformance: 32 synthetic timestamps and 14730 registered-grid neighbors; no market observations.",
+      "limitations": "Trusted Python/NumPy primitives, left-insertion search semantics, exact regular integer grids and stable ordinary source bindings; AST source binding/extraction is not full interpreter refinement. Hashes identify bytes, not publication timing, source truth or historical prevalence. No arbitrary-registration/CSV-schema, cash-realism or universal floating-point theorem. Frozen loader unchanged; product overflow returns infinity even under raised NumPy policy, sum overflow raises under that policy. Replay rejects an invalid encountered transition; complete environment refinement remains open.",
+      "counterexample": "CE-RL-019",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-REPLAY-DUE",
+      "claim": "For source-derived pending due=d+1+delay with integer delay in {0,1}, an admitted policy-target fill requires clear prior risk, a present pending target and an endpoint strictly after originating decision d; compulsory terminal liquidation is distinct.",
+      "criticality": "high",
+      "formalStatement": "For source-derived pending due=d+1+delay with integer delay in {0,1}, an admitted policy-target fill requires clear prior risk, a present pending target and an endpoint strictly after originating decision d; compulsory terminal liquidation is distinct.",
+      "assumptions": [
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, integer SMT, explicit-state model checking and actual-helper trace conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/replay_order.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/replay_order.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Independent SAT witness and UNSAT violation for extracted due/guard semantics.",
+      "bounds": "Integer due theorem, delay 0/1. One-call model: remaining 1..6, horizons 1/3/6, delay 0/1, pending absent/1/2. Actual conformance: 486 grid traces, eight named cases and one terminal round-trip fixture.",
+      "limitations": "Stable ordinary Replay state; returning and exception-free shield/observation/market/_trade/_risk primitives until the final reward check; Python control flow, AST translation and source-to-model abstraction trusted. Ghost admission/check tags record abstract ordering only. Helper attempts are not guaranteed fills. No numeric accounting, full runtime refinement, concurrency, physical deadline or production lifecycle proof. Invalid early returns can retain simulated inventory/pending data. Final reward failure is not ruled out.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REPLAY-ORDER",
+      "claim": "In the source-bound single-call replay abstraction for 1..6 remaining bars, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets, admission precedes effects, old-position marking precedes risk and due target attempts, terminal handling precedes its row, and the complete finite graph reaches an end-of-call node under terminating helper assumptions.",
+      "criticality": "high",
+      "formalStatement": "In the source-bound single-call replay abstraction for 1..6 remaining bars, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets, admission precedes effects, old-position marking precedes risk and due target attempts, terminal handling precedes its row, and the complete finite graph reaches an end-of-call node under terminating helper assumptions.",
+      "assumptions": [
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST, integer SMT, explicit-state model checking and actual-helper trace conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/replay_order.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/formal/replay_order.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "2876 states, 3474 transitions, 84 distinct initial states; longest path 48, terminal stuttering only.",
+      "bounds": "Integer due theorem, delay 0/1. One-call model: remaining 1..6, horizons 1/3/6, delay 0/1, pending absent/1/2. Actual conformance: 486 grid traces, eight named cases and one terminal round-trip fixture.",
+      "limitations": "Stable ordinary Replay state; returning and exception-free shield/observation/market/_trade/_risk primitives until the final reward check; Python control flow, AST translation and source-to-model abstraction trusted. Ghost admission/check tags record abstract ordering only. Helper attempts are not guaranteed fills. No numeric accounting, full runtime refinement, concurrency, physical deadline or production lifecycle proof. Invalid early returns can retain simulated inventory/pending data. Final reward failure is not ruled out.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-REPLAY-CUTOFF",
+      "claim": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R.",
+      "criticality": "high",
+      "formalStatement": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R.",
+      "assumptions": [
+        "A-REPLAY-CUTOFF",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST and integer SMT; explicit-state model checking; finite lift and synthetic trace conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/replay_cutoff.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/replay_cutoff.py",
+        "scripts/formal/replay_order.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT premise witness and UNSAT violation query; arbitrary positive integer remaining length.",
+      "bounds": "Cutoff 7; horizon 1/3/6; delay 0/1; pending absent/1/2. Five finite lift samples 7,8,12,97,2^63. Actual trace remaining lengths 7,8,12.",
+      "limitations": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation. Failure traces still use nondeterministic risk categories. All 38 broader mission obligations remain open/partial.",
+      "counterexample": "formal/research/replay-cutoff-fixtures.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REPLAY-QUOTIENT",
+      "claim": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement.",
+      "criticality": "high",
+      "formalStatement": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement.",
+      "assumptions": [
+        "A-REPLAY-CUTOFF",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST and integer SMT; explicit-state model checking; finite lift and synthetic trace conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/replay_cutoff.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/replay_cutoff.py",
+        "scripts/formal/replay_order.py",
+        "scripts/research/sequential_env.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "3596 states, 4340 transitions, 102 initial states; depth/progress 48. 720 class-seven states, 3600 lifted comparisons, 486 synthetic grid traces plus eight scenarios.",
+      "bounds": "Cutoff 7; horizon 1/3/6; delay 0/1; pending absent/1/2. Five finite lift samples 7,8,12,97,2^63. Actual trace remaining lengths 7,8,12.",
+      "limitations": "The cutoff applies only to the pinned ordering abstraction. Stable ordinary dataclass attributes, standard replacement semantics, source/AST interpretation and all earlier A-REPLAY-ORDER helper assumptions are trusted. Actual time-to-end observations, numeric rewards, risk outcomes and policy actions can differ with remaining length. The integer branch lemma and finite lift checks are not universal interpreter refinement or an observation/reward bisimulation. Failure traces still use nondeterministic risk categories. All 38 broader mission obligations remain open/partial.",
+      "counterexample": "formal/research/replay-cutoff-fixtures.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ROW-RECONCILE",
+      "claim": "In exact reals with positive starting equity, the extracted Replay mark, sequential target/liquidation cost debits, merged cost fields and row return reconcile ending wealth and net return; fill quantities and cost formation are assumed, not proved.",
+      "criticality": "high",
+      "formalStatement": "In exact reals with positive starting equity, the extracted Replay mark, sequential target/liquidation cost debits, merged cost fields and row return reconcile ending wealth and net return; fill quantities and cost formation are assumed, not proved.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT-premise/UNSAT-violation queries; seven pairs across three requirements, including source penalty initialization and invariant preservation.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-WEALTH-FOLD",
+      "claim": "SMT checks the positive-wealth product invariant base and induction step using the source row-return expression: P=E/E0 implies P*(1+r)=E_next/E0; the source economic metric equals that ratio minus one when E0=1.",
+      "criticality": "high",
+      "formalStatement": "SMT checks the positive-wealth product invariant base and induction step using the source row-return expression: P=E/E0 implies P*(1+r)=E_next/E0; the source economic metric equals that ratio minus one when E0=1.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT-premise/UNSAT-violation queries; seven pairs across three requirements, including source penalty initialization and invariant preservation.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REWARD-RECONCILE",
+      "claim": "SMT checks the source penalty accumulator base, nonnegative induction step and call identity: returned reward plus summed noncash row penalties equals 100 times the call-relative equity change in exact reals with positive starting equity.",
+      "criticality": "high",
+      "formalStatement": "SMT checks the source penalty accumulator base, nonnegative induction step and call identity: returned reward plus summed noncash row penalties equals 100 times the call-relative equity change in exact reals with positive starting equity.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Separate SAT-premise/UNSAT-violation queries; seven pairs across three requirements, including source penalty initialization and invariant preservation.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-REWARD-ADDITIVE",
+      "claim": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return.",
+      "criticality": "high",
+      "formalStatement": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return.",
+      "assumptions": [
+        "A-REWARD-ACCOUNTING",
+        "A-REPLAY-ORDER",
+        "A-SOLVER"
+      ],
+      "tool": "Source AST extraction; exact-real Z3; deterministic actual Replay and economic-report conformance",
+      "toolVersion": "Python 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/reward_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/reward_accounting.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/formal/verify.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal; bash scripts/verify.sh full",
+      "result": "Prescribed SAT witness: returns 0,+1/40,-1/40, reward sum 0, ending wealth 1599/1600; actual reporter correctly records economic loss.",
+      "bounds": "Real scalar identities and base/step induction obligations; no finite path-length bound in algebra. Synthetic grid: 1944 episodes, horizons 1/3/6, remaining 3/7/12, delays 0/1; four failure scenarios and one nonadditivity witness.",
+      "limitations": "Exact-real arithmetic with positive starting/intermediate wealth for the product induction; complete source row publication, stable ordinary state, returning helpers and trusted Python/NumPy/AST semantics. Costs are nonnegative supplied vectors; fill quantities, fee formation and impact square roots are not proved. Real identities and synthetic tolerance tests do not establish universal binary64 error bounds, finite outputs, runtime refinement or economic superiority. Initial gate/market failures may have no new row. Insolvency violates the positive-wealth induction premise. All 38 broader obligations remain open/partial.",
+      "counterexample": "formal/research/reward-accounting-fixtures.json",
+      "status": "refuted"
     }
   ],
   "missionObligations": [
@@ -444,25 +2099,36 @@
       "claim": "No-lookahead",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-CAUSAL-SLICE"
+        "F-RL-CAUSAL-SLICE",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 2,
       "claim": "Split isolation",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SPLIT"
+        "F-RL-SPLIT",
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 3,
       "claim": "Causal normalization",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open."
     },
     {
       "number": 4,
@@ -474,36 +2140,80 @@
     {
       "number": 5,
       "claim": "Symbol isolation",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-FEATURE-FOOTPRINT"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open."
     },
     {
       "number": 6,
       "claim": "Finite outputs",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-BOUNDS"
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-TRANSITION-ADMISSION",
+        "F-RL-TERMINAL-REAL",
+        "F-RL-TERMINAL-FP-MASK",
+        "F-RL-TERMINAL-EXACT",
+        "F-RL-TERMINAL-FINITE",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-PPO-FINITE",
+        "F-RL-Q-FINITE",
+        "F-RL-CQL-SHIFT",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH",
+        "F-RL-OPE-FP-SUPPORT",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 7,
       "claim": "Bounded values",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-BOUNDS"
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
     },
     {
       "number": 8,
       "claim": "Accounting",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-ACCOUNT"
+        "F-RL-ACCOUNT",
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-REWARD-RECONCILE",
+        "F-RL-REWARD-ADDITIVE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
     },
     {
       "number": 9,
@@ -516,8 +2226,27 @@
       "number": 10,
       "claim": "Overflow and underflow",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-TERMINAL-REAL",
+        "F-RL-TERMINAL-FP-MASK",
+        "F-RL-TERMINAL-EXACT",
+        "F-RL-TERMINAL-FINITE",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-PPO-FINITE",
+        "F-RL-Q-FINITE",
+        "F-RL-CQL-SHIFT",
+        "F-RL-OPE-FP-SUPPORT",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH",
+        "F-RL-FUNDING-GRID",
+        "F-RL-FUNDING-ENDPOINT",
+        "F-RL-FUNDING-FINITE"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established."
     },
     {
       "number": 11,
@@ -575,48 +2304,109 @@
       "claim": "Observation causality",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-CAUSAL-SLICE"
+        "F-RL-CAUSAL-SLICE",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
     },
     {
       "number": 18,
       "claim": "Valid transitions",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-TRANSITION-ADMISSION",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-REWARD-RECONCILE",
+        "F-RL-REWARD-ADDITIVE"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
     },
     {
       "number": 19,
       "claim": "Terminal accounting",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-TRANSITION-ADMISSION",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-REWARD-RECONCILE",
+        "F-RL-REWARD-ADDITIVE"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return."
     },
     {
       "number": 20,
       "claim": "Action safety",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-BOUNDS"
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-GAP-BOUND",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-UNCONDITIONAL-FLOOR",
+        "F-RL-GAP-CONFORMANCE",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
     },
     {
       "number": 21,
       "claim": "Invalid output fallback",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-FALLBACK"
+        "F-RL-SHIELD-FALLBACK",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open."
     },
     {
       "number": 22,
       "claim": "Replay determinism",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-FIT-PREFIX",
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER",
+        "F-RL-REPLAY-CUTOFF",
+        "F-RL-REPLAY-QUOTIENT"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement."
     },
     {
       "number": 23,
@@ -660,9 +2450,14 @@
       "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-DEFAULT",
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open."
     },
     {
       "number": 28,
@@ -676,25 +2471,43 @@
     {
       "number": 29,
       "claim": "Artifact compatibility",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-METADATA"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
     },
     {
       "number": 30,
       "claim": "Hash and provenance checks",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-METADATA"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open."
     },
     {
       "number": 31,
       "claim": "Default-disabled",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-DEFAULT"
+        "F-RL-DEFAULT",
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-INFER-ADMISSION",
+        "F-RL-INFER-SELECTION",
+        "F-RL-INFER-PATH",
+        "F-RL-ESS-V2-ACCUMULATE",
+        "F-RL-ESS-V2-BOUNDS",
+        "F-RL-ESS-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved."
     },
     {
       "number": 32,
@@ -709,33 +2522,48 @@
       "number": 33,
       "claim": "Atomicity",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-OPTIMIZER-PUBLISH",
+        "F-RL-OPTIMIZER-ATOMIC"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged."
     },
     {
       "number": 34,
       "claim": "Race freedom",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+      "evidenceRequirements": [
+        "F-RL-OPTIMIZER-PUBLISH",
+        "F-RL-OPTIMIZER-ATOMIC"
+      ],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof. CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged."
     },
     {
       "number": 35,
       "claim": "Idempotence",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-SHIELD-IDEMPOTENT"
+        "F-RL-SHIELD-IDEMPOTENT",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation."
     },
     {
       "number": 36,
       "claim": "Shutdown termination",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-TARGET-V2-TERMINAL",
+        "F-RL-TARGET-V2-FINITE",
+        "F-RL-TARGET-V2-REAL",
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-RL-INFER-DEADLINE"
       ],
-      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-017 records a nonreturning inference model; this does not model or verify server shutdown or cancellation."
     },
     {
       "number": 37,
