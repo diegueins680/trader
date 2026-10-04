@@ -436,6 +436,7 @@ import Trader.SignalGates (
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.AsyncJobAdmission (asyncJobAdmissionSuite)
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
+import Trader.Test.BacktestGate (backtestGateSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
 import Trader.Test.FormalVerification (formalVerificationSuite)
@@ -870,6 +871,7 @@ main = do
     runSuite "formalVerification" formalVerificationSuite
     runSuite "gracefulShutdown" gracefulShutdownSuite
     runSuite "workerRegistry" workerRegistrySuite
+    runSuite "backtestGate" backtestGateSuite
     runSuite "asyncJobAdmission" asyncJobAdmissionSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite
