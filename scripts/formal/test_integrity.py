@@ -2693,5 +2693,40 @@ class AsyncSealTests(unittest.TestCase):
             seal.extract()
 
 
+class BacktestGateTests(unittest.TestCase):
+    def test_numeric_and_lifecycle(self):
+        import backtest_gate as gate
+        self.assertEqual(gate.prove_numeric(), {'F-BACKTEST-GATE-NUMERIC': 'unsat'})
+        self.assertEqual(gate.check_model()['states'], 1656)
+
+    def test_invalid_lifecycle_rejected(self):
+        import backtest_gate as gate
+        for kind in ('leak','double-release','swallow','early','stuck'):
+            def mutation(state, capacity, modes):
+                count,callers=state
+                phase,cause,outcome,ran=callers[0]
+                if kind=='stuck': return [('bad',state)]
+                if phase=='cleanup' and kind in ('leak','double-release'):
+                    row=('done',cause,outcome,ran)
+                    return [('bad',(count if kind=='leak' else count-2,(row,callers[1])))]
+                if phase=='active' and kind=='swallow':
+                    row=('cleanup','cancel','error',ran)
+                    return [('bad',(count,(row,callers[1])))]
+                if phase=='new' and kind=='early':
+                    row=('new',cause,outcome,True)
+                    return [('bad',(count,(row,callers[1])))]
+                return gate.successors(state,capacity,modes)
+            with self.subTest(kind=kind), self.assertRaises(ValueError):gate.check_model(mutation)
+
+    def test_source_rejects_broad_exception_handler(self):
+        import backtest_gate as gate
+        original=Path.read_bytes
+        def changed(path):
+            value=original(path)
+            if str(path).endswith(gate.SOURCE):return value.replace(b'Just _ -> Nothing',b'Just _ -> Just ex')
+            return value
+        with patch.object(Path,'read_bytes',changed), self.assertRaises(ValueError):gate.extract()
+
+
 if __name__ == '__main__':
     unittest.main()

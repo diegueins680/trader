@@ -15,6 +15,7 @@ executable trader-hs
                      , Trader.App.BinanceProbe
                      , Trader.App.Csv
                      , Trader.App.Env
+                     , Trader.App.BacktestGate
                      , Trader.App.AsyncJobAdmission
                      , Trader.App.GracefulShutdown
                      , Trader.App.Observability
@@ -294,6 +295,7 @@ test-suite trader-tests
                      , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args
+                     , Trader.App.BacktestGate
                      , Trader.App.AsyncJobAdmission
                      , Trader.App.GracefulShutdown
                      , Trader.App.Runtime
@@ -377,6 +379,7 @@ test-suite trader-tests
                      , Trader.Test.BinanceProbe
                      , Trader.Test.Cors
                      , Trader.Test.FormalVerification
+                     , Trader.Test.BacktestGate
                      , Trader.Test.AsyncJobAdmission
                      , Trader.Test.GracefulShutdown
                      , Trader.Test.MarketRisk

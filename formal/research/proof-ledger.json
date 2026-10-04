@@ -193,6 +193,12 @@
       "status": "assumption",
       "statement": "Private pool count/closure atomics and completion MVar, trusted GHC/base mask and nonblocking atomicModifyIORef/tryPutMVar, finite allocation and total callbacks; exactly one release per accepted reservation; scheduler service and returning preparation/callback/finalizers for eventual completion. Pre-seal reservations remain legitimate. No full IO refinement, process-death recovery, detached descendants, cross-instance ownership or atomic whole-server HTTP drain claim.",
       "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-BACKTEST-GATE",
+      "status": "assumption",
+      "statement": "Pinned GHC/base atomic IORef, mask/finally, System.Timeout and SomeAsyncException hierarchy; private counter and total numeric predicates; finite allocation and scheduler service. Callback allows cancellation delivery and does not suppress it internally. Exception hierarchy, not delivery provenance, determines structured versus propagated failure. Waiting admission has no deadline or fairness guarantee. No uninterruptible/foreign-call termination, global drain transaction, durable recovery or full IO refinement.",
+      "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
   "criticalFiles": [
@@ -253,7 +259,13 @@
     "scripts/formal/async_shutdown_seal.py",
     "formal/research/AsyncSeal.hs",
     "formal/research/fixtures/async-seal-before.hs",
-    "formal/research/fixtures/async-seal-witness.hs"
+    "formal/research/fixtures/async-seal-witness.hs",
+    "scripts/formal/backtest_gate.py",
+    "formal/research/BacktestGate.hs",
+    "haskell/app/Trader/App/BacktestGate.hs",
+    "haskell/test/Trader/Test/BacktestGate.hs",
+    "formal/research/fixtures/backtest-gate-before.hs",
+    "formal/research/fixtures/backtest-gate-witness.hs"
   ],
   "entries": [
     {
@@ -2992,6 +3004,117 @@
       "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
       "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-BACKTEST-GATE-NUMERIC",
+      "claim": "For arbitrary positive machine Int maximum B and representable seconds s, Integer-based U=min(B,max(1,s)*1000000) is positive, bounded by B and the sanitized exact duration, exact below saturation and monotone; it never wraps into the unlimited negative timeout sentinel.",
+      "formalStatement": "For arbitrary positive machine Int maximum B and representable seconds s, Integer-based U=min(B,max(1,s)*1000000) is positive, bounded by B and the sanitized exact duration, exact below saturation and monotone; it never wraps into the unlimited negative timeout sentinel.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BACKTEST-GATE",
+        "A-ASYNC-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/backtest_gate.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/backtest-gate-contract.md",
+        "formal/research/backtest-gate-source.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/BacktestGate.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/BacktestGate.hs",
+        "formal/research/fixtures/backtest-gate-before.hs",
+        "formal/research/fixtures/backtest-gate-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule.",
+      "counterexample": "formal/research/backtest-gate-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-BACKTEST-GATE-LIFECYCLE",
+      "claim": "The finite two-caller backtest gate at capacities one and two, with immediate/waiting modes, preserves exact reservation ownership and bounds, prevents callbacks on failed admission, releases each owner once and propagates cancellation/foreign timeout. Every reachable state can reach quiescence; retry cycles remain explicit and no unconditional eventual-termination claim is made.",
+      "formalStatement": "The finite two-caller backtest gate at capacities one and two, with immediate/waiting modes, preserves exact reservation ownership and bounds, prevents callbacks on failed admission, releases each owner once and propagates cancellation/foreign timeout. Every reachable state can reach quiescence; retry cycles remain explicit and no unconditional eventual-termination claim is made.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BACKTEST-GATE",
+        "A-ASYNC-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/backtest_gate.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/backtest-gate-contract.md",
+        "formal/research/backtest-gate-source.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/BacktestGate.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/BacktestGate.hs",
+        "formal/research/fixtures/backtest-gate-before.hs",
+        "formal/research/fixtures/backtest-gate-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule.",
+      "counterexample": "formal/research/backtest-gate-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-BACKTEST-GATE-CONFORMANCE",
+      "claim": "Compiled backtest-gate tests reproduce baseline own-timeout, cancellation, outer-timeout and duration-overflow failures plus an instrumented reserve/finalizer-gap schedule, and check success/error cleanup, contention, waiting cancellation/retry, caller masking and generated concurrency. Reviewed Main keeps its existing HTTP/message mapping; source-bound tests are not full IO refinement.",
+      "formalStatement": "Compiled backtest-gate tests reproduce baseline own-timeout, cancellation, outer-timeout and duration-overflow failures plus an instrumented reserve/finalizer-gap schedule, and check success/error cleanup, contention, waiting cancellation/retry, caller masking and generated concurrency. Reviewed Main keeps its existing HTTP/message mapping; source-bound tests are not full IO refinement.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BACKTEST-GATE",
+        "A-ASYNC-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/backtest_gate.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/backtest-gate-contract.md",
+        "formal/research/backtest-gate-source.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/BacktestGate.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/BacktestGate.hs",
+        "formal/research/fixtures/backtest-gate-before.hs",
+        "formal/research/fixtures/backtest-gate-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule.",
+      "counterexample": "formal/research/backtest-gate-counterexamples.json",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -3251,9 +3374,12 @@
         "F-SHUTDOWN-CONFORMANCE",
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-BACKTEST-GATE-NUMERIC",
+        "F-BACKTEST-GATE-LIFECYCLE",
+        "F-BACKTEST-GATE-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Repair and compose numeric admission/publication in a versioned successor rather than count isolated kernels as repairs.",
@@ -3543,9 +3669,12 @@
         "F-RL-PROCESS-CONFORMANCE",
         "F-SHUTDOWN-BUDGET",
         "F-SHUTDOWN-STAGES",
-        "F-SHUTDOWN-CONFORMANCE"
+        "F-SHUTDOWN-CONFORMANCE",
+        "F-BACKTEST-GATE-NUMERIC",
+        "F-BACKTEST-GATE-LIFECYCLE",
+        "F-BACKTEST-GATE-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
       "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
@@ -3891,9 +4020,12 @@
         "F-ASYNC-ADMISSION-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-BACKTEST-GATE-NUMERIC",
+        "F-BACKTEST-GATE-LIFECYCLE",
+        "F-BACKTEST-GATE-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3968,9 +4100,12 @@
         "F-ASYNC-ADMISSION-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-BACKTEST-GATE-NUMERIC",
+        "F-BACKTEST-GATE-LIFECYCLE",
+        "F-BACKTEST-GATE-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
       "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",
@@ -4024,9 +4159,12 @@
         "F-ASYNC-ADMISSION-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-BACKTEST-GATE-NUMERIC",
+        "F-BACKTEST-GATE-LIFECYCLE",
+        "F-BACKTEST-GATE-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
       "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",

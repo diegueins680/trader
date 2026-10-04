@@ -638,3 +638,15 @@ CE-ASYNC-SEAL-001/002 preserve snapshot/result-cell false-completion witnesses.
 Source binding plus conformance does not establish full Haskell IO refinement;
 whole-server draining and durable ownership remain unresolved. The broader
 obligation count remains 3 closed, 28 partial, 7 open.
+
+
+Backtest gate follow-up: [contract](../formal/research/backtest-gate-contract.md)
+adds F-BACKTEST-GATE-NUMERIC, F-BACKTEST-GATE-LIFECYCLE and
+F-BACKTEST-GATE-CONFORMANCE. Five integer SMT duration claims, 1,656 finite states /
+2,984 edges (two callers, capacities 1/2, immediate/waiting pairs; depth at most 8),
+264 compiled numeric cases and seven runtime tests bind the extracted implementation.
+AG safety and EF quiescence are checked; retry cycles are retained, so AF termination
+and queue fairness are not claimed. A-BACKTEST-GATE names runtime/interruptibility
+assumptions. CE-BACKTEST-001–005 preserve timeout, cancellation, overflow and a
+separately labeled reserve-gap schedule. Source binding is not full IO refinement.
+The broader 38-obligation statuses and economic acceptance gates are unchanged.

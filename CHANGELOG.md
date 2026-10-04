@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Backtest execution: preserve timeout classification and external cancellation,
+  mask capacity ownership through cleanup installation, and prevent timeout-unit
+  overflow. Extract a small Haskell gate with source-bound SMT/model evidence and
+  five preserved regression witnesses. Existing admission limits and waiting
+  semantics remain unchanged.
+
 - Seal async job admission before shutdown snapshots and acknowledge completion only after every reserved job finishes its cleanup. Reject late admissions explicitly; preserve existing queue-full and job JSON semantics. Add source-bound seal model, SMT obligations and two deterministic shutdown regressions.
 
 - Async jobs: make slot reservation exception-safe and publish the job entry before allowing its callback to run. Preserve queue/API contracts; add source-bound integer proofs, a two-caller lifecycle model, interrupted-admission regressions and compiled conformance. Durable recovery and HTTP drain coordination remain unresolved.

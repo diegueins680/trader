@@ -122,6 +122,130 @@
       "F-ASYNC-SEAL-INVARIANTS": "unsat"
     }
   },
+  "backtestGate": {
+    "conformance": {
+      "concurrentCases": 32,
+      "counterexamples": [
+        "CE-BACKTEST-001",
+        "CE-BACKTEST-002",
+        "CE-BACKTEST-003",
+        "CE-BACKTEST-004",
+        "CE-BACKTEST-005"
+      ],
+      "intBits": 64,
+      "numericCases": 264,
+      "runtimeTests": 7,
+      "scope": "compiled extracted module, literal baseline function adapter and labeled reserve-gap schedule; no full HTTP/IO refinement",
+      "seed": 20261004
+    },
+    "model": {
+      "callers": 2,
+      "configurations": [
+        {
+          "capacity": 1,
+          "maxShortestDepth": 8,
+          "modes": [
+            "immediate",
+            "immediate"
+          ],
+          "states": 189,
+          "terminalStates": 48,
+          "transitions": 268,
+          "waitingStates": 0
+        },
+        {
+          "capacity": 1,
+          "maxShortestDepth": 8,
+          "modes": [
+            "immediate",
+            "waiting"
+          ],
+          "states": 189,
+          "terminalStates": 42,
+          "transitions": 296,
+          "waitingStates": 14
+        },
+        {
+          "capacity": 1,
+          "maxShortestDepth": 8,
+          "modes": [
+            "waiting",
+            "immediate"
+          ],
+          "states": 189,
+          "terminalStates": 42,
+          "transitions": 296,
+          "waitingStates": 14
+        },
+        {
+          "capacity": 1,
+          "maxShortestDepth": 8,
+          "modes": [
+            "waiting",
+            "waiting"
+          ],
+          "states": 189,
+          "terminalStates": 36,
+          "transitions": 324,
+          "waitingStates": 28
+        },
+        {
+          "capacity": 2,
+          "maxShortestDepth": 8,
+          "modes": [
+            "immediate",
+            "immediate"
+          ],
+          "states": 225,
+          "terminalStates": 36,
+          "transitions": 450,
+          "waitingStates": 0
+        },
+        {
+          "capacity": 2,
+          "maxShortestDepth": 8,
+          "modes": [
+            "immediate",
+            "waiting"
+          ],
+          "states": 225,
+          "terminalStates": 36,
+          "transitions": 450,
+          "waitingStates": 0
+        },
+        {
+          "capacity": 2,
+          "maxShortestDepth": 8,
+          "modes": [
+            "waiting",
+            "immediate"
+          ],
+          "states": 225,
+          "terminalStates": 36,
+          "transitions": 450,
+          "waitingStates": 0
+        },
+        {
+          "capacity": 2,
+          "maxShortestDepth": 8,
+          "modes": [
+            "waiting",
+            "waiting"
+          ],
+          "states": 225,
+          "terminalStates": 36,
+          "transitions": 450,
+          "waitingStates": 0
+        }
+      ],
+      "states": 1656,
+      "temporalClaim": "AG safety and EF terminal from every reachable state; retry cycles explicit, no unconditional AF/fairness claim",
+      "transitions": 2984
+    },
+    "smt": {
+      "F-BACKTEST-GATE-NUMERIC": "unsat"
+    }
+  },
   "capabilityIsolation": {
     "effects": {
       "functions": {
@@ -154,8 +278,8 @@
       "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
     },
     "graph": {
-      "localEdges": 287,
-      "moduleFiles": 117,
+      "localEdges": 289,
+      "moduleFiles": 118,
       "requirement": "F-RL-COMPONENT-ISOLATION",
       "roots": {
         "analyze-close-timing": {
@@ -236,7 +360,7 @@
           "states": 1
         },
         "trader-hs": {
-          "edges": 249,
+          "edges": 251,
           "maxShortestDepth": 3,
           "reachableFiles": [
             "haskell/app/Main.hs",
@@ -244,6 +368,7 @@
             "haskell/app/Trader/App/Args.hs",
             "haskell/app/Trader/App/AsyncJobAdmission.hs",
             "haskell/app/Trader/App/AutoStartBackoff.hs",
+            "haskell/app/Trader/App/BacktestGate.hs",
             "haskell/app/Trader/App/BinanceProbe.hs",
             "haskell/app/Trader/App/Csv.hs",
             "haskell/app/Trader/App/Env.hs",
@@ -334,7 +459,7 @@
             "haskell/app/Trader/Trading.hs",
             "haskell/app/Trader/VolConfGate.hs"
           ],
-          "states": 94
+          "states": 95
         }
       },
       "search": "reachable_fixed_point"
@@ -391,7 +516,7 @@
     "sourceHashes": {
       "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
       "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-      "haskell/app/Main.hs": "a9e04a6f2126c65e7b461c7eaa87fdb29d9f6aa60ca8c577c3168b4b20933d81",
+      "haskell/app/Main.hs": "b2692985d00fa497461c30f421962f9f159c76c37835ab70a1f26eb170e22dfa",
       "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
       "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
       "haskell/app/OutboxPublisherMain.hs": "6447406bcca3a421dd28bfc8e7735308ec2d74609c1f673ba71b8c1a025b62ee",
@@ -399,6 +524,7 @@
       "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
       "haskell/app/Trader/App/AsyncJobAdmission.hs": "6ecd030872efbc7d39b4716f24070334b561db7456a4dcc62a54fe702ab7516a",
       "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
+      "haskell/app/Trader/App/BacktestGate.hs": "c0979d9a007d9ee1442487f1687b918fb2c6cb8b918b1e7403abbe870c4daf9f",
       "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
       "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
       "haskell/app/Trader/App/Env.hs": "ba0aa10931c35f211003ebf4ffe55efebe973feed72b1125d0149111b0654fac",
@@ -1468,6 +1594,7 @@
   "smt": {
     "F-ASYNC-ADMISSION-NUMERIC": "unsat",
     "F-ASYNC-SEAL-INVARIANTS": "unsat",
+    "F-BACKTEST-GATE-NUMERIC": "unsat",
     "F-RL-ACCOUNT": "unsat",
     "F-RL-ARTIFACT-DISJOINT": "unsat",
     "F-RL-ARTIFACT-METADATA": "unsat",
@@ -1593,6 +1720,7 @@
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
     "formal/research/AsyncJobAdmission.hs": "edc72532790a4089791532462b37897ec83172b7b8220020d3a5df6d6bdb819c",
     "formal/research/AsyncSeal.hs": "d9a8748c7d588a04a8e93e965bd543880a89b89a3be7ca24a1e7a2c1d25ff0dc",
+    "formal/research/BacktestGate.hs": "368d3dbc5b81faa42ad97d3eb0d98838de0dad34f3447ea8a9640cf53c0b5fe5",
     "formal/research/ComponentGraph.hs": "adce2baf7f0b713dfc2835502dc5459295ac799cd208d96404d09b3a5e7a48b4",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
@@ -1601,12 +1729,15 @@
     "formal/research/artifact-counterexamples.json": "0ffc100916d1af5646e985441529e4941d3b16e8fbc12f108a036c1d0f678315",
     "formal/research/async-job-admission-contract.md": "e0577ffa5d7dee65eb4ccc862073fa9691adf5d667d5a5051fd5078efd84011c",
     "formal/research/async-job-admission-counterexamples.json": "37546208297c2d1f11fb2f2014de6c3660e5df4a57a339402830c80b511120f3",
-    "formal/research/async-job-admission-source.json": "9044f236e517d64fdc6ddd66a59ec9dbbd89d63fb967dec6fe7882e1d03b87de",
+    "formal/research/async-job-admission-source.json": "d2e4da902c7d55bdd7585eefdf2c5f1650b514b934f78820ddf5acf176abd147",
     "formal/research/async-shutdown-seal-contract.md": "a9e31e0c3d718c13555d0a530f9e30b0d5dda87ae7ad186aa6fd4210b13cf244",
     "formal/research/async-shutdown-seal-counterexamples.json": "e061d5e9b3a88ec53059cc0a76b6b24f66f9bde1b105ee346dccad7a0bed6dff",
-    "formal/research/async-shutdown-seal-source.json": "f37d5d8648a8000126b66cbd2663219bb65ba4082d487e3a4b985301c432df31",
+    "formal/research/async-shutdown-seal-source.json": "7a240e239e7addbdabe2d9dd84ce424c589e8024ad8f05f3be8be1f84b3ff154",
+    "formal/research/backtest-gate-contract.md": "591490c6255da8e95871817f9089db782846e6960402de663e40ab30d6ae861a",
+    "formal/research/backtest-gate-counterexamples.json": "659172cc22fc4a2120d6d3024b689e55f88a93751440cb78ffa7641a58a12f85",
+    "formal/research/backtest-gate-source.json": "313dfb2891a96c618aff7c45285a16267f2c3e3285402d1a2056c95a4ae4b032",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
-    "formal/research/capability-source-contract.json": "b942073c0f5409169fad56ca7e90044228e86519e2997b7520adacd39cd89aed",
+    "formal/research/capability-source-contract.json": "ef3ee87c53074cbba15154aed500a5160cffd95c0880028edbf7af01580f0a4b",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
@@ -1618,6 +1749,8 @@
     "formal/research/fixtures/async-job-witness.hs": "d4db0af266f40b619e36abf5cc995acf1c4f87836147f53e29d861b08b4cf3c5",
     "formal/research/fixtures/async-seal-before.hs": "1f3e94cd3e5129a7fdfa62bdbe469a407f1a4767ef8665207bee8b1a90e7f6e3",
     "formal/research/fixtures/async-seal-witness.hs": "9f2a9fea7ad9935967ea6d7442a1d36f3011c73b459d65065b889c6901c8fd30",
+    "formal/research/fixtures/backtest-gate-before.hs": "b5a53915036a4dc2f94d7b71e13f68147aed8fe2bd3d274de77b400ce9bb6d3c",
+    "formal/research/fixtures/backtest-gate-witness.hs": "e0a43568a9807943c4083a046d3efef4ea15f1230da9efbe8452fd91372d7b3f",
     "formal/research/fixtures/worker-registry-before.hs": "425b04e98553bc6bbaf9d088d0cdcc1799243a83bc364bca1b9f5ab68e6df387",
     "formal/research/fixtures/worker-registry-witness.hs": "e8d1e491f09433438493e30f78398187547349f756561e49c266e6026c681aec",
     "formal/research/funding-boundary-contract.md": "97a8cc3e97751b714a33b1874ced95c80ca06c9e536aba3ff09394d15ade566e",
@@ -1637,7 +1770,7 @@
     "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "fd36d29c197f954f259b3c1860212252493cf4cdca7807b6098e3f51415dc15f",
+    "formal/research/proof-ledger.json": "847515cfa67e77868a85845e7d0410ae735f76fadb6121c55c496c5885df54ed",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
@@ -1647,7 +1780,7 @@
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
     "formal/research/shutdown-deadline-contract.md": "052481312f9074fc73118ce6ea9e13b8b32ff7e4f32b1a60dfff8159d661b9fd",
-    "formal/research/shutdown-source.json": "1f30586b1c381a50138f7454eee2587fed4b89fe9dfd94deb99f0ab8c27b6482",
+    "formal/research/shutdown-source.json": "e5b7afd7f5502afee8d97bd7e7540073f0fbb00628af909343f7a4a8264748cd",
     "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
     "formal/research/snapshot-v2-source.json": "24bcfa01d029c9067d899ab080d523ba6d3bcc9eda5de21cd9ab217f1d98415b",
     "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
@@ -1662,10 +1795,10 @@
     "formal/research/value-objective-contract.md": "588f5a0be6bde1517440dab9236fb8a8c44b8827bd7725acfae3880ed3e5a7a7",
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
-    "formal/research/worker-registry-source.json": "88f8a298af4224d91d34925e83e43048ea6c4255f1836e0976d79e58e5163bb0",
+    "formal/research/worker-registry-source.json": "1e50149903eee2daddefa16fd0699574e0675ca5a6a6e8576a2f1d510ce7b73f",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-    "haskell/app/Main.hs": "a9e04a6f2126c65e7b461c7eaa87fdb29d9f6aa60ca8c577c3168b4b20933d81",
+    "haskell/app/Main.hs": "b2692985d00fa497461c30f421962f9f159c76c37835ab70a1f26eb170e22dfa",
     "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
     "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
     "haskell/app/OutboxPublisherMain.hs": "6447406bcca3a421dd28bfc8e7735308ec2d74609c1f673ba71b8c1a025b62ee",
@@ -1673,6 +1806,7 @@
     "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "6ecd030872efbc7d39b4716f24070334b561db7456a4dcc62a54fe702ab7516a",
     "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
+    "haskell/app/Trader/App/BacktestGate.hs": "c0979d9a007d9ee1442487f1687b918fb2c6cb8b918b1e7403abbe870c4daf9f",
     "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
     "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
     "haskell/app/Trader/App/Env.hs": "ba0aa10931c35f211003ebf4ffe55efebe973feed72b1125d0149111b0654fac",
@@ -1782,12 +1916,14 @@
     "haskell/app/Trader/VolConfGate.hs": "960283ce0191fed59f9d554276e6b07fe4c75b3c2a1c1a211ee24a0d9d8c8cdd",
     "haskell/research/InferenceProcessV2.hs": "f93011a2cbb56d17f4b6fb547f8666679dc237edee0441ce0bfb747dd634a308",
     "haskell/scripts/rollup_performance.sh": "450d7650ca208938cbc4c7ef24c630415b9a15c06e8bbdb06437942354c5d5e4",
-    "haskell/test/TestMain.hs": "44534d3b8585aae449edd6fff4c5d06b24ea6a255477158645878c51d8280dfe",
+    "haskell/test/TestMain.hs": "4b9f260f39479c966ab65d39e9d592bc404f4ba7067709706452d2df195ec127",
     "haskell/test/Trader/Test/AsyncJobAdmission.hs": "fdc49dec38a4805b18a993c6b3858e073bcad163d53340fb84b889a8d80c5a48",
+    "haskell/test/Trader/Test/BacktestGate.hs": "3bd116d5705cbb3c6fa6aba25c9348f539da9ec13eea1fb7258d94bc2d328a6e",
     "haskell/test/Trader/Test/GracefulShutdown.hs": "5237934157849b58700ff5dc9dcddc8bb647b5a8c09e41c43b191448e837c872",
-    "haskell/trader.cabal": "e16c565f8316f7e2bda8fe505d366860255ca348cdcb591ae46f51b44ea10399",
+    "haskell/trader.cabal": "6a6e1174e9de26bd959a411aa14696f9c049609408fd136e291672ee5453b9e0",
     "research-notes/registrations/async-job-admission-engineering.json": "c0f554260134deadb6f7fb7aaa4361cfa0ec1dd5602ef123b9acbf5ae8bbef8a",
     "research-notes/registrations/async-shutdown-seal-engineering.json": "7a00d9dc56e5e23f5c0bde996cbb2323ea5305142d29c14e49cec6d2a226b896",
+    "research-notes/registrations/backtest-gate-engineering.json": "8982091af1f7b9590e461c6118f2229c9b8d300d4a03b111beb3749b9491e6a4",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
     "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14",
     "research-notes/registrations/funding-boundary-audit-engineering.json": "cc16f1ff23ba0012bc3fb1d3f09edcf3a14742d49ebb64223c9c83858e7fc398",
@@ -1812,6 +1948,7 @@
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
     "scripts/formal/async_job_admission.py": "69f187d9a4e74e37b4f68419db6459782433aceb92f8bb9ab00f9cf5a9d6b2c3",
     "scripts/formal/async_shutdown_seal.py": "27d3ea78b02790e39f06f577f608fef24393068ca934b5cbab8a37ad0d9f5083",
+    "scripts/formal/backtest_gate.py": "70f58c4b06b788ce48c08aefac781569ca22977c434c47c5ce63303d45543f87",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
@@ -1835,11 +1972,11 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "ee750e47482052c9a5022b7eff2c15902df551ff045ce645f9a3ba7a6a9eb932",
+    "scripts/formal/test_integrity.py": "8e6e990a54d024d5061f20460043609ae4311698fc599ede10bdff08caa6c0b4",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "7c8898ac5e7f7315683f6c73d9420202bdb79a1ef9eeb7705fa545b3ddc953a1",
+    "scripts/formal/verify.py": "1161c7bd2c13e050738a184490dd3f892f4f6904dacd8306834f283907527de7",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
