@@ -19,9 +19,10 @@ NumPy, economic value and causal availability are separate, unproved claims.
 
 Parent states are Disabled, Launch, Ready, Pending, Reject, Candidate, Term,
 Kill, Quiescent and CleanupFailed. Disable produces absence before reading input
-or spawning. Launch records a monotonic timestamp before creating the child.
-Ready is an exact bounded protocol frame. The request, reply and final deadline
-check must finish strictly before 20,000,000 ns from that timestamp. A reply is
+or spawning. Launch initializes the child before admitting or reading a request. Ready is
+an exact bounded protocol frame, with a separate 1 s startup wait. After Ready,
+record the request timestamp. Request input/validation, reply, cleanup and the
+final deadline check must finish strictly before 20,000,000 ns from that timestamp. A reply is
 one of three exact versioned frames, representing quarter exposures -1, 0, 1.
 Those are data proposals, never authorized orders. All other frames abstain.
 
@@ -29,7 +30,7 @@ Every started session executes cleanup, including successful replies. Send TERM;
 poll exit for at most 50 ms; if still pending send KILL to the unreaped child;
 poll for at most another 50 ms. Cleanup failure is an explicit terminal result
 and always rejects. A candidate can be returned only after successful reap and
-a fresh deadline check. No retry, worker reuse, persistence or successor launch
+a fresh deadline check. Startup failure also cleans up. No retry, worker reuse, persistence or successor launch
 exists. Thus late bytes cannot be consumed by another request. Async parent
 cancellation invokes the same cleanup and rethrows; repeated cancellation,
 process death and uninterruptible OS calls are not guaranteed recoverable.
@@ -44,7 +45,7 @@ schedules parent/timer threads. Monotonic time does not wrap during a session.
 Process creation and OS primitives terminate within environment-provided bounds.
 There is no unconditional wall-clock theorem on a general-purpose OS. The
 completion bound is launch/primitive/scheduler overhead plus the remaining
-20 ms admission budget and two 50 ms cleanup windows. An unreaped child after
+1 s startup window, the 20 ms admission budget and two 50 ms cleanup windows. An unreaped child after
 KILL is reported as CleanupFailed, never described as quiescent.
 
 ## Obligations and checks (before implementation)
@@ -70,3 +71,13 @@ compiled conformance support that relation; there is no full compiler or IO
 refinement theorem. Broader obligations 21/36 remain blocked until the repaired
 boundary is composed into a separately registered runner and inherited server
 shutdown is verified. Existing safety gates must not be weakened to claim closure.
+
+## Recorded engineering design revision
+
+The initial cold-start-inclusive 20 ms design rejected all five synthetic calls.
+A direct worker measurement on macOS showed 31.580 ms to Ready, 3.466 ms to
+reply and 5.892 ms to reap. This is engineering evidence, not a timing theorem.
+Before testing a successor, registration amendment 2 separates initialization
+from request admission: no request is read before Ready; the unchanged 20 ms
+budget includes request parsing, computation and cleanup. No financial gate,
+frozen learner or observation-availability claim changes. Count both designs.

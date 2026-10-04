@@ -12,12 +12,40 @@
   "promotion": "none",
   "version": "inference-process-v2",
   "admissionNanoseconds": 20000000,
-  "cleanupWindowsMicroseconds": [50000, 50000],
-  "modelBounds": {"children": 1, "requests": 1, "retries": 0},
-  "syntheticSeeds": [11, 23, 47],
+  "cleanupWindowsMicroseconds": [
+    50000,
+    50000
+  ],
+  "modelBounds": {
+    "children": 1,
+    "requests": 1,
+    "retries": 0
+  },
+  "syntheticSeeds": [
+    11,
+    23,
+    47
+  ],
   "solverTimeoutMilliseconds": 10000,
   "solverSeed": 0,
-  "requirements": ["F-RL-PROCESS-LIFECYCLE", "F-RL-PROCESS-ADMISSION", "F-RL-PROCESS-CONFORMANCE", "F-RL-PROCESS-ISOLATION"],
-  "failureConditions": ["late accepted reply", "unbounded supervisor wait", "live capability", "enabled default", "cleanup failure reported as quiescence", "unknown solver result", "source/model drift"],
-  "limitations": "General-purpose OS timing is conditional; v1 deadline counterexample and inherited production shutdown remain unresolved. No policy or financial evidence is promoted."
+  "requirements": [
+    "F-RL-PROCESS-LIFECYCLE",
+    "F-RL-PROCESS-ADMISSION",
+    "F-RL-PROCESS-CONFORMANCE",
+    "F-RL-PROCESS-ISOLATION"
+  ],
+  "failureConditions": [
+    "late accepted reply",
+    "unbounded supervisor wait",
+    "live capability",
+    "enabled default",
+    "cleanup failure reported as quiescence",
+    "unknown solver result",
+    "source/model drift"
+  ],
+  "limitations": "General-purpose OS timing is conditional; v1 deadline counterexample and inherited production shutdown remain unresolved. No policy or financial evidence is promoted.",
+  "designRevision": 2,
+  "engineeringVariants": 2,
+  "startupWaitMicroseconds": 1000000,
+  "revisionReason": "Cold worker startup measured 31.580 ms before request; initialize before admitting any request, keep request budget at 20 ms. Original design retained as a rejected timing experiment."
 }
