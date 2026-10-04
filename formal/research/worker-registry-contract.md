@@ -76,3 +76,39 @@ of Haskell IO refinement. Real HTTP/bot/order admission, repeated process signal
 blocked logging, detached workers, the frozen RL runner and production resource
 recovery remain open. Registry closure occurs at its lock operation, not at the
 separate HTTP `beginDrain` call. No financial experiment or deployment is included.
+
+## Abstraction, temporal properties and conformance boundary
+
+The concrete registry MVar maps to `closed`; a registered worker with an empty
+completion MVar maps to unfinished, and a filled one maps to finished. Pruned
+finished entries remain finished ghosts in the model. The cancellation cell maps
+to a request count of zero or one. Each stop caller retains an immutable captured
+mask, so dispatch can occur after a captured worker has already finished. Delivery is a separate ghost event. Two model
+callers represent concurrent or interrupted/retried stops. A failure before the
+registry lock leaves `closed` unchanged. Once closure succeeds, future starts
+cannot add a member to either caller's unfinished snapshot, so checking all
+admitted unfinished workers is equivalent to checking each captured snapshot.
+The model does not describe callback internals or a process restart.
+
+For the finite transition graph the checker establishes `AG(closed => AX closed)`,
+`AG(stopSuccess => closed && noUnfinishedCapturedWorker)`, and at most one
+cancellation request per worker. Its strictly decreasing nonnegative rank starts
+at 24; every maximal protocol path ends in finished/rejected start attempts and
+successful/failed stop calls (`AF terminal` in this finite progress abstraction).
+It includes 14,095 states, 55,904 edges and shortest-path depth at most 16, with two
+workers, two callers and two timer ticks each. Infinite scheduler stuttering is
+excluded by A-WORKER-REGISTRY; this is not a scheduler or wall-clock theorem.
+
+The source lock checks the exact reviewed function bodies and private exports.
+Compiled tests exercise the actual module, including parent masking and interrupted
+stop callers. Neither source identity nor these tests proves that every Haskell
+execution refines the atomic model. That gap is explicit in the ledger. No worker
+proposal, policy action or exchange request is introduced by this repair.
+
+Runtime semantics are grounded in the pinned primary documentation:
+[base 4.17.2.1 Control.Concurrent](https://hackage-content.haskell.org/package/base-4.17.2.1/docs/Control-Concurrent.html)
+and [Control.Exception](https://hackage-content.haskell.org/package/base-4.17.2.1/docs/Control-Exception.html).
+Cancellation delivery can precede completion of exception cleanup; explicit
+completion cells therefore supply the acknowledgement used here.
+
+MC-WORKER-001 preserves a model-coverage correction: start, capture, finish, then request cancellation of the captured completed worker. The initial draft model tested current completion instead of captured membership at dispatch. The final model includes 1,220 such dispatch transitions and checks the preserved trace; no implementation defect is claimed from this abstraction correction.

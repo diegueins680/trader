@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "e39fbfa8346a32361a81226e4f6d20822c3f49df",
+  "entries": [
+    {
+      "id": "CE-WORKER-001",
+      "baselineClaim": "Stop forgets unfinished workers and a retry returns success.",
+      "baselineStatus": "refuted",
+      "resolution": "Regression no longer reproduced by repaired compiled module; broader IO refinement remains open.",
+      "before": "(\"unfinished retry\",False,0,True)",
+      "after": "(\"unfinished retry\",False,1,False)",
+      "requirements": [
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-CONFORMANCE"
+      ],
+      "fixture": "formal/research/fixtures/worker-registry-witness.hs"
+    },
+    {
+      "id": "CE-WORKER-002",
+      "baselineClaim": "Start creates a worker after registry stop.",
+      "baselineStatus": "refuted",
+      "resolution": "Regression no longer reproduced by repaired compiled module; broader IO refinement remains open.",
+      "before": "(\"post-close admission\",True,1)",
+      "after": "(\"post-close admission\",True,0)",
+      "requirements": [
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-CONFORMANCE"
+      ],
+      "fixture": "formal/research/fixtures/worker-registry-witness.hs"
+    },
+    {
+      "id": "CE-WORKER-003",
+      "baselineClaim": "Cancellation delivery acknowledges a still-blocked callback finalizer.",
+      "baselineStatus": "refuted",
+      "resolution": "Regression no longer reproduced by repaired compiled module; broader IO refinement remains open.",
+      "before": "(\"unfinished finalizer acknowledged\",True)",
+      "after": "(\"unfinished finalizer acknowledged\",False)",
+      "requirements": [
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-CONFORMANCE"
+      ],
+      "fixture": "formal/research/fixtures/worker-registry-witness.hs"
+    }
+  ],
+  "modelRefinements": [
+    {
+      "id": "MC-WORKER-001",
+      "kind": "abstraction coverage omission corrected before merge",
+      "claim": "A captured unfinished worker can complete before cancellation dispatch, so the caller still requests cancellation of a finished thread.",
+      "oldPredicate": "workers[dispatchIndex] == unfinished",
+      "correction": "Use the immutable captured mask for that caller, not current completion status.",
+      "events": [
+        "start",
+        "close",
+        "finish",
+        "request"
+      ],
+      "states": [
+        [
+          false,
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            false,
+            false
+          ],
+          [
+            -1,
+            -1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        [
+          true,
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            false,
+            false
+          ],
+          [
+            0,
+            -1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        [
+          true,
+          [
+            2,
+            0
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            false,
+            false
+          ],
+          [
+            0,
+            -1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        [
+          true,
+          [
+            2,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            false,
+            false
+          ],
+          [
+            1,
+            -1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      ]
+    }
+  ]
+}
