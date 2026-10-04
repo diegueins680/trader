@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUTC": "2026-10-04T04:47:42.726133+00:00",
+  "sourceFreeze": "bb647b03067fe83aebbe9c420fc58354bca8cbff",
+  "branch": "research/inference-cancellation-2026-10-03",
+  "draftPR": "https://github.com/diegueins680/trader/pull/286",
+  "baseDraftPR": "https://github.com/diegueins680/trader/pull/284",
+  "mainAncestor": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "implementationSha256": "f93011a2cbb56d17f4b6fb547f8666679dc237edee0441ce0bfb747dd634a308",
+  "verification": [
+    {
+      "command": "bash scripts/verify.sh formal",
+      "exitCode": 0,
+      "expected": true,
+      "logSha256": "a651477fba0b9cf089e2ff8415dfab651dd56dd1bcfc15996b55bf2183c7e771",
+      "result": "pass"
+    },
+    {
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "expected": true,
+      "logSha256": "f6e1983899cced58f67dc2f3e9d8b65a634cc83b340c7827d42f4da217b23646",
+      "result": "pass"
+    },
+    {
+      "command": "python scripts/formal/verify.py --require-complete",
+      "exitCode": 1,
+      "expected": true,
+      "logSha256": "75cd9c0cb4aff7047a980041175279f5eaae4a2e250a6320277336f7158b751e",
+      "result": "blocked by 35 unresolved broader obligations and two research gates; expected rejection"
+    }
+  ],
+  "ciObserved": {
+    "run": "https://github.com/diegueins680/trader/actions/runs/37177623560",
+    "head": "bb647b03067fe83aebbe9c420fc58354bca8cbff",
+    "jobs": [
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "status": "in_progress",
+        "conclusion": ""
+      }
+    ]
+  },
+  "environment": {
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "process": "1.6.18.0",
+    "unix": "2.7.3",
+    "bytestring": "0.11.5.3",
+    "threadEnvironment": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    }
+  },
+  "integrityTests": 153,
+  "webTests": 241,
+  "automationTests": 185,
+  "haskellSuite": "trader-tests PASS; build, format, lint and smoke passed",
+  "proofEntries": 79,
+  "smtObligations": 45,
+  "processModel": {
+    "acceptedStates": 6,
+    "children": 1,
+    "cleanupFailureStates": 3,
+    "expiredReplyStatesRejected": 3,
+    "initialRank": 11,
+    "maxShortestDepth": 8,
+    "pollStepsPerWindow": 2,
+    "requests": 1,
+    "retries": 0,
+    "scope": "conditional finite control abstraction; OS primitives and compiler trusted",
+    "states": 57,
+    "timeBuckets": [
+      0,
+      1,
+      2
+    ],
+    "transitions": 143
+  },
+  "processConformance": {
+    "defaultModes": 3,
+    "faultFixtures": [
+      "bad_reply",
+      "cleanup_failed",
+      "cpu_hang",
+      "eof",
+      "hang",
+      "ignore_term",
+      "late",
+      "startup_hang"
+    ],
+    "generatedSeed": 20261003,
+    "guardCases": 226,
+    "heldOpenInput": true,
+    "invalidRequestCases": 7,
+    "networkSeeds": [
+      11,
+      23,
+      47
+    ],
+    "normalAttempts": 10,
+    "scope": "compiled conformance and process tests, not OS or real-time proof",
+    "syntheticNetworkCases": 12
+  },
+  "acceptance": {
+    "blockedResearchGates": [
+      "economic_evidence",
+      "reproducible_delivery"
+    ],
+    "closedMissionObligations": 3,
+    "formalObligationsComplete": false,
+    "missionComplete": false,
+    "openMissionObligations": 35
+  },
+  "financialTrials": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "liveOrders": 0,
+  "liveConfigurationChanges": false,
+  "productionIntegration": false,
+  "proofPlaceholders": false,
+  "readyForAcceptance": false
+}
