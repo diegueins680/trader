@@ -76,3 +76,13 @@ capacity two: 1,551 states / 4,758 edges. Both contain 492 states with a pending
 notification before completion, and 25 terminal states. Six SMT claims accompany
 72 compiled pure cases, four runtime tests and 32 generated schedules. The
 original admission suite remains active (eleven tests total).
+
+## Shared-drain refinement extension (2026-10-04)
+
+The current counter implementation uses STM instead of the baseline IORef.
+Standalone constructors create an independent open controller, retaining the
+original model projection and regression outputs. Server constructors compose
+reservation with the same shared drain TVar; see `drain-pool-contract.md` and
+A-DRAIN-POOL. Existing ownership/cancellation proofs do not establish whole-server
+drain correctness. Existing backtest failure variants retain their mapping;
+BacktestDraining adds HTTP 503 without altering the JSON error shape.

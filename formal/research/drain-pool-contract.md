@@ -67,3 +67,16 @@ have no IO, retry or user callback. Contention has no hard wall-clock bound.
 No global bot/order drain certificate, durable ownership/recovery, forced callback
 termination, or full implementation refinement. Champion/holdout/live settings stay
 unchanged. New proof IDs must not close a broader ledger item by scope reduction.
+
+The model allows optional local seals in both abstract pools, a superset of the
+backtest pool (which has no local seal). Backtests refine the always-unsealed
+projection. Waiting retry remains in the prior backtest model; this composition
+checks a single reservation attempt. No post-drain acceptance is possible on any
+retry, but a one-second sleep and scheduling can delay observed rejection.
+
+Primary runtime references: [STM 2.5.1.0](https://hackage-content.haskell.org/package/stm-2.5.1.0/docs/Control-Concurrent-STM.html)
+and its cited PPoPP 2005 paper, Harris, Marlow, Peyton Jones and Herlihy,
+[Composable Memory Transactions](https://www.microsoft.com/en-us/research/publication/composable-memory-transactions/).
+STM was already a production dependency; this change pins that dependency and adds
+it to the test component. No production service, toolchain architecture or market
+data dependency is introduced.
