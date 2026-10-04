@@ -14,7 +14,7 @@
     "formal/research/fixtures/drain-pool-witness.hs": "4cb9337ae823854bd5bd2851fced2a4666f9986eded1172e89c2a170135ca3a1",
     "formal/research/fixtures/drain-pool-before-async.hs": "6ecd030872efbc7d39b4716f24070334b561db7456a4dcc62a54fe702ab7516a",
     "formal/research/fixtures/drain-pool-before-backtest.hs": "c0979d9a007d9ee1442487f1687b918fb2c6cb8b918b1e7403abbe870c4daf9f",
-    "formal/research/fixtures/drain-pool-before-drain.hs": "035d30257ab5222c0787284fd07c3d4bdbd18da75fa0d86ad7fc082d4b75754c"
+    "formal/research/fixtures/drain-pool-before-drain.hs": "384c4fff89926b1780c88f6fcd93386d03642e7a99d00ba574137ebe6c693c60"
   },
   "bodies": {
     "haskell/app/Trader/App/GracefulShutdown.hs": {

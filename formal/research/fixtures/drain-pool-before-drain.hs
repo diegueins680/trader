@@ -13,4 +13,3 @@ beginDrain (DrainController ref) =
 
 isDraining :: DrainController -> IO Bool
 isDraining (DrainController ref) = readIORef ref
-

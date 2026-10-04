@@ -336,10 +336,10 @@
     "formal/research/fixtures/drain-pool-witness.hs": "4cb9337ae823854bd5bd2851fced2a4666f9986eded1172e89c2a170135ca3a1",
     "formal/research/fixtures/drain-pool-before-async.hs": "6ecd030872efbc7d39b4716f24070334b561db7456a4dcc62a54fe702ab7516a",
     "formal/research/fixtures/drain-pool-before-backtest.hs": "c0979d9a007d9ee1442487f1687b918fb2c6cb8b918b1e7403abbe870c4daf9f",
-    "formal/research/fixtures/drain-pool-before-drain.hs": "035d30257ab5222c0787284fd07c3d4bdbd18da75fa0d86ad7fc082d4b75754c",
+    "formal/research/fixtures/drain-pool-before-drain.hs": "384c4fff89926b1780c88f6fcd93386d03642e7a99d00ba574137ebe6c693c60",
     "haskell/test/Trader/Test/DrainPool.hs": "80c310115e97a338062f02bb0176e85c100b79a33d886653f78bddd7a4186430",
     "formal/research/drain-pool-contract.md": "409f48af808731543eb59e2bc74204d9f17cd9cfef581d365420641bfdc3b051",
-    "formal/research/drain-pool-source.json": "4e9594bee68d0c7ae92a41532e58a0e46b2b46d3d516f1864790f3df5c929ffc",
+    "formal/research/drain-pool-source.json": "6f534bf26d90fc04dc30dd23e5dfae47bb58f8f7cbfb379b0bcdbf5235ad395f",
     "formal/research/drain-pool-counterexamples.json": "9046e06d60ef6be96080ef0935592c8972ee1fb5bacc60ad4092e8f4a8bf3b36",
     "research-notes/registrations/drain-pool-engineering.json": "061ddd0e2fa719c6e2bb4893b71d1b0b84effbab924d267133b2964f3761312e"
   },
