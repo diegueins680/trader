@@ -1,8 +1,39 @@
 # Trader
 
+The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: default-disabled, capability separation and no production learning are closed for the delivered offline boundary under the [source-isolation contract](formal/research/capability-isolation-contract.md); 35 obligations and separate economic-evidence gates remain unresolved. This does not certify inherited production authorization or deployed images.
+
+The default-disabled [optimizer snapshot v2](formal/research/optimizer-snapshot-v2-contract.md) repairs partial state publication for its own offline update/forward path using immutable snapshots and conditional single-reference publication. Concurrent stale updates reject; the frozen learner remains reproducible. This does not close whole-system atomicity, prove hard inference cancellation, or change any trading policy.
+
+
+The [reward accounting audit](formal/research/reward-accounting-contract.md) distinguishes call-relative learning reward from compounded economic return. Source-derived real identities and synthetic tolerance checks preserve the existing simulator/reporter; no candidate or live behavior is introduced.
+
+The [replay cutoff audit](formal/research/replay-cutoff-contract.md) extends ordering coverage to a seven-or-more-bars class using an integer SMT lemma and finite model checking. Actual observation/reward equivalence remains unproved; no financial trial or simulator change is introduced.
+
+The [replay ordering audit](formal/research/replay-order-contract.md) distinguishes delayed policy targets from compulsory terminal liquidation at the endpoint. A finite-call model and synthetic actual-helper traces check event ordering; full runtime and numeric-accounting refinement remain open.
+
+The [funding boundary audit](formal/research/funding-boundary-contract.md) checks conditional settlement-to-bar mapping and preserves synthetic finite-input overflow (CE-RL-019). It does not change the loader or establish historical occurrence or provider availability.
+
+The isolated [exact ESS diagnostic](formal/research/ess-v2-contract.md) is disabled by default. It uses rational arithmetic to avoid weight-moment underflow; it is not connected to the frozen OPE estimator and cannot establish policy reliability.
+
+The [OPE algebra audit](formal/research/ope-algebra-contract.md) checks conditional estimator identities and preserves an ESS underflow fixture. It does not establish reliable policy evaluation or change the frozen estimator; the fixture is outside the current deterministic six-step OPE weight domain.
+
+The [inference boundary audit](formal/research/inference-boundary-contract.md) checks conditional proposal guards and first-maximum selection. The 20 ms gate measures a completed call; it does not preempt stalled inference or bound later validation/selection. No policy behavior changes.
+
+The [optimizer publication audit](formal/research/optimizer-publication-contract.md) distinguishes checked prepublication staging from sequential attribute stores. An instrumented interruption leaves mixed state (CE-RL-016); the frozen optimizer is unchanged and concurrent atomicity remains an acceptance blocker.
+
+The [value-objective audit](formal/research/value-objective-contract.md) checks Double DQN target selection and conditional CQL gradient algebra. Preserved finite-input loss failures block any numerical-safety claim; the frozen learner and champion are unchanged.
+
+
+The separate [GAE target v2 kernel](research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and disconnected from training. It preserves terminal reward bits and rejects non-finite batches; it does not repair or replace the frozen learner.
+
+
 Trader is a Haskell trading research and execution system with a React operations UI. It supports exchange-backed signals, cost-aware backtests, optimizer research, live-bot supervision, formal safety checks, and Fly/Hetzner deployment.
 
 > Live trading can place real orders. Keep `TRADER_BINANCE_LIVE=false` and `TRADER_BOT_TRADE=false` until credentials, risk limits, deployment identity, and exchange permissions have been verified. The browser starts in paper mode and never starts a bot merely because a combo was applied.
+
+The numerical proof drivers use [independent premise and violation queries](formal/research/query-isolation-contract.md). Solver limits and mathematical claims are unchanged; inconclusive results still fail verification.
+
+The [PPO objective audit](formal/research/ppo-objective-contract.md) verifies scoped exact-real branches and preserves a finite-loss/NaN-gradient counterexample in the frozen learner. Objective clipping is not a hard risk bound; no policy is repaired or promoted.
 
 ## What is included
 
@@ -18,6 +49,29 @@ Trader is a Haskell trading research and execution system with a React operation
 See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example](.env.example) for the complete runtime configuration surface.
 
 ## Offline sequential-control research
+
+The [2026-09-28 assurance follow-up](research-notes/sequential-control-2026-09-17/gap-risk-review-2026-09-28.md)
+refreshes primary-source surveillance and checks conditional gap-risk lemmas plus
+replayable loss-floor counterexamples. `bash scripts/verify.sh formal` includes
+actual replay conformance using hash-pinned NumPy and a
+[source-linked causal read-footprint check](formal/research/causal-footprint-contract.md).
+The latter rejects feature-source lookahead and unsupported dependencies under
+explicit base-array/runtime assumptions; historical release timing remains open. The
+[training-prefix check](formal/research/training-prefix-contract.md) also derives
+fit and episode bounds from source, conditional on already admitted arrays; it
+does not establish online causality of the whole historical-panel loader. No candidate passed; scoped
+proofs do not establish a future loss ceiling or complete research acceptance.
+The [artifact-admission check](formal/research/artifact-admission-contract.md)
+binds a finite gate model and SMT metadata predicates to the existing offline
+loader. Trusted parser/helper semantics and externally supplied provenance remain
+assumptions; this is not artifact authenticity or production-loader verification.
+The [training-transition check](formal/research/transition-admission-contract.md)
+verifies necessary terminal-flatness and successor-admission predicates from
+source. It does not establish complete liquidation accounting or realistic fills.
+A [terminal-target numerical audit](research-notes/sequential-control-2026-09-17/terminal-numerics-followup-2026-09-28.md)
+reproduces cancellation and overflow in the unchanged PPO/GAE research learner.
+These remain unresolved blockers; finite inputs alone do not establish finite or
+exact targets, and no historical impact is inferred.
 
 The [2026-09-17 evidence package](research-notes/sequential-control-2026-09-17/final-decision-memo.md)
 adds a 50-paper literature update, current predictor-fidelity audit and a

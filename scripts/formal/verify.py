@@ -60,8 +60,15 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-CONFORMANCE": "property_tested",
-                 "F-RL-INTEGRITY": "property_tested", "F-RL-REFINEMENT": "open"}
+    supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
+                 "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
+                 "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
+                 "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
+                 "F-RL-OPTIMIZER-PUBLISH": "model_checked", "F-RL-OPTIMIZER-ATOMIC": "refuted",
+                 "F-RL-Q-FINITE": "refuted", "F-RL-CQL-SHIFT": "refuted",
+                 "F-RL-PPO-FINITE": "refuted", "F-RL-PPO-UNIFORM-CLIP": "refuted",
+                 "F-RL-TERMINAL-EXACT": "refuted", "F-RL-TERMINAL-FINITE": "refuted",
+                 "F-RL-UNCONDITIONAL-FLOOR": "refuted", "F-RL-GAP-CONFORMANCE": "exhaustively_checked"}
     require(set(supported) <= {e["requirementId"] for e in entries}, "missing required certificate")
     for entry in entries:
         require(required <= entry.keys(), 'incomplete ledger entry')
@@ -76,26 +83,104 @@ def validate_ledger(ledger, root):
         for relative in [entry['sourceModel'], entry['artifact'], *entry['implementationFiles'], *entry['testFiles']]:
             path = root / relative
             require(not Path(relative).is_absolute() and '..' not in Path(relative).parts and path.is_file(), 'missing/unsafe traceability path: ' + relative)
-    obligations = ledger['missionObligations']
-    require([o['number'] for o in obligations] == list(range(1, 39)), 'mandatory obligation coverage incomplete')
-    for item in obligations:
-        require(item['status'] in ('open', 'partially_verified') and item['limitations'], 'unsupported mission completion')
-        require(set(item['evidenceRequirements']) <= {e['requirementId'] for e in entries}, 'unknown obligation evidence')
+    open_count = validate_obligations(ledger['missionObligations'], entries)
+    for obligation in ledger['missionObligations']:
+        for relative in obligation['implementationFiles']:
+            require(not Path(relative).is_absolute() and '..' not in Path(relative).parts and (root / relative).is_file(), 'missing/unsafe obligation implementation')
     covered = {p for e in entries for p in e['implementationFiles'] + e['testFiles'] + [e['sourceModel']]}
     require(set(ledger['criticalFiles']) <= covered, 'critical file lacks reverse traceability')
     source_files = {str(p.relative_to(root)) for pattern in ('scripts/formal/*.py', 'formal/research/*.hs') for p in root.glob(pattern)}
     require(source_files <= set(ledger['criticalFiles']), 'new proof source missing from critical-file roster')
-    return sum(o['status'] in ('open', 'partially_verified') for o in obligations)
+    return open_count
+
+
+VERIFIED = {'proved', 'model_checked', 'probabilistically_model_checked',
+            'smt_verified', 'refinement_verified', 'exhaustively_checked'}
+
+
+def validate_obligations(obligations, entries, reproduced=None, contracts=None):
+    """Validate reviewed sufficiency mappings; never infer closure from lemma count."""
+    require([o['number'] for o in obligations] == list(range(1, 39)), 'mandatory obligation coverage incomplete')
+    if contracts is None:
+        contracts = read_json(ROOT / 'formal/research/obligation-contracts.json')['obligations']
+    require([c['number'] for c in contracts] == list(range(1, 39)), 'incomplete canonical closure contracts')
+    by_id = {e['requirementId']: e for e in entries}
+    remaining = 0
+    for item, contract in zip(obligations, contracts):
+        require('closureClass' in contract and all(item.get(key) == value for key, value in contract.items() if key != 'closureClass'), 'canonical closure contract drift')
+        for key in ('scope', 'closureCriteria', 'nextAction', 'limitations'):
+            require(isinstance(item.get(key), str) and bool(item[key].strip()), 'missing obligation closure criterion')
+        require(item['implementationFiles'] and all(isinstance(p, str) and p for p in item['implementationFiles']), 'missing obligation implementation')
+        require(isinstance(item['blockers'], list) and all(isinstance(b, str) and b.strip() for b in item['blockers']), 'invalid blockers')
+        require(set(item['evidenceRequirements']) <= by_id.keys(), 'unknown obligation evidence')
+        required = item['requiredCertificates']
+        require(isinstance(required, list) and len(required) == len(set(required)) and set(required) <= set(item['evidenceRequirements']), 'invalid closure certificate mapping')
+        sufficient = bool(required) and not item['blockers'] and all(by_id[c]['status'] in VERIFIED for c in required)
+        closed = item['status'] in VERIFIED
+        require(closed == sufficient, 'unsupported or unrecorded obligation closure')
+        require(closed or item['status'] in ('open', 'partially_verified', 'refuted'), 'unsupported mission status')
+        if closed:
+            require(item['status'] == contract['closureClass'] and item['status'] in {by_id[c]['status'] for c in required}, 'unsupported aggregate verification class')
+            if reproduced is not None:
+                require(all(reproduced.get(c) == by_id[c]['status'] for c in required), 'closure certificate not reproduced')
+        else:
+            require(bool(item['blockers']), 'unresolved obligation lacks concrete blocker')
+            remaining += 1
+    return remaining
+
+
+def acceptance_summary(obligations, entries, reproduced, gates, root, contracts=None):
+    remaining = validate_obligations(obligations, entries, reproduced, contracts)
+    require([g['id'] for g in gates] == ['economic_evidence', 'reproducible_delivery'], 'missing research acceptance gate')
+    blocked = []
+    for gate in gates:
+        require(gate['criteria'] and gate['status'] in ('open', 'satisfied'), 'invalid research gate')
+        if gate['status'] == 'open':
+            require(gate['blockers'], 'open research gate lacks reason')
+            blocked.append(gate['id'])
+        else:
+            require(not gate['blockers'] and gate['evidence'], 'unsupported research acceptance')
+            for item in gate['evidence']:
+                relative = Path(item['path'])
+                require(not relative.is_absolute() and '..' not in relative.parts and (root / relative).is_file(), 'missing acceptance evidence')
+                require(digest(root / relative) == item['sha256'], 'acceptance evidence drift')
+    return {'openMissionObligations': remaining, 'closedMissionObligations': 38 - remaining,
+            'formalObligationsComplete': remaining == 0,
+            'blockedResearchGates': blocked,
+            'missionComplete': remaining == 0 and not blocked}
 
 
 def run(record=False, require_complete=False):
+    import numpy
     import z3
     from conformance import check_haskell
     from lifecycle import check_model
     from proofs import check_all
+    from gap_risk import check_counterexamples
+    from gap_conformance import check_replay
+    from causal_footprint import check_source
+    from training_prefix import check_training, REGISTRATION
+    from artifact_admission import check_artifact
+    from transition_admission import check_transition
+    from terminal_numerics import check_terminal
+    from target_v2 import check_targets
+    from ppo_objective import check_ppo
+    from value_objective import check_values
+    from optimizer_publication import check_optimizer
+    from inference_boundary import check_inference
+    from ope_algebra import check_ope, REGISTRATION as OPE_REGISTRATION
+    from ess_v2 import check_ess, REGISTRATION as ESS_REGISTRATION
+    from funding_boundary import check_funding
+    from replay_order import check_replay_order
+    from replay_cutoff import check_replay_cutoff
+    from reward_accounting import check_reward_accounting
+    from default_paths import check_defaults
+    from capability_isolation import check_isolation
+    from snapshot_v2 import check_snapshot
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
+    require(numpy.__version__ == lock['numpy'], 'NumPy version mismatch')
     require('.'.join(map(str, sys.version_info[:3])) == lock['python'], 'Python version mismatch')
     ghc = subprocess.check_output(['ghc', '--numeric-version'], text=True).strip()
     require(ghc == lock['ghc'], 'GHC version mismatch')
@@ -108,11 +193,76 @@ def run(record=False, require_complete=False):
         text = (ROOT / path).read_text()
         require(not re.search(r'\b(sorry|admit|Admitted|axiom)\b', text), 'proof placeholder: ' + path)
         require(not re.search(r'@(?:unittest\.)?skip|assert\s+(?:True|False)', text), 'disabled proof/test: ' + path)
-    result = {'schemaVersion': 1, 'solver': z3.get_version_string(), 'smt': check_all(),
+    result = {'schemaVersion': 1, 'solver': z3.get_version_string(), 'numpy': numpy.__version__, 'smt': check_all(),
               'model': check_model(), 'conformance': check_haskell(ROOT), 'sourceHashes': lock['sourceHashes']}
+    gaps = read_json(ROOT / 'formal/research/gap-counterexamples.json')
+    result['gapRefutations'] = check_counterexamples(gaps)
+    result['replayConformance'] = check_replay(gaps)
+    result['sourceFootprint'] = check_source()
+    result['smt'][result['sourceFootprint']['requirement']] = 'unsat'
+    result['trainingPrefix'] = check_training(read_json(ROOT / REGISTRATION))
+    result['smt'].update(result['trainingPrefix']['smt'])
+    result['artifactAdmission'] = check_artifact()
+    result['smt'][result['artifactAdmission']['metadata']['requirement']] = 'unsat'
+    result['transitionAdmission'] = check_transition()
+    result['smt'][result['transitionAdmission']['requirement']] = 'unsat'
+    result['terminalNumerics'] = check_terminal(read_json(ROOT / 'formal/research/terminal-counterexamples.json'))
+    result['smt'].update(result['terminalNumerics']['smt'])
+    result['targetV2'] = check_targets()
+    result['smt'].update(result['targetV2']['smt'])
+    result['ppoObjective'] = check_ppo(read_json(ROOT / 'formal/research/ppo-counterexamples.json'))
+    result['smt'].update(result['ppoObjective']['smt'])
+    result['valueObjective'] = check_values(read_json(ROOT / 'formal/research/value-counterexamples.json'))
+    result['smt'].update(result['valueObjective']['smt'])
+    result['optimizerPublication'] = check_optimizer(read_json(ROOT / 'formal/research/optimizer-counterexamples.json'))
+    result['smt'].update(result['optimizerPublication']['smt'])
+    result['inferenceBoundary'] = check_inference(read_json(ROOT / 'formal/research/inference-counterexamples.json'))
+    result['smt'].update(result['inferenceBoundary']['smt'])
+    result['opeAlgebra'] = check_ope(read_json(ROOT / 'formal/research/ope-counterexamples.json'), read_json(ROOT / OPE_REGISTRATION))
+    result['smt'].update(result['opeAlgebra']['smt'])
+    result['exactESSV2'] = check_ess(read_json(ROOT / ESS_REGISTRATION))
+    result['smt'].update(result['exactESSV2']['smt'])
+    result['fundingBoundary'] = check_funding()
+    result['smt'].update(result['fundingBoundary']['smt'])
+    result['replayOrder'] = check_replay_order()
+    result['smt'].update(result['replayOrder']['smt'])
+    result['replayCutoff'] = check_replay_cutoff()
+    result['smt'].update(result['replayCutoff']['smt'])
+    result['defaultPaths'] = check_defaults()
+    result['snapshotV2'] = check_snapshot()
+    result['smt'].update(result['snapshotV2']['smt'])
+    result['capabilityIsolation'] = check_isolation()
+    result['smt'].update(result['capabilityIsolation']['smt'])
+    result['rewardAccounting'] = check_reward_accounting()
+    result['smt'].update(result['rewardAccounting']['smt'])
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
     counterexamples = read_json(ROOT / 'formal/research/counterexamples.json')
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
+    reproduced = {key: 'smt_verified' for key, value in result['smt'].items() if value == 'unsat'}
+    for requirement, path in {
+        'F-RL-LIFECYCLE': ('model',),
+        'F-RL-SNAPSHOT-PUBLISH': ('snapshotV2', 'model'),
+        'F-RL-ARTIFACT-PATH': ('artifactAdmission', 'model'),
+        'F-RL-TARGET-V2-PUBLISH': ('targetV2', 'model'),
+        'F-RL-ESS-V2-PUBLISH': ('exactESSV2', 'model'),
+        'F-RL-REPLAY-ORDER': ('replayOrder', 'model'),
+        'F-RL-REPLAY-QUOTIENT': ('replayCutoff', 'model'),
+        'F-RL-OPTIMIZER-PUBLISH': ('optimizerPublication', 'singleWriter'),
+        'F-RL-INFER-PATH': ('inferenceBoundary', 'model'),
+    }.items():
+        receipt = result
+        for key in path:
+            receipt = receipt[key]
+        require(receipt['states'] > 0 and receipt['transitions'] > 0, 'missing model reproduction')
+        reproduced[requirement] = 'model_checked'
+    require(result['replayConformance']['boundedAccountingTraces'] == 180, 'incomplete gap conformance')
+    reproduced['F-RL-GAP-CONFORMANCE'] = 'exhaustively_checked'
+    reproduced['F-RL-DEFAULT-PATH'] = result['defaultPaths']['status']
+    for part in ('graph', 'effects'):
+        reproduced[result['capabilityIsolation'][part]['requirement']] = 'exhaustively_checked'
+    reproduced['F-RL-SNAPSHOT-ISOLATION'] = result['snapshotV2']['isolation']['status']
+    acceptance = acceptance_summary(ledger['missionObligations'], ledger['entries'], reproduced, ledger['researchAcceptanceGates'], ROOT)
+    result['obligationClosure'] = acceptance
     path = ROOT / 'formal/research/results.json'
     if record:
         path.write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
@@ -120,9 +270,27 @@ def run(record=False, require_complete=False):
         require(result == read_json(path), 'certificate differs from reviewed receipt; investigate before recording')
     print(json.dumps({'scopedCertificates': 'pass', 'smtObligations': len(result['smt']),
                       'model': result['model'], 'conformance': result['conformance'],
-                      'openMissionObligations': open_count, 'missionComplete': False,
+                      'gapRefutations': result['gapRefutations'],
+                      'replayConformance': result['replayConformance'],
+                      'sourceFootprint': result['sourceFootprint'],
+                      'trainingPrefix': result['trainingPrefix'],
+                      'artifactAdmission': result['artifactAdmission'],
+                      'transitionAdmission': result['transitionAdmission'],
+                      'terminalNumerics': result['terminalNumerics'],
+                      'targetV2': result['targetV2'],
+                      'ppoObjective': result['ppoObjective'],
+                      'valueObjective': result['valueObjective'],
+                      'optimizerPublication': result['optimizerPublication'],
+                      'inferenceBoundary': result['inferenceBoundary'],
+                      'opeAlgebra': result['opeAlgebra'],
+                      'exactESSV2': result['exactESSV2'],
+                      'fundingBoundary': result['fundingBoundary'],
+                      'replayOrder': result['replayOrder'],
+                      'replayCutoff': result['replayCutoff'],
+                      'rewardAccounting': result['rewardAccounting'],
+                      **acceptance,
                       'seconds': round(time.monotonic() - started, 3)}, indent=2))
-    require(not require_complete or open_count == 0, 'research acceptance blocked by open obligations')
+    require(not require_complete or acceptance['missionComplete'], 'research acceptance blocked by open obligations or research evidence gates')
 
 
 if __name__ == '__main__':

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "funding-boundary-audit-v1-2026-10-01",
+  "kind": "engineering audit only; no financial trial",
+  "sourceCommit": "38896e1506ca4ffb08d638d49733f26d35935299",
+  "sourceFunctionASTSha256": "e925e9238cd40a879d04fe30cf90cd2bb1d9f0aa08619e2b725272fc0ab43014",
+  "hypothesis": "The registered integer grid maps settlement timestamps to the first close no earlier than the event; finite funding inputs alone need not imply finite accumulated cash coefficients.",
+  "requirements": [
+    "F-RL-FUNDING-GRID",
+    "F-RL-FUNDING-ENDPOINT",
+    "F-RL-FUNDING-FINITE"
+  ],
+  "formalContract": "formal/research/funding-boundary-contract.md",
+  "financialTrialBudget": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "syntheticGrid": {
+    "start": 0,
+    "step": 10,
+    "rows": 3,
+    "eventStart": -1,
+    "eventStopInclusive": 30
+  },
+  "boundaryOffsets": [
+    -1,
+    0,
+    1
+  ],
+  "registeredGridRows": 4910,
+  "counterexample": "CE-RL-019",
+  "overflowWitnesses": {
+    "product": {
+      "rates": [
+        2.0
+      ],
+      "marks": [
+        "0x1.fffffffffffffp+1023"
+      ]
+    },
+    "sum": {
+      "rates": [
+        0.75,
+        0.75
+      ],
+      "marks": [
+        "0x1.fffffffffffffp+1023",
+        "0x1.fffffffffffffp+1023"
+      ]
+    }
+  },
+  "numpyErrorPolicies": [
+    "ignore",
+    "raise"
+  ],
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "references": [
+    "https://numpy.org/doc/2.3/reference/generated/numpy.searchsorted.html",
+    "https://numpy.org/doc/2.3/reference/generated/numpy.seterr.html"
+  ],
+  "failureConditions": [
+    "Unexpected proof SAT/UNKNOWN/timeout",
+    "Source/registration drift",
+    "Reference or counterexample mismatch",
+    "Protected-data access"
+  ],
+  "limitations": [
+    "Trusted NumPy searchsorted semantics and integer-to-binary64 exactness within 2^53",
+    "AST source binding is not interpreter refinement",
+    "No provider first-seen/revision witness",
+    "No full schema or adversarial registration proof",
+    "No historical occurrence claim or loader repair"
+  ],
+  "promotion": "None; preserve frozen loader and rejected policies"
+}

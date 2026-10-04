@@ -309,3 +309,11 @@ Monitor. This audit refreshed primary sources, not every earlier matrix detail.
 The [BFQ primary record](https://arxiv.org/abs/2606.10613) now identifies ICML 2026
 in its author-supplied journal reference. The matrix distinguishes that report
 from independent proceedings verification. Its economic disposition is unchanged.
+
+## OPE assurance continuation (2026-09-30)
+
+The [source-linked audit](ope-algebra-followup-2026-09-30.md) separates exact-real ESS/WIS/DR algebra from a preserved general-helper ESS underflow witness. The current deterministic six-step weights are checked separately. The source remains unchanged; all 108 invalid OPE batches retain their status and no new economic or holdout evidence is produced. WDR/MAGIC are not implemented by the existing ordinary DR plus trajectory WIS helper.
+
+## Isolated exact ESS diagnostic (2026-09-30)
+
+The [ess-rational-v2 continuation](ess-v2-followup-2026-09-30.md) retains a disabled, disconnected exact-arithmetic diagnostic. CE-RL-018 is mitigated only for supplied weights in that new kernel; the frozen helper and all 108 invalid OPE batches are unchanged. Exact weight concentration does not establish behavior support, estimator efficiency or candidate readiness.

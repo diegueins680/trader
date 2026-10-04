@@ -68,7 +68,8 @@
       "implementation": [
         "scripts/formal/*.py",
         "scripts/formal/requirements.txt",
-        "formal/research/**"
+        "formal/research/**",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -122,6 +123,26 @@
           "statement": "Ending wealth less starting wealth equals gross plus funding minus costs minus terminal costs; reward penalty is not cash."
         },
         {
+          "id": "F-RL-GAP-BOUND",
+          "statement": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d."
+        },
+        {
+          "id": "F-RL-DRAWDOWN-COMPOSE",
+          "statement": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1."
+        },
+        {
+          "id": "F-RL-POSTCOST-EXPOSURE",
+          "statement": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic."
+        },
+        {
+          "id": "F-RL-UNCONDITIONAL-FLOOR",
+          "statement": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay."
+        },
+        {
+          "id": "F-RL-GAP-CONFORMANCE",
+          "statement": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence."
+        },
+        {
           "id": "F-RL-LIFECYCLE",
           "statement": "The two-caller abstract protocol never gains authority, forbids new calls while draining and decreases outstanding calls on every completion."
         },
@@ -131,23 +152,251 @@
         },
         {
           "id": "F-RL-INTEGRITY",
-          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch."
+          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results."
+        },
+        {
+          "id": "F-RL-FEATURE-FOOTPRINT",
+          "statement": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected."
+        },
+        {
+          "id": "F-RL-FIT-PREFIX",
+          "statement": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics."
+        },
+        {
+          "id": "F-RL-COLLECT-PREFIX",
+          "statement": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix."
+        },
+        {
+          "id": "F-RL-ARTIFACT-PATH",
+          "statement": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives."
+        },
+        {
+          "id": "F-RL-ARTIFACT-METADATA",
+          "statement": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions."
+        },
+        {
+          "id": "F-RL-TRANSITION-ADMISSION",
+          "statement": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor."
+        },
+        {
+          "id": "F-RL-TERMINAL-REAL",
+          "statement": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded."
+        },
+        {
+          "id": "F-RL-TERMINAL-FP-MASK",
+          "statement": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied."
+        },
+        {
+          "id": "F-RL-TERMINAL-EXACT",
+          "statement": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target."
+        },
+        {
+          "id": "F-RL-TERMINAL-FINITE",
+          "statement": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs."
         },
         {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
+        },
+        {
+          "id": "F-RL-TARGET-V2-TERMINAL",
+          "statement": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero."
+        },
+        {
+          "id": "F-RL-TARGET-V2-FINITE",
+          "statement": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence."
+        },
+        {
+          "id": "F-RL-TARGET-V2-REAL",
+          "statement": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem."
+        },
+        {
+          "id": "F-RL-TARGET-V2-PUBLISH",
+          "statement": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists."
+        },
+        {
+          "id": "F-RL-PPO-OBJECTIVE",
+          "statement": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256."
+        },
+        {
+          "id": "F-RL-PPO-COEFFICIENT",
+          "statement": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex."
+        },
+        {
+          "id": "F-RL-PPO-FINITE",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs."
+        },
+        {
+          "id": "F-RL-PPO-UNIFORM-CLIP",
+          "statement": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield."
+        },
+        {
+          "id": "F-RL-DOUBLE-TARGET",
+          "statement": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount."
+        },
+        {
+          "id": "F-RL-CQL-GRADIENT",
+          "statement": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0."
+        },
+        {
+          "id": "F-RL-Q-FINITE",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss."
+        },
+        {
+          "id": "F-RL-CQL-SHIFT",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients."
+        },
+        {
+          "id": "F-RL-OPTIMIZER-PUBLISH",
+          "statement": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates."
+        },
+        {
+          "id": "F-RL-GRADIENT-CLIP",
+          "statement": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one."
+        },
+        {
+          "id": "F-RL-INFER-ADMISSION",
+          "statement": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics."
+        },
+        {
+          "id": "F-RL-INFER-SELECTION",
+          "statement": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics."
+        },
+        {
+          "id": "F-RL-INFER-PATH",
+          "statement": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition."
+        },
+        {
+          "id": "F-RL-OPE-ESS-REAL",
+          "statement": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling."
+        },
+        {
+          "id": "F-RL-OPE-WIS-REAL",
+          "statement": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling."
+        },
+        {
+          "id": "F-RL-OPE-DR-TELESCOPE",
+          "statement": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic."
+        },
+        {
+          "id": "F-RL-ESS-V2-ACCUMULATE",
+          "statement": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics."
+        },
+        {
+          "id": "F-RL-ESS-V2-BOUNDS",
+          "statement": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed."
+        },
+        {
+          "id": "F-RL-ESS-V2-PUBLISH",
+          "statement": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists."
+        },
+        {
+          "id": "F-RL-FUNDING-GRID",
+          "statement": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics."
+        },
+        {
+          "id": "F-RL-FUNDING-ENDPOINT",
+          "statement": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]]."
+        },
+        {
+          "id": "F-RL-REPLAY-DUE",
+          "statement": "For source-derived pending due=d+1+delay with integer delay in {0,1}, an admitted policy-target fill requires clear prior risk, a present pending target and an endpoint strictly after originating decision d; compulsory terminal liquidation is distinct."
+        },
+        {
+          "id": "F-RL-REPLAY-ORDER",
+          "statement": "In the source-bound single-call replay abstraction for 1..6 remaining bars, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets, admission precedes effects, old-position marking precedes risk and due target attempts, terminal handling precedes its row, and the complete finite graph reaches an end-of-call node under terminating helper assumptions."
+        },
+        {
+          "id": "F-RL-REPLAY-CUTOFF",
+          "statement": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R."
+        },
+        {
+          "id": "F-RL-REPLAY-QUOTIENT",
+          "statement": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement."
+        },
+        {
+          "id": "F-RL-ROW-RECONCILE",
+          "statement": "In exact reals with positive starting equity, the extracted Replay mark, sequential target/liquidation cost debits, merged cost fields and row return reconcile ending wealth and net return; fill quantities and cost formation are assumed, not proved."
+        },
+        {
+          "id": "F-RL-WEALTH-FOLD",
+          "statement": "SMT checks the positive-wealth product invariant base and induction step using the source row-return expression: P=E/E0 implies P*(1+r)=E_next/E0; the source economic metric equals that ratio minus one when E0=1."
+        },
+        {
+          "id": "F-RL-REWARD-RECONCILE",
+          "statement": "SMT checks the source penalty accumulator base, nonnegative induction step and call identity: returned reward plus summed noncash row penalties equals 100 times the call-relative equity change in exact reals with positive starting equity."
+        },
+        {
+          "id": "F-RL-REWARD-ADDITIVE",
+          "statement": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return."
+        },
+        {
+          "id": "F-RL-DEFAULT-PATH",
+          "statement": "For the enumerated delivered offline entry points, source-derived default control paths return absent before inspecting policy/data arguments; Haskell defaults to Disabled, Python enabled defaults to False, and saved policy metadata sets enabled to False. This exhaustively checked finite control abstraction assumes ordinary source execution and a returning clock."
+        },
+        {
+          "id": "F-RL-CLOSURE",
+          "statement": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value."
         }
       ],
       "invariants": [
         {
           "id": "F-RL-NO-PROMOTION",
           "statement": "Passing scoped certificates never permits candidate promotion or access to protected outcomes."
+        },
+        {
+          "id": "F-RL-COMPONENT-ISOLATION",
+          "statement": "For the pinned GHC/Cabal parsed source graph, the complete dependency closure and declared module roster of every executable exclude Trader.Research.PolicyProposalV1. The graph certificate covers source build reachability, not server control flow or deployed images."
+        },
+        {
+          "id": "F-RL-POLICY-EFFECTS",
+          "statement": "For ordinary admitted Network objects and base numeric arrays under A-CAPABILITY-BUILD, every enumerated inference helper uses only reviewed numeric primitives and clock reads and contains no parameter write or order/process/network operation; the parsed Haskell proposal surface remains pure with a private constructor and constant false authority."
+        },
+        {
+          "id": "F-RL-ARTIFACT-DISJOINT",
+          "statement": "Under trusted Aeson generic required-field semantics, the exact top-level key set emitted by save_policy cannot satisfy the required-key predicate of the unchanged native PersistedLstmModel decoder. This excludes emitted offline artifacts, not arbitrary converted JSON."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-PUBLISH",
+          "statement": "The source-bound optimizer-snapshot-v2 model with two writers, two calls each and one retained reader permits only complete immutable snapshot publication under exclusive lock and matching expected identity; stale updates cannot commit, every retained read stays coherent, and generation equals committed updates. Orphan locks fail closed and are not a recovery guarantee."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-CAS",
+          "statement": "Under matching expected identity, exclusive lock and admitted widths, the source-derived v2 publication predicate permits only current step plus one in [1,2^31-1] with unchanged width; stale identity cannot publish. Identity-to-generation and primitive reference atomicity are explicit assumptions."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-FINITE",
+          "statement": "The source-derived optimizer-snapshot-v2 pack guard rejects non-finite binary64 slots and negative variance slots; publication follows a successful whole-candidate scan and immutable byte encoding under trusted NumPy scan/serialization semantics. No floating error or optimizer convergence theorem is claimed."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-ISOLATION",
+          "statement": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no registered runner or production integration is introduced."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-CONFORMANCE",
+          "statement": "Actual optimizer-snapshot-v2 updates and forwards consume single immutable snapshots; synthetic parity, stale/busy writers, retained readers, failure paths, default controls, compiled single-store observations and CE-RL-023 corrected-layout replay conform to the scoped model. Tests are not universal implementation refinement."
         }
       ],
       "failures": [
         {
           "id": "F-RL-FAIL-CLOSED",
-          "statement": "SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success."
+          "statement": "Unexpected SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success; explicitly refuted claims require their prescribed SAT counterexamples."
+        },
+        {
+          "id": "F-RL-OPTIMIZER-ATOMIC",
+          "statement": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state."
+        },
+        {
+          "id": "F-RL-INFER-DEADLINE",
+          "statement": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return."
+        },
+        {
+          "id": "F-RL-OPE-FP-SUPPORT",
+          "statement": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero."
+        },
+        {
+          "id": "F-RL-FUNDING-FINITE",
+          "statement": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients."
         }
       ],
       "evidence": [
@@ -165,6 +414,76 @@
           "level": "property",
           "path": "scripts/formal/conformance.py",
           "contains": "check_haskell"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_future_and_wrong_window_slices_fail_smt"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_training_counterexamples"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_runner_passes_only_training_prefixes_to_fit_and_optimizer"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_artifact_bypass_counterexamples"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_terminal_inventory_counterexample"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_current_numpy_counterexamples_and_downstream_rejection"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_v1_counterexamples_corrected_or_rejected_in_v2_only"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_preserved_funding_overflow_full_loader_and_replay_refusal"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_actual_grid_and_preserved_terminal_round_trip"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_nonterminal_six_bar_call_and_forced_terminal_mismatch"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_nonadditive_witness_reports_economic_loss"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/snapshot_v2.py",
+          "contains": "check_model"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_two_real_writers_and_stale_replay"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_byte_view_parity_counterexample_regression"
         }
       ]
     },
@@ -307,7 +626,7 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R25",
-          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. A failed update leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
+          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. Under non-mutating helpers and a single writer, a failure before publication leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Final attribute stores are sequential and require uninterrupted successful completion; interruption or concurrent observation is not atomic (CE-RL-016). Stronger atomicity remains an unresolved acceptance obligation. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R26",
@@ -317,7 +636,7 @@
       "ensures": [
         {
           "id": "A-SEQUENTIAL-RESEARCH-E1",
-          "statement": "Every simulated fill occurs after its decision, old inventory earns price/funding through the endpoint, and fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
+          "statement": "Every simulated policy-target fill occurs after its originating decision. Mandatory terminal liquidation occurs at the current terminal endpoint after old inventory earns that interval's price/funding; entry and liquidation costs both apply if a pending target fills at that endpoint. Fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-E2",

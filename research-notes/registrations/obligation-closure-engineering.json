@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "obligation-closure-v1-2026-10-03",
+  "kind": "engineering closure audit, no financial trial",
+  "sourceCommit": "cff26552cb22c28e073e4cf30c20611d5cce1db9",
+  "contract": "formal/research/closure-contract.md",
+  "requirements": ["F-RL-CLOSURE", "F-RL-DEFAULT-PATH"],
+  "obligationsToAudit": "all integers 1 through 38",
+  "firstClosureCandidate": 31,
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "productionChanges": false,
+  "closureClass": "exhaustively_checked finite source-derived default control paths",
+  "failureConditions": ["unsupported closure accepted", "certified closure impossible", "source branch drift", "missing reproduction result", "proof status conflated with economic acceptance"],
+  "testDomains": {"pythonEntryPoints": 4, "haskellModes": 2, "enabledIdentityCases": 2},
+  "limitations": ["trusted source language and compiler semantics", "no economic promotion", "scope changes require new review"]
+}

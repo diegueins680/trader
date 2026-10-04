@@ -1,5 +1,65 @@
 ## Unreleased
 
+- Research infrastructure: add `optimizer-snapshot-v2`, disabled by default, with immutable numeric state, single-snapshot forward/update reads, nonblocking conditional publication and pinned runtime admission. Verify two-writer publication and preserve the byte-view one-ULP regression as CE-RL-023; use native working copies for arithmetic. Frozen algorithms, artifacts and production behavior are unchanged; broad atomicity/race obligations remain partial.
+
+- Research assurance: extract all six executable dependency graphs with pinned GHC/Cabal parsers, check admitted inference effects and prove emitted RL/native LSTM artifact key incompatibility. Close obligations 11 and 24 only for the delivered research boundary under explicit compiler/runtime assumptions; 35 remain unresolved. Production and frozen research behavior are unchanged.
+
+- Research assurance: replace the impossible obligation-closure restriction with same-run certificate validation, audit all 38 closure criteria, and close delivered default-disabled control paths. Preserve unresolved production, numerical and economic gates.
+
+
+- Research assurance: verify source-derived reward/wealth reconciliation, clarify floating-point tolerances, and preserve a counterexample to additive reward-as-return interpretation. Frozen simulation and economic reporting remain unchanged.
+
+- Research assurance: verify a seven-or-more-bars ordering abstraction, preserve the nonterminal six-bar-call regression, and tighten synthetic trace conformance after a false-terminal mutation. No simulator or production behavior changes.
+
+- Research assurance: specify and check replay admission/mark/risk/fill/liquidation ordering, clarify policy-target versus terminal-liquidation timing, and preserve terminal round-trip costs without changing the simulator.
+
+- Research assurance: add conditional development funding timestamp proofs and synthetic overflow regressions, including full-loader and replay refusal checks. Preserve frozen data/learner behavior and all promotion blockers.
+
+- Research infrastructure: add a versioned, default-disabled exact ESS diagnostic with source-linked accumulator bounds and bounded publication checks. Preserve frozen OPE results and CE-RL-018; no policy or estimator integration.
+
+- Research assurance: verify scoped ESS/WIS and DR algebra; preserve positive-weight ESS underflow as CE-RL-018 and distinguish it from current deterministic short-OPE weights. No OPE rerun, learner change or promotion.
+
+- Research assurance: verify unchanged inference admission/selection predicates and preserve a pending-call liveness counterexample. Document the post-call timing boundary without adding cancellation, changing policies or relaxing acceptance gates.
+
+- Research assurance: qualify optimizer failure preservation to prepublication failures; model ordered stores and preserve an instrumented interruption counterexample. Add conditional exact-real gradient clipping checks without changing training or relaxing atomicity gates.
+
+- Research assurance: audit unchanged Double DQN target/CQL gradient semantics and preserve NaN-loss and common-shift cancellation witnesses. Conditional SMT checks and conformance tests do not establish CQL policy lower bounds or candidate readiness.
+
+- Research assurance: verify source-linked PPO surrogate algebra and preserve finite-loss/NaN-gradient and nonuniform-clipping witnesses. Keep frozen training and economic evidence unchanged; no full numerical, trust-region or policy-safety guarantee is claimed.
+
+- Formal tooling: isolate numerical premise/witness and universal violation queries; preserve formulas, pinned solver limits and fail-closed behavior. Add complete result-status and assertion-scope regressions without changing trading or training code.
+
+- Research infrastructure: add an explicitly enabled, versioned raw GAE target kernel with direct terminal targets and atomic finite-batch admission. Keep frozen training, artifacts and economic evidence unchanged; normalization and learner integration remain out of scope.
+
+
+- Research assurance: preserve current-source PPO/GAE cancellation and overflow
+  counterexamples; distinguish exact-real terminal algebra from conditional
+  binary64 mask guarantees. No learner repair, retuning or financial rerun;
+  numerical blockers remain explicit in the proof ledger and risk report.
+
+- Research assurance: add source-derived training-transition admission checks, a
+  terminal-inventory bypass counterexample and actual replay/collector regressions.
+  Preserve frozen research semantics; terminal flatness is not a complete cash-flow
+  or simulator-correctness proof.
+
+- Research assurance: add source-linked offline artifact admission checks, two preserved bypass mutants and constructor-order regressions. Loader semantics and candidate eligibility are unchanged; primitive/provenance trust and broader proof gaps remain explicit.
+
+- Research assurance: verify source-derived normalization-prefix and collector
+  episode bounds, preserve leakage/overrun mutant fixtures and connect them to
+  actual runner and NumPy conformance tests. Keep historical-panel admission and
+  full runtime refinement explicitly unproved; no financial rerun or live change.
+
+- Research assurance: derive the existing feature core's read bounds from its Python
+  AST and check them with SMT; reject unsupported dependencies and lookahead
+  mutations. Add source/NumPy future-corruption conformance without changing
+  frozen research semantics, data, policies or production behavior.
+
+- Research assurance: add conditional SMT gap-loss, drawdown-composition and
+  post-cost-exposure lemmas; preserve two actual-replay loss-floor counterexamples
+  and 180 exact-accounting conformance cases. Refresh literature through
+  2026-09-28 and reproduce existing negative reports without new financial trials
+  or holdout access. No candidate, production risk limit or live setting changes.
+
 ## Research assurance — 2026-09-20
 
 - Add `verify.sh formal` and include it in `full`: pinned Z3 binary64/index/accounting lemmas, a bounded research-call model, compiled Haskell conformance, source-bound receipts and explicit proof gaps.

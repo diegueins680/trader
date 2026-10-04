@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "kind": "engineering verification only; no financial trial",
+  "sourceCommit": "c9ceacc76a4a507f09779c04e9949c8a2b8e24bb",
+  "latestMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "registrationCommit": "b5ba92ce",
+  "closure": {
+    "closed": 1,
+    "closedObligations": [
+      31
+    ],
+    "partiallyVerified": 28,
+    "open": 9,
+    "remaining": 37,
+    "formalObligationsComplete": false,
+    "missionComplete": false
+  },
+  "certificates": {
+    "smt": 41,
+    "modelChecked": 8,
+    "exhaustivelyChecked": 2,
+    "propertyTested": 3,
+    "refuted": 12,
+    "open": 1,
+    "sourceLocks": 92
+  },
+  "newBounds": {
+    "pythonBooleanCases": 8,
+    "haskellModes": 2,
+    "aggregateClosureFixture": "all 38 synthetic claims; validator test only"
+  },
+  "checks": {
+    "formal_initial": {
+      "command": "bash scripts/verify.sh formal",
+      "startCommit": "bbb446bf",
+      "exitCode": 0,
+      "logSha256": "fd81141b2b473f203142c841f7f4200f01cebb6f71a384c8218723644bb322b2"
+    },
+    "formal_final": {
+      "command": "bash scripts/verify.sh formal",
+      "startCommit": "c9ceacc76a4a507f09779c04e9949c8a2b8e24bb",
+      "exitCode": 0,
+      "logSha256": "ff55b8c8a968ef0cf70e44b1a03b8d12090b53cb58e2d241243061d8ea1ca952"
+    },
+    "full": {
+      "command": "bash scripts/verify.sh full",
+      "startCommit": "0060356026d714d1b5ea207950af03c46be9d1ac",
+      "exitCode": 0,
+      "logSha256": "b77d441e3cba8f5811c12afd0ebe06b7290d6669e72abe5a5e1030132a662b68"
+    },
+    "acceptance": {
+      "command": "python scripts/formal/verify.py --require-complete",
+      "startCommit": "c9ceacc76a4a507f09779c04e9949c8a2b8e24bb",
+      "exitCode": 1,
+      "logSha256": "17985797274e728894cf7d88b1e0c2ec75f1ada739531672c2cb2c434a81c504"
+    }
+  },
+  "verificationTimingNote": "The full invocation began at 00603560. The verifier-only aggregate-class correction was committed while the unchanged Haskell/web/automation stages ran. The final formal wrapper and all four GitHub CI jobs separately passed at c9ceacc7. No claim is made that the earlier full invocation began at the final commit.",
+  "ci": {
+    "runId": 37164077620,
+    "headSha": "c9ceacc76a4a507f09779c04e9949c8a2b8e24bb",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "automation",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "testCounts": {
+    "formalIntegrity": 132,
+    "web": 241,
+    "automation": 185,
+    "haskell": "trader-tests PASS; format/lint/build/smoke also pass"
+  },
+  "counterexamples": [
+    "CE-RL-021",
+    "CE-RL-022"
+  ],
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "liveExploration": false,
+  "candidateAdopted": false,
+  "limitations": [
+    "Finite source-derived default control paths are not universal compiler or production configuration proofs.",
+    "Semantic sufficiency of certificate sets is a named reviewed assumption A-CLOSURE-REVIEW.",
+    "37 original obligations and both separate research acceptance gates remain blocked."
+  ],
+  "financialExperimentTrainingSteps": 0,
+  "verificationTraining": "The full wrapper runs existing synthetic training-budget and seed-reproducibility fixtures; these are engineering tests, not new financial trials."
+}

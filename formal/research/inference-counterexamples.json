@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-RL-017",
+      "requirementId": "F-RL-INFER-DEADLINE",
+      "claim": "The wrapper guarantees completion within 20 milliseconds even when forward does not return.",
+      "prefix": ["enable", "admit_observation"],
+      "cycle": ["pending"],
+      "elapsedNanoseconds": 25000000,
+      "expectedProposal": null,
+      "scope": "Reachable abstract lasso and deterministic synthetic-clock late-return fixture; not a measured runtime hang or latency benchmark.",
+      "disposition": "Known post-call limitation remains open; no timeout mechanism added."
+    }
+  ]
+}

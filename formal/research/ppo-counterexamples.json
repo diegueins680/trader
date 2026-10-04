@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "scope": "Synthetic current-source objective probes; no historical prevalence or production claim.",
+  "entries": [
+    {
+      "id": "CE-RL-012",
+      "requirement": "F-RL-PPO-FINITE",
+      "probabilityHex": "0x1.5555555555555p-2",
+      "oldProbabilityHex": "0x0.0000000000001p-1022",
+      "advantageHex": "0x1.0000000000000p+0",
+      "lossHex": "-0x1.3333333333333p+0",
+      "coefficientHex": "nan",
+      "logitsHex": [
+        "0x0.0p+0",
+        "0x0.0p+0",
+        "0x0.0p+0"
+      ],
+      "action": 0,
+      "observed": "Current unchanged source returns finite clipped loss -1.2 and all-NaN logit gradient; downstream optimizer rejects without state publication."
+    },
+    {
+      "id": "CE-RL-013",
+      "requirement": "F-RL-PPO-UNIFORM-CLIP",
+      "probabilityHex": "0x1.5555555555555p-2",
+      "oldProbabilityHex": "0x1.5555555555555p-5",
+      "advantageHex": "-0x1.0000000000000p+0",
+      "lossHex": "0x1.0000000000000p+3",
+      "coefficientHex": "-0x1.0000000000000p+3",
+      "logitsHex": [
+        "0x0.0p+0",
+        "0x0.0p+0",
+        "0x0.0p+0"
+      ],
+      "action": 0,
+      "observed": "Current source has coefficient -8 and finite logit gradient with maximum magnitude 16/3; uniform clipping claim is false, consistent with the original PPO objective."
+    }
+  ],
+  "developmentAttempts": [
+    {
+      "result": "checker_error",
+      "error": "AttributeError: module z3 has no attribute NaN",
+      "resolution": "Use the pinned API fpNaN constructor; no formula, domain or solver limit changed.",
+      "isCounterexample": false
+    }
+  ]
+}

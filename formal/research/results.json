@@ -1,4 +1,429 @@
 {
+  "artifactAdmission": {
+    "metadata": {
+      "premiseChecks": 2,
+      "queries": 2,
+      "requirement": "F-RL-ARTIFACT-METADATA",
+      "result": "unsat"
+    },
+    "model": {
+      "gates": [
+        "expected_provenance",
+        "snapshot_read",
+        "size",
+        "digest",
+        "json",
+        "fields",
+        "types",
+        "artifact_provenance",
+        "compatibility",
+        "parameter_conversion",
+        "parameter_validation",
+        "construction",
+        "parameter_binding"
+      ],
+      "liveAuthorizationTransitions": 0,
+      "maxDepth": 13,
+      "requirement": "F-RL-ARTIFACT-PATH",
+      "states": 27,
+      "terminalStuttering": true,
+      "terminationGateBound": 13,
+      "transitions": 40,
+      "universalRuntimeRefinement": false
+    }
+  },
+  "capabilityIsolation": {
+    "effects": {
+      "functions": {
+        "Network.forward": [
+          "ValueError",
+          "array.all",
+          "np.errstate",
+          "np.isfinite",
+          "np.tanh"
+        ],
+        "_finite_real_vector": [
+          "array.all",
+          "bool",
+          "isinstance",
+          "np.isfinite",
+          "np.ma.isMaskedArray"
+        ],
+        "infer": [
+          "_finite_real_vector",
+          "float",
+          "int",
+          "net.forward",
+          "np.argmax",
+          "time.perf_counter_ns"
+        ]
+      },
+      "orderOperations": 0,
+      "parameterWrites": 0,
+      "requirement": "F-RL-POLICY-EFFECTS",
+      "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
+    },
+    "graph": {
+      "localEdges": 286,
+      "moduleFiles": 116,
+      "requirement": "F-RL-COMPONENT-ISOLATION",
+      "roots": {
+        "analyze-close-timing": {
+          "edges": 1,
+          "maxShortestDepth": 1,
+          "reachableFiles": [
+            "haskell/app/AnalyzeCloseTimingMain.hs",
+            "haskell/app/Trader/Formal/CloseTiming.hs"
+          ],
+          "states": 2
+        },
+        "lstm-bench": {
+          "edges": 2,
+          "maxShortestDepth": 2,
+          "reachableFiles": [
+            "haskell/app/LstmBench.hs",
+            "haskell/app/Trader/LSTM.hs",
+            "haskell/app/Trader/LstmDefaults.hs"
+          ],
+          "states": 3
+        },
+        "merge-top-combos": {
+          "edges": 12,
+          "maxShortestDepth": 3,
+          "reachableFiles": [
+            "haskell/app/MergeTopCombosMain.hs",
+            "haskell/app/Trader/BotStartSemantics.hs",
+            "haskell/app/Trader/CostCalibration.hs",
+            "haskell/app/Trader/Duration.hs",
+            "haskell/app/Trader/Optimizer/Json.hs",
+            "haskell/app/Trader/Optimizer/Merge.hs",
+            "haskell/app/Trader/Predictors/Types.hs",
+            "haskell/app/Trader/SignalGates.hs",
+            "haskell/app/Trader/Symbol.hs",
+            "haskell/app/Trader/Text.hs",
+            "haskell/app/Trader/TopComboScoring.hs"
+          ],
+          "states": 11
+        },
+        "optimize-equity": {
+          "edges": 43,
+          "maxShortestDepth": 3,
+          "reachableFiles": [
+            "haskell/app/OptimizeEquityMain.hs",
+            "haskell/app/Trader/BinanceIntervals.hs",
+            "haskell/app/Trader/CostCalibration.hs",
+            "haskell/app/Trader/Duration.hs",
+            "haskell/app/Trader/Formal/CloseTiming.hs",
+            "haskell/app/Trader/Formal/Optimization.hs",
+            "haskell/app/Trader/Kalman3.hs",
+            "haskell/app/Trader/KalmanFusion.hs",
+            "haskell/app/Trader/LstmDefaults.hs",
+            "haskell/app/Trader/Method.hs",
+            "haskell/app/Trader/Metrics.hs",
+            "haskell/app/Trader/OnlineStats.hs",
+            "haskell/app/Trader/Optimization.hs",
+            "haskell/app/Trader/Optimizer/Json.hs",
+            "haskell/app/Trader/Optimizer/Optimize.hs",
+            "haskell/app/Trader/Optimizer/OverfitAudit.hs",
+            "haskell/app/Trader/Optimizer/Random.hs",
+            "haskell/app/Trader/Platform.hs",
+            "haskell/app/Trader/Predictors/Types.hs",
+            "haskell/app/Trader/RoiScore.hs",
+            "haskell/app/Trader/SensorVariance.hs",
+            "haskell/app/Trader/SignalGates.hs",
+            "haskell/app/Trader/Symbol.hs",
+            "haskell/app/Trader/Trading.hs",
+            "haskell/app/Trader/VolConfGate.hs"
+          ],
+          "states": 25
+        },
+        "outbox-publisher": {
+          "edges": 0,
+          "maxShortestDepth": 0,
+          "reachableFiles": [
+            "haskell/app/OutboxPublisherMain.hs"
+          ],
+          "states": 1
+        },
+        "trader-hs": {
+          "edges": 248,
+          "maxShortestDepth": 3,
+          "reachableFiles": [
+            "haskell/app/Main.hs",
+            "haskell/app/Trader/Api/Routes.hs",
+            "haskell/app/Trader/App/Args.hs",
+            "haskell/app/Trader/App/AutoStartBackoff.hs",
+            "haskell/app/Trader/App/BinanceProbe.hs",
+            "haskell/app/Trader/App/Csv.hs",
+            "haskell/app/Trader/App/Env.hs",
+            "haskell/app/Trader/App/GracefulShutdown.hs",
+            "haskell/app/Trader/App/Observability.hs",
+            "haskell/app/Trader/App/Runtime.hs",
+            "haskell/app/Trader/Binance.hs",
+            "haskell/app/Trader/BinanceIntervals.hs",
+            "haskell/app/Trader/BinanceTradeAnalysis.hs",
+            "haskell/app/Trader/BotSnapshotRecovery.hs",
+            "haskell/app/Trader/BotStartSemantics.hs",
+            "haskell/app/Trader/Cache.hs",
+            "haskell/app/Trader/CapitalPreservation.hs",
+            "haskell/app/Trader/Coinbase.hs",
+            "haskell/app/Trader/ComboTracking.hs",
+            "haskell/app/Trader/Config.hs",
+            "haskell/app/Trader/Cors.hs",
+            "haskell/app/Trader/CostCalibration.hs",
+            "haskell/app/Trader/CrossSectionalMomentum.hs",
+            "haskell/app/Trader/Dex.hs",
+            "haskell/app/Trader/Duration.hs",
+            "haskell/app/Trader/ExternalData.hs",
+            "haskell/app/Trader/Formal/CloseTiming.hs",
+            "haskell/app/Trader/Formal/Optimization.hs",
+            "haskell/app/Trader/Http.hs",
+            "haskell/app/Trader/Kalman3.hs",
+            "haskell/app/Trader/KalmanFusion.hs",
+            "haskell/app/Trader/KalmanPhysics.hs",
+            "haskell/app/Trader/Kraken.hs",
+            "haskell/app/Trader/LSTM.hs",
+            "haskell/app/Trader/LiveGap.hs",
+            "haskell/app/Trader/LiveOrderIntent.hs",
+            "haskell/app/Trader/LstmDefaults.hs",
+            "haskell/app/Trader/LstmPersistence.hs",
+            "haskell/app/Trader/MarketContext.hs",
+            "haskell/app/Trader/MarketDataIntegrity.hs",
+            "haskell/app/Trader/MarketGovernor.hs",
+            "haskell/app/Trader/MarketRisk.hs",
+            "haskell/app/Trader/Method.hs",
+            "haskell/app/Trader/Metrics.hs",
+            "haskell/app/Trader/NeuralGovernor.hs",
+            "haskell/app/Trader/Normalization.hs",
+            "haskell/app/Trader/OnlineStats.hs",
+            "haskell/app/Trader/Ops/Migrations.hs",
+            "haskell/app/Trader/Optimization.hs",
+            "haskell/app/Trader/Optimizer/Common.hs",
+            "haskell/app/Trader/Optimizer/Json.hs",
+            "haskell/app/Trader/Optimizer/Optimize.hs",
+            "haskell/app/Trader/Optimizer/OverfitAudit.hs",
+            "haskell/app/Trader/Optimizer/Random.hs",
+            "haskell/app/Trader/OrderExecution.hs",
+            "haskell/app/Trader/Platform.hs",
+            "haskell/app/Trader/PointInTimeUniverse.hs",
+            "haskell/app/Trader/Poloniex.hs",
+            "haskell/app/Trader/PortfolioSelection.hs",
+            "haskell/app/Trader/PredictionMarkets.hs",
+            "haskell/app/Trader/Predictors.hs",
+            "haskell/app/Trader/Predictors/Conformal.hs",
+            "haskell/app/Trader/Predictors/DecisionTree.hs",
+            "haskell/app/Trader/Predictors/Exogenous.hs",
+            "haskell/app/Trader/Predictors/ExogenousFetch.hs",
+            "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs",
+            "haskell/app/Trader/Predictors/FeatureSchema.hs",
+            "haskell/app/Trader/Predictors/Features.hs",
+            "haskell/app/Trader/Predictors/GBDT.hs",
+            "haskell/app/Trader/Predictors/HMM.hs",
+            "haskell/app/Trader/Predictors/KNN.hs",
+            "haskell/app/Trader/Predictors/OnlineNeural.hs",
+            "haskell/app/Trader/Predictors/PatchTST.hs",
+            "haskell/app/Trader/Predictors/Quantile.hs",
+            "haskell/app/Trader/Predictors/TCN.hs",
+            "haskell/app/Trader/Predictors/Transformer.hs",
+            "haskell/app/Trader/Predictors/Types.hs",
+            "haskell/app/Trader/Revenue.hs",
+            "haskell/app/Trader/RoiScore.hs",
+            "haskell/app/Trader/S3.hs",
+            "haskell/app/Trader/SensorVariance.hs",
+            "haskell/app/Trader/SignalGates.hs",
+            "haskell/app/Trader/Split.hs",
+            "haskell/app/Trader/Symbol.hs",
+            "haskell/app/Trader/TechnicalAnalysis/Indicators.hs",
+            "haskell/app/Trader/TechnicalAnalysis/Strategies.hs",
+            "haskell/app/Trader/Text.hs",
+            "haskell/app/Trader/TopComboScoring.hs",
+            "haskell/app/Trader/TopCombosStore.hs",
+            "haskell/app/Trader/TradeLogRiskState.hs",
+            "haskell/app/Trader/TradeMethodGate.hs",
+            "haskell/app/Trader/Trading.hs",
+            "haskell/app/Trader/VolConfGate.hs"
+          ],
+          "states": 93
+        }
+      },
+      "search": "reachable_fixed_point"
+    },
+    "legacyCompilerProfile": "Dockerfile.optimized names GHC 8.10.4; not certified buildable",
+    "packaging": {
+      "conditions": "trusted installed binaries/PATH, no added code mounts or manual policy conversion; existing helper source unchanged",
+      "externalHelpers": [
+        "trader-hs",
+        "optimize-equity",
+        "merge-top-combos",
+        "cabal list-bin discovery",
+        "git rev-parse HEAD",
+        "cast"
+      ],
+      "kind": "review of exact pinned recipes and existing helpers, not deployed-image verification",
+      "references": [
+        "Dockerfile",
+        "Dockerfile.optimized",
+        "haskell/app/Trader/Optimizer/Optimize.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/App/Env.hs"
+      ],
+      "runtimeResearchCodeCopies": 0
+    },
+    "productionAuthorizationVerified": false,
+    "schema": {
+      "emittedKeys": [
+        "actions",
+        "enabled",
+        "environment",
+        "observation",
+        "parameters",
+        "promotion",
+        "provenance",
+        "schema"
+      ],
+      "membershipBits": 12,
+      "premiseChecks": 1,
+      "requiredNativeKeys": [
+        "hiddenSize",
+        "params",
+        "trainBars",
+        "version"
+      ],
+      "requirement": "F-RL-ARTIFACT-DISJOINT",
+      "result": "unsat",
+      "scope": "emitted offline JSON versus unchanged native LSTM decoder; trusted Aeson semantics",
+      "violationChecks": 1
+    },
+    "smt": {
+      "F-RL-ARTIFACT-DISJOINT": "unsat"
+    },
+    "sourceHashes": {
+      "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
+      "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
+      "haskell/app/Main.hs": "ed899ea90b2793ace9904364d8e5d21d1e01781104091861e9dcde369ce50fc1",
+      "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
+      "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
+      "haskell/app/OutboxPublisherMain.hs": "6447406bcca3a421dd28bfc8e7735308ec2d74609c1f673ba71b8c1a025b62ee",
+      "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
+      "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
+      "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
+      "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
+      "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
+      "haskell/app/Trader/App/Env.hs": "ba0aa10931c35f211003ebf4ffe55efebe973feed72b1125d0149111b0654fac",
+      "haskell/app/Trader/App/GracefulShutdown.hs": "497319075e2f3829f8bc737c9fa846d2d7557e72ad1c4769815b400ddc563deb",
+      "haskell/app/Trader/App/Observability.hs": "c613e7f6e80f1d6e7043d756f5c90ead7bf63e4387b575b77689a64a10ebb28e",
+      "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
+      "haskell/app/Trader/Binance.hs": "332671ea63fcf285631af7f3e0338bc66a8d32ae8e68fcb228920249c9133e57",
+      "haskell/app/Trader/BinanceIntervals.hs": "82c7b0e8b1023a2655b3d40f9f43d0f6880c8b4251f989bd30c69a605b88fee8",
+      "haskell/app/Trader/BinanceTradeAnalysis.hs": "90407ed30ed5729f3b93054096801cfc13188dd6a8a562f6c05d13288e3063a6",
+      "haskell/app/Trader/BotSnapshotRecovery.hs": "8e7a80efe14b9e67afd448bb70466fae8b14688c6449c4c98b20ef432c4577f1",
+      "haskell/app/Trader/BotStartSemantics.hs": "e53aec116ca8d187cf3783dd3309ab6ed079acb0f632c92166fbe735fc44bf20",
+      "haskell/app/Trader/Cache.hs": "42f6d30a45cbcfb7809a20cfa5e44495a9deddefdfc296af74b463cafb2acc8e",
+      "haskell/app/Trader/CapitalPreservation.hs": "dbdd61095b3a298f7b7713a3d1f0a255e21bbebb066c83d303862044a274aa54",
+      "haskell/app/Trader/Coinbase.hs": "770eaf447a793e0ce3df5278d8f536f3d22daea40d92aff8565fd80276f8a92c",
+      "haskell/app/Trader/ComboTracking.hs": "57444fefecfefeea781a8332f36b7f6cec258d52a792d4c25ed57c503ceafb6e",
+      "haskell/app/Trader/Config.hs": "3eb9fd8310ad5ae64216fd7d5640d5cdb70bd4ba86e12a3be419e3cce173613f",
+      "haskell/app/Trader/Cors.hs": "ee7c86f4620636265409444a39fdd11a006e96fc395ad99a329c67b1cbf6c67a",
+      "haskell/app/Trader/CostCalibration.hs": "52c087c4d447ef1d516f2c57d678f47aee9f6377f135b405453db376a0fdf5c1",
+      "haskell/app/Trader/CrossSectionalMomentum.hs": "6321d93b886227af6cbde5def7511b6bcc8fedd4f2ed049b592e169ca1413abf",
+      "haskell/app/Trader/Dex.hs": "c046e597672e112d88b2cb3eac0eb7994c411502637b5192c9e3e539e76de33f",
+      "haskell/app/Trader/Duration.hs": "19eab84175ae44a101d83ffcb9d507b47c8ef38d0e3a03fbba8df51f0a589c36",
+      "haskell/app/Trader/ExternalData.hs": "a44e4446b3b1ee30459a02e29a37055b9903c5b61d34c8d0b3db5b5cda0fb891",
+      "haskell/app/Trader/Formal/CloseTiming.hs": "264c6895ecab5f39c8097a83a0490da3757587083ad446047d19664fe709033d",
+      "haskell/app/Trader/Formal/Execution.hs": "5c64f0281592a63c029415db5e798e39a6370f933a556e912999f93a0cf222b0",
+      "haskell/app/Trader/Formal/Optimization.hs": "2222eea7b8777556fe031f61590e5de1f34dabd0986ce5565bf9495c6de1c622",
+      "haskell/app/Trader/Formal/Risk.hs": "bb59c75e6158479f49dda9c57d9a9c920fe15bdca35d77fbb8ba76160ade8540",
+      "haskell/app/Trader/Formal/RiskRegister.hs": "f16381b780cece733918e36ad7608255d6c237832b321b88f8ddd29079225022",
+      "haskell/app/Trader/GateTelemetry.hs": "7e66adc99577e9b2a23bb5a963a73ecf75e6e69d5fac23313ef16d2a52aac7b5",
+      "haskell/app/Trader/Http.hs": "589de8dd96eb9039832bd04222f44f473d20fa776f7de4d089503ec723e247cd",
+      "haskell/app/Trader/Kalman3.hs": "cebcb101865e8b7fcbbebbce866ea57cc6e8bf26d0df4263f4703e0977992477",
+      "haskell/app/Trader/KalmanFusion.hs": "1f16060b0151a37ffd685260d3eaba109bcbf3b9747fb90711bff194ac30ccf8",
+      "haskell/app/Trader/KalmanPhysics.hs": "ab2bf6f9368ea2482a1a5109de06d73942b0e610054c50325c75523b19c67b04",
+      "haskell/app/Trader/Kraken.hs": "3b944855058e7f5ef5552d102a09b1e4ee377ca38425aa577caa19e8faae596d",
+      "haskell/app/Trader/LSTM.hs": "1c1a637a51d23d98f47166b5e63727e008c1fdac8d6219627ed13f9c3618a95a",
+      "haskell/app/Trader/LiveGap.hs": "d6acca11ecd06ce9b443cd14ce52f785b95c3d19fa4d4f66aee017574d70cd4a",
+      "haskell/app/Trader/LiveOrderIntent.hs": "0cff3338d8e5c6a02d97580dd6eb9e25743c8f94a4b453587766bb62f1395ed1",
+      "haskell/app/Trader/LstmDefaults.hs": "c0fb3d5f743536ddcb6976f043947cd7c9b5359f0965e967c9b0bb75430430f9",
+      "haskell/app/Trader/LstmPersistence.hs": "ecaa971985cffab86697f2bd71e20c3d8d20817f9791a00ab41ecb35f79a7d22",
+      "haskell/app/Trader/MarketContext.hs": "58e8a4595e9131926cd1ff54a492a0845964d705ee0ac75576bc48a37f5116e4",
+      "haskell/app/Trader/MarketDataIntegrity.hs": "b02aec78142556a4abd20c39cf0c477b3448cd34503f62398f78de82fee49840",
+      "haskell/app/Trader/MarketGovernor.hs": "6bd03c3255368413803ce3979330a815126f84529b9fcdba283141999c856554",
+      "haskell/app/Trader/MarketRisk.hs": "c676b623cda634fe6e4c693735bc9053a855e26059f44cbb94e865eaeb1fc590",
+      "haskell/app/Trader/Method.hs": "655913896bba79f07a9b4e8f676ee595e92f14fe949d5a4246e0fece9d53b1a3",
+      "haskell/app/Trader/Metrics.hs": "0f9c8893af0964baa45c1b6f5ab0f6834722f417202c782f727741ef11a4bc50",
+      "haskell/app/Trader/NeuralGovernor.hs": "5ace954cdd3e3ebec07633ac985610392e08061681fb843306b020a3b55dde1a",
+      "haskell/app/Trader/Normalization.hs": "aeb9ca46c07ba57192fe5b5f7eb09ea0df9efbe5fb3d7be2119c64be0d51b9b1",
+      "haskell/app/Trader/OnlineStats.hs": "3a449c61fdcbb7d5022a79a04aedcc5fe81315b8d82c099a755752902a94b76b",
+      "haskell/app/Trader/Ops/Migrations.hs": "ee4da48090953d21bb866c8d634887d05b98faac57c9bf4e9aab6327c9fd9e17",
+      "haskell/app/Trader/Optimization.hs": "63c7a9bee9a9964dce845384ed61e4bcb3d64bf4d0bb8865c71b85aa472cd643",
+      "haskell/app/Trader/Optimizer/Common.hs": "4de82093001a695e9ad930fb575efd970baeac052b4b79e8fd4d3dd4810ab018",
+      "haskell/app/Trader/Optimizer/Json.hs": "89dc758d65df8828857f57335f3ac4de61657f185ff7a3d734497ca9956b276f",
+      "haskell/app/Trader/Optimizer/Merge.hs": "94a1fed29203ace0fd04cd747cf3737676a5c5edeffe7034c754da94d28272aa",
+      "haskell/app/Trader/Optimizer/Optimize.hs": "366de00ef8aa38a35435656a994d89e9a8c2a4ac6c3f7881e41f65bc3a88abb4",
+      "haskell/app/Trader/Optimizer/OverfitAudit.hs": "ae9c828b83db28497de265a36e49aacff25606d702317f2e356fc15a3da75f8b",
+      "haskell/app/Trader/Optimizer/Random.hs": "36d9186efc777687fbaed5004f6c96656547fe4a8a05567d13740e87501f9c6f",
+      "haskell/app/Trader/OrderExecution.hs": "82650db3b52d85a46227363ab3ed7a14b4e0458b3189aeab0515564d0dd86dc0",
+      "haskell/app/Trader/Platform.hs": "42a7d8dc5df322578bd128c10cfc3669d2c1b790fb0fec7d457e95ba8328ca5a",
+      "haskell/app/Trader/PointInTimeUniverse.hs": "77f2c9ac3c4eb67b8b0fa0c8d16852bc9a322fd6f9e6a31aad360a6e768dc71e",
+      "haskell/app/Trader/PointInTimeUniverseV2.hs": "d4eb76f2fd964192920185757a067153e118fe8f28ac1f0f3c4003b2fd13f35b",
+      "haskell/app/Trader/Poloniex.hs": "502fa8950b667be4acae8826bd77527880068168166947b35173f30d474b5fd8",
+      "haskell/app/Trader/PortfolioSelection.hs": "afa267fde3f35d852abaa6141b2d53cce9ffc503435a6d6e06e56a58684c9d76",
+      "haskell/app/Trader/PredictionMarkets.hs": "cbca06be04514adad2bdf6074f499b9f6b50a09b5c442a1ea6257865eebe8253",
+      "haskell/app/Trader/Predictors.hs": "16fe6c580e3da263c2af9c5ed2f0b36e64d02f599a163261d04374204d05c510",
+      "haskell/app/Trader/Predictors/Conformal.hs": "4178b94587c321985d5560521d38f8358e8f3ae4e61008d86c0a705e917f1393",
+      "haskell/app/Trader/Predictors/CrossExchangeFeaturesV2.hs": "85c65c095337d763752e090f7b78a7bbfb5d8bef86323f81b1d4c7bbe433f876",
+      "haskell/app/Trader/Predictors/DecisionTree.hs": "ce566748ee69a383def24aad29b0d1cdbdb3fca51b56cc336cd629569b424e2d",
+      "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs": "b140845c6f772ff774f36512394dde46c1e05adf17b25c21acda03c41ecf265a",
+      "haskell/app/Trader/Predictors/DerivativesPanelSchema.hs": "16962883b03da197a0a04e1ec692f6c7140edf6fc9bb1145bb460e04e3aa01f9",
+      "haskell/app/Trader/Predictors/Exogenous.hs": "99962361fbe4768a2fddb08e434c653fd561a4ecd29aa34fa363f132d1aac4de",
+      "haskell/app/Trader/Predictors/ExogenousFetch.hs": "04ea485820c019ced6b385123e9aa8ec4e0029a5f002bcf52bbd405b1033730f",
+      "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs": "f78b2c7c4e513ebf4852e0d7ebdf9f3770ed6c30d90a59913cef198d3ebf5eca",
+      "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs": "f4c00a78ee2693520806652eba1e16994d3659ec0aa1847160325ede416b8895",
+      "haskell/app/Trader/Predictors/ExternalPanelSchema.hs": "5445b22189dce5f66da8534f0295417de5f36fc1ab5bd0cb4ee1f8c5a7fe3c2d",
+      "haskell/app/Trader/Predictors/FeatureSchema.hs": "5beccc043ce08f6122ede0fff105c3633d237b72a0d931f9a74bfe3ea93355fe",
+      "haskell/app/Trader/Predictors/Features.hs": "2ddd505d202a7e909c7ebba14f1bf1c965b52a8772633ef9e7ff8eb312578ff6",
+      "haskell/app/Trader/Predictors/GBDT.hs": "17dbb3b6df6a3b8ccd4d97d7d65e2b63aa9c47fe2377a355a668f44d960b2aef",
+      "haskell/app/Trader/Predictors/HMM.hs": "52e11aa4df540cb78db84c86245e6928279b2a62f5387ef1ac2faeaa2bfb5fed",
+      "haskell/app/Trader/Predictors/KNN.hs": "848633043ec2e3e77ede52e9b20a4fc6c68c7ca7019d4ba0fc117fe348396105",
+      "haskell/app/Trader/Predictors/MarketContextFeaturesV2.hs": "bf395b9ba715a6234d66921192f49d4cdfdeb6ac2d5d9d77684aca4c597e99a1",
+      "haskell/app/Trader/Predictors/MarketContextPanelSchemaV2.hs": "110c2f3583023233774f25b0369baac139afaa1c198d838c0dd274d3eb5d1c5b",
+      "haskell/app/Trader/Predictors/OhlcvInputsV2.hs": "a95bca11e838a8bec31a00d0a33c4340e70e4244d7f9daee56153fababaa7057",
+      "haskell/app/Trader/Predictors/OnlineNeural.hs": "e1ae52fcd348999089ddbf816c47ba5e5a98819ff9cc4e3a3396fc507ab26913",
+      "haskell/app/Trader/Predictors/PatchTST.hs": "14b040e6dc02ffeeb77d91d71f0b41b483e0c4568a976f9630086960d1ea1a98",
+      "haskell/app/Trader/Predictors/Quantile.hs": "8ba2ea25d2477de19157714908694bb5b3aa1f18a159a44f1440efaa1aebeff7",
+      "haskell/app/Trader/Predictors/TCN.hs": "816cccc5521fb4463371283e339ec301a316afde3d176492ea40d1194d2f87d2",
+      "haskell/app/Trader/Predictors/Transformer.hs": "79dd15ab8d5000b5ec8cc97d626e097a33cddd87288d216a39c6b2f301c8ecf4",
+      "haskell/app/Trader/Predictors/Types.hs": "010200c390bd92c8c2978ad2655b2e2d5cc9eb3ea5328ea32951e1afd6fd6935",
+      "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
+      "haskell/app/Trader/Revenue.hs": "0d5041cfc728e3fc348a80e3495a20437f81328289daaa538983f77a578dcd8d",
+      "haskell/app/Trader/RoiScore.hs": "7176b75543bfcb510d14c55f34c1e8fad4808b48d86329f681b8c04ec3c2f36c",
+      "haskell/app/Trader/S3.hs": "7f34c445a40aa2f135709976329c925c481a7784abcef262769ffcfe395c64c6",
+      "haskell/app/Trader/SensitivityAnalysis.hs": "1340bbef2cd68d43943edb0bc82412fb957aecdba754faf1dcb45f6d599e2b2d",
+      "haskell/app/Trader/SensorVariance.hs": "1af0226c479abb1fac896be406127f02cdaf7e6f3f7e15ba9684fcf4efa21bcc",
+      "haskell/app/Trader/SignalGates.hs": "d7dd5e278bd7ca061e43cf5e1adda79f00ae897a7cdd01ba6b474e7300f64de6",
+      "haskell/app/Trader/Split.hs": "c816d6020fd3b52e9c1c1f9c340c9218cae5f2c001bf6342784d111cdedf8398",
+      "haskell/app/Trader/Symbol.hs": "ed853c32ef1c8e34b911203ce66e4b7e8771ed337de6a6d18ed73fac252c7d05",
+      "haskell/app/Trader/TechnicalAnalysis/Indicators.hs": "b0c1e7d00103f919b413236d86b671789c721ee5250853e2b5e090d2f51d39cc",
+      "haskell/app/Trader/TechnicalAnalysis/Strategies.hs": "63070d18f18688073a38ecb839f4fc56c1e4cd5bfacef74e7f5b0097ce3474a2",
+      "haskell/app/Trader/Text.hs": "2358b8c83b04534cf98cdd5b55af6c44922ab4e642689d25149923b58b527287",
+      "haskell/app/Trader/ThresholdCalibration.hs": "4c5c968e25c0f51b8162b7807ea09102a4577cf7063b2b4c60619cdfc362e93e",
+      "haskell/app/Trader/TopComboScoring.hs": "ccf0ea696a15174de751335c02571c75ccc08f019c9ed28037d184c191a7a3a1",
+      "haskell/app/Trader/TopCombosStore.hs": "5215ef247fb58772ad9e8a3572a51b7ddb99d860ac541b8af619196b8cc3d012",
+      "haskell/app/Trader/TradeLogRiskState.hs": "cffb3b7b6e9c4f80f4a232396f8541bd7ad799a2a4e4cc9b8f77e3a50e78059b",
+      "haskell/app/Trader/TradeMethodGate.hs": "3c1f3f49c090335950b4d392e2648a76129eb694bf00d785982150057abcd2cd",
+      "haskell/app/Trader/Trading.hs": "c65596455803112e30986fc638e5975daac0ab4e57dc0206454fc49888473693",
+      "haskell/app/Trader/Types/Safe.hs": "5c03e2856590967c717f2c0dc026636497f8dbd2f64d98f2e845473f72e78263",
+      "haskell/app/Trader/VolConfGate.hs": "960283ce0191fed59f9d554276e6b07fe4c75b3c2a1c1a211ee24a0d9d8c8cdd"
+    },
+    "typeConformance": {
+      "allRejected": true,
+      "negativeCompilationCases": [
+        "coercion",
+        "constructor",
+        "effect"
+      ]
+    }
+  },
   "conformance": {
     "accepted": 240,
     "boundedCases": 16384,
@@ -6,6 +431,221 @@
     "generatedCases": 4096,
     "privateConstructorChecked": true,
     "seed": 20260920
+  },
+  "defaultPaths": {
+    "artifact": {
+      "savedEnabled": false
+    },
+    "booleanCases": 14,
+    "haskell": {
+      "cases": [
+        {
+          "initialGuardRejects": true,
+          "mode": "Disabled"
+        },
+        {
+          "initialGuardRejects": false,
+          "mode": "OfflineReplayV1"
+        }
+      ],
+      "default": "Disabled",
+      "defaultResult": "Nothing",
+      "modes": 2
+    },
+    "haskellModes": 2,
+    "python": [
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "infer"
+      },
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "step_v2"
+      },
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "batch_v2"
+      },
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "effective_sample_size_v2"
+      },
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "create_v2"
+      },
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "update_v2"
+      },
+      {
+        "cases": [
+          {
+            "enabled": false,
+            "rejectsBeforeOtherInputs": true
+          },
+          {
+            "enabled": true,
+            "rejectsBeforeOtherInputs": false
+          }
+        ],
+        "entry": "forward_v2"
+      }
+    ],
+    "requirement": "F-RL-DEFAULT-PATH",
+    "status": "exhaustively_checked"
+  },
+  "exactESSV2": {
+    "exactPrimitiveSemanticsAssumed": true,
+    "isolation": {
+      "dynamicImportExclusionProved": false,
+      "existingResearchImports": 0
+    },
+    "model": {
+      "maxShortestDepth": 515,
+      "maximumRows": 256,
+      "orderAuthorizationTransitions": 0,
+      "persistentState": false,
+      "rankBound": 517,
+      "runtimeRefinement": false,
+      "search": "reachable_fixed_point",
+      "states": 66309,
+      "terminalStuttering": true,
+      "transitions": 99718
+    },
+    "premiseChecks": 3,
+    "queries": 3,
+    "smt": {
+      "F-RL-ESS-V2-ACCUMULATE": "unsat",
+      "F-RL-ESS-V2-BOUNDS": "unsat"
+    },
+    "statisticalReliabilityVerified": false
+  },
+  "fundingBoundary": {
+    "counterexample": "CE-RL-019",
+    "grid": {
+      "firstClose": 1600847999999,
+      "firstOpen": 1600819200000,
+      "lastClose": 1742227199999,
+      "lastOpen": 1742198400000,
+      "rows": 4910
+    },
+    "scope": "conditional integer grid semantics and synthetic arithmetic; no historical-data access",
+    "smt": {
+      "F-RL-FUNDING-ENDPOINT": "unsat",
+      "F-RL-FUNDING-GRID": "unsat"
+    },
+    "witnesses": {
+      "product": {
+        "outcomes": {
+          "ignore": "positive_infinity",
+          "raise": "positive_infinity"
+        },
+        "smt": "sat"
+      },
+      "sum": {
+        "outcomes": {
+          "ignore": "positive_infinity",
+          "raise": "FloatingPointError"
+        },
+        "smt": "sat"
+      }
+    }
+  },
+  "gapRefutations": {
+    "CE-RL-002": {
+      "endingEquity": "24991/32000",
+      "status": "sat"
+    },
+    "CE-RL-003": {
+      "endingEquity": "199/800",
+      "status": "sat"
+    }
+  },
+  "inferenceBoundary": {
+    "clockConversionVerified": false,
+    "model": {
+      "calls": 1,
+      "deadlineCounterexample": {
+        "cycle": [
+          "pending"
+        ],
+        "prefix": [
+          "enable",
+          "admit_observation"
+        ]
+      },
+      "flagBits": 5,
+      "liveAuthorizationTransitions": 0,
+      "maxShortestDepth": 4,
+      "preemptionVerified": false,
+      "search": "reachable_fixed_point",
+      "states": 9,
+      "terminationWithoutReturnAssumption": false,
+      "transitions": 15
+    },
+    "neuralRobustnessVerified": false,
+    "premiseChecks": 2,
+    "queries": 2,
+    "runtimeRefinement": false,
+    "smt": {
+      "F-RL-INFER-ADMISSION": "unsat",
+      "F-RL-INFER-SELECTION": "unsat"
+    }
   },
   "model": {
     "callers": 2,
@@ -21,34 +661,1107 @@
     "states": 75,
     "transitions": 349
   },
+  "numpy": "2.3.5",
+  "obligationClosure": {
+    "blockedResearchGates": [
+      "economic_evidence",
+      "reproducible_delivery"
+    ],
+    "closedMissionObligations": 3,
+    "formalObligationsComplete": false,
+    "missionComplete": false,
+    "openMissionObligations": 35
+  },
+  "opeAlgebra": {
+    "binary64AccuracyVerified": false,
+    "counterexample": {
+      "currentShortOPEReachabilityClaimed": false,
+      "effectiveSampleSize": 0,
+      "format": "IEEE binary64",
+      "id": "CE-RL-018",
+      "nonzeroTrajectories": 2,
+      "publicRuntimeCheckedBy": "OPEAlgebraTests",
+      "result": "sat",
+      "rounding": "RNE",
+      "weightHex": "0x1.0000000000000p-600"
+    },
+    "drHorizons": [
+      1,
+      6
+    ],
+    "premiseChecks": 8,
+    "queries": 8,
+    "realEpisodes": 2,
+    "runtimeRefinement": false,
+    "smt": {
+      "F-RL-OPE-DR-TELESCOPE": "unsat",
+      "F-RL-OPE-ESS-REAL": "unsat",
+      "F-RL-OPE-WIS-REAL": "unsat"
+    },
+    "statisticalReliabilityVerified": false
+  },
+  "optimizerPublication": {
+    "concurrentAtomicityVerified": false,
+    "floatingNormPremiseVerified": false,
+    "observerExtension": {
+      "calls": 1,
+      "counterexample": [
+        "pass:controls",
+        "pass:gradient_computation",
+        "pass:gradient_finiteness",
+        "pass:norm_computation",
+        "pass:norm_finiteness",
+        "pass:step_increment",
+        "pass:local_allocation",
+        "pass:w1:g",
+        "pass:w1:moments[k]",
+        "pass:w1:variances[k]",
+        "pass:w1:m",
+        "pass:w1:v",
+        "pass:w1:params[k]",
+        "pass:b1:g",
+        "pass:b1:moments[k]",
+        "pass:b1:variances[k]",
+        "pass:b1:m",
+        "pass:b1:v",
+        "pass:b1:params[k]",
+        "pass:w2:g",
+        "pass:w2:moments[k]",
+        "pass:w2:variances[k]",
+        "pass:w2:m",
+        "pass:w2:v",
+        "pass:w2:params[k]",
+        "pass:b2:g",
+        "pass:b2:moments[k]",
+        "pass:b2:variances[k]",
+        "pass:b2:m",
+        "pass:b2:v",
+        "pass:b2:params[k]",
+        "pass:candidate_finiteness",
+        "store:p",
+        "observe",
+        "interrupt"
+      ],
+      "gates": 32,
+      "maxShortestDepth": 37,
+      "observedMasks": [
+        0,
+        1,
+        3,
+        7
+      ],
+      "observers": 1,
+      "parameterKeys": 4,
+      "progressRankBound": 73,
+      "publicationFields": [
+        "p",
+        "m",
+        "v",
+        "steps"
+      ],
+      "search": "reachable_fixed_point",
+      "states": 159,
+      "transitions": 271
+    },
+    "premiseChecks": 1,
+    "queries": 1,
+    "singleWriter": {
+      "calls": 1,
+      "counterexample": null,
+      "gates": 32,
+      "maxShortestDepth": 36,
+      "observedMasks": [],
+      "observers": 0,
+      "parameterKeys": 4,
+      "progressRankBound": 72,
+      "publicationFields": [
+        "p",
+        "m",
+        "v",
+        "steps"
+      ],
+      "search": "reachable_fixed_point",
+      "states": 69,
+      "transitions": 101
+    },
+    "smt": {
+      "F-RL-GRADIENT-CLIP": "unsat"
+    },
+    "universalRuntimeRefinement": false
+  },
+  "ppoObjective": {
+    "actions": 3,
+    "batchBounds": [
+      1,
+      256
+    ],
+    "binary64WitnessRounding": "RNE separate operations; one-row mean",
+    "counterexamples": [
+      {
+        "id": "CE-RL-012",
+        "lossHex": "-0x1.3333333333333p+0",
+        "result": "sat"
+      },
+      {
+        "id": "CE-RL-013",
+        "lossHex": "0x1.0000000000000p+3",
+        "result": "sat"
+      }
+    ],
+    "hardTrustRegionVerified": false,
+    "literalSemantics": "exact rationals of binary64 .8 and 1.2",
+    "premiseChecks": 4,
+    "queries": 4,
+    "smt": {
+      "F-RL-PPO-COEFFICIENT": "unsat",
+      "F-RL-PPO-OBJECTIVE": "unsat"
+    },
+    "softmaxImplementationVerified": false,
+    "universalRuntimeRefinement": false
+  },
+  "replayConformance": {
+    "absoluteTolerance": "2e-15",
+    "boundedAccountingTraces": 180,
+    "causalObservationComparisons": 179,
+    "counterexamples": {
+      "CE-RL-002": {
+        "failure": "capital_floor",
+        "flat": true,
+        "rows": 2
+      },
+      "CE-RL-003": {
+        "failure": "capital_floor",
+        "flat": true,
+        "rows": 2
+      }
+    },
+    "unaccountedFailuresRejected": 2,
+    "universalRefinement": false
+  },
+  "replayCutoff": {
+    "badAbstraction": {
+      "cutoff": 6,
+      "elapsed": 6,
+      "failed": false,
+      "horizon": 6,
+      "kind": "prescribed abstraction mutant, not a current simulator defect",
+      "originalEvents": [
+        "continue"
+      ],
+      "remaining": 7,
+      "sixCapEvents": [
+        "terminal"
+      ]
+    },
+    "conformance": {
+      "gridTraces": 486,
+      "scenarios": {
+        "inherited_pending": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.99995,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": -0.0025
+        },
+        "insolvency": {
+          "costs": 0.0,
+          "done": true,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "invalid_gate": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "pending": -1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "invalid_market": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "pending": 1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "missed_fill": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "ordinary": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.9995,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "partial_fill": {
+          "costs": 0.000125,
+          "done": false,
+          "equity": 0.9997499999999997,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.00125
+        },
+        "solvent_risk": {
+          "costs": 0.00025,
+          "done": true,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "liquidate",
+            "append_row"
+          ],
+          "units": 0.0
+        }
+      },
+      "scope": "synthetic actual-helper projected traces; observations/rewards are not quotiented"
+    },
+    "lifts": {
+      "reachableClassSevenStates": 720,
+      "remainingSamples": [
+        7,
+        8,
+        12,
+        97,
+        9223372036854775808
+      ],
+      "scope": "exhaustive reachable class-seven states at five registered lifts; not universal runtime refinement",
+      "successorComparisons": 3600
+    },
+    "model": {
+      "distinctInitialStates": 102,
+      "maxShortestDepth": 48,
+      "productionLifecycleProof": false,
+      "progressBound": 48,
+      "runtimeRefinement": false,
+      "scope": "one abstract replay call; final reward check or explicit early return",
+      "search": "complete reachable fixed point",
+      "states": 3596,
+      "terminalStuttering": true,
+      "transitions": 4340
+    },
+    "scope": "ordering quotient only; integer cutoff lemma unbounded in R; finite graph and sampled runtime traces",
+    "smt": {
+      "F-RL-REPLAY-CUTOFF": "unsat"
+    }
+  },
+  "replayOrder": {
+    "conformance": {
+      "gridTraces": 486,
+      "scenarios": {
+        "inherited_pending": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": 2,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "insolvency": {
+          "costs": 0.0,
+          "done": true,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "invalid_gate": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "pending": -1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "invalid_market": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "pending": 1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "missed_fill": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "ordinary": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.99975,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "partial_fill": {
+          "costs": 0.000125,
+          "done": false,
+          "equity": 0.999875,
+          "failure": null,
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row"
+          ],
+          "units": 0.00125
+        },
+        "solvent_risk": {
+          "costs": 0.00025,
+          "done": true,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "liquidate",
+            "append_row"
+          ],
+          "units": 0.0
+        }
+      },
+      "scope": "instrumented actual helpers/row publication; no universal refinement",
+      "terminalRoundTrip": {
+        "costs": 0.0005,
+        "done": true,
+        "equity": 0.9995,
+        "failure": null,
+        "pending": -1,
+        "rows": 1,
+        "t": 1,
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "liquidate",
+          "append_row"
+        ],
+        "units": 0.0
+      }
+    },
+    "model": {
+      "distinctInitialStates": 84,
+      "maxShortestDepth": 48,
+      "productionLifecycleProof": false,
+      "progressBound": 48,
+      "runtimeRefinement": false,
+      "scope": "one abstract replay call; final reward check or explicit early return",
+      "search": "complete reachable fixed point",
+      "states": 2876,
+      "terminalStuttering": true,
+      "transitions": 3474
+    },
+    "smt": {
+      "F-RL-REPLAY-DUE": "unsat"
+    }
+  },
+  "rewardAccounting": {
+    "conformance": {
+      "absoluteTolerance": 1e-11,
+      "cashResidualWithinTolerance": true,
+      "failureScenarios": {
+        "insolvency": {
+          "cashError": 0.0,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "netReturn": -2.0,
+          "positiveWealth": false,
+          "rewardError": 0.0,
+          "rewards": [
+            -200.0
+          ],
+          "rows": 1
+        },
+        "invalid_gate": {
+          "cashError": 0.0,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "netReturn": null,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            0.0
+          ],
+          "rows": 0
+        },
+        "invalid_market": {
+          "cashError": 0.0,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "netReturn": null,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            0.0
+          ],
+          "rows": 0
+        },
+        "solvent_risk": {
+          "cashError": 0.0,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "netReturn": -0.25025,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            -25.025
+          ],
+          "rows": 1
+        }
+      },
+      "gridEpisodes": 1944,
+      "nonadditiveReplay": {
+        "cashError": 0.0,
+        "equity": 0.9993749999999999,
+        "failure": null,
+        "netReturn": -0.0006250000000000977,
+        "positiveWealth": true,
+        "rewardError": 8.881784197001252e-16,
+        "rewards": [
+          0.0,
+          2.499999999999991,
+          -2.5000000000000013
+        ],
+        "rows": 3
+      },
+      "relativeTolerance": 1e-11,
+      "rewardResidualWithinTolerance": true,
+      "scope": "deterministic synthetic tests; no universal binary64 error bound"
+    },
+    "nonadditivity": {
+      "economicReturn": "-1/1600",
+      "finalEquity": "1599/1600",
+      "requirement": "F-RL-REWARD-ADDITIVE",
+      "scope": "interpretation counterexample; not a defect in current economic reporting",
+      "solverResult": "sat",
+      "status": "refuted",
+      "summedReward": "0"
+    },
+    "satUnsatPairs": 7,
+    "scope": "exact-real source arithmetic and induction obligations; no full runtime refinement",
+    "smt": {
+      "F-RL-REWARD-RECONCILE": "unsat",
+      "F-RL-ROW-RECONCILE": "unsat",
+      "F-RL-WEALTH-FOLD": "unsat"
+    }
+  },
   "schemaVersion": 1,
   "smt": {
     "F-RL-ACCOUNT": "unsat",
+    "F-RL-ARTIFACT-DISJOINT": "unsat",
+    "F-RL-ARTIFACT-METADATA": "unsat",
     "F-RL-AUTH": "unsat",
     "F-RL-CAUSAL-SLICE": "unsat",
+    "F-RL-COLLECT-PREFIX": "unsat",
+    "F-RL-CQL-GRADIENT": "unsat",
     "F-RL-DEFAULT": "unsat",
+    "F-RL-DOUBLE-TARGET": "unsat",
+    "F-RL-DRAWDOWN-COMPOSE": "unsat",
+    "F-RL-ESS-V2-ACCUMULATE": "unsat",
+    "F-RL-ESS-V2-BOUNDS": "unsat",
+    "F-RL-FEATURE-FOOTPRINT": "unsat",
+    "F-RL-FIT-PREFIX": "unsat",
+    "F-RL-FUNDING-ENDPOINT": "unsat",
+    "F-RL-FUNDING-GRID": "unsat",
+    "F-RL-GAP-BOUND": "unsat",
+    "F-RL-GRADIENT-CLIP": "unsat",
+    "F-RL-INFER-ADMISSION": "unsat",
+    "F-RL-INFER-SELECTION": "unsat",
+    "F-RL-OPE-DR-TELESCOPE": "unsat",
+    "F-RL-OPE-ESS-REAL": "unsat",
+    "F-RL-OPE-WIS-REAL": "unsat",
+    "F-RL-POSTCOST-EXPOSURE": "unsat",
+    "F-RL-PPO-COEFFICIENT": "unsat",
+    "F-RL-PPO-OBJECTIVE": "unsat",
+    "F-RL-REPLAY-CUTOFF": "unsat",
+    "F-RL-REPLAY-DUE": "unsat",
+    "F-RL-REWARD-RECONCILE": "unsat",
+    "F-RL-ROW-RECONCILE": "unsat",
     "F-RL-SHIELD-BOUNDS": "unsat",
     "F-RL-SHIELD-FALLBACK": "unsat",
     "F-RL-SHIELD-GUARDS": "unsat",
     "F-RL-SHIELD-IDEMPOTENT": "unsat",
-    "F-RL-SPLIT": "unsat"
+    "F-RL-SNAPSHOT-CAS": "unsat",
+    "F-RL-SNAPSHOT-FINITE": "unsat",
+    "F-RL-SPLIT": "unsat",
+    "F-RL-TARGET-V2-FINITE": "unsat",
+    "F-RL-TARGET-V2-REAL": "unsat",
+    "F-RL-TARGET-V2-TERMINAL": "unsat",
+    "F-RL-TERMINAL-FP-MASK": "unsat",
+    "F-RL-TERMINAL-REAL": "unsat",
+    "F-RL-TRANSITION-ADMISSION": "unsat",
+    "F-RL-WEALTH-FOLD": "unsat"
+  },
+  "snapshotV2": {
+    "floatSlotsPerSnapshot": [
+      675,
+      777
+    ],
+    "groups": 3,
+    "isolation": {
+      "calls": 52,
+      "networkFileProcessOrderOperations": 0,
+      "requirement": "F-RL-SNAPSHOT-ISOLATION",
+      "status": "exhaustively_checked"
+    },
+    "legacyCounterexampleResolved": false,
+    "model": {
+      "callsPerWriter": 2,
+      "generations": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "maxShortestDepth": 29,
+      "orphanLockStates": 502,
+      "progressRankBound": 49,
+      "readers": 1,
+      "scope": "atomic snapshots, not recovery or wall-clock termination",
+      "search": "reachable_fixed_point",
+      "staleComparisons": 152,
+      "states": 3970,
+      "transitions": 9981,
+      "writers": 2
+    },
+    "outputWidths": [
+      1,
+      3
+    ],
+    "productionIntegration": false,
+    "smt": {
+      "F-RL-SNAPSHOT-CAS": "unsat",
+      "F-RL-SNAPSHOT-FINITE": "unsat"
+    },
+    "sourceSha256": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+    "stateRepresentation": "frozen slotted snapshot of native bytes tuples",
+    "stepCap": 2147483647,
+    "storeAttributes": [
+      "_state"
+    ],
+    "tensorsPerGroup": 4,
+    "wallClockDeadlineVerified": false
   },
   "solver": "4.15.4",
+  "sourceFootprint": {
+    "domain": "unbounded integers 24 <= t < n; ordinary fixed-shape numeric arrays",
+    "function": "market_features",
+    "metadataHelpers": [
+      "_integer",
+      "_real_series"
+    ],
+    "reads": [
+      {
+        "lower": "t - 24",
+        "result": "unsat",
+        "upperExclusive": "t + 1"
+      }
+    ],
+    "requirement": "F-RL-FEATURE-FOOTPRINT",
+    "source": "scripts/research/sequential_env.py",
+    "status": "smt_verified",
+    "universalRuntimeRefinement": false
+  },
   "sourceHashes": {
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
+    "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
+    "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
+    "formal/research/ComponentGraph.hs": "adce2baf7f0b713dfc2835502dc5459295ac799cd208d96404d09b3a5e7a48b4",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
-    "formal/research/contract.md": "a907fb778e0c3cbd7aebccd48f8dda2d887a4c5d286ca0d2d3eca8bbba5b47b3",
+    "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
+    "formal/research/artifact-counterexamples.json": "0ffc100916d1af5646e985441529e4941d3b16e8fbc12f108a036c1d0f678315",
+    "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
+    "formal/research/capability-source-contract.json": "2638e58baf5593cdd3226a8db15825fef15446d07d5df679c7f0528a952b941d",
+    "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
+    "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
+    "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
+    "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
+    "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
-    "formal/research/proof-ledger.json": "08f831539fd6030185b168c9940e4f30db295dfe7103917e85e4832bea66434e",
+    "formal/research/ess-v2-contract.md": "a4f73a8e95156068f44131e63137fdd9871641599615cae5efa91e08b441e400",
+    "formal/research/funding-boundary-contract.md": "97a8cc3e97751b714a33b1874ced95c80ca06c9e536aba3ff09394d15ade566e",
+    "formal/research/funding-counterexamples.json": "9cd363cfbc7ad8fa2e93aa296d3194fe2253090bb21a7cc3d4859701e7940752",
+    "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
+    "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
+    "formal/research/inference-boundary-contract.md": "31d8e3cbc412bd519365542d5db3c9eccc42d07346bafac8141a053bd2cc67d6",
+    "formal/research/inference-counterexamples.json": "861bbecef8f56379e6590508820ed52597c0100bb302cb1f289fe39303a5f838",
+    "formal/research/obligation-closure-audit.md": "b84c7c5e555fa45154db799bab772be5e62746aaaa9bc7e68bf8e29aa3cb03bc",
+    "formal/research/obligation-contracts.json": "9b78e99728aeb6a816833b31ee3f2330f87aaa9248869e870471052a6262db74",
+    "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
+    "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
+    "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
+    "formal/research/optimizer-publication-contract.md": "f614e5e64994695b27068c6ce7db780c887600a6e2c8c256894ebfb12690ac35",
+    "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
+    "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
+    "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
+    "formal/research/proof-ledger.json": "0fa10690b7812cc248fa0ef171f38173e9575ae994049066d52a39ad1fe5f0f5",
+    "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
+    "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
+    "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
+    "formal/research/replay-order-contract.md": "c3670d42a9ca555823caaa42419c8c22b5f756a937dc35993aec586e318f731b",
+    "formal/research/replay-order-fixtures.json": "2c44f45007f86a9d84103ad4a06f92e8a9d2fcfbab60dccdcc32a4ba62d9f3fc",
+    "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
+    "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
+    "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
+    "formal/research/snapshot-v2-source.json": "24bcfa01d029c9067d899ab080d523ba6d3bcc9eda5de21cd9ab217f1d98415b",
+    "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
+    "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
+    "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
+    "formal/research/terminal-numerics-contract.md": "064018076666b20eeedbcb78d775a469d506726beca9871b9678fbccfd5fb9df",
+    "formal/research/training-counterexamples.json": "43bc62e7d776bf0e7fc8586a3bed0b3647ab054803095b180385f200d55a6531",
+    "formal/research/training-prefix-contract.md": "a38cf1cf417a42cfd06ff6246206f55c97c80f728e2fb39b4a89ae8f64bd175b",
+    "formal/research/transition-admission-contract.md": "6f516f853fbe71fb8485d88834d99d91385cf29be64f5775432fe5a996b5c85e",
+    "formal/research/transition-counterexamples.json": "984b07319602bf5eb639a248ee902a45aace80bbfe73079804a86109e8d0bd23",
+    "formal/research/value-counterexamples.json": "41b79fd17c6d969f3392438d2af8c94602d0679fbd6602df3159ec665476dcda",
+    "formal/research/value-objective-contract.md": "588f5a0be6bde1517440dab9236fb8a8c44b8827bd7725acfae3880ed3e5a7a7",
+    "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
+    "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
+    "haskell/app/Main.hs": "ed899ea90b2793ace9904364d8e5d21d1e01781104091861e9dcde369ce50fc1",
+    "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
+    "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
+    "haskell/app/OutboxPublisherMain.hs": "6447406bcca3a421dd28bfc8e7735308ec2d74609c1f673ba71b8c1a025b62ee",
+    "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
+    "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
+    "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
+    "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
+    "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
+    "haskell/app/Trader/App/Env.hs": "ba0aa10931c35f211003ebf4ffe55efebe973feed72b1125d0149111b0654fac",
+    "haskell/app/Trader/App/GracefulShutdown.hs": "497319075e2f3829f8bc737c9fa846d2d7557e72ad1c4769815b400ddc563deb",
+    "haskell/app/Trader/App/Observability.hs": "c613e7f6e80f1d6e7043d756f5c90ead7bf63e4387b575b77689a64a10ebb28e",
+    "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
+    "haskell/app/Trader/Binance.hs": "332671ea63fcf285631af7f3e0338bc66a8d32ae8e68fcb228920249c9133e57",
+    "haskell/app/Trader/BinanceIntervals.hs": "82c7b0e8b1023a2655b3d40f9f43d0f6880c8b4251f989bd30c69a605b88fee8",
+    "haskell/app/Trader/BinanceTradeAnalysis.hs": "90407ed30ed5729f3b93054096801cfc13188dd6a8a562f6c05d13288e3063a6",
+    "haskell/app/Trader/BotSnapshotRecovery.hs": "8e7a80efe14b9e67afd448bb70466fae8b14688c6449c4c98b20ef432c4577f1",
+    "haskell/app/Trader/BotStartSemantics.hs": "e53aec116ca8d187cf3783dd3309ab6ed079acb0f632c92166fbe735fc44bf20",
+    "haskell/app/Trader/Cache.hs": "42f6d30a45cbcfb7809a20cfa5e44495a9deddefdfc296af74b463cafb2acc8e",
+    "haskell/app/Trader/CapitalPreservation.hs": "dbdd61095b3a298f7b7713a3d1f0a255e21bbebb066c83d303862044a274aa54",
+    "haskell/app/Trader/Coinbase.hs": "770eaf447a793e0ce3df5278d8f536f3d22daea40d92aff8565fd80276f8a92c",
+    "haskell/app/Trader/ComboTracking.hs": "57444fefecfefeea781a8332f36b7f6cec258d52a792d4c25ed57c503ceafb6e",
+    "haskell/app/Trader/Config.hs": "3eb9fd8310ad5ae64216fd7d5640d5cdb70bd4ba86e12a3be419e3cce173613f",
+    "haskell/app/Trader/Cors.hs": "ee7c86f4620636265409444a39fdd11a006e96fc395ad99a329c67b1cbf6c67a",
+    "haskell/app/Trader/CostCalibration.hs": "52c087c4d447ef1d516f2c57d678f47aee9f6377f135b405453db376a0fdf5c1",
+    "haskell/app/Trader/CrossSectionalMomentum.hs": "6321d93b886227af6cbde5def7511b6bcc8fedd4f2ed049b592e169ca1413abf",
+    "haskell/app/Trader/Dex.hs": "c046e597672e112d88b2cb3eac0eb7994c411502637b5192c9e3e539e76de33f",
+    "haskell/app/Trader/Duration.hs": "19eab84175ae44a101d83ffcb9d507b47c8ef38d0e3a03fbba8df51f0a589c36",
+    "haskell/app/Trader/ExternalData.hs": "a44e4446b3b1ee30459a02e29a37055b9903c5b61d34c8d0b3db5b5cda0fb891",
+    "haskell/app/Trader/Formal/CloseTiming.hs": "264c6895ecab5f39c8097a83a0490da3757587083ad446047d19664fe709033d",
+    "haskell/app/Trader/Formal/Execution.hs": "5c64f0281592a63c029415db5e798e39a6370f933a556e912999f93a0cf222b0",
+    "haskell/app/Trader/Formal/Optimization.hs": "2222eea7b8777556fe031f61590e5de1f34dabd0986ce5565bf9495c6de1c622",
+    "haskell/app/Trader/Formal/Risk.hs": "bb59c75e6158479f49dda9c57d9a9c920fe15bdca35d77fbb8ba76160ade8540",
+    "haskell/app/Trader/Formal/RiskRegister.hs": "f16381b780cece733918e36ad7608255d6c237832b321b88f8ddd29079225022",
+    "haskell/app/Trader/GateTelemetry.hs": "7e66adc99577e9b2a23bb5a963a73ecf75e6e69d5fac23313ef16d2a52aac7b5",
+    "haskell/app/Trader/Http.hs": "589de8dd96eb9039832bd04222f44f473d20fa776f7de4d089503ec723e247cd",
+    "haskell/app/Trader/Kalman3.hs": "cebcb101865e8b7fcbbebbce866ea57cc6e8bf26d0df4263f4703e0977992477",
+    "haskell/app/Trader/KalmanFusion.hs": "1f16060b0151a37ffd685260d3eaba109bcbf3b9747fb90711bff194ac30ccf8",
+    "haskell/app/Trader/KalmanPhysics.hs": "ab2bf6f9368ea2482a1a5109de06d73942b0e610054c50325c75523b19c67b04",
+    "haskell/app/Trader/Kraken.hs": "3b944855058e7f5ef5552d102a09b1e4ee377ca38425aa577caa19e8faae596d",
+    "haskell/app/Trader/LSTM.hs": "1c1a637a51d23d98f47166b5e63727e008c1fdac8d6219627ed13f9c3618a95a",
+    "haskell/app/Trader/LiveGap.hs": "d6acca11ecd06ce9b443cd14ce52f785b95c3d19fa4d4f66aee017574d70cd4a",
+    "haskell/app/Trader/LiveOrderIntent.hs": "0cff3338d8e5c6a02d97580dd6eb9e25743c8f94a4b453587766bb62f1395ed1",
+    "haskell/app/Trader/LstmDefaults.hs": "c0fb3d5f743536ddcb6976f043947cd7c9b5359f0965e967c9b0bb75430430f9",
+    "haskell/app/Trader/LstmPersistence.hs": "ecaa971985cffab86697f2bd71e20c3d8d20817f9791a00ab41ecb35f79a7d22",
+    "haskell/app/Trader/MarketContext.hs": "58e8a4595e9131926cd1ff54a492a0845964d705ee0ac75576bc48a37f5116e4",
+    "haskell/app/Trader/MarketDataIntegrity.hs": "b02aec78142556a4abd20c39cf0c477b3448cd34503f62398f78de82fee49840",
+    "haskell/app/Trader/MarketGovernor.hs": "6bd03c3255368413803ce3979330a815126f84529b9fcdba283141999c856554",
+    "haskell/app/Trader/MarketRisk.hs": "c676b623cda634fe6e4c693735bc9053a855e26059f44cbb94e865eaeb1fc590",
+    "haskell/app/Trader/Method.hs": "655913896bba79f07a9b4e8f676ee595e92f14fe949d5a4246e0fece9d53b1a3",
+    "haskell/app/Trader/Metrics.hs": "0f9c8893af0964baa45c1b6f5ab0f6834722f417202c782f727741ef11a4bc50",
+    "haskell/app/Trader/NeuralGovernor.hs": "5ace954cdd3e3ebec07633ac985610392e08061681fb843306b020a3b55dde1a",
+    "haskell/app/Trader/Normalization.hs": "aeb9ca46c07ba57192fe5b5f7eb09ea0df9efbe5fb3d7be2119c64be0d51b9b1",
+    "haskell/app/Trader/OnlineStats.hs": "3a449c61fdcbb7d5022a79a04aedcc5fe81315b8d82c099a755752902a94b76b",
+    "haskell/app/Trader/Ops/Migrations.hs": "ee4da48090953d21bb866c8d634887d05b98faac57c9bf4e9aab6327c9fd9e17",
+    "haskell/app/Trader/Optimization.hs": "63c7a9bee9a9964dce845384ed61e4bcb3d64bf4d0bb8865c71b85aa472cd643",
+    "haskell/app/Trader/Optimizer/Common.hs": "4de82093001a695e9ad930fb575efd970baeac052b4b79e8fd4d3dd4810ab018",
+    "haskell/app/Trader/Optimizer/Json.hs": "89dc758d65df8828857f57335f3ac4de61657f185ff7a3d734497ca9956b276f",
+    "haskell/app/Trader/Optimizer/Merge.hs": "94a1fed29203ace0fd04cd747cf3737676a5c5edeffe7034c754da94d28272aa",
+    "haskell/app/Trader/Optimizer/Optimize.hs": "366de00ef8aa38a35435656a994d89e9a8c2a4ac6c3f7881e41f65bc3a88abb4",
+    "haskell/app/Trader/Optimizer/OverfitAudit.hs": "ae9c828b83db28497de265a36e49aacff25606d702317f2e356fc15a3da75f8b",
+    "haskell/app/Trader/Optimizer/Random.hs": "36d9186efc777687fbaed5004f6c96656547fe4a8a05567d13740e87501f9c6f",
+    "haskell/app/Trader/OrderExecution.hs": "82650db3b52d85a46227363ab3ed7a14b4e0458b3189aeab0515564d0dd86dc0",
+    "haskell/app/Trader/Platform.hs": "42a7d8dc5df322578bd128c10cfc3669d2c1b790fb0fec7d457e95ba8328ca5a",
+    "haskell/app/Trader/PointInTimeUniverse.hs": "77f2c9ac3c4eb67b8b0fa0c8d16852bc9a322fd6f9e6a31aad360a6e768dc71e",
+    "haskell/app/Trader/PointInTimeUniverseV2.hs": "d4eb76f2fd964192920185757a067153e118fe8f28ac1f0f3c4003b2fd13f35b",
+    "haskell/app/Trader/Poloniex.hs": "502fa8950b667be4acae8826bd77527880068168166947b35173f30d474b5fd8",
+    "haskell/app/Trader/PortfolioSelection.hs": "afa267fde3f35d852abaa6141b2d53cce9ffc503435a6d6e06e56a58684c9d76",
+    "haskell/app/Trader/PredictionMarkets.hs": "cbca06be04514adad2bdf6074f499b9f6b50a09b5c442a1ea6257865eebe8253",
+    "haskell/app/Trader/Predictors.hs": "16fe6c580e3da263c2af9c5ed2f0b36e64d02f599a163261d04374204d05c510",
+    "haskell/app/Trader/Predictors/Conformal.hs": "4178b94587c321985d5560521d38f8358e8f3ae4e61008d86c0a705e917f1393",
+    "haskell/app/Trader/Predictors/CrossExchangeFeaturesV2.hs": "85c65c095337d763752e090f7b78a7bbfb5d8bef86323f81b1d4c7bbe433f876",
+    "haskell/app/Trader/Predictors/DecisionTree.hs": "ce566748ee69a383def24aad29b0d1cdbdb3fca51b56cc336cd629569b424e2d",
+    "haskell/app/Trader/Predictors/DerivativesFeaturesV2.hs": "b140845c6f772ff774f36512394dde46c1e05adf17b25c21acda03c41ecf265a",
+    "haskell/app/Trader/Predictors/DerivativesPanelSchema.hs": "16962883b03da197a0a04e1ec692f6c7140edf6fc9bb1145bb460e04e3aa01f9",
+    "haskell/app/Trader/Predictors/Exogenous.hs": "99962361fbe4768a2fddb08e434c653fd561a4ecd29aa34fa363f132d1aac4de",
+    "haskell/app/Trader/Predictors/ExogenousFetch.hs": "04ea485820c019ced6b385123e9aa8ec4e0029a5f002bcf52bbd405b1033730f",
+    "haskell/app/Trader/Predictors/ExternalFeatureSchema.hs": "f78b2c7c4e513ebf4852e0d7ebdf9f3770ed6c30d90a59913cef198d3ebf5eca",
+    "haskell/app/Trader/Predictors/ExternalFeaturesV2.hs": "f4c00a78ee2693520806652eba1e16994d3659ec0aa1847160325ede416b8895",
+    "haskell/app/Trader/Predictors/ExternalPanelSchema.hs": "5445b22189dce5f66da8534f0295417de5f36fc1ab5bd0cb4ee1f8c5a7fe3c2d",
+    "haskell/app/Trader/Predictors/FeatureSchema.hs": "5beccc043ce08f6122ede0fff105c3633d237b72a0d931f9a74bfe3ea93355fe",
+    "haskell/app/Trader/Predictors/Features.hs": "2ddd505d202a7e909c7ebba14f1bf1c965b52a8772633ef9e7ff8eb312578ff6",
+    "haskell/app/Trader/Predictors/GBDT.hs": "17dbb3b6df6a3b8ccd4d97d7d65e2b63aa9c47fe2377a355a668f44d960b2aef",
+    "haskell/app/Trader/Predictors/HMM.hs": "52e11aa4df540cb78db84c86245e6928279b2a62f5387ef1ac2faeaa2bfb5fed",
+    "haskell/app/Trader/Predictors/KNN.hs": "848633043ec2e3e77ede52e9b20a4fc6c68c7ca7019d4ba0fc117fe348396105",
+    "haskell/app/Trader/Predictors/MarketContextFeaturesV2.hs": "bf395b9ba715a6234d66921192f49d4cdfdeb6ac2d5d9d77684aca4c597e99a1",
+    "haskell/app/Trader/Predictors/MarketContextPanelSchemaV2.hs": "110c2f3583023233774f25b0369baac139afaa1c198d838c0dd274d3eb5d1c5b",
+    "haskell/app/Trader/Predictors/OhlcvInputsV2.hs": "a95bca11e838a8bec31a00d0a33c4340e70e4244d7f9daee56153fababaa7057",
+    "haskell/app/Trader/Predictors/OnlineNeural.hs": "e1ae52fcd348999089ddbf816c47ba5e5a98819ff9cc4e3a3396fc507ab26913",
+    "haskell/app/Trader/Predictors/PatchTST.hs": "14b040e6dc02ffeeb77d91d71f0b41b483e0c4568a976f9630086960d1ea1a98",
+    "haskell/app/Trader/Predictors/Quantile.hs": "8ba2ea25d2477de19157714908694bb5b3aa1f18a159a44f1440efaa1aebeff7",
+    "haskell/app/Trader/Predictors/TCN.hs": "816cccc5521fb4463371283e339ec301a316afde3d176492ea40d1194d2f87d2",
+    "haskell/app/Trader/Predictors/Transformer.hs": "79dd15ab8d5000b5ec8cc97d626e097a33cddd87288d216a39c6b2f301c8ecf4",
+    "haskell/app/Trader/Predictors/Types.hs": "010200c390bd92c8c2978ad2655b2e2d5cc9eb3ea5328ea32951e1afd6fd6935",
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
+    "haskell/app/Trader/Revenue.hs": "0d5041cfc728e3fc348a80e3495a20437f81328289daaa538983f77a578dcd8d",
+    "haskell/app/Trader/RoiScore.hs": "7176b75543bfcb510d14c55f34c1e8fad4808b48d86329f681b8c04ec3c2f36c",
+    "haskell/app/Trader/S3.hs": "7f34c445a40aa2f135709976329c925c481a7784abcef262769ffcfe395c64c6",
+    "haskell/app/Trader/SensitivityAnalysis.hs": "1340bbef2cd68d43943edb0bc82412fb957aecdba754faf1dcb45f6d599e2b2d",
+    "haskell/app/Trader/SensorVariance.hs": "1af0226c479abb1fac896be406127f02cdaf7e6f3f7e15ba9684fcf4efa21bcc",
+    "haskell/app/Trader/SignalGates.hs": "d7dd5e278bd7ca061e43cf5e1adda79f00ae897a7cdd01ba6b474e7300f64de6",
+    "haskell/app/Trader/Split.hs": "c816d6020fd3b52e9c1c1f9c340c9218cae5f2c001bf6342784d111cdedf8398",
+    "haskell/app/Trader/Symbol.hs": "ed853c32ef1c8e34b911203ce66e4b7e8771ed337de6a6d18ed73fac252c7d05",
+    "haskell/app/Trader/TechnicalAnalysis/Indicators.hs": "b0c1e7d00103f919b413236d86b671789c721ee5250853e2b5e090d2f51d39cc",
+    "haskell/app/Trader/TechnicalAnalysis/Strategies.hs": "63070d18f18688073a38ecb839f4fc56c1e4cd5bfacef74e7f5b0097ce3474a2",
+    "haskell/app/Trader/Text.hs": "2358b8c83b04534cf98cdd5b55af6c44922ab4e642689d25149923b58b527287",
+    "haskell/app/Trader/ThresholdCalibration.hs": "4c5c968e25c0f51b8162b7807ea09102a4577cf7063b2b4c60619cdfc362e93e",
+    "haskell/app/Trader/TopComboScoring.hs": "ccf0ea696a15174de751335c02571c75ccc08f019c9ed28037d184c191a7a3a1",
+    "haskell/app/Trader/TopCombosStore.hs": "5215ef247fb58772ad9e8a3572a51b7ddb99d860ac541b8af619196b8cc3d012",
+    "haskell/app/Trader/TradeLogRiskState.hs": "cffb3b7b6e9c4f80f4a232396f8541bd7ad799a2a4e4cc9b8f77e3a50e78059b",
+    "haskell/app/Trader/TradeMethodGate.hs": "3c1f3f49c090335950b4d392e2648a76129eb694bf00d785982150057abcd2cd",
+    "haskell/app/Trader/Trading.hs": "c65596455803112e30986fc638e5975daac0ab4e57dc0206454fc49888473693",
+    "haskell/app/Trader/Types/Safe.hs": "5c03e2856590967c717f2c0dc026636497f8dbd2f64d98f2e845473f72e78263",
+    "haskell/app/Trader/VolConfGate.hs": "960283ce0191fed59f9d554276e6b07fe4c75b3c2a1c1a211ee24a0d9d8c8cdd",
+    "haskell/scripts/rollup_performance.sh": "450d7650ca208938cbc4c7ef24c630415b9a15c06e8bbdb06437942354c5d5e4",
+    "haskell/trader.cabal": "abdc34bf8b1d245497ca15810c13a06e0f96a23088025d7942564837fbe20369",
+    "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
+    "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14",
+    "research-notes/registrations/funding-boundary-audit-engineering.json": "cc16f1ff23ba0012bc3fb1d3f09edcf3a14742d49ebb64223c9c83858e7fc398",
+    "research-notes/registrations/gae-targets-v2-engineering.json": "293eb15ab55924c7b05c28be805ad787c1e821c1d12220f676b973c851f5e4d7",
+    "research-notes/registrations/inference-boundary-audit-engineering.json": "79a56c520b05c76bbe941dd56645b3cc7bd5702474e3830831d7c90619d01f76",
+    "research-notes/registrations/numerical-query-isolation-engineering.json": "fa70b6d59e461b2b2b337a55f911c5541891783edd5e8e79b7f37ea7c63e9af5",
+    "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
+    "research-notes/registrations/ope-algebra-audit-engineering.json": "7c9b5f1c5b03888f8fbd7705c70a03e6b949fb227ff52e60d2f78a6e9e6c097c",
+    "research-notes/registrations/optimizer-publication-audit-engineering.json": "53818517bb3294667608dd84c291869e4a6d589254b70e38924603156388af6e",
+    "research-notes/registrations/optimizer-snapshot-v2-engineering.json": "7716738a757a6b9b85c251235366ed94eefe5554d4a2deeddb7d2230ea489545",
+    "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
+    "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc",
+    "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
+    "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
+    "research-notes/registrations/value-objective-audit-engineering.json": "73382abdea417dadeb8bc3b6cd61e7f36d20bade9a0a7649731f6c5a599f877f",
+    "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
+    "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
+    "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
+    "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
+    "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
+    "scripts/formal/default_paths.py": "48959a79c17e0cd96e89929df5eefec819fd824349c525ed597f4011b463d85d",
+    "scripts/formal/ess_v2.py": "bdaa6f53c38117b14f60fd291f8b5b93c224f3c5b9e0b0cb146c522d2d9b8661",
+    "scripts/formal/funding_boundary.py": "e3d15552b403cb380dd26d6bb9b8a07516fdc2db8dc75bc25b2ee5dfaefca42a",
+    "scripts/formal/gap_conformance.py": "e5e900f8aa492c786f61d69d4e791f09dd87833229a3f820c0afefb9d753ac7a",
+    "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
+    "scripts/formal/inference_boundary.py": "b5c567d975661a28f1e7fb8b884b71e98210c20b9deba97cdf6d068432a18ead",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
-    "scripts/formal/proofs.py": "1cffa62991e54211a5cd62c67830575904c45a8e5facd0d572405ee7796ad930",
-    "scripts/formal/requirements.txt": "cf3b48befb56078d536a9e4d00ff23bd42635c2e934a8a6cd52462c79d736619",
-    "scripts/formal/test_integrity.py": "ee95fa43406bd6498c2e252f72b942edb2c19c95a6024b3d547bd2872cea93e1",
-    "scripts/formal/verify.py": "820a16126b62c3304342fb72b9faa4869653612b9923b1525a518974e3817c4d",
+    "scripts/formal/ope_algebra.py": "3e7eeae7e52732464e34d15210c0d479e1414eae05e945b69b7a18ef4483413e",
+    "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
+    "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
+    "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
+    "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
+    "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
+    "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
+    "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
+    "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
+    "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
+    "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
+    "scripts/formal/test_integrity.py": "dccdd16eb22f7666ac8aeefae1bd6ad96eaf1f0b11424e0fcfd3fcf0013f5e6e",
+    "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
+    "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
+    "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
+    "scripts/formal/verify.py": "d896189cf7fd47b677caf44420d02e3d8c854ee17f8170be3fee619afa4a47ee",
+    "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
+    "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
+    "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+    "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+    "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
-    "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07"
+    "scripts/research/sequential_evaluation.py": "fbe9c0a1c974c55985c8dcdfe19479072215b384af567daa5c0a710e6da2ad48",
+    "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
+    "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
+    "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
+    "test/sequential_screen_test.py": "c8d365e228ee4e7a5ec4b9bd06f725a671510b9806a2a5b93b7ca836f9cf5176"
+  },
+  "targetV2": {
+    "model": {
+      "liveAuthorizationTransitions": 0,
+      "maxShortestDepth": 258,
+      "maximumRows": 256,
+      "progressBound": 258,
+      "requirement": "F-RL-TARGET-V2-PUBLISH",
+      "result": "pass",
+      "sourceSkeletonChecked": true,
+      "states": 33410,
+      "strictProgressRankChecked": true,
+      "terminalStuttering": true,
+      "transitions": 66562,
+      "universalRuntimeRefinement": false
+    },
+    "normalizationVerified": false,
+    "premiseChecks": 4,
+    "premiseWitnessRemovedBeforeViolation": true,
+    "queries": 4,
+    "rounding": "RNE binary64; separate operations",
+    "smt": {
+      "F-RL-TARGET-V2-FINITE": "unsat",
+      "F-RL-TARGET-V2-REAL": "unsat",
+      "F-RL-TARGET-V2-TERMINAL": "unsat"
+    },
+    "universalRuntimeRefinement": false,
+    "wholeLearnerCorrection": false
+  },
+  "terminalNumerics": {
+    "counterexamples": [
+      {
+        "expectedTargets": [
+          "0x0.0p+0"
+        ],
+        "id": "CE-RL-010",
+        "result": "sat"
+      },
+      {
+        "expectedTargets": [
+          "nan",
+          "inf"
+        ],
+        "id": "CE-RL-011",
+        "result": "sat"
+      }
+    ],
+    "normalizedAdvantageNoninterference": false,
+    "positiveQueries": 3,
+    "premiseChecks": 3,
+    "rounding": "RNE binary64; separate operations",
+    "smt": {
+      "F-RL-TERMINAL-FP-MASK": "unsat",
+      "F-RL-TERMINAL-REAL": "unsat"
+    },
+    "universalRuntimeRefinement": false
+  },
+  "trainingPrefix": {
+    "episodeStartRange": [
+      "24",
+      "len(p) - 96"
+    ],
+    "episodeStop": "start + 97",
+    "fitRange": [
+      "24",
+      "len(p)"
+    ],
+    "foldHorizonCases": 9,
+    "premiseChecks": 6,
+    "registeredFolds": [
+      {
+        "gapBars": 6,
+        "testStart": 1606,
+        "testStop": 2206,
+        "trainStop": 1600
+      },
+      {
+        "gapBars": 6,
+        "testStart": 2606,
+        "testStop": 3206,
+        "trainStop": 2600
+      },
+      {
+        "gapBars": 6,
+        "testStart": 3606,
+        "testStop": 4206,
+        "trainStop": 3600
+      }
+    ],
+    "runnerPrefixStops": [
+      "split['trainStop']",
+      "split['trainStop']"
+    ],
+    "smt": {
+      "F-RL-COLLECT-PREFIX": "unsat",
+      "F-RL-FIT-PREFIX": "unsat"
+    },
+    "solverQueries": 6,
+    "universalRuntimeRefinement": false
+  },
+  "transitionAdmission": {
+    "collectorAdmissionBeforeAppend": true,
+    "integerIndices": "unbounded",
+    "numericDomain": "IEEE binary64 reward/equity/units",
+    "premiseChecks": 3,
+    "queries": 3,
+    "requirement": "F-RL-TRANSITION-ADMISSION",
+    "result": "unsat",
+    "universalRuntimeRefinement": false
+  },
+  "valueObjective": {
+    "actions": 3,
+    "batchBounds": [
+      1,
+      256
+    ],
+    "binary64WitnessRounding": "separate RNE; prescribed log intermediate; one row",
+    "counterexamples": [
+      {
+        "id": "CE-RL-014",
+        "result": "sat"
+      },
+      {
+        "id": "CE-RL-015",
+        "result": "sat"
+      }
+    ],
+    "fullTrainingRefinement": false,
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "policyLowerBoundVerified": false,
+    "premiseChecks": 2,
+    "queries": 2,
+    "smt": {
+      "F-RL-CQL-GRADIENT": "unsat",
+      "F-RL-DOUBLE-TARGET": "unsat"
+    },
+    "transcendentalsVerified": false
   }
 }

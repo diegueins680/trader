@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-30",
+  "scope": "engineering/formal/literature continuation only",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "b9c1f05c5922f8b00f5300837083a06f1b235274",
+  "specificationCommit": "1d985603",
+  "sourceFreeze": "8603f5aec7fe0c5ab7b93c720c9f9bd8a1c8be0f",
+  "registration": "research-notes/registrations/inference-boundary-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "targeted",
+      "exitCode": 0,
+      "command": "python scripts/formal/test_integrity.py InferenceBoundaryTests",
+      "externalLog": "/private/tmp/trader-inference-targeted-20260930.log",
+      "sha256": "993e83aa815dc0a4481381bc3fe4ebae864aa9bd60ae4e26efc53865017c590d",
+      "disposition": "seven targeted tests passed"
+    },
+    {
+      "stage": "record",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-inference-record-20260930.log",
+      "sha256": "b0d0b95122f0c7acd3b85cd337d4009e840b00ae53e3f4638fc25f01ffa223f4",
+      "disposition": "initial scoped result recorded"
+    },
+    {
+      "stage": "record-final",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-inference-record-final-20260930.log",
+      "sha256": "10d27a1adac1a70f6a46eaaf24b8f30d17ff41b0f47ad1a37600c342eb6795d1",
+      "disposition": "recorded after making the discrete-action membership assertion explicit"
+    },
+    {
+      "stage": "formal",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh formal",
+      "externalLog": "/private/tmp/trader-inference-formal-20260930.log",
+      "sha256": "ad4ea066f81a60cc4995855eccf75768decbb919727611fe7536ac38d73ac476",
+      "disposition": "passed: 80 integrity tests, 29 scoped SMT obligations"
+    },
+    {
+      "stage": "full",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh full",
+      "externalLog": "/private/tmp/trader-inference-full-20260930.log",
+      "sha256": "c7c3c6773878bd8a202bca8586c98f53c4cfe7e8bfea27238ef1a971858461be",
+      "disposition": "passed; no skipped or weakened check"
+    },
+    {
+      "stage": "acceptance",
+      "exitCode": 1,
+      "command": "python scripts/formal/verify.py --require-complete",
+      "externalLog": "/private/tmp/trader-inference-acceptance-20260930.log",
+      "sha256": "127b2437d965feada904ed190b65b034eb8745eb7a7c167bcf9ccf3544837b31",
+      "disposition": "expected acceptance refusal; not a pass"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000
+  },
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36699627650",
+    "headSha": "8603f5aec7fe0c5ab7b93c720c9f9bd8a1c8be0f",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "externalReceipt": "/private/tmp/trader-inference-ci-20260930.json",
+    "sha256": "af97a3cdc27c99ad18d266006ba17f404629f5c4951b2161154178fafdc7c2a9"
+  },
+  "conformance": {
+    "integrityTests": 80,
+    "newIntegrityTests": 7,
+    "sourceMutants": 9,
+    "environmentMutants": 2,
+    "fixtureMutants": 4,
+    "modelMutants": 2,
+    "scoreTimingCases": 162,
+    "disabledFlags": 6,
+    "invalidObservations": 11,
+    "invalidOutputs": 11,
+    "unchangedNetworkParityCases": 3,
+    "newSMTRequirements": [
+      "F-RL-INFER-ADMISSION",
+      "F-RL-INFER-SELECTION"
+    ],
+    "newModelRequirement": "F-RL-INFER-PATH",
+    "newRefutedRequirement": "F-RL-INFER-DEADLINE",
+    "counterexample": "CE-RL-017",
+    "totalSMTRequirements": 29,
+    "lockedSources": 61
+  },
+  "inferenceBoundary": {
+    "clockConversionVerified": false,
+    "model": {
+      "calls": 1,
+      "deadlineCounterexample": {
+        "cycle": [
+          "pending"
+        ],
+        "prefix": [
+          "enable",
+          "admit_observation"
+        ]
+      },
+      "flagBits": 5,
+      "liveAuthorizationTransitions": 0,
+      "maxShortestDepth": 4,
+      "preemptionVerified": false,
+      "search": "reachable_fixed_point",
+      "states": 9,
+      "terminationWithoutReturnAssumption": false,
+      "transitions": 15
+    },
+    "neuralRobustnessVerified": false,
+    "premiseChecks": 2,
+    "queries": 2,
+    "runtimeRefinement": false,
+    "smt": {
+      "F-RL-INFER-ADMISSION": "unsat",
+      "F-RL-INFER-SELECTION": "unsat"
+    }
+  },
+  "benchmarks": {
+    "kind": "single-run verification durations; not inference latency or policy-training benchmarks",
+    "measurements": {
+      "targeted": {
+        "integritySeconds": [
+          1.137
+        ],
+        "certificateSeconds": []
+      },
+      "formal": {
+        "integritySeconds": [
+          14.146
+        ],
+        "certificateSeconds": [
+          6.777
+        ]
+      },
+      "full": {
+        "integritySeconds": [
+          19.081
+        ],
+        "certificateSeconds": [
+          9.261
+        ]
+      }
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Trusted AST/model and NumPy predicate/argmax semantics",
+    "No clock conversion/authenticity or preemptive deadline proof",
+    "Measured time excludes later output validation and selection",
+    "Predicate, clock and BaseException failures outside forward Exception catch",
+    "Lasso is abstract; 25 ms fixture uses simulated timestamps, not physical elapsed time",
+    "Equal valid scores still select short; no uncertainty abstention added",
+    "No full runtime/neural/production refinement or economic result"
+  ]
+}

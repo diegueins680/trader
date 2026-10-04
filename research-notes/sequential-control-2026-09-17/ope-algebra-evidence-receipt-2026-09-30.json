@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-30",
+  "scope": "engineering/formal/literature continuation only",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "4ff4166786604e0b6b35a51082f59a317c543a1d",
+  "specificationCommit": "d78b3155",
+  "sourceFreeze": "6cb5c0336ac80efae7222c3a7347344e7ea19be0",
+  "registration": "research-notes/registrations/ope-algebra-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "targeted",
+      "exitCode": 0,
+      "command": "python scripts/formal/test_integrity.py OPEAlgebraTests",
+      "externalLog": "/private/tmp/trader-ope-targeted-20260930.log",
+      "sha256": "eea27a855485b6e21a26c321f17150b1ddeae51a709e03c9b65b560d65845478",
+      "disposition": "8 targeted tests passed"
+    },
+    {
+      "stage": "record",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-ope-record-20260930.log",
+      "sha256": "e427f4a9b0fa0c55a31ea13ef7c558018d7c603098366d53cec3bcc57a73a07b",
+      "disposition": "Initial scoped results recorded"
+    },
+    {
+      "stage": "formal",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh formal",
+      "externalLog": "/private/tmp/trader-ope-formal-20260930.log",
+      "sha256": "955ba724860ad388c970bef508048244d2de969a18c957669c7a0f4136435f8d",
+      "disposition": "88 integrity tests and 32 scoped SMT requirements passed"
+    },
+    {
+      "stage": "record-final",
+      "exitCode": 0,
+      "command": "python scripts/formal/verify.py --record",
+      "externalLog": "/private/tmp/trader-ope-record-final-20260930.log",
+      "sha256": "ed68e3ab9fd9bb052c8f12197bbaded09fef6ecd45bea46c3228ae1f91545f68",
+      "disposition": "Recorded after additionally locking the unchanged full evaluation source"
+    },
+    {
+      "stage": "formal-final",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh formal",
+      "externalLog": "/private/tmp/trader-ope-formal-final-20260930.log",
+      "sha256": "4c77bab961bdd915a0c2425922d864a128f6d86615ece98abb3f2abe8048c54f",
+      "disposition": "Final 66-source lock; 88 integrity tests and 32 scoped SMT requirements passed"
+    },
+    {
+      "stage": "full",
+      "exitCode": 0,
+      "command": "bash scripts/verify.sh full",
+      "externalLog": "/private/tmp/trader-ope-full-20260930.log",
+      "sha256": "7d5a206838297442bcb02674707c0112e5f1e9ca190189f0c985467bd8cfa99c",
+      "disposition": "Passed all formal, Haskell, web and automation checks; none skipped or weakened"
+    },
+    {
+      "stage": "acceptance",
+      "exitCode": 1,
+      "command": "python scripts/formal/verify.py --require-complete",
+      "externalLog": "/private/tmp/trader-ope-acceptance-20260930.log",
+      "sha256": "bf0e66bac3550981d464c13c61d266bfb5baaf710f76c5b6b6378b293a11ca52",
+      "disposition": "Expected acceptance refusal; not a pass"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000
+  },
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36702686121",
+    "headSha": "6cb5c0336ac80efae7222c3a7347344e7ea19be0",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "externalReceipt": "/private/tmp/trader-ope-ci-final-20260930.json",
+    "sha256": "d0b0766b686ac8792fc4de3a9673d336cfab0cea7ce4409ecd132ca7450eefe5"
+  },
+  "conformance": {
+    "integrityTests": 88,
+    "newIntegrityTests": 8,
+    "sourceMutants": 11,
+    "fixtureMutants": 4,
+    "registrationMutants": 1,
+    "weightReturnCases": 135,
+    "drCases": 18,
+    "drAssumptionControls": 18,
+    "binaryTargetPatterns": 64,
+    "positiveWeightCountCases": 201,
+    "newSMTRequirements": [
+      "F-RL-OPE-ESS-REAL",
+      "F-RL-OPE-WIS-REAL",
+      "F-RL-OPE-DR-TELESCOPE"
+    ],
+    "newRefutedRequirement": "F-RL-OPE-FP-SUPPORT",
+    "counterexample": "CE-RL-018",
+    "totalSMTRequirements": 32,
+    "lockedSources": 66
+  },
+  "opeAlgebra": {
+    "binary64AccuracyVerified": false,
+    "counterexample": {
+      "currentShortOPEReachabilityClaimed": false,
+      "effectiveSampleSize": 0,
+      "format": "IEEE binary64",
+      "id": "CE-RL-018",
+      "nonzeroTrajectories": 2,
+      "publicRuntimeCheckedBy": "OPEAlgebraTests",
+      "result": "sat",
+      "rounding": "RNE",
+      "weightHex": "0x1.0000000000000p-600"
+    },
+    "drHorizons": [
+      1,
+      6
+    ],
+    "premiseChecks": 8,
+    "queries": 8,
+    "realEpisodes": 2,
+    "runtimeRefinement": false,
+    "smt": {
+      "F-RL-OPE-DR-TELESCOPE": "unsat",
+      "F-RL-OPE-ESS-REAL": "unsat",
+      "F-RL-OPE-WIS-REAL": "unsat"
+    },
+    "statisticalReliabilityVerified": false
+  },
+  "benchmarks": {
+    "kind": "Single-run verification overhead; not inference or training benchmarks. Full gate overlapped the acceptance diagnostic; timings are not isolated.",
+    "measurements": {
+      "targeted": {
+        "integritySeconds": [
+          1.337
+        ],
+        "certificateSeconds": []
+      },
+      "formal": {
+        "integritySeconds": [
+          18.003
+        ],
+        "certificateSeconds": [
+          6.696
+        ]
+      },
+      "formal-final": {
+        "integritySeconds": [
+          17.314
+        ],
+        "certificateSeconds": [
+          4.685
+        ]
+      },
+      "full": {
+        "integritySeconds": [
+          37.666
+        ],
+        "certificateSeconds": [
+          13.875
+        ]
+      }
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Trusted AST/model, NumPy, solver and runtime semantics; no full implementation refinement",
+    "Real ESS/WIS claims cover exactly two trajectories; DR covers horizons 1..6 under q_t=v_t and unit weights",
+    "No unbiasedness, confidence-coverage, state-action support or policy-quality theorem",
+    "Binary64 fixed witness and actual helper regression are not universal floating-point proofs",
+    "Current six-step producer grid is bounded arithmetic evidence, not an end-to-end market reachability theorem",
+    "Underflow witness remains unrepaired outside the current deterministic producer domain",
+    "All 108 original OPE batches remain invalid; no new market estimate or final-holdout evidence"
+  ]
+}

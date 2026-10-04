@@ -1,5 +1,75 @@
 # Trader Firm — Risk Register
 
+Closure audit (2026-10-03): [criteria and scope](../formal/research/obligation-closure-audit.md) replace the impossible completion guard (CE-RL-021). Default-disabled, capability separation and no production learning are closed only for delivered offline boundaries under explicit language/runtime assumptions (A-CAPABILITY-BUILD). Actual deployment images and inherited live authority remain unverified; Dockerfile.optimized still names GHC 8.10.4 rather than canonical 9.4.8. The remaining 35 obligations, numerical counterexamples and economic rejection keep `RL-OFFLINE-001` HIGH/OPEN. Earlier 38-open counts below are historical.
+
+Snapshot v2 follow-up: A-SNAPSHOT-V2 trusts pinned CPython/GIL reference/lock semantics and NumPy scan/serialization, with ordinary immutable snapshot discipline. New update/forward consumers use coherent snapshots; interrupted acknowledgement and orphan-lock recovery remain limitations. CE-RL-023 records backend-dependent raw-byte-view numerical parity and its tested native-copy correction. CE-RL-016 in frozen v1 and broader production synchronization remain unresolved; RL-OFFLINE-001 stays HIGH/OPEN.
+
+
+Reward accounting evidence (2026-10-03): [contract](../formal/research/reward-accounting-contract.md) separates call-relative reward from compounded economic return. The reporter correctly records the preserved synthetic loss. Exact-real SMT and tolerance tests do not discharge floating-point/production refinement; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Replay cutoff evidence (2026-10-01): [contract](../formal/research/replay-cutoff-contract.md) extends abstract single-call ordering through an integer cutoff lemma and class-seven graph. Observation/reward and Haskell runtime refinement remain open. A checker mutation is preserved and corrected; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Replay ordering evidence (2026-10-01): [contract](../formal/research/replay-order-contract.md) checks a source-bound single-call abstraction and synthetic helper traces. Terminal liquidation is distinct from a delayed policy target; early rejected calls can retain simulated state. Runtime, cash arithmetic and production lifecycle remain open; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Funding boundary evidence (2026-10-01): [contract](../formal/research/funding-boundary-contract.md) records CE-RL-019 product/sum overflow from finite synthetic inputs. Scoped endpoint proofs do not prove provider availability; replay rejects the encountered invalid transition. Frozen loader unchanged; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Exact ESS diagnostic (2026-09-30): [contract](../formal/research/ess-v2-contract.md) introduces a disabled, disconnected rational kernel. Its supplied-weight arithmetic avoids CE-RL-018 locally; the frozen helper retains the witness. Upstream lost weights, statistical support, full runtime refinement and promotion remain unresolved. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+OPE numerical evidence (2026-09-30): [contract](../formal/research/ope-algebra-contract.md) records CE-RL-018, where squared positive weights underflow and ESS reports zero. This prescribed helper fixture is outside the current deterministic six-step weight domain. Exact-real identities do not establish binary64 accuracy or statistical reliability; `RL-OFFLINE-001` stays HIGH/OPEN.
+
+Inference timing evidence (2026-09-30): [contract](../formal/research/inference-boundary-contract.md) and CE-RL-017 preserve the known non-preemptive call limitation. Measured time excludes later output validation/selection; predicate, clock and cancellation failures remain assumptions or open scope. `RL-OFFLINE-001` stays HIGH/OPEN.
+
+Optimizer publication evidence (2026-09-30): [contract](../formal/research/optimizer-publication-contract.md) and CE-RL-016 expose partial publication under an injected interruption. Prepublication failure tests and a single-writer model do not establish concurrent atomicity. Rounded gradient-norm bounds remain assumptions; `RL-OFFLINE-001` stays HIGH/OPEN and the learner is unchanged.
+
+Value-objective audit (2026-09-30): [contract](../formal/research/value-objective-contract.md) records CE-RL-014/015: finite value inputs can produce a NaN loss at zero CQL weight or lose the conservative loss under a common shift. Finite gradients can pass optimizer admission despite invalid loss. The learner is unchanged and `RL-OFFLINE-001` remains HIGH/OPEN.
+
+
+PPO objective audit (2026-09-28): [contract](../formal/research/ppo-objective-contract.md) separates exact-real clipping algebra from binary64 safety. CE-RL-012 returns finite loss with NaN gradient; optimizer refusal is tested, the frozen learner remains unchanged and `RL-OFFLINE-001` stays HIGH/OPEN. CE-RL-013 shows the intended absence of a universal clipping multiplier bound; it is not an external action-shield failure.
+
+Numerical proof-query reliability (2026-09-28): [query-isolation contract](../formal/research/query-isolation-contract.md) separates non-vacuity and universal queries without changing arithmetic, domains or the 10-second solver limit. Unknown/canceled checks remain blocking. Timing reliability and trusted solver/compiler semantics remain limitations; no mission obligation or candidate is promoted.
+
+Isolated target-kernel mitigation (2026-09-28): [gae-targets-v2](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and not called by training or production. It corrects terminal reward reconstruction or rejects the two numerical fixtures in that kernel only. The frozen learner retains CE-RL-010/011; `RL-OFFLINE-001` stays HIGH/OPEN.
+
+
+Terminal-target numerical evidence (2026-09-28):
+[CE-RL-010/011](../formal/research/terminal-counterexamples.json) are current-source
+research-learner counterexamples, not mutations. Finite inputs can lose terminal
+reward through cancellation or yield infinity/NaN through residual/carry arithmetic.
+No historical-market impact is established. Exact-real and finite-product proofs
+do not repair these open blockers; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Training-transition admission evidence (2026-09-28 continuation):
+[source-derived predicates](../formal/research/transition-admission-contract.md)
+establish necessary terminal-flatness and successor-admission conditions under
+trusted scalar/vector helper semantics. Complete cash accounting, genuine risk
+classification and simulator/runtime refinement remain open. `RL-OFFLINE-001`
+remains HIGH/OPEN.
+
+Artifact-admission evidence (2026-09-28 continuation): the
+[source-linked gate model](../formal/research/artifact-admission-contract.md) and
+metadata SMT checks assume trusted helpers and externally supplied expected
+provenance. They do not establish authenticity, full runtime refinement or a
+production artifact path. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Training-prefix evidence (2026-09-28 continuation):
+[source-derived fit and episode checks](../formal/research/training-prefix-contract.md)
+certify index bounds conditional on admitted arrays and trusted primitive/constructor
+semantics. Whole-panel validation is not online admission causality; complete
+Replay refinement remains open. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Source-linked causality evidence (2026-09-28 continuation): the
+[feature read-footprint check](../formal/research/causal-footprint-contract.md)
+links SMT index bounds to the actual Python AST. Base-array, runtime and primitive
+semantics remain assumptions; publication timing, caller symbol selection and
+full replay-state causality remain open. `RL-OFFLINE-001` stays HIGH/OPEN.
+
+Gap-risk evidence (2026-09-28): `RL-OFFLINE-001` remains HIGH/OPEN.
+[CE-RL-002/003](../formal/research/gap-counterexamples.json) reproduce capital-floor
+breaches after shielded targets in the offline replay. Conditional real-arithmetic
+[risk lemmas](../formal/research/gap-risk-contract.md) require bounded price moves
+and cash debits; these are unestablished environmental assumptions, not live risk
+guarantees. No production limit or risk lifecycle status changes.
+
 `formal/risk-register.json` is the canonical machine-readable source for risk
 IDs, severities, and lifecycle statuses. This table and the typed Haskell
 projection in `app/Trader/Formal/RiskRegister.hs` must contain exactly the same

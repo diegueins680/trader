@@ -1,5 +1,26 @@
 # Canonical Formal Specifications
 
+Current closure status (2026-10-03): [all 38 audited obligations](../formal/research/obligation-closure-audit.md) now have explicit criteria. Obligations 11, 24 and 31 are `exhaustively_checked` for the delivered offline boundary; 35 remain open/partial. The [capability contract](../formal/research/capability-isolation-contract.md) combines complete parsed dependency closure, enumerated inference effects and SMT artifact-key incompatibility, under explicit compiler/primitive/packaging assumptions; it does not certify inherited live authority or deployed images. Earlier all-38 statements below describe historical audit snapshots. Formal completion is computed separately from empirical research acceptance.
+
+The [snapshot v2 contract](../formal/research/optimizer-snapshot-v2-contract.md) adds a source-bound two-writer model, integer/IEEE guard checks, source-effect enumeration and real implementation conformance. Immutable single-reference publication repairs the new optimizer path; inherited atomicity/race obligations remain partial. No hard deadline, durable transaction, recovery or frozen-v1 repair is implied.
+
+
+The [reward accounting contract](../formal/research/reward-accounting-contract.md) adds exact-real row, wealth-fold and reward identities plus a refuted additive-reward interpretation. Synthetic conformance is not a binary64 error proof. Existing lifecycle/order models retain their scoped assumptions.
+
+The [replay cutoff contract](../formal/research/replay-cutoff-contract.md) adds F-RL-REPLAY-CUTOFF (integer SMT) and F-RL-REPLAY-QUOTIENT (finite ordering model). Class seven represents longer calls only for ordering; time-to-end observations and rewards are not equivalent under the projection.
+
+The [replay event-order contract](../formal/research/replay-order-contract.md) clarifies A-SEQUENTIAL-RESEARCH-E1: policy targets fill later than their decision; mandatory liquidation reconciles at the terminal endpoint. The source-bound finite model and due-time SMT do not prove numeric accounting or production lifecycle.
+
+The [funding boundary audit](../formal/research/funding-boundary-contract.md) adds conditional registered-grid and left-endpoint SMT obligations plus a refuted finite-output claim. CE-RL-019 is synthetic negative evidence, not a historical incident.
+
+The [2026-09-28 gap-risk extension](../formal/research/gap-risk-contract.md)
+distinguishes target bounds, post-cost exposure and pathwise loss limits.
+`F-RL-GAP-BOUND`, `F-RL-DRAWDOWN-COMPOSE` and `F-RL-POSTCOST-EXPOSURE`
+are conditional exact-real SMT lemmas. `F-RL-UNCONDITIONAL-FLOOR` is explicitly
+refuted by two replayable witnesses; `F-RL-GAP-CONFORMANCE` checks a finite
+180-case accounting grid. The proof ledger retains whole-system blockers and
+the risk register names the unestablished bounded-jump/debit assumption.
+
 The canonical, machine-readable specification set is [`formal/specifications.json`](../formal/specifications.json). It covers the production Haskell, web, automation, research, deployment, and CI surfaces. `FORMAL_METHODS.md` and `docs/formal-specs-extracted.md` remain deeper explanations of selected trading-critical contracts; if prose conflicts with the registry or executable implementation, the conflict is a verification failure to resolve, not an alternate specification.
 
 ## Semantics
@@ -427,7 +448,7 @@ controls, overflowing clipping norms and invalid Adam arithmetic. Four witnesses
 cover actor/critic cold/warm norm overflow, control admission before gradients,
 late failures without partial mutation, and stored pre-repair numerical parity.
 Parameters, moments and the counter are published only after complete validation.
-This preserves pre-existing state on failure, including pre-existing corruption;
+This preserves pre-existing state on failures before publication under non-mutating helpers and a single writer, including pre-existing corruption;
 it is not state repair, a complete optimizer representation contract or a
 convergence claim. `RL-OFFLINE-001` remains HIGH/OPEN.
 
@@ -454,3 +475,123 @@ abstract two-caller protocol does not establish production concurrency refinemen
 The exact-real accounting identity does not establish binary64 ledger correctness.
 The retained-proposal counterexample refutes revocation by pure mode disabling;
 the unchanged private Haskell proposal type still has no order authorization.
+
+The [source-linked causal footprint contract](../formal/research/causal-footprint-contract.md)
+extends the scoped research gate with actual-AST read-bound extraction and SMT
+checks. This reduces a manually translated index-model gap; it does not prove
+Python/NumPy, caller normalization provenance or historical publication timing.
+The whole-system acceptance obligations remain open or partially verified.
+
+The [training-prefix contract](../formal/research/training-prefix-contract.md)
+adds source-derived normalization and episode index bounds plus registered
+fold/horizon checks. Its admission precondition is explicit: the runner validates
+the entire historical panel before fitting, so training-value isolation is not
+claimed to prove online admission causality or full Replay transition refinement.
+
+The [artifact-admission contract](../formal/research/artifact-admission-contract.md)
+adds source-linked atomic admission gates and actual compatibility/digest
+predicate checks. The finite 27-state model is conditional on trusted terminating
+primitives; SMT uses abstract string equality, exact-false identity and action/
+provenance equality atoms. Neither result proves artifact authenticity, helper
+internals, neural inference or production-loader refinement. CE-RL-007/008 are
+deliberate bypass mutants, not current source defects. Whole-mission obligations
+29/30 gain partial evidence; all 38 obligations remain open/partial.
+
+The [training-transition contract](../formal/research/transition-admission-contract.md)
+adds source-derived integer/binary64 admission checks and collector ordering
+recognition. Terminal inventory must be zero and pending action absent; nonterminal
+successors must pass the existing representation, shape and finiteness predicates.
+CE-RL-009 is a deliberate guard-removal mutant. Trusted helper semantics, valid
+risk classification and complete replay/cash accounting refinement remain open;
+whole-mission obligations 18/19 gain partial evidence without becoming complete.
+
+The [terminal-numerics contract](../formal/research/terminal-numerics-contract.md)
+checks source-derived exact-real terminal algebra and conditional binary64 zero
+products. Current-source CE-RL-010/011 refute exact reward reconstruction and
+unconditional finite targets from finite inputs. These refuted claims are
+explicitly recorded, not silently treated as passing safety properties. Their
+reproduction passes CI as negative evidence; it does not resolve the blockers or
+authorize a policy. Batch normalization, complete learner refinement and economic
+impact remain unproved.
+
+## Isolated GAE target v2 kernel
+
+See [contract](../formal/research/target-v2-contract.md) and [report](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md). Three scoped SMT requirements cover terminal reward-bit preservation, finite/disabled admission and exact-real recurrence. A separate 1..256-row publication model checks atomic output and a progress rank. Source skeletons, Python primitives and scalarization remain trusted; no normalized-advantage, whole-learner, market or production refinement is claimed. The kernel is default-disabled and disconnected from the frozen runner. Old numerical refutations remain valid.
+
+### Numerical proof-query isolation (2026-09-28)
+
+The [query-isolation contract](../formal/research/query-isolation-contract.md)
+refines `F-RL-INTEGRITY` for the terminal-numerics and target-v2 checkers. Independent
+solver instances check SAT(P AND W) and UNSAT(P AND NOT C); witness constraints never
+enter the latter query. Timeout, random seed, arithmetic domains and claims remain
+unchanged. Unknown, invalid premises, counterexamples and solver exceptions block
+success. Exact assertion capture, the complete finite result table and actual Z3
+regressions are conformance tests, not a universal proof of the checker. The 22 SMT
+requirements, bounded models and 38 open/partial mission obligations are unchanged.
+
+### PPO objective and numeric scope (2026-09-28)
+
+The [PPO objective contract](../formal/research/ppo-objective-contract.md) adds two
+source-derived exact-real requirements and two explicit refutations. Ratio, clipped
+loss and active multiplier follow the registered branches; conditional simplex
+components sum to zero. Literals are represented as exact rationals of their
+binary64 values. The proofs do not certify NumPy softmax, floating-point accuracy,
+a hard trust region, convergence or economic results. CE-RL-012 preserves finite
+loss with NaN gradient; CE-RL-013 preserves the intended lack of a uniform clipping
+multiplier cap. Actual-source regressions, source mutants and optimizer-state
+preservation tests supplement proofs. All 38 broader obligations remain blockers.
+
+### Value-based target and objective scope (2026-09-30)
+
+The [contract](../formal/research/value-objective-contract.md) adds two scoped SMT
+requirements and two refutations. The target slice selects with the online network
+and evaluates with the target network; the CQL gradient has bounded conservative
+components under an assumed exact-real simplex. No machine-checked logarithm,
+softmax derivative or CQL policy lower-bound theorem is claimed. CE-RL-014/015
+reproduce helper loss failures without proving full-training reachability. Actual
+NumPy source tests, 13,122 target-grid cases, 324 gradient cases and 27 ordinary
+finite-difference comparisons supplement the proofs. All 38 broader obligations
+remain open/partial; no financial trial, champion or live behavior changes.
+
+### Optimizer publication and interruption scope (2026-09-30)
+
+The [contract](../formal/research/optimizer-publication-contract.md) resolves the
+broad failure wording in A-SEQUENTIAL-RESEARCH-R25 against actual sequential
+attribute stores. F-RL-OPTIMIZER-PUBLISH checks a single-call model with 32 staging
+cuts and four stores, under non-mutating primitives and uninterrupted final stores.
+F-RL-GRADIENT-CLIP checks exact-real clipping conditional on norm >= abs(grad).
+That premise is not a proved property of the rounded NumPy norm.
+F-RL-OPTIMIZER-ATOMIC is refuted by CE-RL-016 in an observer/interruption extension
+and a deliberate CPython opcode-instrumented regression. This is not an unassisted
+thread-race or historical-occurrence claim. Broader atomicity and race freedom
+remain open; the correction does not relax any acceptance gate or change training.
+
+## Inference admission and liveness audit
+
+The [contract](../formal/research/inference-boundary-contract.md) binds the unchanged inference predicates, action constants and one-call admission model. Two conditional SMT results cover measured-time guards and first-maximum action selection. CE-RL-017 preserves the pending-call lasso; no timeout or cancellation transition exists. Output validation/selection follows the final clock read. Ordinary Exception fallback is distinct from BaseException, clock or predicate failures. No full runtime/neural refinement, end-to-end latency guarantee or production authority is established. Existing formal/full wrappers enforce this scope.
+
+## OPE algebra and underflow audit
+
+The [contract](../formal/research/ope-algebra-contract.md) fixes two-trajectory exact-real ESS/WIS
+bounds and scale invariance, plus DR telescoping for horizons 1..6 conditional on
+unit weights, q_t=v_t and zero terminal bootstrap. Eight independent SAT-premise
+and UNSAT-violation checks cover three requirements. The [prescribed fixture](../formal/research/ope-counterexamples.json)
+refutes positive-weight ESS positivity in the public binary64 helper under ignored
+underflow; raised underflow produces an explicit error. All 64 deterministic
+six-step target patterns and 201 support-count cases check the current restricted
+weight domain separately. These are engineering cases, not market OPE evidence.
+Eight new integrity tests run in formal/full; no new tool or frozen-estimator change.
+Runtime refinement, unbiasedness, confidence coverage and behavior support remain open.
+
+## Isolated exact ESS diagnostic
+
+The [contract](../formal/research/ess-v2-contract.md) specifies native immutable admitted weights,
+exact Fraction conversion/accumulation, zero-mass output and bounded positive ESS.
+Source-derived SMT base/step/bound lemmas and a 1..256-row publication model
+run in formal/full. The model has 66,309 reachable states, 99,718 transitions,
+maximum shortest depth 515 and strict rank bound 517 under terminating primitives.
+Eight new tests cover extreme weights, invalid admission and exact-reference
+conformance. `ess-rational-v2` defaults disabled and is not imported by existing
+research consumers. Dynamic import exclusion and full Python/Fraction refinement
+are not proved. CE-RL-018 remains in the frozen helper; no statistical or policy
+claim is repaired by this independent arithmetic diagnostic.

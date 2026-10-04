@@ -1,0 +1,506 @@
+{
+  "schemaVersion": 1,
+  "reviewRule": "Certificate sufficiency is a reviewed semantic mapping to this exact scope and criterion, not an inference from related evidence. Any mapping or scope change requires re-audit and updated source lock.",
+  "obligations": [
+    {
+      "number": 1,
+      "claim": "No-lookahead",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every admitted observation uses event/release/first-seen/revision times <= decision and preprocessing respects the registered fold.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 2,
+      "claim": "Split isolation",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every training/calibration/validation/holdout access lies in its disjoint registered region after purge and embargo.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 3,
+      "claim": "Causal normalization",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every fitted scale depends only on admitted training rows and evaluation cannot mutate it.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 4,
+      "claim": "Revision timing",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "A revision is visible only at or after its release or first observation, whichever the availability contract requires.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 5,
+      "claim": "Symbol isolation",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Each local observation reads only its declared symbol; global inputs must be explicitly tagged.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 6,
+      "claim": "Finite outputs",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 7,
+      "claim": "Bounded values",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Shielded targets and post-cost positions respect registered hard bounds under explicit gap/solvency assumptions.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 8,
+      "claim": "Accounting",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every wealth, fee, funding and liquidation debit reconciles actual binary64 execution within a stated error bound or rejects.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 9,
+      "claim": "Rounding",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 10,
+      "claim": "Overflow and underflow",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 11,
+      "claim": "Capability separation",
+      "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
+      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
+      "requiredCertificates": [
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
+      ],
+      "closureClass": "exhaustively_checked"
+    },
+    {
+      "number": 12,
+      "claim": "Safety-shield precedence",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every consumed action passes the deterministic shield and cannot race around it.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 13,
+      "claim": "Live-authority isolation",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Research/replay/shadow/paper modes cannot obtain a live-order capability.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Main.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 14,
+      "claim": "Draining",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Main.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 15,
+      "claim": "Position ownership",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "At most one live owner exists per protected position identity.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/BotStartSemantics.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 16,
+      "claim": "Reconciliation",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Live readiness implies successful inventory and ownership reconciliation.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/BotSnapshotRecovery.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 17,
+      "claim": "Observation causality",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Current policy observation is invariant under changes to data first available after the decision.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 18,
+      "claim": "Valid transitions",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every replay transition preserves state/ledger invariants or terminates in a specified failure state.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_env.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 19,
+      "claim": "Terminal accounting",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every terminal path records flat inventory or explicit failed liquidation and accounts all terminal costs exactly as specified.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 20,
+      "claim": "Action safety",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Every executed action satisfies all hard constraints, independent of policy output.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 21,
+      "claim": "Invalid output fallback",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 22,
+      "claim": "Replay determinism",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Pinned data, configuration, seed and artifact yield the same replay transitions and economic report.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 23,
+      "claim": "No self-promotion",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "A candidate cannot mutate its promotion state or authorize successor artifacts.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 24,
+      "claim": "No production learning",
+      "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
+      "closureCriteria": "The pinned executable/deployment source boundary excludes delivered research training; admitted offline inference never writes policy parameters, and emitted policies cannot enter native LSTM persistence unchanged.",
+      "requiredCertificates": [
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
+      ],
+      "closureClass": "exhaustively_checked"
+    },
+    {
+      "number": 25,
+      "claim": "Valid lifecycle transitions",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Candidate promotion follows all mandatory evidence stages without skipping or self-promotion.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 26,
+      "claim": "No automatic live transition",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "No delivered transition can grant live authorization to a new candidate.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 27,
+      "claim": "Rollback",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Disable/rollback prevents new candidate effects and leaves no residual authorization, exposure, ownership or persistence changes.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 28,
+      "claim": "Champion preservation",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Challenger failure cannot modify champion configuration/artifacts or selection.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 29,
+      "claim": "Artifact compatibility",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 30,
+      "claim": "Hash and provenance checks",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Hash/provenance mismatch prevents loading or activation.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 31,
+      "claim": "Default-disabled",
+      "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
+      "closureCriteria": "All delivered candidate inference/proposal/numeric entry points default to absent and persisted policy enabled flags remain False.",
+      "requiredCertificates": [
+        "F-RL-DEFAULT-PATH",
+        "F-RL-DEFAULT",
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py"
+      ],
+      "closureClass": "exhaustively_checked"
+    },
+    {
+      "number": 32,
+      "claim": "Configuration bounds",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Invalid configuration cannot weaken hard safety constraints.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 33,
+      "claim": "Atomicity",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/optimizer_snapshot_v2.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 34,
+      "claim": "Race freedom",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 35,
+      "claim": "Idempotence",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 36,
+      "claim": "Shutdown termination",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 37,
+      "claim": "Recovery",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Interrupted recoverable work resumes without violating safety or duplicating irreversible effects.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": null
+    },
+    {
+      "number": 38,
+      "claim": "No permanent lockout",
+      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
+      "requiredCertificates": [],
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "scripts/research/run_sequential_screen.py",
+        "haskell/app/Trader/App/GracefulShutdown.hs"
+      ],
+      "closureClass": null
+    }
+  ]
+}

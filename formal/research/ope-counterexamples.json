@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-RL-018",
+      "episodes": 2,
+      "horizon": 6,
+      "behaviorProbability": 1,
+      "targetProbabilityHex": "0x1.0000000000000p-100",
+      "reward": 1,
+      "q": 0,
+      "v": 0,
+      "gamma": 1,
+      "expectedFinalWeightHex": "0x1.0000000000000p-600",
+      "expectedESS": 0,
+      "expectedNonzero": 2,
+      "expectedWIS": 6,
+      "underflowModes": [
+        "ignore",
+        "raise"
+      ]
+    }
+  ]
+}

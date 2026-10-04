@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-RL-016",
+      "requirement": "F-RL-OPTIMIZER-ATOMIC",
+      "scope": "Explicit observer/interruption abstraction plus CPython opcode-instrumented execution; no demonstrated unassisted thread race or historical prevalence",
+      "trace": [
+        "pass:controls",
+        "pass:gradient_computation",
+        "pass:gradient_finiteness",
+        "pass:norm_computation",
+        "pass:norm_finiteness",
+        "pass:step_increment",
+        "pass:local_allocation",
+        "pass:w1:g",
+        "pass:w1:moments[k]",
+        "pass:w1:variances[k]",
+        "pass:w1:m",
+        "pass:w1:v",
+        "pass:w1:params[k]",
+        "pass:b1:g",
+        "pass:b1:moments[k]",
+        "pass:b1:variances[k]",
+        "pass:b1:m",
+        "pass:b1:v",
+        "pass:b1:params[k]",
+        "pass:w2:g",
+        "pass:w2:moments[k]",
+        "pass:w2:variances[k]",
+        "pass:w2:m",
+        "pass:w2:v",
+        "pass:w2:params[k]",
+        "pass:b2:g",
+        "pass:b2:moments[k]",
+        "pass:b2:variances[k]",
+        "pass:b2:m",
+        "pass:b2:v",
+        "pass:b2:params[k]",
+        "pass:candidate_finiteness",
+        "store:p",
+        "observe",
+        "interrupt"
+      ],
+      "normalMasks": [
+        0,
+        1,
+        3,
+        7,
+        15
+      ],
+      "interruptedMask": 1,
+      "disposition": "Unresolved stronger atomicity claim; narrow prepublication failure contract is conditional on non-mutating helpers and successful uninterrupted final stores"
+    }
+  ],
+  "instrumentationLimitation": "Python documents that exceptions escaping opcode traces may cause undefined interpreter behavior; injected interruption is a pinned-runtime diagnostic, not a portable implementation theorem. Normal-store observation does not require raising an exception."
+}
