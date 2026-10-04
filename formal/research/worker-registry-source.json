@@ -4,7 +4,7 @@
   "hashes": {
     "haskell/app/Trader/App/GracefulShutdown.hs": "24590f9154fcbf601e7d257b3c62745cddc6d3f10b7ac9d51141eb1e460772b5",
     "haskell/test/Trader/Test/GracefulShutdown.hs": "5237934157849b58700ff5dc9dcddc8bb647b5a8c09e41c43b191448e837c872",
-    "haskell/test/TestMain.hs": "44534d3b8585aae449edd6fff4c5d06b24ea6a255477158645878c51d8280dfe",
+    "haskell/test/TestMain.hs": "4b9f260f39479c966ab65d39e9d592bc404f4ba7067709706452d2df195ec127",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/fixtures/worker-registry-before.hs": "425b04e98553bc6bbaf9d088d0cdcc1799243a83bc364bca1b9f5ab68e6df387",
     "formal/research/fixtures/worker-registry-witness.hs": "e8d1e491f09433438493e30f78398187547349f756561e49c266e6026c681aec"

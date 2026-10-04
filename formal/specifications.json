@@ -403,6 +403,18 @@
         {
           "id": "F-ASYNC-SEAL-CONFORMANCE",
           "statement": "Compiled seal tests reproduce and repair snapshot-missed preparation and result-before-finalizer false acknowledgement; source-bound Main seals all pools before snapshots and waits on private reservation completion. Generated concurrent cases, interrupted waiters and repeated seals/reads exercise conformance without asserting complete IO refinement."
+        },
+        {
+          "id": "F-BACKTEST-GATE-NUMERIC",
+          "statement": "For arbitrary positive machine Int maximum B and representable seconds s, Integer-based U=min(B,max(1,s)*1000000) is positive, bounded by B and the sanitized exact duration, exact below saturation and monotone; it never wraps into the unlimited negative timeout sentinel."
+        },
+        {
+          "id": "F-BACKTEST-GATE-LIFECYCLE",
+          "statement": "The finite two-caller backtest gate at capacities one and two, with immediate/waiting modes, preserves exact reservation ownership and bounds, prevents callbacks on failed admission, releases each owner once and propagates cancellation/foreign timeout. Every reachable state can reach quiescence; retry cycles remain explicit and no unconditional eventual-termination claim is made."
+        },
+        {
+          "id": "F-BACKTEST-GATE-CONFORMANCE",
+          "statement": "Compiled backtest-gate tests reproduce baseline own-timeout, cancellation, outer-timeout and duration-overflow failures plus an instrumented reserve/finalizer-gap schedule, and check success/error cleanup, contention, waiting cancellation/retry, caller masking and generated concurrency. Reviewed Main keeps its existing HTTP/message mapping; source-bound tests are not full IO refinement."
         }
       ],
       "invariants": [

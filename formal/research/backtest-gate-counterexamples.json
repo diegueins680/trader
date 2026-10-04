@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-BACKTEST-001",
+      "claim": "Own timer consumed by blanket catch",
+      "scope": "literal baseline functions",
+      "fixture": "formal/research/fixtures/backtest-gate-witness.hs"
+    },
+    {
+      "id": "CE-BACKTEST-002",
+      "claim": "External cancellation returned as ordinary error",
+      "scope": "literal baseline functions",
+      "fixture": "formal/research/fixtures/backtest-gate-witness.hs"
+    },
+    {
+      "id": "CE-BACKTEST-003",
+      "claim": "Outer timer consumed by inner catch",
+      "scope": "literal baseline functions",
+      "fixture": "formal/research/fixtures/backtest-gate-witness.hs"
+    },
+    {
+      "id": "CE-BACKTEST-004",
+      "claim": "Int duration wraps into unlimited sentinel",
+      "scope": "literal baseline expression",
+      "fixture": "formal/research/fixtures/backtest-gate-witness.hs"
+    },
+    {
+      "id": "CE-BACKTEST-005",
+      "claim": "Cancellation before finalizer installation strands a slot",
+      "scope": "explicitly instrumented control-slice schedule",
+      "fixture": "formal/research/fixtures/backtest-gate-witness.hs"
+    }
+  ],
+  "before": [
+    "(\"own timer\",\"error\")",
+    "(\"external cancellation\",\"error\")",
+    "(\"outer timer\",Just \"error\")",
+    "(\"duration remains positive\",False)",
+    "(\"all slots released\",0)",
+    "(\"reservation gap\",1)"
+  ],
+  "after": [
+    "(\"own timer\",\"timeout\")",
+    "(\"external cancellation\",\"propagated\")",
+    "(\"outer timer\",Nothing)",
+    "(\"duration remains positive\",True)",
+    "(\"all slots released\",0)",
+    "(\"reservation gap\",0)"
+  ]
+}
