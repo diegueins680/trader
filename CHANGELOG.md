@@ -2,6 +2,8 @@
 
 ## Research assurance — 2026-09-20
 
+- Refresh formal-methods literature and index inherited negative RL results with explicit remaining proof and empirical requirements; no new financial trial.
+
 - Add `verify.sh formal` and include it in `full`: pinned Z3 binary64/index/accounting lemmas, a bounded research-call model, compiled Haskell conformance, source-bound receipts and explicit proof gaps.
 - Preserve the rejected RL screen, champion, sealed holdouts and all production authorization settings. No candidate integration or deployment.
 

@@ -687,3 +687,7 @@ the verification-only tools using the [formal runbook](formal/research/README.md
 `TRADER_FORMAL_PYTHON` optionally selects that Python environment; it has no trading
 effect. The gate reports its scope and unresolved whole-system obligations. A
 passing result does not authorize research promotion or establish profitability.
+
+The [September 20 research status](research-notes/sequential-control-2026-09-17/formal-followup-2026-09-20.md)
+links the existing rejected multi-seed RL evidence, formal-methods literature
+refresh and unresolved whole-system proof and empirical requirements.
