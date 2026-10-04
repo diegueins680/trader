@@ -103,7 +103,7 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
-import Trader.App.AsyncJobAdmission (JobSlots, newJobSlots, runningJobSlots, startBoundedJob)
+import Trader.App.AsyncJobAdmission (JobAdmissionFailure (..), JobSlots, closeJobSlots, newJobSlots, runningJobSlots, startBoundedJob, waitJobSlots)
 import Trader.App.AutoStartBackoff (
     BackoffPolicy (..),
     CircuitPolicy (..),
@@ -16476,6 +16476,10 @@ closeOpsStoreMaybe mOps =
 
 stopAsyncStoresBounded :: Int -> AsyncStores -> IO Bool
 stopAsyncStoresBounded timeoutUs stores = do
+    -- Seal every pool before taking snapshots. In-flight preparation owns a slot
+    -- even when no JobEntry has been published yet.
+    let pools = [jsRunning (asSignal stores), jsRunning (asBacktest stores), jsRunning (asTrade stores)]
+    mapM_ closeJobSlots pools
     signalEntries <- asyncJobWaiters (asSignal stores)
     backtestEntries <- asyncJobWaiters (asBacktest stores)
     tradeEntries <- asyncJobWaiters (asTrade stores)
@@ -16483,7 +16487,7 @@ stopAsyncStoresBounded timeoutUs stores = do
     let killBudgetUs = max 1 (timeoutUs `div` 2)
         finishBudgetUs = max 1 (timeoutUs - killBudgetUs)
     delivered <- stopThreadIdsBounded killBudgetUs (map fst entries)
-    finished <- timeout finishBudgetUs (mapM_ snd entries)
+    finished <- timeout finishBudgetUs (mapM_ waitJobSlots pools)
     pure (delivered && isJust finished)
 
 asyncJobWaiters :: JobStore a -> IO [(ThreadId, IO ())]
@@ -18134,7 +18138,8 @@ startJob mOps store action = do
             modifyMVar_ (jsJobs store) (pure . HM.insert jobId (JobEntry now tid out))
     result <- startBoundedJob (jsRunning store) prepare execute publish
     pure $ case result of
-        Left running ->
+        Left JobQueueClosed -> Left "Async job admission is closed for server shutdown."
+        Left (JobQueueFull running) ->
             Left
                 ( printf
                     "Async %s queue is full (%d/%d). Wait for the current job to finish/cancel, or increase TRADER_API_MAX_ASYNC_RUNNING."

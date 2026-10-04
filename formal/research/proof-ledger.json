@@ -187,6 +187,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base mask, forkIOWithUnmask, MVar and atomic IORef semantics; private counters/gates, finite allocation, total nonthrowing counter predicates, failing fork creates no child, and masked atomic exception-safe publication. Actual Main publication uses modifyMVar_ and pure HM.insert. Release has no blocking lock wait. Eventual release requires callback completion/cancellation and scheduler progress; no full IO refinement, durable recovery or HTTP drain guarantee.",
       "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-ASYNC-SEAL",
+      "status": "assumption",
+      "statement": "Private pool count/closure atomics and completion MVar, trusted GHC/base mask and nonblocking atomicModifyIORef/tryPutMVar, finite allocation and total callbacks; exactly one release per accepted reservation; scheduler service and returning preparation/callback/finalizers for eventual completion. Pre-seal reservations remain legitimate. No full IO refinement, process-death recovery, detached descendants, cross-instance ownership or atomic whole-server HTTP drain claim.",
+      "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
   "criticalFiles": [
@@ -243,7 +249,11 @@
     "haskell/test/Trader/Test/AsyncJobAdmission.hs",
     "formal/research/AsyncJobAdmission.hs",
     "formal/research/fixtures/async-job-before.hs",
-    "formal/research/fixtures/async-job-witness.hs"
+    "formal/research/fixtures/async-job-witness.hs",
+    "scripts/formal/async_shutdown_seal.py",
+    "formal/research/AsyncSeal.hs",
+    "formal/research/fixtures/async-seal-before.hs",
+    "formal/research/fixtures/async-seal-witness.hs"
   ],
   "entries": [
     {
@@ -2806,7 +2816,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), seven runtime tests, 32 concurrency cases, seed 20261004.",
+      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), eleven runtime tests, 64 concurrency cases (including seal composition), seed 20261004.",
       "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
       "counterexample": "formal/research/async-job-admission-counterexamples.json",
       "status": "smt_verified"
@@ -2841,7 +2851,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), seven runtime tests, 32 concurrency cases, seed 20261004.",
+      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), eleven runtime tests, 64 concurrency cases (including seal composition), seed 20261004.",
       "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
       "counterexample": "formal/research/async-job-admission-counterexamples.json",
       "status": "model_checked"
@@ -2876,9 +2886,111 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), seven runtime tests, 32 concurrency cases, seed 20261004.",
+      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), eleven runtime tests, 64 concurrency cases (including seal composition), seed 20261004.",
       "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
       "counterexample": "formal/research/async-job-admission-counterexamples.json",
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-ASYNC-SEAL-INVARIANTS",
+      "claim": "For valid bounded counts and positive capacity, sealed admission rejects without changing count, open admission preserves bounds, release is nonnegative and nonincreasing, and closed zero is stable; completion notification requires closed zero.",
+      "formalStatement": "For valid bounded counts and positive capacity, sealed admission rejects without changing count, open admission preserves bounds, release is nonnegative and nonincreasing, and closed zero is stable; completion notification requires closed zero.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-ADMISSION",
+        "A-ASYNC-SEAL",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/async_shutdown_seal.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "formal/research/async-shutdown-seal-source.json",
+        "formal/research/async-shutdown-seal-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+        "formal/research/AsyncSeal.hs",
+        "formal/research/fixtures/async-seal-before.hs",
+        "formal/research/fixtures/async-seal-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "SMT: arbitrary positive integer capacity and 0 <= count <= capacity; existing signed-Int admission/release proof applies. Model: 2 callers, 2 sealers, capacities 1/2; 2932 states, 8622 edges, max shortest depth 17, initial rank 206. Compiled 72 pure cases, four runtime tests including 32 generated cases, seed 20261004.",
+      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
+      "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-ASYNC-SEAL-LIFECYCLE",
+      "claim": "In the finite two-caller, two-sealer composition at capacities one and two, closure is permanent, no post-seal reservation is accepted, exact ownership is preserved, completion cannot precede final reservation release, notifications cannot be consumed, and quiescence follows under primitive and callback progress.",
+      "formalStatement": "In the finite two-caller, two-sealer composition at capacities one and two, closure is permanent, no post-seal reservation is accepted, exact ownership is preserved, completion cannot precede final reservation release, notifications cannot be consumed, and quiescence follows under primitive and callback progress.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-ADMISSION",
+        "A-ASYNC-SEAL",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/async_shutdown_seal.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "formal/research/async-shutdown-seal-source.json",
+        "formal/research/async-shutdown-seal-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+        "formal/research/AsyncSeal.hs",
+        "formal/research/fixtures/async-seal-before.hs",
+        "formal/research/fixtures/async-seal-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "SMT: arbitrary positive integer capacity and 0 <= count <= capacity; existing signed-Int admission/release proof applies. Model: 2 callers, 2 sealers, capacities 1/2; 2932 states, 8622 edges, max shortest depth 17, initial rank 206. Compiled 72 pure cases, four runtime tests including 32 generated cases, seed 20261004.",
+      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
+      "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-ASYNC-SEAL-CONFORMANCE",
+      "claim": "Compiled seal tests reproduce and repair snapshot-missed preparation and result-before-finalizer false acknowledgement; source-bound Main seals all pools before snapshots and waits on private reservation completion. Generated concurrent cases, interrupted waiters and repeated seals/reads exercise conformance without asserting complete IO refinement.",
+      "formalStatement": "Compiled seal tests reproduce and repair snapshot-missed preparation and result-before-finalizer false acknowledgement; source-bound Main seals all pools before snapshots and waits on private reservation completion. Generated concurrent cases, interrupted waiters and repeated seals/reads exercise conformance without asserting complete IO refinement.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-ADMISSION",
+        "A-ASYNC-SEAL",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/async_shutdown_seal.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "formal/research/async-shutdown-seal-source.json",
+        "formal/research/async-shutdown-seal-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+        "formal/research/AsyncSeal.hs",
+        "formal/research/fixtures/async-seal-before.hs",
+        "formal/research/fixtures/async-seal-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "SMT: arbitrary positive integer capacity and 0 <= count <= capacity; existing signed-Int admission/release proof applies. Model: 2 callers, 2 sealers, capacities 1/2; 2932 states, 8622 edges, max shortest depth 17, initial rank 206. Compiled 72 pure cases, four runtime tests including 32 generated cases, seed 20261004.",
+      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
+      "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
       "status": "property_tested"
     }
   ],
@@ -3243,9 +3355,12 @@
         "F-RL-LIFECYCLE",
         "F-WORKER-REGISTRY-LIFECYCLE",
         "F-WORKER-REGISTRY-INVARIANTS",
-        "F-WORKER-REGISTRY-CONFORMANCE"
+        "F-WORKER-REGISTRY-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
       "nextAction": "Extract actual runtime admission transitions and match every drain/start race to the state model.",
@@ -3738,9 +3853,12 @@
         "F-WORKER-REGISTRY-CONFORMANCE",
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3770,9 +3888,12 @@
         "F-WORKER-REGISTRY-CONFORMANCE",
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3802,9 +3923,12 @@
         "F-WORKER-REGISTRY-CONFORMANCE",
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
       "nextAction": "Define request identity and atomic deduplication at any future effect boundary; verify retry transitions.",
@@ -3841,9 +3965,12 @@
         "F-WORKER-REGISTRY-CONFORMANCE",
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
       "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",
@@ -3869,9 +3996,12 @@
         "F-WORKER-REGISTRY-CONFORMANCE",
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Interrupted recoverable work resumes without violating safety or duplicating irreversible effects.",
       "nextAction": "Specify durable checkpoints and idempotent recovery transitions; inject crashes at each publication boundary.",
@@ -3891,9 +4021,12 @@
       "evidenceRequirements": [
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
-        "F-ASYNC-ADMISSION-CONFORMANCE"
+        "F-ASYNC-ADMISSION-CONFORMANCE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-ASYNC-SEAL-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
       "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",

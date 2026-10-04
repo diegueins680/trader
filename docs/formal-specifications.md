@@ -626,3 +626,15 @@ F-WORKER-REGISTRY-LIFECYCLE checks 14,095 states and 55,904 transitions (two wor
 ### Async job admission follow-up (2026-10-04)
 
 F-ASYNC-ADMISSION-NUMERIC checks six bounded-Int SMT predicates; F-ASYNC-ADMISSION-LIFECYCLE checks two callers at capacities one/two (369 states, 846 transitions, depth 14, rank 20); F-ASYNC-ADMISSION-CONFORMANCE runs 292 numeric cases, seven runtime tests and 32 generated concurrency cases. The [contract](../formal/research/async-job-admission-contract.md) scopes A-ASYNC-ADMISSION, the baseline control-slice adapter and the unresolved full IO refinement, durable persistence and HTTP admission gaps. No broader obligation is closed by these scoped certificates.
+
+
+Async pool seal follow-up: [contract](../formal/research/async-shutdown-seal-contract.md),
+F-ASYNC-SEAL-INVARIANTS (SMT), F-ASYNC-SEAL-LIFECYCLE (finite model) and
+F-ASYNC-SEAL-CONFORMANCE (compiled tests) cover local admission closure and
+reservation-finalization acknowledgement. Two callers/two sealers at capacities
+1/2: 2,932 states, 8,622 edges, maximum shortest depth 17, decreasing rank 206.
+Delayed notifications are explicit. A-ASYNC-SEAL names runtime/progress assumptions.
+CE-ASYNC-SEAL-001/002 preserve snapshot/result-cell false-completion witnesses.
+Source binding plus conformance does not establish full Haskell IO refinement;
+whole-server draining and durable ownership remain unresolved. The broader
+obligation count remains 3 closed, 28 partial, 7 open.

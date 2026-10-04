@@ -182,7 +182,7 @@ def conformance():
                 'compiled numeric mismatch')
         subprocess.run([exe], check=True, capture_output=True, text=True, timeout=20)
     return {'counterexamples': [e['id'] for e in entries], 'intBits': bound.bit_length()+1, 'numericCases': len(cases),
-            'generatedNumericCases': 256, 'runtimeTests': 7, 'concurrentCases': 32, 'seed': 20261004,
+            'generatedNumericCases': 256, 'runtimeTests': 11, 'concurrentCases': 32, 'seed': 20261004,
             'scope': 'compiled helper and source-bound baseline control slice; not full HTTP/runtime refinement'}
 
 

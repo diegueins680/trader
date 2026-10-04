@@ -8,7 +8,7 @@ import Control.Exception (AsyncException (ThreadKilled), MaskingState (Unmasked)
 import Control.Monad (forM, forM_, void)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import System.Timeout (timeout)
-import Trader.App.AsyncJobAdmission (JobSlots, newJobSlots, runningJobSlots, startBoundedJob)
+import Trader.App.AsyncJobAdmission (JobAdmissionFailure (..), JobSlots, closeJobSlots, newJobSlots, runningJobSlots, startBoundedJob, waitJobSlots)
 
 asyncJobAdmissionSuite :: [(String, IO ())]
 asyncJobAdmissionSuite =
@@ -19,6 +19,10 @@ asyncJobAdmissionSuite =
     , ("publication precedes unmasked callback and queue limits hold", testPublicationAndCapacity)
     , ("callback failure and cancellation release reservation", testCallbackFailure)
     , ("concurrent admission respects capacity", testConcurrentAdmission)
+    , ("sealed empty pool rejects without preparation", testEmptySeal)
+    , ("shutdown waits for preparation outside snapshot", testPreparingSeal)
+    , ("shutdown waits beyond result publication and interrupted waits", testFinalizingSeal)
+    , ("concurrent seals preserve completion and capacity", testConcurrentSeal)
     ]
 
 expect :: (Eq a, Show a) => String -> a -> a -> IO ()
@@ -110,7 +114,7 @@ testPublicationAndCapacity = do
     expect "initial admission" (Right ()) accepted
     expect "published and unmasked" (True, Unmasked) =<< await (takeMVar entered)
     rejected <- startBoundedJob slots (ioError (userError "full queue must not prepare")) (const (pure ())) ignorePublication
-    expect "zero limit sanitizes to one" (Left 1 :: Either Int ()) rejected
+    expect "zero limit sanitizes to one" (Left (JobQueueFull 1) :: Either JobAdmissionFailure ()) rejected
     putMVar release ()
     awaitCount slots 0
 
@@ -133,16 +137,92 @@ testConcurrentAdmission = forM_ seeds $ \seed -> do
         done <- newEmptyMVar
         _ <- forkIO $ do
             threadDelay (fromInteger ((seed `div` divisor) `mod` 3) * 1000)
-            result <- try (startBoundedJob slots (threadDelay 1000) (const (threadDelay 5000)) ignorePublication) :: IO (Either SomeException (Either Int ()))
+            result <- try (startBoundedJob slots (threadDelay 1000) (const (threadDelay 5000)) ignorePublication) :: IO (Either SomeException (Either JobAdmissionFailure ()))
             putMVar done result
         pure done
     results <- await (mapM takeMVar outcomes)
     forM_ results $ \case
         Left ex -> ioError (userError (show ex))
-        Right (Left count) -> expect "full queue count" 2 count
+        Right (Left (JobQueueFull count)) -> expect "full queue count" 2 count
+        Right (Left JobQueueClosed) -> ioError (userError "unexpected closure")
         Right (Right ()) -> pure ()
     observed <- runningJobSlots slots
     expect "bounded concurrent count" True (observed >= 0 && observed <= 2)
     awaitCount slots 0
   where
     seeds = take 32 (tail (iterate (\n -> (1664525 * n + 1013904223) `mod` 4294967296) 20261004))
+
+-- Completion is permanent, but an open empty pool is not shutdown-complete.
+testEmptySeal :: IO ()
+testEmptySeal = do
+    slots <- newJobSlots 1
+    expect "open pool not complete" Nothing =<< timeout 10000 (waitJobSlots slots)
+    closeJobSlots slots
+    closeJobSlots slots
+    await (waitJobSlots slots)
+    await (waitJobSlots slots)
+    result <- startBoundedJob slots (ioError (userError "closed preparation")) (const (pure ())) ignorePublication
+    expect "closed rejection" (Left JobQueueClosed :: Either JobAdmissionFailure ()) result
+    expect "closed count" 0 =<< runningJobSlots slots
+
+testPreparingSeal :: IO ()
+testPreparingSeal = do
+    slots <- newJobSlots 1
+    preparing <- newEmptyMVar
+    resume <- newEmptyMVar
+    parentDone <- newEmptyMVar
+    _ <- forkIO $ do
+        result <- startBoundedJob slots (putMVar preparing () >> takeMVar resume) (const (pure ())) ignorePublication
+        putMVar parentDone result
+    await (takeMVar preparing)
+    closeJobSlots slots
+    expect "unpublished reservation blocks completion" Nothing =<< timeout 10000 (waitJobSlots slots)
+    putMVar resume ()
+    expect "pre-seal reservation remains valid" (Right ()) =<< await (takeMVar parentDone)
+    await (waitJobSlots slots)
+    expect "completion implies released" 0 =<< runningJobSlots slots
+
+testFinalizingSeal :: IO ()
+testFinalizingSeal = do
+    slots <- newJobSlots 1
+    resultCell <- newEmptyMVar
+    finalizerEntered <- newEmptyMVar
+    finish <- newEmptyMVar
+    _ <- startBoundedJob slots (pure ()) (\() -> putMVar resultCell () `finally` (putMVar finalizerEntered () >> takeMVar finish)) ignorePublication
+    await (takeMVar resultCell)
+    await (takeMVar finalizerEntered)
+    closeJobSlots slots
+    expect "result alone is not completion" Nothing =<< timeout 10000 (waitJobSlots slots)
+    waiterDone <- newEmptyMVar
+    waiterEntered <- newEmptyMVar
+    waiter <- forkIO ((putMVar waiterEntered () >> waitJobSlots slots) `finally` putMVar waiterDone ())
+    await (takeMVar waiterEntered)
+    killThread waiter
+    await (takeMVar waiterDone)
+    putMVar finish ()
+    await (waitJobSlots slots)
+    await (waitJobSlots slots)
+    expect "finalizer released" 0 =<< runningJobSlots slots
+
+testConcurrentSeal :: IO ()
+testConcurrentSeal = forM_ (take 32 (iterate (\n -> (1664525 * n + 1013904223) `mod` 4294967296) (20261004 :: Int))) $ \seed -> do
+    slots <- newJobSlots 2
+    results <- forM [1 .. 4 :: Int] $ \i -> do
+        result <- newEmptyMVar
+        _ <- forkIO $ do
+            threadDelay (((seed * 1664525 + i * 1013904223) `mod` 3) * 1000)
+            outcome <- try (startBoundedJob slots (threadDelay 1000) (const (threadDelay 1000)) ignorePublication) :: IO (Either SomeException (Either JobAdmissionFailure ()))
+            putMVar result outcome
+        pure result
+    seals <- forM [0, 1000] $ \delay -> do
+        done <- newEmptyMVar
+        _ <- forkIO (threadDelay delay >> closeJobSlots slots >> putMVar done ())
+        pure done
+    await (mapM_ takeMVar seals)
+    await (waitJobSlots slots)
+    outcomes <- await (mapM takeMVar results)
+    forM_ outcomes $ \case
+        Left ex -> ioError (userError (show ex))
+        Right _ -> pure ()
+    expect "sealed completion stable" 0 =<< runningJobSlots slots
+    expect "no reopening" (Left JobQueueClosed :: Either JobAdmissionFailure ()) =<< startBoundedJob slots (pure ()) (const (pure ())) ignorePublication

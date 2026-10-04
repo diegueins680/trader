@@ -2654,5 +2654,44 @@ class AsyncAdmissionTests(unittest.TestCase):
             admission.extract()
 
 
+class AsyncSealTests(unittest.TestCase):
+    def test_model_and_smt(self):
+        import async_shutdown_seal as seal
+        self.assertEqual(seal.prove_invariants(), {'F-ASYNC-SEAL-INVARIANTS': 'unsat'})
+        self.assertGreater(seal.check_model()['states'], 369)
+
+    def test_invalid_transitions_rejected(self):
+        import async_shutdown_seal as seal
+        for kind in ('early', 'reopen', 'consume', 'loop', 'post-seal'):
+            def mutated(state, capacity):
+                base, closed, closers, pending, signal = state
+                count, callers = base
+                if kind == 'early' and count:
+                    return [('bad', (base, closed, closers, pending, True))]
+                if kind == 'reopen' and closed:
+                    return [('bad', (base, False, closers, pending, signal))]
+                if kind == 'consume' and signal:
+                    return [('bad', (base, closed, closers, pending, False))]
+                if kind == 'loop':
+                    return [('bad', state)]
+                if kind == 'post-seal' and closed and callers[0][0] == 'new' and count < capacity:
+                    row = ('prepare', 'none', None, False, False)
+                    return [('bad', ((count+1, (row, callers[1])), closed, closers, pending, signal))]
+                return seal.successors(state, capacity)
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                seal.check_model(mutated)
+
+    def test_seal_source_drift_rejected(self):
+        import async_shutdown_seal as seal
+        original = Path.read_bytes
+        def changed(path):
+            content = original(path)
+            if str(path).endswith(seal.SOURCE):
+                return content.replace(b'closed && next == 0', b'next == 0')
+            return content
+        with patch.object(Path, 'read_bytes', changed), self.assertRaises(ValueError):
+            seal.extract()
+
+
 if __name__ == '__main__':
     unittest.main()
