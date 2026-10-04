@@ -758,3 +758,12 @@ the verification-only tools using the [formal runbook](formal/research/README.md
 `TRADER_FORMAL_PYTHON` optionally selects that Python environment; it has no trading
 effect. The gate reports its scope and unresolved whole-system obligations. A
 passing result does not authorize research promotion or establish profitability.
+
+
+Async shutdown now permanently seals each local job pool before cancellation
+snapshots. New reservations return an explanatory shutdown error; existing
+reservations may finish. Shutdown acknowledgement waits for their outer cleanup,
+including preparations absent from the snapshot, rather than trusting result
+cells alone. A stuck preparation or finalizer can still exhaust the existing
+shutdown deadline. No global HTTP-drain transaction or durable multi-instance
+recovery guarantee is claimed. See the [seal contract](formal/research/async-shutdown-seal-contract.md).
