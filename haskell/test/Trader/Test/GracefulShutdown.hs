@@ -6,15 +6,21 @@ module Trader.Test.GracefulShutdown (
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (uninterruptibleMask_)
+import Data.IORef (newIORef, readIORef, writeIORef)
+import GHC.Clock (getMonotonicTimeNSec)
 
 import Trader.App.GracefulShutdown (
+    ShutdownPhase (..),
     beginDrain,
     forkSupervisedWorker,
     isDraining,
     newDrainController,
     newWorkerRegistry,
     runCleanupStepBounded,
+    runShutdownStep,
     shouldRejectDuringDrain,
+    shutdownBudget,
+    shutdownRemainingUs,
     stopSupervisedWorkersBounded,
     supervisedWorkerCount,
  )
@@ -25,7 +31,42 @@ gracefulShutdownSuite =
     , ("drain rejects new work but preserves polling and cancellation", testDrainRequestPolicy)
     , ("supervised workers are tracked and stopped", testSupervisedWorkersStop)
     , ("cleanup deadline survives an uninterruptible action", testCleanupDeadline)
+    , ("shutdown budgets use bounded exact arithmetic", testShutdownBudget)
+    , ("expired shutdown does not dispatch cleanup", testExpiredShutdown)
+    , ("shutdown exceptions remain failures", testShutdownException)
+    , ("shutdown timeout does not claim acknowledgement", testShutdownTimeout)
     ]
+
+testShutdownBudget :: IO ()
+testShutdownBudget = do
+    let budget = shutdownBudget 1000000000 20
+    expectEq "wall clock cannot enter budget" 20000000 (shutdownRemainingUs budget FinalCleanup 1000000000)
+    expectEq "reserve" 18000000 (shutdownRemainingUs budget WorkCleanup 1000000000)
+    expectEq "clock regression fails closed" 0 (shutdownRemainingUs budget FinalCleanup 999999999)
+    expectEq "expired fails closed" 0 (shutdownRemainingUs budget FinalCleanup 21000000000)
+    expectEq "fractional microsecond fails closed" 0 (shutdownRemainingUs budget FinalCleanup 20999999999)
+    expectEq "huge timeout saturates before conversion" maxBound (shutdownRemainingUs (shutdownBudget 0 maxBound) FinalCleanup 0)
+    expectEq "negative timeout fails closed" 0 (shutdownRemainingUs (shutdownBudget 0 minBound) FinalCleanup 0)
+
+testExpiredShutdown :: IO ()
+testExpiredShutdown = do
+    ran <- newIORef False
+    now <- toInteger <$> getMonotonicTimeNSec
+    ok <- runShutdownStep (shutdownBudget now 0) FinalCleanup (\_ -> writeIORef ran True)
+    expectEq "expired outcome" False ok
+    expectEq "no expired action" False =<< readIORef ran
+
+testShutdownException :: IO ()
+testShutdownException = do
+    now <- toInteger <$> getMonotonicTimeNSec
+    ok <- runShutdownStep (shutdownBudget now 1) FinalCleanup (\_ -> ioError (userError "fixture failure"))
+    expectEq "exception outcome" False ok
+
+testShutdownTimeout :: IO ()
+testShutdownTimeout = do
+    now <- toInteger <$> getMonotonicTimeNSec
+    ok <- runShutdownStep (shutdownBudget (now - 800000000) 1) FinalCleanup (\_ -> uninterruptibleMask_ (threadDelay 500000))
+    expectEq "uninterruptible action is unacknowledged" False ok
 
 testDrainTransition :: IO ()
 testDrainTransition = do

@@ -2,6 +2,11 @@
 
 module Trader.App.GracefulShutdown (
     DrainController,
+    ShutdownBudget,
+    ShutdownPhase (..),
+    shutdownBudget,
+    shutdownRemainingUs,
+    runShutdownStep,
     WorkerRegistry,
     beginDrain,
     forkSupervisedWorker,
@@ -22,6 +27,7 @@ import Control.Monad (forM, void)
 import Data.ByteString (ByteString)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
+import GHC.Clock (getMonotonicTimeNSec)
 import System.IO (hPutStrLn, stderr)
 import System.Timeout (timeout)
 
@@ -145,3 +151,38 @@ stopSupervisedWorkersBounded :: Int -> WorkerRegistry -> IO Bool
 stopSupervisedWorkersBounded timeoutUs (WorkerRegistry workers) = do
     registered <- swapMVar workers []
     stopThreadIdsBounded timeoutUs (map snd registered)
+
+-- Exact nanoseconds keep deadline construction independent of Int overflow.
+-- Constructors stay private so callers cannot fabricate inconsistent deadlines.
+data ShutdownBudget = ShutdownBudget !Integer !Integer !Integer
+
+data ShutdownPhase = WorkCleanup | FinalCleanup
+    deriving (Eq, Show)
+
+shutdownBudget :: Integer -> Int -> ShutdownBudget
+shutdownBudget started seconds =
+    let total = max 0 (toInteger seconds) * 1000000000
+        reserve = min 2000000000 (total `div` 4)
+     in ShutdownBudget started (started + total - reserve) (started + total)
+
+shutdownRemainingUs :: ShutdownBudget -> ShutdownPhase -> Integer -> Int
+shutdownRemainingUs (ShutdownBudget started workDeadline finalDeadline) phase now
+    | started < 0 || now < started = 0
+    | otherwise = fromInteger (min (toInteger (maxBound :: Int)) (max 0 ((deadline - now) `div` 1000)))
+  where
+    deadline = case phase of
+        WorkCleanup -> workDeadline
+        FinalCleanup -> finalDeadline
+
+-- Success means the action acknowledged completion before its deadline. It is
+-- not proof that uninterruptible child threads have terminated after cancellation.
+runShutdownStep :: ShutdownBudget -> ShutdownPhase -> (Int -> IO ()) -> IO Bool
+runShutdownStep budget phase action = do
+    now <- toInteger <$> getMonotonicTimeNSec
+    let remaining = shutdownRemainingUs budget phase now
+    if remaining <= 0
+        then pure False
+        else do
+            completed <- runCleanupStepBounded remaining (action remaining)
+            ended <- toInteger <$> getMonotonicTimeNSec
+            pure (completed && shutdownRemainingUs budget phase ended > 0)
