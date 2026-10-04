@@ -1,5 +1,9 @@
 module Trader.App.AsyncJobAdmission (
     JobSlots,
+    JobAdmissionFailure (..),
+    closeJobSlots,
+    waitJobSlots,
+    reserveOpenSlot,
     newJobSlots,
     runningJobSlots,
     startBoundedJob,
@@ -8,19 +12,38 @@ module Trader.App.AsyncJobAdmission (
 ) where
 
 import Control.Concurrent (ThreadId, forkIOWithUnmask)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
-import Control.Exception (finally, mask, onException)
-import Control.Monad (when)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, tryPutMVar)
+import Control.Exception (finally, mask, mask_, onException)
+import Control.Monad (void, when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 
--- Only this module can mutate the counter; release has no blocking lock wait.
-data JobSlots = JobSlots !Int !(IORef Int)
+-- Closure and count share one atomic boundary. The private completion cell is
+-- monotonic and is signalled only after sealing and releasing every reservation.
+data JobSlots = JobSlots !Int !(IORef (Int, Bool)) !(MVar ())
+
+data JobAdmissionFailure = JobQueueFull !Int | JobQueueClosed
+    deriving (Eq, Show)
 
 newJobSlots :: Int -> IO JobSlots
-newJobSlots limit = JobSlots (max 1 limit) <$> newIORef 0
+newJobSlots limit = JobSlots (max 1 limit) <$> newIORef (0, False) <*> newEmptyMVar
 
 runningJobSlots :: JobSlots -> IO Int
-runningJobSlots (JobSlots _ running) = readIORef running
+runningJobSlots (JobSlots _ state _) = fst <$> readIORef state
+
+closeJobSlots :: JobSlots -> IO ()
+closeJobSlots (JobSlots _ state completed) = mask_ $ do
+    idle <- atomicModifyIORef' state (\(count, _) -> ((count, True), count == 0))
+    when idle (void (tryPutMVar completed ()))
+
+waitJobSlots :: JobSlots -> IO ()
+waitJobSlots (JobSlots _ _ completed) = readMVar completed
+
+reserveOpenSlot :: Int -> (Int, Bool) -> ((Int, Bool), Either JobAdmissionFailure ())
+reserveOpenSlot limit (current, closed)
+    | closed = ((current, True), Left JobQueueClosed)
+    | otherwise =
+        let (next, accepted) = admitSlot limit current
+         in ((next, False), if accepted then Right () else Left (JobQueueFull current))
 
 admitSlot :: Int -> Int -> (Int, Bool)
 admitSlot limit current
@@ -35,11 +58,9 @@ releaseSlot current
 -- The parent owns the reservation until fork succeeds; thereafter only the child
 -- releases it. Publication must be masked and exception-safe at its mutation
 -- boundary. Failure sends False to the private gate instead of killing a callback.
-startBoundedJob :: JobSlots -> IO a -> (a -> IO ()) -> (ThreadId -> a -> IO ()) -> IO (Either Int a)
-startBoundedJob (JobSlots limit running) prepare execute publish = mask $ \restore -> do
-    admission <- atomicModifyIORef' running $ \current ->
-        let (next, accepted) = admitSlot limit current
-         in (next, if accepted then Right () else Left current)
+startBoundedJob :: JobSlots -> IO a -> (a -> IO ()) -> (ThreadId -> a -> IO ()) -> IO (Either JobAdmissionFailure a)
+startBoundedJob (JobSlots limit state completed) prepare execute publish = mask $ \restore -> do
+    admission <- atomicModifyIORef' state (reserveOpenSlot limit)
     case admission of
         Left current -> pure (Left current)
         Right () -> do
@@ -61,4 +82,8 @@ startBoundedJob (JobSlots limit running) prepare execute publish = mask $ \resto
                 `onException` putMVar gate False
             pure (Right payload)
   where
-    release = atomicModifyIORef' running (\current -> (releaseSlot current, ()))
+    release = mask_ $ do
+        idle <- atomicModifyIORef' state $ \(current, closed) ->
+            let next = releaseSlot current
+             in ((next, closed), closed && next == 0)
+        when idle (void (tryPutMVar completed ()))
