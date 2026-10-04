@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "capability-isolation-v1-2026-10-03",
+  "kind": "engineering verification; no financial experiment",
+  "sourceCommit": "8700dbb8eaf1fe5b0f583ef1c6edc53b120540b7",
+  "formalContract": "formal/research/capability-isolation-contract.md",
+  "requirements": ["F-RL-COMPONENT-ISOLATION", "F-RL-POLICY-EFFECTS", "F-RL-ARTIFACT-DISJOINT"],
+  "candidateMissionClosures": [11, 24],
+  "toolchain": {"ghc": "9.4.8", "CabalLibrary": "3.8.1.0", "z3": "4.15.4"},
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "productionSourceChanges": false,
+  "bounds": "Complete currently parsed local module graph and all Cabal executable roots; symbolic JSON-key membership",
+  "failureConditions": ["Reachable research module", "Unhandled parser/build construct", "Unexpected inference effect", "Artifact schema overlap", "Forgery compiles", "UNKNOWN or timeout", "Missing implementation conformance"],
+  "limitations": ["Trusted compiler, package/runtime semantics and ordinary admitted objects", "No OS sandbox or arbitrary-Python-code security theorem", "No whole-server authorization proof", "Legacy GHC 8.10.4 recipe is not certified buildable"]
+}
