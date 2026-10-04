@@ -14,7 +14,8 @@
     "F-RL-SNAPSHOT-PUBLISH",
     "F-RL-SNAPSHOT-CAS",
     "F-RL-SNAPSHOT-FINITE",
-    "F-RL-SNAPSHOT-CONFORMANCE"
+    "F-RL-SNAPSHOT-CONFORMANCE",
+    "F-RL-SNAPSHOT-ISOLATION"
   ],
   "modelBounds": {
     "writers": 2,

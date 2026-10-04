@@ -2164,7 +2164,7 @@ class DefaultPathTests(unittest.TestCase):
 
     def test_actual_source_paths(self):
         receipt = self.d.check_defaults(self.sources)
-        self.assertEqual(receipt['booleanCases'], 8)
+        self.assertEqual(receipt['booleanCases'], 14)
         self.assertEqual(receipt['haskellModes'], 2)
 
     def test_source_mutations_rejected(self):
@@ -2321,6 +2321,197 @@ class CapabilityIsolationTests(unittest.TestCase):
             for field in ('p','m','v'):
                 for key in before[field]:
                     np.testing.assert_array_equal(getattr(net,field)[key],before[field][key])
+
+
+class SnapshotV2Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        sys.path.insert(0,str(ROOT / 'scripts/research'))
+        import optimizer_snapshot_v2 as v
+        import snapshot_v2 as proof
+        import sequential_learning as legacy
+        cls.v,cls.proof,cls.legacy=v,proof,legacy
+
+    def test_source_bound_model_and_smt(self):
+        r=self.proof.check_snapshot()
+        self.assertEqual(r['storeAttributes'],['_state'])
+        self.assertEqual(len(r['smt']),2)
+        self.assertGreater(r['model']['orphanLockStates'],0)
+        self.assertGreater(r['model']['staleComparisons'],0)
+        with self.assertRaisesRegex(ValueError,'mixed snapshot'):
+            self.proof.check_model(mutant=True)
+
+    def test_source_and_solver_mutants_fail(self):
+        source=(ROOT/self.proof.SOURCE).read_text()
+        for old,new in [('self._state = candidate','self._state = expected'),
+                        ('self._state is not expected','self._state is expected'),
+                        ('blocking=False','blocking=True'),
+                        ('not np.isfinite(value).all()','False'),
+                        ('frozen=True','frozen=False'),
+                        ('base = net.snapshot()','base = net._state')]:
+            self.assertIn(old,source)
+            with self.subTest(new=new),self.assertRaises(ValueError):
+                self.proof.extract(source.replace(old,new))
+        # Mutate a translated formula without going through the source hash gate.
+        guard=self.proof.extract()
+        bad=ast.parse('candidate.step != expected.step + 2 or not 0 <= expected.step < STEP_CAP or candidate.outputs != expected.outputs',mode='eval').body
+        with self.assertRaises(ValueError): self.proof.smt((bad,guard[1]))
+        class Unknown:
+            def set(self,**kwargs): pass
+            def add(self,*args): pass
+            def check(self): return z3.unknown
+        with patch.object(self.proof.z,'Solver',Unknown),self.assertRaises(ValueError):self.proof.smt(guard)
+
+    def test_parity_all_registered_seeds_shapes_and_batches(self):
+        v=self.v
+        for outputs in (1,3):
+            for seed in (11,23,47):
+                for rows in (1,8,256):
+                    legacy=self.legacy.Network(seed,outputs);net=v.create_v2(seed,outputs,enabled=True)
+                    rng=np.random.default_rng(seed+rows)
+                    x=rng.normal(0,.02,(rows,12));dz=rng.normal(0,.01,(rows,outputs))
+                    for step in range(8):
+                        old=net.snapshot()
+                        legacy.update(x,dz,.0003)
+                        state=v.update_v2(net,x,dz,.0003,enabled=True)
+                        self.assertEqual(state.step,step+1);self.assertIs(net.snapshot(),state)
+                        self.assertEqual(old.step,step)
+                        for field in ('p','m','v'):
+                            for key,a in zip(v.KEYS,v._arrays(getattr(state,field),outputs)):
+                                np.testing.assert_array_equal(a,getattr(legacy,field)[key])
+                        actual=v.forward_v2(net,x,enabled=True);expected=legacy.forward(x)
+                        np.testing.assert_array_equal(actual,expected)
+
+    def test_byte_view_parity_counterexample_regression(self):
+        from fractions import Fraction
+        r=read_json(ROOT/'formal/research/snapshot-v2-counterexample.json')
+        self.assertEqual(Fraction(float.fromhex(r['legacyHex']))-Fraction(float.fromhex(r['viewHex'])),Fraction(1,2**63))
+        v=self.v;params=tuple(np.array(a,dtype=np.float64) for a in r['parameters'])
+        zeros=tuple(np.zeros_like(a) for a in params)
+        net=v._Optimizer(v._pack(r['outputs'],r['step'],params,zeros,zeros))
+        legacy=self.legacy.Network(r['seed'],r['outputs']);legacy.p=dict(zip(v.KEYS,params))
+        x=np.array(r['x'],dtype=np.float64)
+        np.testing.assert_array_equal(v.forward_v2(net,x,enabled=True),legacy.forward(x))
+        # The recorded raw-view difference is backend-dependent; CI verifies the
+        # corrected path, without pretending every backend repeats the old bit pattern.
+
+    def test_immutable_payloads_and_views(self):
+        from dataclasses import FrozenInstanceError
+        v=self.v;net=v.create_v2(11,enabled=True);state=net.snapshot()
+        with self.assertRaises(FrozenInstanceError):state.step=9
+        with self.assertRaises(TypeError):state.p[0][0]=1
+        for group in (state.p,state.m,state.v):
+            arrays=v._arrays(group,3)
+            with self.assertRaises(ValueError):arrays[0].setflags(write=True)
+            with self.assertRaises(ValueError):arrays[0][0,0]=3
+            arrays[0].shape=(192,)
+            self.assertEqual(v._arrays(group,3)[0].shape,(12,16))
+        self.assertIs(net.snapshot(),state)
+
+    def test_defaults_and_invalid_controls_preserve_state(self):
+        v=self.v
+        class Poison:
+            def __getattribute__(self,name):raise AssertionError('disabled input inspected')
+        p=Poison()
+        self.assertIsNone(v.create_v2(p,p));self.assertIsNone(v.update_v2(p,p,p,p));self.assertIsNone(v.forward_v2(p,p))
+        for seed in (-1,True,2**32,float('nan')):self.assertIsNone(v.create_v2(seed,enabled=True))
+        for outputs in (0,2,True):self.assertIsNone(v.create_v2(11,outputs,enabled=True))
+        net=v.create_v2(11,enabled=True);before=net.snapshot()
+        x=np.ones((8,12));dz=np.ones((8,3))*.002
+        bad=[None,np.zeros((0,12)),np.zeros((257,12)),np.zeros((8,11)),np.ones((8,12),dtype=np.float32),np.full((8,12),np.nan),np.ma.array(x)]
+        for value in bad:
+            self.assertIsNone(v.update_v2(net,value,dz,.001,enabled=True))
+            self.assertIsNone(v.forward_v2(net,value,enabled=True));self.assertIs(net.snapshot(),before)
+        for lr in (-1,0,True,float('nan'),float('inf'),2):
+            self.assertIsNone(v.update_v2(net,x,dz,lr,enabled=True));self.assertIs(net.snapshot(),before)
+        self.assertIsNone(v.update_v2(net,x,dz[:-1],.001,enabled=True))
+
+    def test_unsupported_runtime_rejects_before_inputs(self):
+        v=self.v;net=v.create_v2(11,enabled=True);before=net.snapshot()
+        with patch.object(v.sys,'_is_gil_enabled',return_value=False):
+            self.assertIsNone(v.create_v2(11,enabled=True))
+            self.assertIsNone(v.update_v2(net,None,None,None,enabled=True))
+            self.assertIsNone(v.forward_v2(net,None,enabled=True))
+        self.assertIs(net.snapshot(),before)
+
+    def test_staging_failures_and_step_cap(self):
+        from dataclasses import replace
+        v=self.v;net=v.create_v2(11,enabled=True);old=net.snapshot()
+        x=np.ones((8,12));dz=np.ones((8,3))
+        for error in (ValueError('staging'),MemoryError('staging')):
+            with patch.object(v,'_stage',side_effect=error):self.assertIsNone(v.update_v2(net,x,dz,.001,enabled=True))
+            self.assertIs(net.snapshot(),old)
+        with patch.object(v,'_stage',side_effect=KeyboardInterrupt('before publication')):
+            with self.assertRaises(KeyboardInterrupt):v.update_v2(net,x,dz,.001,enabled=True)
+        self.assertIs(net.snapshot(),old)
+        self.assertIsNone(v.update_v2(net,np.full((8,12),1e308),np.full((8,3),1e308),.001,enabled=True))
+        self.assertIs(net.snapshot(),old)
+        # Controlled internal fixture for cap admission; no public restore operation.
+        capped=v._Optimizer(replace(old,step=v.STEP_CAP))
+        self.assertIsNone(v.update_v2(capped,x,dz,.001,enabled=True))
+
+    def test_two_real_writers_and_stale_replay(self):
+        import threading
+        v=self.v;net=v.create_v2(11,enabled=True);old=net.snapshot()
+        barrier=threading.Barrier(2,timeout=5);stage=v._stage;answers=[];errors=[]
+        def staged(*args):
+            result=stage(*args);barrier.wait();return result
+        def writer(sign):
+            try:answers.append(v.update_v2(net,np.ones((8,12))*.01,np.ones((8,3))*.002*sign,.001,enabled=True))
+            except BaseException as e:errors.append(e)
+        with patch.object(v,'_stage',side_effect=staged):
+            threads=[threading.Thread(target=writer,args=(s,)) for s in (-1,1)]
+            for t in threads:t.start()
+            for t in threads:t.join(10)
+            self.assertFalse(any(t.is_alive() for t in threads))
+        self.assertFalse(errors);self.assertEqual(sum(s is not None for s in answers),1)
+        self.assertEqual(net.snapshot().step,1)
+        winner=next(s for s in answers if s is not None)
+        self.assertIsNone(net._publish(old,winner));self.assertIs(net.snapshot(),winner)
+        net._lock.acquire()
+        try:
+            self.assertIsNone(v.update_v2(net,np.ones((1,12)),np.ones((1,3)),.001,enabled=True))
+            self.assertIsNotNone(v.forward_v2(net,np.ones((1,12)),enabled=True))
+            self.assertIs(net.snapshot(),winner)
+        finally:net._lock.release()
+
+    def test_reader_uses_one_captured_snapshot_during_update(self):
+        import threading
+        v=self.v;net=v.create_v2(23,enabled=True);base=net.snapshot();x=np.ones((8,12))*.02
+        expected=v.forward_v2(net,x,enabled=True);entered=threading.Event();resume=threading.Event();answers=[]
+        arrays=v._arrays
+        def paused(buffers,outputs):
+            if threading.current_thread().name=='snapshot-reader' and buffers is base.p:
+                entered.set()
+                if not resume.wait(5):raise RuntimeError('reader fixture timeout')
+            return arrays(buffers,outputs)
+        def reader():answers.append(v.forward_v2(net,x,enabled=True))
+        with patch.object(v,'_arrays',side_effect=paused):
+            thread=threading.Thread(target=reader,name='snapshot-reader');thread.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                self.assertIsNotNone(v.update_v2(net,x,np.ones((8,3))*.01,.001,enabled=True))
+            finally:resume.set();thread.join(10)
+        self.assertFalse(thread.is_alive());self.assertEqual(len(answers),1)
+        np.testing.assert_array_equal(answers[0],expected);self.assertEqual(base.step,0)
+
+    def test_nonthrowing_publication_trace_sees_whole_snapshots(self):
+        import sys
+        v=self.v;net=v.create_v2(47,enabled=True);before=net.snapshot();seen=[]
+        def trace(frame,event,arg):
+            if frame.f_code is v._Optimizer._publish.__code__:
+                frame.f_trace_opcodes=True
+                seen.append(net.snapshot())
+            return trace
+        previous=sys.gettrace()
+        try:
+            sys.settrace(trace)
+            after=v.update_v2(net,np.ones((8,12))*.01,np.ones((8,3))*.002,.001,enabled=True)
+        finally:sys.settrace(previous)
+        self.assertIsNotNone(after);self.assertTrue(seen)
+        self.assertTrue(all(s is before or s is after for s in seen))
+        self.assertIn(before,seen);self.assertIn(after,seen)
 
 if __name__ == '__main__':
     unittest.main()

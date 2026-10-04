@@ -2,6 +2,8 @@
 
 The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: default-disabled, capability separation and no production learning are closed for the delivered offline boundary under the [source-isolation contract](formal/research/capability-isolation-contract.md); 35 obligations and separate economic-evidence gates remain unresolved. This does not certify inherited production authorization or deployed images.
 
+The default-disabled [optimizer snapshot v2](formal/research/optimizer-snapshot-v2-contract.md) repairs partial state publication for its own offline update/forward path using immutable snapshots and conditional single-reference publication. Concurrent stale updates reject; the frozen learner remains reproducible. This does not close whole-system atomicity, prove hard inference cancellation, or change any trading policy.
+
 
 The [reward accounting audit](formal/research/reward-accounting-contract.md) distinguishes call-relative learning reward from compounded economic return. Source-derived real identities and synthetic tolerance checks preserve the existing simulator/reporter; no candidate or live behavior is introduced.
 

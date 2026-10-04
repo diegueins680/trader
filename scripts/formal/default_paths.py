@@ -10,6 +10,9 @@ ENTRY_POINTS = (
     ('scripts/research/gae_targets_v2.py', 'step_v2'),
     ('scripts/research/gae_targets_v2.py', 'batch_v2'),
     ('scripts/research/ess_rational_v2.py', 'effective_sample_size_v2'),
+    ('scripts/research/optimizer_snapshot_v2.py', 'create_v2'),
+    ('scripts/research/optimizer_snapshot_v2.py', 'update_v2'),
+    ('scripts/research/optimizer_snapshot_v2.py', 'forward_v2'),
 )
 
 
@@ -104,4 +107,4 @@ def check_defaults(sources=None):
             'python': [check_python(sources[p], name) for p, name in ENTRY_POINTS],
             'haskell': check_haskell(sources[HASKELL]),
             'artifact': check_saved_default(sources[ENTRY_POINTS[0][0]]),
-            'booleanCases': 8, 'haskellModes': 2}
+            'booleanCases': 2 * len(ENTRY_POINTS), 'haskellModes': 2}

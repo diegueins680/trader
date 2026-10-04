@@ -2,6 +2,8 @@
 
 Current closure status (2026-10-03): [all 38 audited obligations](../formal/research/obligation-closure-audit.md) now have explicit criteria. Obligations 11, 24 and 31 are `exhaustively_checked` for the delivered offline boundary; 35 remain open/partial. The [capability contract](../formal/research/capability-isolation-contract.md) combines complete parsed dependency closure, enumerated inference effects and SMT artifact-key incompatibility, under explicit compiler/primitive/packaging assumptions; it does not certify inherited live authority or deployed images. Earlier all-38 statements below describe historical audit snapshots. Formal completion is computed separately from empirical research acceptance.
 
+The [snapshot v2 contract](../formal/research/optimizer-snapshot-v2-contract.md) adds a source-bound two-writer model, integer/IEEE guard checks, source-effect enumeration and real implementation conformance. Immutable single-reference publication repairs the new optimizer path; inherited atomicity/race obligations remain partial. No hard deadline, durable transaction, recovery or frozen-v1 repair is implied.
+
 
 The [reward accounting contract](../formal/research/reward-accounting-contract.md) adds exact-real row, wealth-fold and reward identities plus a refuted additive-reward interpretation. Synthetic conformance is not a binary64 error proof. Existing lifecycle/order models retain their scoped assumptions.
 

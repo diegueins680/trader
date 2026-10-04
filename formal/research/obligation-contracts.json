@@ -134,7 +134,8 @@
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
-        "F-RL-DEFAULT-PATH"
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -143,7 +144,8 @@
         "haskell/trader.cabal",
         "scripts/research/sequential_learning.py",
         "scripts/formal/capability_isolation.py",
-        "formal/research/ComponentGraph.hs"
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -303,14 +305,16 @@
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
-        "F-RL-DEFAULT-PATH"
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs",
         "haskell/trader.cabal",
         "scripts/formal/capability_isolation.py",
-        "formal/research/ComponentGraph.hs"
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -396,13 +400,15 @@
       "requiredCertificates": [
         "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
-        "F-RL-ARTIFACT-METADATA"
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_learning.py",
         "scripts/research/gae_targets_v2.py",
-        "scripts/research/ess_rational_v2.py"
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -426,7 +432,8 @@
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
       "requiredCertificates": [],
       "implementationFiles": [
-        "scripts/research/sequential_learning.py"
+        "scripts/research/sequential_learning.py",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "closureClass": null
     },
@@ -439,7 +446,8 @@
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs",
-        "haskell/app/Trader/App/GracefulShutdown.hs"
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "closureClass": null
     },

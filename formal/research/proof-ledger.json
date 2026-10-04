@@ -157,6 +157,12 @@
       "status": "assumption",
       "statement": "Trust pinned GHC 9.4.8, bundled Cabal 3.8.1.0 parsing/linking/type semantics, Aeson generic required fields, ordinary Python Network/base numeric arrays, NumPy primitives and clock reads. No runtime monkeypatching, custom ndarray dispatch, injected code/mounts, replaced packages/binaries/PATH, manual artifact conversion or administrative invocation of training from production. Reviewed runtime recipes/helpers are unchanged, not a proof of deployed images. Existing champion learning and live authority are outside this delivered-research isolation claim.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SNAPSHOT-V2",
+      "status": "assumption",
+      "statement": "Ordinary pinned GIL-enabled CPython 3.13.3 slotted reference reads/stores and lock primitives are atomic; stable base NumPy 2.3.5 arrays, finite scans and byte serialization preserve values; frozen dataclass/native bytes discipline is respected. Stable caller buffers during copies, normal resources, no malicious reflection, custom dispatch or monkeypatching. No compiler/runtime refinement theorem, wall-clock preemption or durable transaction is established; interrupted lock handoff may strand writers but cannot expose a mixed snapshot.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -192,7 +198,9 @@
     "scripts/formal/reward_accounting.py",
     "scripts/formal/default_paths.py",
     "scripts/formal/capability_isolation.py",
-    "formal/research/ComponentGraph.hs"
+    "formal/research/ComponentGraph.hs",
+    "scripts/research/optimizer_snapshot_v2.py",
+    "scripts/formal/snapshot_v2.py"
   ],
   "entries": [
     {
@@ -2131,7 +2139,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/gae_targets_v2.py",
         "scripts/research/ess_rational_v2.py",
-        "scripts/formal/default_paths.py"
+        "scripts/formal/default_paths.py",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -2140,7 +2149,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Reproduced finite default-path certificate and adversarial closure admission regressions; no universal compiler theorem.",
-      "bounds": "Four Python entry points times two enabled identity classes; two Haskell modes; all 38 ledger entries audited.",
+      "bounds": "Seven Python public entry points times two enabled identity classes; two Haskell modes; all 38 ledger entries audited.",
       "limitations": "Trusted checker/language semantics; empirical and production integration gates remain separate. Validator tests are not a formal proof.",
       "counterexample": null,
       "status": "exhaustively_checked"
@@ -2273,6 +2282,146 @@
       "limitations": "Exact reviewed source and named primitive/compiler assumptions. Source graph is not runtime process reachability or OS sandboxing; decoder membership is necessary, not sufficient, for native loading. Legacy GHC 8.10.4 Docker profile and actual fleet images are not certified. No claim about inherited live authorization, production learning of existing models or numerical correctness.",
       "counterexample": null,
       "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SNAPSHOT-PUBLISH",
+      "claim": "The source-bound optimizer-snapshot-v2 model with two writers, two calls each and one retained reader permits only complete immutable snapshot publication under exclusive lock and matching expected identity; stale updates cannot commit, every retained read stays coherent, and generation equals committed updates. Orphan locks fail closed and are not a recovery guarantee.",
+      "criticality": "critical",
+      "formalStatement": "The source-bound optimizer-snapshot-v2 model with two writers, two calls each and one retained reader permits only complete immutable snapshot publication under exclusive lock and matching expected identity; stale updates cannot commit, every retained read stays coherent, and generation equals committed updates. Orphan locks fail closed and are not a recovery guarantee.",
+      "assumptions": [
+        "A-SNAPSHOT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite model, AST audit and CPython/NumPy conformance",
+      "toolVersion": "CPython 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/snapshot_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/formal/snapshot_v2.py",
+        "formal/research/snapshot-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced scoped certificate; actual concurrent schedule and numeric tests supplement the source model. Frozen v1 and whole-production atomicity remain unresolved.",
+      "bounds": "Two writers, two calls each, one retained reader; 3970 states, 9981 edges, depth 29, rank bound 49. Int steps <= 2^31-1; IEEE binary64 selected-slot guard; snapshot sizes 675 or 777 slots.",
+      "limitations": "Trusted primitive/reference semantics and typed ordinary API domain. No claim about arbitrary private-state tampering, full NumPy arithmetic, all BLAS bit patterns, durable state, automatic retry, hard cancellation or production ownership/lifecycle.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-SNAPSHOT-CAS",
+      "claim": "Under matching expected identity, exclusive lock and admitted widths, the source-derived v2 publication predicate permits only current step plus one in [1,2^31-1] with unchanged width; stale identity cannot publish. Identity-to-generation and primitive reference atomicity are explicit assumptions.",
+      "criticality": "critical",
+      "formalStatement": "Under matching expected identity, exclusive lock and admitted widths, the source-derived v2 publication predicate permits only current step plus one in [1,2^31-1] with unchanged width; stale identity cannot publish. Identity-to-generation and primitive reference atomicity are explicit assumptions.",
+      "assumptions": [
+        "A-SNAPSHOT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "CPython 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/snapshot_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/formal/snapshot_v2.py",
+        "formal/research/snapshot-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced scoped certificate; actual concurrent schedule and numeric tests supplement the source model. Frozen v1 and whole-production atomicity remain unresolved.",
+      "bounds": "Two writers, two calls each, one retained reader; 3970 states, 9981 edges, depth 29, rank bound 49. Int steps <= 2^31-1; IEEE binary64 selected-slot guard; snapshot sizes 675 or 777 slots.",
+      "limitations": "Trusted primitive/reference semantics and typed ordinary API domain. No claim about arbitrary private-state tampering, full NumPy arithmetic, all BLAS bit patterns, durable state, automatic retry, hard cancellation or production ownership/lifecycle.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SNAPSHOT-FINITE",
+      "claim": "The source-derived optimizer-snapshot-v2 pack guard rejects non-finite binary64 slots and negative variance slots; publication follows a successful whole-candidate scan and immutable byte encoding under trusted NumPy scan/serialization semantics. No floating error or optimizer convergence theorem is claimed.",
+      "criticality": "critical",
+      "formalStatement": "The source-derived optimizer-snapshot-v2 pack guard rejects non-finite binary64 slots and negative variance slots; publication follows a successful whole-candidate scan and immutable byte encoding under trusted NumPy scan/serialization semantics. No floating error or optimizer convergence theorem is claimed.",
+      "assumptions": [
+        "A-SNAPSHOT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "CPython 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/snapshot_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/formal/snapshot_v2.py",
+        "formal/research/snapshot-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced scoped certificate; actual concurrent schedule and numeric tests supplement the source model. Frozen v1 and whole-production atomicity remain unresolved.",
+      "bounds": "Two writers, two calls each, one retained reader; 3970 states, 9981 edges, depth 29, rank bound 49. Int steps <= 2^31-1; IEEE binary64 selected-slot guard; snapshot sizes 675 or 777 slots.",
+      "limitations": "Trusted primitive/reference semantics and typed ordinary API domain. No claim about arbitrary private-state tampering, full NumPy arithmetic, all BLAS bit patterns, durable state, automatic retry, hard cancellation or production ownership/lifecycle.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SNAPSHOT-ISOLATION",
+      "claim": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no registered runner or production integration is introduced.",
+      "criticality": "critical",
+      "formalStatement": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no registered runner or production integration is introduced.",
+      "assumptions": [
+        "A-SNAPSHOT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite model, AST audit and CPython/NumPy conformance",
+      "toolVersion": "CPython 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/snapshot_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/formal/snapshot_v2.py",
+        "formal/research/snapshot-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced scoped certificate; actual concurrent schedule and numeric tests supplement the source model. Frozen v1 and whole-production atomicity remain unresolved.",
+      "bounds": "Two writers, two calls each, one retained reader; 3970 states, 9981 edges, depth 29, rank bound 49. Int steps <= 2^31-1; IEEE binary64 selected-slot guard; snapshot sizes 675 or 777 slots.",
+      "limitations": "Trusted primitive/reference semantics and typed ordinary API domain. No claim about arbitrary private-state tampering, full NumPy arithmetic, all BLAS bit patterns, durable state, automatic retry, hard cancellation or production ownership/lifecycle.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-SNAPSHOT-CONFORMANCE",
+      "claim": "Actual optimizer-snapshot-v2 updates and forwards consume single immutable snapshots; synthetic parity, stale/busy writers, retained readers, failure paths, default controls, compiled single-store observations and CE-RL-023 corrected-layout replay conform to the scoped model. Tests are not universal implementation refinement.",
+      "criticality": "high",
+      "formalStatement": "Actual optimizer-snapshot-v2 updates and forwards consume single immutable snapshots; synthetic parity, stale/busy writers, retained readers, failure paths, default controls, compiled single-store observations and CE-RL-023 corrected-layout replay conform to the scoped model. Tests are not universal implementation refinement.",
+      "assumptions": [
+        "A-SNAPSHOT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite model, AST audit and CPython/NumPy conformance",
+      "toolVersion": "CPython 3.13.3 / NumPy 2.3.5 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/snapshot_v2.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/formal/snapshot_v2.py",
+        "formal/research/snapshot-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced scoped certificate; actual concurrent schedule and numeric tests supplement the source model. Frozen v1 and whole-production atomicity remain unresolved.",
+      "bounds": "Two writers, two calls each, one retained reader; 3970 states, 9981 edges, depth 29, rank bound 49. Int steps <= 2^31-1; IEEE binary64 selected-slot guard; snapshot sizes 675 or 777 slots.",
+      "limitations": "Trusted primitive/reference semantics and typed ordinary API domain. No claim about arbitrary private-state tampering, full NumPy arithmetic, all BLAS bit patterns, durable state, automatic retry, hard cancellation or production ownership/lifecycle.",
+      "counterexample": "CE-RL-023",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -2551,7 +2700,8 @@
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
-        "F-RL-DEFAULT-PATH"
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -2564,7 +2714,8 @@
         "haskell/trader.cabal",
         "scripts/research/sequential_learning.py",
         "scripts/formal/capability_isolation.py",
-        "formal/research/ComponentGraph.hs"
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -2572,7 +2723,8 @@
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
-        "F-RL-DEFAULT-PATH"
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
       ]
     },
     {
@@ -2879,7 +3031,8 @@
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
-        "F-RL-DEFAULT-PATH"
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -2890,7 +3043,8 @@
         "haskell/app/Main.hs",
         "haskell/trader.cabal",
         "scripts/formal/capability_isolation.py",
-        "formal/research/ComponentGraph.hs"
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -2898,7 +3052,8 @@
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
-        "F-RL-DEFAULT-PATH"
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION"
       ]
     },
     {
@@ -3038,7 +3193,8 @@
       "evidenceRequirements": [
         "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
-        "F-RL-ARTIFACT-METADATA"
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
       "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
@@ -3048,13 +3204,15 @@
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_learning.py",
         "scripts/research/gae_targets_v2.py",
-        "scripts/research/ess_rational_v2.py"
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
         "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
-        "F-RL-ARTIFACT-METADATA"
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-SNAPSHOT-ISOLATION"
       ]
     },
     {
@@ -3081,42 +3239,54 @@
     {
       "number": 33,
       "claim": "Atomicity",
-      "status": "open",
+      "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-OPTIMIZER-PUBLISH",
-        "F-RL-OPTIMIZER-ATOMIC"
+        "F-RL-OPTIMIZER-ATOMIC",
+        "F-RL-SNAPSHOT-PUBLISH",
+        "F-RL-SNAPSHOT-CAS",
+        "F-RL-SNAPSHOT-FINITE",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-SNAPSHOT-CONFORMANCE"
       ],
       "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
-      "nextAction": "Implement a separately versioned immutable optimizer-state snapshot and single publication point; model interrupted commit.",
+      "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
       "implementationFiles": [
-        "scripts/research/sequential_learning.py"
+        "scripts/research/sequential_learning.py",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "blockers": [
-        "CE-RL-016 shows mixed optimizer fields under reentrant observation or interruption."
+        "Versioned v2 snapshot publication is checked under named runtime assumptions; frozen v1 CE-RL-016 and inherited ownership, lifecycle, artifact and promotion synchronization remain unrefined."
       ],
       "requiredCertificates": []
     },
     {
       "number": 34,
       "claim": "Race freedom",
-      "status": "open",
+      "status": "partially_verified",
       "evidenceRequirements": [
         "F-RL-OPTIMIZER-PUBLISH",
-        "F-RL-OPTIMIZER-ATOMIC"
+        "F-RL-OPTIMIZER-ATOMIC",
+        "F-RL-SNAPSHOT-PUBLISH",
+        "F-RL-SNAPSHOT-CAS",
+        "F-RL-SNAPSHOT-FINITE",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-SNAPSHOT-CONFORMANCE"
       ],
       "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
-      "nextAction": "After atomic state publication, verify synchronization and actual lifecycle call interleavings.",
+      "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs",
-        "haskell/app/Trader/App/GracefulShutdown.hs"
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "blockers": [
-        "CE-RL-016 and unrefined server lifecycle leave concurrent visibility unproved."
+        "Versioned v2 snapshot publication is checked under named runtime assumptions; frozen v1 CE-RL-016 and inherited ownership, lifecycle, artifact and promotion synchronization remain unrefined."
       ],
       "requiredCertificates": []
     },

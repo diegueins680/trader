@@ -68,7 +68,8 @@
       "implementation": [
         "scripts/formal/*.py",
         "scripts/formal/requirements.txt",
-        "formal/research/**"
+        "formal/research/**",
+        "scripts/research/optimizer_snapshot_v2.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -354,6 +355,26 @@
         {
           "id": "F-RL-ARTIFACT-DISJOINT",
           "statement": "Under trusted Aeson generic required-field semantics, the exact top-level key set emitted by save_policy cannot satisfy the required-key predicate of the unchanged native PersistedLstmModel decoder. This excludes emitted offline artifacts, not arbitrary converted JSON."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-PUBLISH",
+          "statement": "The source-bound optimizer-snapshot-v2 model with two writers, two calls each and one retained reader permits only complete immutable snapshot publication under exclusive lock and matching expected identity; stale updates cannot commit, every retained read stays coherent, and generation equals committed updates. Orphan locks fail closed and are not a recovery guarantee."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-CAS",
+          "statement": "Under matching expected identity, exclusive lock and admitted widths, the source-derived v2 publication predicate permits only current step plus one in [1,2^31-1] with unchanged width; stale identity cannot publish. Identity-to-generation and primitive reference atomicity are explicit assumptions."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-FINITE",
+          "statement": "The source-derived optimizer-snapshot-v2 pack guard rejects non-finite binary64 slots and negative variance slots; publication follows a successful whole-candidate scan and immutable byte encoding under trusted NumPy scan/serialization semantics. No floating error or optimizer convergence theorem is claimed."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-ISOLATION",
+          "statement": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no registered runner or production integration is introduced."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-CONFORMANCE",
+          "statement": "Actual optimizer-snapshot-v2 updates and forwards consume single immutable snapshots; synthetic parity, stale/busy writers, retained readers, failure paths, default controls, compiled single-store observations and CE-RL-023 corrected-layout replay conform to the scoped model. Tests are not universal implementation refinement."
         }
       ],
       "failures": [
@@ -448,6 +469,21 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_nonadditive_witness_reports_economic_loss"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/snapshot_v2.py",
+          "contains": "check_model"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_two_real_writers_and_stale_replay"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_byte_view_parity_counterexample_regression"
         }
       ]
     },

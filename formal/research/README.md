@@ -299,3 +299,37 @@ binary/PATH integrity and no injected code are named assumptions, not checked OS
 isolation. Existing production authorization and existing champion learning are
 outside these closures. The legacy GHC 8.10.4 Docker recipe remains unmodified and
 is not certified buildable; actual deployment images were not inspected or changed.
+
+## Offline snapshot optimizer v2
+
+[Specification](optimizer-snapshot-v2-contract.md) and
+[engineering registration](../../research-notes/registrations/optimizer-snapshot-v2-engineering.json)
+precede this standalone research repair. `scripts/research/optimizer_snapshot_v2.py`
+provides `create_v2`, `update_v2` and `forward_v2`; each defaults `enabled=False`.
+Every enabled operation requires CPython 3.13.3 with the GIL and NumPy 2.3.5.
+Creation uses seed 0..2^32-1 and output width 1 or 3. Updates accept finite native
+float64 batches of 1..256 rows and lr in (0,1]; callers inspect None on refusal.
+The public snapshot contains immutable bytes, not writable NumPy buffers.
+
+Forward and update capture exactly one state. A writer stages independently and
+publishes one immutable object only if its expected state still matches under the
+nonblocking publication lock. An exceptional call after the store can have committed;
+there is no exactly-once or durable retry promise. A stranded lock fails later writes
+closed; this is not a recovery or hard timeout implementation. No frozen runner calls
+this API and no candidate artifact/production interface is added.
+
+The finite model checks 3,970 states and 9,981 transitions (two writers, two calls
+each, one retained reader; depth 29; progress rank 49). Two SMT requirements check
+integer conditional-publication bounds and the actual selected-slot float64 pack
+guard. NumPy scan/byte semantics and CPython reference/lock behavior are named
+assumptions; no universal numerical-error or compiler refinement theorem follows.
+Conformance exercises 144 paired synthetic updates, concurrent schedules, failure
+paths, retained reads and defaults. Existing Haskell proposal conformance remains
+in the wrapper; no Haskell production path changes.
+
+CE-RL-023 preserves an initial view-backed forward discrepancy of one ULP on the
+observed macOS backend. Native private working copies restore the baseline path on
+the registered tests. This is bounded empirical parity, not all-backend bitwise
+proof. The original CE-RL-016 remains in frozen v1. Obligations 33/34 gain partial
+implementation evidence; 35 broader obligations remain unresolved. Formal/full
+wrappers reproduce all new scoped checks without network after pinned installation.

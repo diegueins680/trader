@@ -21,7 +21,7 @@ x and outputs for dz; finite lr in (0,1]. Reject unsupported representations.
 
 create_v2, update_v2 and forward_v2 default to enabled=False and return None before
 inspecting other arguments when disabled. Enabled creation is deterministic by
-seed. Update captures one old snapshot, stages all Adam fields from that snapshot
+seed. All enabled entry points reject unsupported Python/NumPy versions or a disabled GIL. Update captures one old snapshot, stages all Adam fields from that snapshot
 using the original equations/order, validates and freezes every candidate field,
 and tries a nonblocking publication lock. Busy or stale expected snapshot returns
 None; it does not wait or silently overwrite a concurrent update. Comparison is
@@ -54,6 +54,7 @@ or in-place mutation is supported. No automatic retry is performed.
   published slots are finite when the whole candidate scan succeeds. Pack structure,
   exact shapes and immutable byte publication are checked; NumPy scan/serialization
   semantics remain trusted. This is not a floating-point error or convergence proof.
+- F-RL-SNAPSHOT-ISOLATION: enumerate the reviewed module import/call boundary; no file, network, process or order operations, no runner/production integration, default-disabled public entry points. Preserve prior capability/default closures by extending their required certificate sets.
 - F-RL-SNAPSHOT-CONFORMANCE: deterministic real two-writer barrier schedules,
   snapshot readers, numerical/staging failures, stale publication, retry rejection,
   immutable views, defaults, actor/critic seeds 11/23/47, cold/warm parity and the

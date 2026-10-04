@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research infrastructure: add `optimizer-snapshot-v2`, disabled by default, with immutable numeric state, single-snapshot forward/update reads, nonblocking conditional publication and pinned runtime admission. Verify two-writer publication and preserve the byte-view one-ULP regression as CE-RL-023; use native working copies for arithmetic. Frozen algorithms, artifacts and production behavior are unchanged; broad atomicity/race obligations remain partial.
+
 - Research assurance: extract all six executable dependency graphs with pinned GHC/Cabal parsers, check admitted inference effects and prove emitted RL/native LSTM artifact key incompatibility. Close obligations 11 and 24 only for the delivered research boundary under explicit compiler/runtime assumptions; 35 remain unresolved. Production and frozen research behavior are unchanged.
 
 - Research assurance: replace the impossible obligation-closure restriction with same-run certificate validation, audit all 38 closure criteria, and close delivered default-disabled control paths. Preserve unresolved production, numerical and economic gates.
