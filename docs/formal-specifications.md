@@ -650,3 +650,15 @@ and queue fairness are not claimed. A-BACKTEST-GATE names runtime/interruptibili
 assumptions. CE-BACKTEST-001–005 preserve timeout, cancellation, overflow and a
 separately labeled reserve-gap schedule. Source binding is not full IO refinement.
 The broader 38-obligation statuses and economic acceptance gates are unchanged.
+
+## Shared drain and pool admission (2026-10-04)
+
+F-DRAIN-POOL-ORDER checks five SMT algebraic properties.
+F-DRAIN-POOL-LIFECYCLE checks 5,376 states / 17,728 transitions across eight
+configurations (two callers, two pools, two drainers, capacities 1/2).
+F-DRAIN-POOL-CONFORMANCE connects the model to compiled helpers and source-bound
+Main constructors: four runtime tests, 32 generated concurrent cases, three preserved
+stale-ingress regressions. A-DRAIN-POOL trusts pinned STM primitive semantics.
+Pre-drain reservations retain ownership; callback start/quiescence and bot/order
+authorization are not certified. The 38-obligation ledger remains 3 closed /
+28 partial / 7 open. See `formal/research/drain-pool-contract.md`.

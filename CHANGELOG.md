@@ -1,5 +1,12 @@
 ## Unreleased
 
+- Compose async/backtest capacity reservations with the server drain latch in STM.
+  Reject stale-ingress reservations after drain; return HTTP 503 for drained
+  synchronous backtests and stop waiting retries. Preserve pre-drain ownership,
+  independent offline constructors and existing error JSON. Add three preserved
+  regressions, bounded model checking, SMT and compiled conformance. Broader
+  bot/order draining and durable recovery remain open.
+
 - Backtest execution: preserve timeout classification and external cancellation,
   mask capacity ownership through cleanup installation, and prevent timeout-unit
   overflow. Extract a small Haskell gate with source-bound SMT/model evidence and

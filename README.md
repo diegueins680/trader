@@ -1,5 +1,12 @@
 # Trader
 
+Async jobs and backtest capacity now share the server drain latch: a request with a
+stale readiness snapshot cannot reserve either pool after draining begins. Existing
+reservations retain cleanup ownership. A newly rejected synchronous backtest uses
+HTTP 503; waiting backtests stop retrying on drain. Standalone/offline constructors
+remain independent. See the [contract](formal/research/drain-pool-contract.md).
+This does not certify bot/order admission or whole-server quiescence.
+
 The new [offline inference process contract](formal/research/inference-process-v2-contract.md)
 adds a default-disabled standalone Haskell engineering fixture. It initializes one
 child before reading a request, keeps the request budget at 20 ms, and rejects
