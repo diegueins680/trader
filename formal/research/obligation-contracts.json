@@ -11,7 +11,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 2,
@@ -22,7 +23,8 @@
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_learning.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 3,
@@ -33,7 +35,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 4,
@@ -44,7 +47,8 @@
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_env.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 5,
@@ -55,7 +59,8 @@
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_env.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 6,
@@ -67,7 +72,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 7,
@@ -78,7 +84,8 @@
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_env.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 8,
@@ -89,7 +96,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_evaluation.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 9,
@@ -100,7 +108,8 @@
       "implementationFiles": [
         "haskell/app/Trader/Binance.hs",
         "haskell/app/Trader/Research/PolicyProposalV1.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 10,
@@ -112,7 +121,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 11,
@@ -124,7 +134,8 @@
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Trader/LiveOrderIntent.hs",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 12,
@@ -135,7 +146,8 @@
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_env.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 13,
@@ -146,7 +158,8 @@
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 14,
@@ -157,7 +170,8 @@
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 15,
@@ -168,7 +182,8 @@
       "implementationFiles": [
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotStartSemantics.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 16,
@@ -179,7 +194,8 @@
       "implementationFiles": [
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotSnapshotRecovery.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 17,
@@ -190,7 +206,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 18,
@@ -200,7 +217,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "scripts/research/sequential_env.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 19,
@@ -211,7 +229,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_evaluation.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 20,
@@ -222,7 +241,8 @@
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_env.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 21,
@@ -233,7 +253,8 @@
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "haskell/app/Trader/Research/PolicyProposalV1.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 22,
@@ -246,7 +267,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_evaluation.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 23,
@@ -258,7 +280,8 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 24,
@@ -269,7 +292,8 @@
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 25,
@@ -280,7 +304,8 @@
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_learning.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 26,
@@ -292,7 +317,8 @@
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Main.hs",
         "haskell/app/Trader/LiveOrderIntent.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 27,
@@ -304,7 +330,8 @@
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_learning.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 28,
@@ -316,7 +343,8 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 29,
@@ -326,7 +354,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "scripts/research/sequential_learning.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 30,
@@ -337,7 +366,8 @@
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 31,
@@ -354,7 +384,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/gae_targets_v2.py",
         "scripts/research/ess_rational_v2.py"
-      ]
+      ],
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 32,
@@ -366,7 +397,8 @@
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 33,
@@ -376,7 +408,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "scripts/research/sequential_learning.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 34,
@@ -388,7 +421,8 @@
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs",
         "haskell/app/Trader/App/GracefulShutdown.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 35,
@@ -400,7 +434,8 @@
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Main.hs",
         "haskell/app/Trader/LiveOrderIntent.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 36,
@@ -412,7 +447,8 @@
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 37,
@@ -423,7 +459,8 @@
       "implementationFiles": [
         "haskell/app/Trader/BotSnapshotRecovery.hs",
         "scripts/research/run_sequential_screen.py"
-      ]
+      ],
+      "closureClass": null
     },
     {
       "number": 38,
@@ -435,7 +472,8 @@
         "haskell/app/Main.hs",
         "scripts/research/run_sequential_screen.py",
         "haskell/app/Trader/App/GracefulShutdown.hs"
-      ]
+      ],
+      "closureClass": null
     }
   ]
 }

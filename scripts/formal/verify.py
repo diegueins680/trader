@@ -107,7 +107,7 @@ def validate_obligations(obligations, entries, reproduced=None, contracts=None):
     by_id = {e['requirementId']: e for e in entries}
     remaining = 0
     for item, contract in zip(obligations, contracts):
-        require(all(item.get(key) == value for key, value in contract.items()), 'canonical closure contract drift')
+        require('closureClass' in contract and all(item.get(key) == value for key, value in contract.items() if key != 'closureClass'), 'canonical closure contract drift')
         for key in ('scope', 'closureCriteria', 'nextAction', 'limitations'):
             require(isinstance(item.get(key), str) and bool(item[key].strip()), 'missing obligation closure criterion')
         require(item['implementationFiles'] and all(isinstance(p, str) and p for p in item['implementationFiles']), 'missing obligation implementation')
@@ -120,7 +120,7 @@ def validate_obligations(obligations, entries, reproduced=None, contracts=None):
         require(closed == sufficient, 'unsupported or unrecorded obligation closure')
         require(closed or item['status'] in ('open', 'partially_verified', 'refuted'), 'unsupported mission status')
         if closed:
-            require(item['status'] in {by_id[c]['status'] for c in required}, 'unsupported aggregate verification class')
+            require(item['status'] == contract['closureClass'] and item['status'] in {by_id[c]['status'] for c in required}, 'unsupported aggregate verification class')
             if reproduced is not None:
                 require(all(reproduced.get(c) == by_id[c]['status'] for c in required), 'closure certificate not reproduced')
         else:

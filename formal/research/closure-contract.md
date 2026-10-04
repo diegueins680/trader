@@ -13,7 +13,7 @@ an evidence-based assessment. Preserve historical receipts; replace this rule.
 
 Each numbered obligation retains its original title and a reviewed affected
 scope, closure criteria, concrete remaining work, and implementation paths.
-[The canonical contract registry](obligation-contracts.json) fixes each number, title, scope, criterion, implementation path and required certificate set independently of status updates. The validator rejects ledger/contract drift. Semantic sufficiency of this mapping is explicitly a source-review assumption; certificate existence alone cannot establish it.
+[The canonical contract registry](obligation-contracts.json) fixes each number, title, scope, criterion, aggregate verification class, implementation path and required certificate set independently of status updates. The validator rejects ledger/contract drift. Semantic sufficiency of this mapping is explicitly a source-review assumption; certificate existence alone cannot establish it.
 
 `requiredCertificates` names sufficient certificates for that exact scope, not
 merely related supporting lemmas. An empty list is never sufficient evidence.
@@ -81,3 +81,5 @@ fully certified synthetic 38-obligation ledger to establish that closure is now
 reachable; it is a validator fixture, never evidence about trading software.
 Test positive formal completion with research gates blocked separately. Preserve
 the former impossible-closure case as CE-RL-021 in the closure regression registry.
+
+Review regression CE-RL-022: the initial replacement validator allowed choosing any component certificate class as the aggregate label. The corrected validator requires the exact canonical `closureClass`; the preserved SMT-relabel witness must be rejected. This concerns proof labeling, not a policy execution defect.

@@ -2085,6 +2085,8 @@ class ObligationClosureTests(unittest.TestCase):
             item.update(status='exhaustively_checked', blockers=[],
                         requiredCertificates=['F-RL-DEFAULT-PATH'], evidenceRequirements=['F-RL-DEFAULT-PATH'])
         contracts = [{k:o[k] for k in ('number','claim','scope','closureCriteria','requiredCertificates','implementationFiles')} for o in obligations]
+        for contract in contracts:
+            contract['closureClass'] = 'exhaustively_checked'
         result = acceptance_summary(obligations, self.ledger['entries'],
                                     {'F-RL-DEFAULT-PATH': 'exhaustively_checked'},
                                     self.ledger['researchAcceptanceGates'], ROOT, contracts)
@@ -2116,12 +2118,18 @@ class ObligationClosureTests(unittest.TestCase):
             lambda o: o.update(blockers=['unresolved implementation path']),
             lambda o: o.update(scope=''),
             lambda o: o.update(status='proved'),
+            lambda o: o.update(status='smt_verified'),
             lambda o: o.update(requiredCertificates=['F-RL-DEFAULT-PATH','F-RL-DEFAULT-PATH']),
         ):
             data = copy.deepcopy(self.ledger['missionObligations'])
             mutate(data[30])
             with self.assertRaises(ValueError):
                 validate_obligations(data, self.ledger['entries'])
+        relabel = read_json(ROOT / 'formal/research/closure-counterexamples.json')['entries'][1]['witness']
+        data = copy.deepcopy(self.ledger['missionObligations'])
+        data[relabel['obligation'] - 1]['status'] = relabel['incorrectlyAdmittedAggregateClass']
+        with self.assertRaisesRegex(ValueError, 'aggregate verification class'):
+            validate_obligations(data, self.ledger['entries'])
         for reproduced in ({}, {'F-RL-DEFAULT-PATH':'unknown'}, {'F-RL-DEFAULT-PATH':'property_tested'}):
             with self.assertRaisesRegex(ValueError, 'not reproduced'):
                 validate_obligations(self.ledger['missionObligations'], self.ledger['entries'], reproduced)

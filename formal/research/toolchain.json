@@ -34,8 +34,8 @@
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "91d8e390f951d1f27033f6d04381d0029b4c7efd3cc99410610c400070669cf3",
-    "scripts/formal/test_integrity.py": "4332dc1ae512dd939e88bff44842a9428c169a196a95d992d4ac33dcc781cc2c",
+    "scripts/formal/verify.py": "34059ff552e9b3404796be98e668b4ac603a283a4a8344324bfc4485452b8b40",
+    "scripts/formal/test_integrity.py": "22be0266baba292aa1a75f2cc763fa5e3ca1a2d29a9ce69e677b2c3ed4845dba",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
@@ -116,11 +116,11 @@
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "scripts/formal/default_paths.py": "fc810bb75240153d6ee9ecc9af1b6e0dcc3dcc69e9a9e0c1632be98f65a1daeb",
-    "formal/research/closure-contract.md": "cdde6474630618da434f6a7af9c62688b1d2f5b273fcdc73b9137a05a7a38e2e",
+    "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
     "formal/research/obligation-closure-audit.md": "6860c23fe614fc36bd956c6ed98f1b497045d7ec29b676a5c1ffb54074dfc04a",
-    "formal/research/closure-counterexamples.json": "5a7aa2319907a6d70f6b2e48794c2ecf939736e4253c71c2875d0cc564cfcb39",
+    "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
-    "formal/research/obligation-contracts.json": "7512a1f3fac3de276b45513939c8ec5662b88577e0e73d5b676d3ced4f30f5e2"
+    "formal/research/obligation-contracts.json": "ae54d3fcbf601cba9fd25ec34d1cef384037a8ac72aacfc056fac0009184cd47"
   },
   "numpy": "2.3.5"
 }
