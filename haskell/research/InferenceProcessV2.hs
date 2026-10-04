@@ -4,10 +4,11 @@ module Main (main) where
 import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, catch, mask, onException)
 import Control.Monad (join, void)
+import qualified Data.ByteString.Char8 as BS
 import Data.List (transpose)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Environment (getArgs, getExecutablePath)
-import System.IO (BufferMode (NoBuffering), Handle, hClose, hFlush, hGetChar, hPrint, hSetBuffering, stdin, stdout)
+import System.IO (BufferMode (NoBuffering), Handle, hClose, hFlush, hGetChar, hSetBuffering, stdin, stdout)
 import System.Posix.Signals (sigKILL, signalProcess)
 import System.Process (CreateProcess (..), ProcessHandle, StdStream (CreatePipe, NoStream), createProcess, getPid, getProcessExitCode, proc, terminateProcess)
 import System.Timeout (timeout)
@@ -147,9 +148,13 @@ exchange started input output = do
                 raw <- frameRead 32768 stdin
                 case raw >>= readMaybe of
                     Just request | validRequest request -> do
-                        hPrint input (request :: Request)
-                        hFlush input
-                        frameRead 16 output
+                        let payload = BS.pack (show (request :: Request))
+                        if BS.length payload >= 32768
+                            then pure Nothing
+                            else do
+                                BS.hPutStrLn input payload
+                                hFlush input
+                                frameRead 16 output
                     _ -> pure Nothing
             pure (join reply)
 

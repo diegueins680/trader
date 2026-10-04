@@ -358,7 +358,7 @@ Standalone engineering build (GHC 9.4.8 and its pinned bundled libraries):
 ```sh
 mkdir -p /tmp/trader-inference-v2-build
 ghc -O0 -threaded -with-rtsopts=-V0.001 -package process-1.6.18.0 \
-  -package unix-2.7.3 -outputdir /tmp/trader-inference-v2-build \
+  -package unix-2.7.3 -package bytestring-0.11.5.3 -outputdir /tmp/trader-inference-v2-build \
   haskell/research/InferenceProcessV2.hs -o /tmp/trader-inference-v2
 /tmp/trader-inference-v2
 ```

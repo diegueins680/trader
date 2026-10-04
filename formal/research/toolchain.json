@@ -45,7 +45,7 @@
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/proof-ledger.json": "1fd0dab2ab133fce912da6e9759acebe6a2f93e4436990a3da8196faff57d918",
+    "formal/research/proof-ledger.json": "3aa5b3959712befd79a9ab7d93aa3bb2e53b4a0a33487b9194db99fd6f4cf422",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -258,15 +258,16 @@
     "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
     "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
     "research-notes/registrations/optimizer-snapshot-v2-engineering.json": "7716738a757a6b9b85c251235366ed94eefe5554d4a2deeddb7d2230ea489545",
-    "haskell/research/InferenceProcessV2.hs": "2aab32a716984ff234e722f5667fc2f10e2c4a74a4b674448f31c5df176e53ae",
-    "scripts/formal/inference_process.py": "f674b064e2e1c70fab40d3eedea4badcc199063a3c7b4e85e5d4c12d19e689a2",
-    "formal/research/inference-process-source.json": "2963191a3e1c4c2424065fab8f60cb92d61ec8daca15b7a9e95c019dfae9d2b2",
-    "formal/research/inference-process-v2-contract.md": "6b528b91af01054ee24bb270227dc7ef9629831bcc1ad06aa296c3c0433bf5a7",
+    "haskell/research/InferenceProcessV2.hs": "f93011a2cbb56d17f4b6fb547f8666679dc237edee0441ce0bfb747dd634a308",
+    "scripts/formal/inference_process.py": "216f9199c12c659668b1e9c66eaad9eba99d4fa2f15663c6b91e7cdf4dec1f62",
+    "formal/research/inference-process-source.json": "bcf864ea477b50625350018a733f5cd635201b8061fa45b03e1aa08c657d02a5",
+    "formal/research/inference-process-v2-contract.md": "60c8a073850649db5389285265b01af3584bf4bc21eeda604a84446a30d3e8c3",
     "research-notes/registrations/inference-process-v2-engineering.json": "55102aca5df4e79e2aa82df87a22809097f867da3d5001905291c1d1451cf757"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",
   "process": "1.6.18.0",
   "unix": "2.7.3",
-  "researchWorkerRts": "-threaded -with-rtsopts=-V0.001"
+  "researchWorkerRts": "-threaded -with-rtsopts=-V0.001",
+  "bytestring": "0.11.5.3"
 }

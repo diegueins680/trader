@@ -37,7 +37,7 @@ process death and uninterruptible OS calls are not guaranteed recoverable.
 
 ## Assumption A-INFERENCE-PROCESS
 
-Pinned GHC 9.4.8, process 1.6.18.0 and unix 2.7.3; trusted compiled self executable;
+Pinned GHC 9.4.8, process 1.6.18.0, unix 2.7.3 and bytestring 0.11.5.3; trusted compiled self executable;
 no external reaper, injected code, hostile filesystem replacement or descendant
 process creation by the reviewed worker. The OS maintains an unreaped child's
 PID identity, delivers signals, services nonblocking pipe operations, and
@@ -81,3 +81,11 @@ Before testing a successor, registration amendment 2 separates initialization
 from request admission: no request is read before Ready; the unchanged 20 ms
 budget includes request parsing, computation and cleanup. No financial gate,
 frozen learner or observation-availability claim changes. Count both designs.
+
+The first pre-initialized implementation used unbuffered text serialization.
+All 15 dense synthetic benchmark requests expired on the recorded macOS host
+(source d13b07a4); this is a performance failure, not an accepted late output.
+The correction writes one checked byte buffer of fewer than 32768 bytes plus
+newline. Numeric Show output is ASCII; the request format and deadline are unchanged.
+Byte-buffer conversion/IO join the named trusted primitives. No new package is
+installed: bytestring 0.11.5.3 ships with the pinned GHC distribution.

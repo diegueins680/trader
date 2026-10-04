@@ -143,7 +143,7 @@ def compile_source(source, directory):
     path = directory / 'Main.hs'; path.write_text(source)
     exe = directory / 'worker'
     result = subprocess.run(['ghc', '-v0', '-O0', '-threaded', '-with-rtsopts=-V0.001',
-                    '-package', 'process-1.6.18.0', '-package', 'unix-2.7.3',
+                    '-package', 'process-1.6.18.0', '-package', 'unix-2.7.3', '-package', 'bytestring-0.11.5.3',
                     '-outputdir', str(directory), str(path), '-o', str(exe)],
                    cwd=ROOT, capture_output=True, text=True, timeout=90)
     require(result.returncode == 0, 'GHC fixture failed: ' + result.stderr)
@@ -243,7 +243,7 @@ def conformance(source):
 def check_process():
     cap, registry = extract()
     lock = json.loads((ROOT / 'formal/research/toolchain.json').read_text())
-    require(lock['process'] == '1.6.18.0' and lock['unix'] == '2.7.3' and lock['researchWorkerRts'] == '-threaded -with-rtsopts=-V0.001', 'worker toolchain drift')
+    require(lock['process'] == '1.6.18.0' and lock['unix'] == '2.7.3' and lock['bytestring'] == '0.11.5.3' and lock['researchWorkerRts'] == '-threaded -with-rtsopts=-V0.001', 'worker toolchain drift')
     return {'smt': prove_guard(cap), 'model': check_model(),
             'conformance': conformance((ROOT / SOURCE).read_text()),
             'isolation': {'requirement': 'F-RL-PROCESS-ISOLATION', 'status': 'exhaustively_checked',

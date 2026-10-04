@@ -167,7 +167,7 @@
     {
       "id": "A-INFERENCE-PROCESS",
       "status": "assumption",
-      "statement": "Trusted pinned GHC 9.4.8/process 1.6.18.0/unix 2.7.3 and self executable; stable PID until this sole parent reaps; no descendants, external reaper, hostile replacement or injected code. Monotonic clock, bounded process creation/IO/signal primitives and parent/timer scheduling. Repeated async cancellation, process death, neural arithmetic equivalence and production shutdown are not proved. See inference-process-v2-contract.md.",
+      "statement": "Trusted pinned GHC 9.4.8/process 1.6.18.0/unix 2.7.3/bytestring 0.11.5.3 bounded buffer/IO primitives and self executable; stable PID until this sole parent reaps; no descendants, external reaper, hostile replacement or injected code. Monotonic clock, bounded process creation/IO/signal primitives and parent/timer scheduling. Repeated async cancellation, process death, neural arithmetic equivalence and production shutdown are not proved. See inference-process-v2-contract.md.",
       "risk": "RL-OFFLINE-001"
     }
   ],
@@ -2442,7 +2442,7 @@
         "A-SOLVER"
       ],
       "tool": "source-bound finite checker and compiled Haskell conformance",
-      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; bytestring 0.11.5.3; CPython 3.13.3; Z3 4.15.4",
       "sourceModel": "scripts/formal/inference_process.py",
       "artifact": "formal/research/results.json",
       "implementationFiles": [
@@ -2471,7 +2471,7 @@
         "A-SOLVER"
       ],
       "tool": "Z3",
-      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; bytestring 0.11.5.3; CPython 3.13.3; Z3 4.15.4",
       "sourceModel": "scripts/formal/inference_process.py",
       "artifact": "formal/research/results.json",
       "implementationFiles": [
@@ -2500,7 +2500,7 @@
         "A-SOLVER"
       ],
       "tool": "source-bound finite checker and compiled Haskell conformance",
-      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; bytestring 0.11.5.3; CPython 3.13.3; Z3 4.15.4",
       "sourceModel": "scripts/formal/inference_process.py",
       "artifact": "formal/research/results.json",
       "implementationFiles": [
@@ -2529,7 +2529,7 @@
         "A-SOLVER"
       ],
       "tool": "source-bound finite checker and compiled Haskell conformance",
-      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; bytestring 0.11.5.3; CPython 3.13.3; Z3 4.15.4",
       "sourceModel": "scripts/formal/inference_process.py",
       "artifact": "formal/research/results.json",
       "implementationFiles": [
