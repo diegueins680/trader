@@ -29,6 +29,7 @@ code :: Either BacktestFailure a -> String
 code result = case result of
     Right _ -> "success"
     Left BacktestBusy -> "busy"
+    Left BacktestDraining -> "draining"
     Left BacktestTimedOut -> "timeout"
     Left (BacktestException _) -> "error"
 

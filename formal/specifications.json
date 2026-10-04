@@ -415,6 +415,18 @@
         {
           "id": "F-BACKTEST-GATE-CONFORMANCE",
           "statement": "Compiled backtest-gate tests reproduce baseline own-timeout, cancellation, outer-timeout and duration-overflow failures plus an instrumented reserve/finalizer-gap schedule, and check success/error cleanup, contention, waiting cancellation/retry, caller masking and generated concurrency. Reviewed Main keeps its existing HTTP/message mapping; source-bound tests are not full IO refinement."
+        },
+        {
+          "id": "F-DRAIN-POOL-ORDER",
+          "statement": "Shared drain and pool reservation equations reject without changing capacity after drain, preserve bounds and monotonic closure, release ownership independently of drain, and commute for independent pools under a fixed latch. STM serializability is an explicit runtime assumption."
+        },
+        {
+          "id": "F-DRAIN-POOL-LIFECYCLE",
+          "statement": "The finite two-caller, two-pool, two-drainer composition at capacities one and two excludes post-drain reservations even after stale ingress snapshots, preserves ownership and monotonic closure, and has terminating finite paths under primitive/callback progress. Pre-drain owners may execute after drain; no whole-server quiescence is claimed."
+        },
+        {
+          "id": "F-DRAIN-POOL-CONFORMANCE",
+          "statement": "Compiled literal baseline fixtures reproduce stale-ingress async, immediate and waiting backtest admissions; real shared-latch helpers reject them without effects. Runtime tests cover transaction rollback, both ownership/drain orderings, waiting rejection, release, independent controllers and generated concurrency. Source binding checks all four server pools share the controller; no complete HTTP or IO refinement is claimed."
         }
       ],
       "invariants": [

@@ -185,19 +185,25 @@
     {
       "id": "A-ASYNC-ADMISSION",
       "status": "assumption",
-      "statement": "Pinned GHC/base mask, forkIOWithUnmask, MVar and atomic IORef semantics; private counters/gates, finite allocation, total nonthrowing counter predicates, failing fork creates no child, and masked atomic exception-safe publication. Actual Main publication uses modifyMVar_ and pure HM.insert. Release has no blocking lock wait. Eventual release requires callback completion/cancellation and scheduler progress; no full IO refinement, durable recovery or HTTP drain guarantee.",
+      "statement": "Pinned GHC/base mask, forkIOWithUnmask, MVar and atomic IORef semantics; private counters/gates, finite allocation, total nonthrowing counter predicates, failing fork creates no child, and masked atomic exception-safe publication. Actual Main publication uses modifyMVar_ and pure HM.insert. Release has no blocking lock wait. Eventual release requires callback completion/cancellation and scheduler progress; no full IO refinement, durable recovery or HTTP drain guarantee. Current pool counter operations use STM under A-DRAIN-POOL; IORef wording describes the preserved baseline. The original standalone conformance uses an independent open drain controller.",
       "risk": "SHUTDOWN-DEADLINE-001"
     },
     {
       "id": "A-ASYNC-SEAL",
       "status": "assumption",
-      "statement": "Private pool count/closure atomics and completion MVar, trusted GHC/base mask and nonblocking atomicModifyIORef/tryPutMVar, finite allocation and total callbacks; exactly one release per accepted reservation; scheduler service and returning preparation/callback/finalizers for eventual completion. Pre-seal reservations remain legitimate. No full IO refinement, process-death recovery, detached descendants, cross-instance ownership or atomic whole-server HTTP drain claim.",
+      "statement": "Private pool count/closure atomics and completion MVar, trusted GHC/base mask and nonblocking atomicModifyIORef/tryPutMVar, finite allocation and total callbacks; exactly one release per accepted reservation; scheduler service and returning preparation/callback/finalizers for eventual completion. Pre-seal reservations remain legitimate. No full IO refinement, process-death recovery, detached descendants, cross-instance ownership or atomic whole-server HTTP drain claim. Current pool counter operations use STM under A-DRAIN-POOL; IORef wording describes the preserved baseline. The original standalone conformance uses an independent open drain controller.",
       "risk": "SHUTDOWN-DEADLINE-001"
     },
     {
       "id": "A-BACKTEST-GATE",
       "status": "assumption",
-      "statement": "Pinned GHC/base atomic IORef, mask/finally, System.Timeout and SomeAsyncException hierarchy; private counter and total numeric predicates; finite allocation and scheduler service. Callback allows cancellation delivery and does not suppress it internally. Exception hierarchy, not delivery provenance, determines structured versus propagated failure. Waiting admission has no deadline or fairness guarantee. No uninterruptible/foreign-call termination, global drain transaction, durable recovery or full IO refinement.",
+      "statement": "Pinned GHC/base atomic IORef, mask/finally, System.Timeout and SomeAsyncException hierarchy; private counter and total numeric predicates; finite allocation and scheduler service. Callback allows cancellation delivery and does not suppress it internally. Exception hierarchy, not delivery provenance, determines structured versus propagated failure. Waiting admission has no deadline or fairness guarantee. No uninterruptible/foreign-call termination, global drain transaction, durable recovery or full IO refinement. Current pool counter operations use STM under A-DRAIN-POOL; IORef wording describes the preserved baseline. The original standalone conformance uses an independent open drain controller.",
+      "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-DRAIN-POOL",
+      "status": "assumption",
+      "statement": "Pinned GHC 9.4.8/base 4.17.2.1/stm 2.5.1.0 provide serializable atomic transactions, rollback and masking. Drain latch and counters are private; reservation STM contains finite pure computation, no retry, IO or callback. Contention/scheduler service and callback cooperation remain assumptions, not hard deadlines. Pre-drain owners may execute after drain; no whole-server bot/order authorization, durable recovery or complete IO refinement.",
       "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
@@ -265,7 +271,18 @@
     "haskell/app/Trader/App/BacktestGate.hs",
     "haskell/test/Trader/Test/BacktestGate.hs",
     "formal/research/fixtures/backtest-gate-before.hs",
-    "formal/research/fixtures/backtest-gate-witness.hs"
+    "formal/research/fixtures/backtest-gate-witness.hs",
+    "haskell/app/Main.hs",
+    "haskell/trader.cabal",
+    "formal/research/drain-pool-contract.md",
+    "formal/research/drain-pool-source.json",
+    "haskell/test/Trader/Test/DrainPool.hs",
+    "formal/research/DrainPool.hs",
+    "formal/research/fixtures/drain-pool-witness.hs",
+    "formal/research/fixtures/drain-pool-before-async.hs",
+    "formal/research/fixtures/drain-pool-before-backtest.hs",
+    "formal/research/fixtures/drain-pool-before-drain.hs",
+    "scripts/formal/drain_pool.py"
   ],
   "entries": [
     {
@@ -2805,7 +2822,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ASYNC-ADMISSION",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -2829,7 +2847,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), eleven runtime tests, 64 concurrency cases (including seal composition), seed 20261004.",
-      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
+      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/async-job-admission-counterexamples.json",
       "status": "smt_verified"
     },
@@ -2840,7 +2858,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ASYNC-ADMISSION",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -2864,7 +2883,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), eleven runtime tests, 64 concurrency cases (including seal composition), seed 20261004.",
-      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
+      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/async-job-admission-counterexamples.json",
       "status": "model_checked"
     },
@@ -2875,7 +2894,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ASYNC-ADMISSION",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -2899,7 +2919,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), eleven runtime tests, 64 concurrency cases (including seal composition), seed 20261004.",
-      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
+      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/async-job-admission-counterexamples.json",
       "status": "property_tested"
     },
@@ -2911,7 +2931,8 @@
       "assumptions": [
         "A-ASYNC-ADMISSION",
         "A-ASYNC-SEAL",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -2933,7 +2954,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "SMT: arbitrary positive integer capacity and 0 <= count <= capacity; existing signed-Int admission/release proof applies. Model: 2 callers, 2 sealers, capacities 1/2; 2932 states, 8622 edges, max shortest depth 17, initial rank 206. Compiled 72 pure cases, four runtime tests including 32 generated cases, seed 20261004.",
-      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
+      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
       "status": "smt_verified"
     },
@@ -2945,7 +2966,8 @@
       "assumptions": [
         "A-ASYNC-ADMISSION",
         "A-ASYNC-SEAL",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -2967,7 +2989,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "SMT: arbitrary positive integer capacity and 0 <= count <= capacity; existing signed-Int admission/release proof applies. Model: 2 callers, 2 sealers, capacities 1/2; 2932 states, 8622 edges, max shortest depth 17, initial rank 206. Compiled 72 pure cases, four runtime tests including 32 generated cases, seed 20261004.",
-      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
+      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
       "status": "model_checked"
     },
@@ -2979,7 +3001,8 @@
       "assumptions": [
         "A-ASYNC-ADMISSION",
         "A-ASYNC-SEAL",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -3001,7 +3024,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "SMT: arbitrary positive integer capacity and 0 <= count <= capacity; existing signed-Int admission/release proof applies. Model: 2 callers, 2 sealers, capacities 1/2; 2932 states, 8622 edges, max shortest depth 17, initial rank 206. Compiled 72 pure cases, four runtime tests including 32 generated cases, seed 20261004.",
-      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out.",
+      "limitations": "No whole-server HTTP drain transaction, forced callback/finalizer termination, detached descendants, cross-instance durable recovery or complete Haskell IO refinement. Pre-seal preparations may publish after the cancellation snapshot; barrier blocks false acknowledgement but may time out. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/async-shutdown-seal-counterexamples.json",
       "status": "property_tested"
     },
@@ -3013,7 +3036,8 @@
       "assumptions": [
         "A-BACKTEST-GATE",
         "A-ASYNC-ADMISSION",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -3038,7 +3062,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
-      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/backtest-gate-counterexamples.json",
       "status": "smt_verified"
     },
@@ -3050,7 +3074,8 @@
       "assumptions": [
         "A-BACKTEST-GATE",
         "A-ASYNC-ADMISSION",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -3075,7 +3100,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
-      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/backtest-gate-counterexamples.json",
       "status": "model_checked"
     },
@@ -3087,7 +3112,8 @@
       "assumptions": [
         "A-BACKTEST-GATE",
         "A-ASYNC-ADMISSION",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-DRAIN-POOL"
       ],
       "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
       "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
@@ -3112,8 +3138,131 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
       "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
-      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
       "counterexample": "formal/research/backtest-gate-counterexamples.json",
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-DRAIN-POOL-ORDER",
+      "claim": "Shared drain and pool reservation equations reject without changing capacity after drain, preserve bounds and monotonic closure, release ownership independently of drain, and commute for independent pools under a fixed latch. STM serializability is an explicit runtime assumption.",
+      "formalStatement": "Shared drain and pool reservation equations reject without changing capacity after drain, preserve bounds and monotonic closure, release ownership independently of drain, and commute for independent pools under a fixed latch. STM serializability is an explicit runtime assumption.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DRAIN-POOL",
+        "A-ASYNC-ADMISSION",
+        "A-BACKTEST-GATE",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/Boolean solver; finite transition checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; stm 2.5.1.0",
+      "sourceModel": "scripts/formal/drain_pool.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/drain-pool-contract.md",
+        "formal/research/drain-pool-source.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/DrainPool.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/DrainPool.hs",
+        "formal/research/fixtures/drain-pool-witness.hs",
+        "formal/research/fixtures/drain-pool-before-async.hs",
+        "formal/research/fixtures/drain-pool-before-backtest.hs",
+        "formal/research/fixtures/drain-pool-before-drain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17728 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
+      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
+      "counterexample": "formal/research/drain-pool-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-DRAIN-POOL-LIFECYCLE",
+      "claim": "The finite two-caller, two-pool, two-drainer composition at capacities one and two excludes post-drain reservations even after stale ingress snapshots, preserves ownership and monotonic closure, and has terminating finite paths under primitive/callback progress. Pre-drain owners may execute after drain; no whole-server quiescence is claimed.",
+      "formalStatement": "The finite two-caller, two-pool, two-drainer composition at capacities one and two excludes post-drain reservations even after stale ingress snapshots, preserves ownership and monotonic closure, and has terminating finite paths under primitive/callback progress. Pre-drain owners may execute after drain; no whole-server quiescence is claimed.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DRAIN-POOL",
+        "A-ASYNC-ADMISSION",
+        "A-BACKTEST-GATE",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/Boolean solver; finite transition checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; stm 2.5.1.0",
+      "sourceModel": "scripts/formal/drain_pool.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/drain-pool-contract.md",
+        "formal/research/drain-pool-source.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/DrainPool.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/DrainPool.hs",
+        "formal/research/fixtures/drain-pool-witness.hs",
+        "formal/research/fixtures/drain-pool-before-async.hs",
+        "formal/research/fixtures/drain-pool-before-backtest.hs",
+        "formal/research/fixtures/drain-pool-before-drain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17728 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
+      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
+      "counterexample": "formal/research/drain-pool-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-DRAIN-POOL-CONFORMANCE",
+      "claim": "Compiled literal baseline fixtures reproduce stale-ingress async, immediate and waiting backtest admissions; real shared-latch helpers reject them without effects. Runtime tests cover transaction rollback, both ownership/drain orderings, waiting rejection, release, independent controllers and generated concurrency. Source binding checks all four server pools share the controller; no complete HTTP or IO refinement is claimed.",
+      "formalStatement": "Compiled literal baseline fixtures reproduce stale-ingress async, immediate and waiting backtest admissions; real shared-latch helpers reject them without effects. Runtime tests cover transaction rollback, both ownership/drain orderings, waiting rejection, release, independent controllers and generated concurrency. Source binding checks all four server pools share the controller; no complete HTTP or IO refinement is claimed.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DRAIN-POOL",
+        "A-ASYNC-ADMISSION",
+        "A-BACKTEST-GATE",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/Boolean solver; finite transition checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; stm 2.5.1.0",
+      "sourceModel": "scripts/formal/drain_pool.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/drain-pool-contract.md",
+        "formal/research/drain-pool-source.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/DrainPool.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/DrainPool.hs",
+        "formal/research/fixtures/drain-pool-witness.hs",
+        "formal/research/fixtures/drain-pool-before-async.hs",
+        "formal/research/fixtures/drain-pool-before-backtest.hs",
+        "formal/research/fixtures/drain-pool-before-drain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17728 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
+      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
+      "counterexample": "formal/research/drain-pool-counterexamples.json",
       "status": "property_tested"
     }
   ],
@@ -3484,9 +3633,12 @@
         "F-WORKER-REGISTRY-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-DRAIN-POOL-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
       "nextAction": "Extract actual runtime admission transitions and match every drain/start race to the state model.",
@@ -3672,9 +3824,12 @@
         "F-SHUTDOWN-CONFORMANCE",
         "F-BACKTEST-GATE-NUMERIC",
         "F-BACKTEST-GATE-LIFECYCLE",
-        "F-BACKTEST-GATE-CONFORMANCE"
+        "F-BACKTEST-GATE-CONFORMANCE",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-DRAIN-POOL-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
       "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
@@ -3985,9 +4140,12 @@
         "F-ASYNC-ADMISSION-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-DRAIN-POOL-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -4023,9 +4181,12 @@
         "F-ASYNC-SEAL-CONFORMANCE",
         "F-BACKTEST-GATE-NUMERIC",
         "F-BACKTEST-GATE-LIFECYCLE",
-        "F-BACKTEST-GATE-CONFORMANCE"
+        "F-BACKTEST-GATE-CONFORMANCE",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-DRAIN-POOL-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -4103,9 +4264,12 @@
         "F-ASYNC-SEAL-CONFORMANCE",
         "F-BACKTEST-GATE-NUMERIC",
         "F-BACKTEST-GATE-LIFECYCLE",
-        "F-BACKTEST-GATE-CONFORMANCE"
+        "F-BACKTEST-GATE-CONFORMANCE",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-DRAIN-POOL-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
       "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",
@@ -4162,9 +4326,12 @@
         "F-ASYNC-SEAL-CONFORMANCE",
         "F-BACKTEST-GATE-NUMERIC",
         "F-BACKTEST-GATE-LIFECYCLE",
-        "F-BACKTEST-GATE-CONFORMANCE"
+        "F-BACKTEST-GATE-CONFORMANCE",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-DRAIN-POOL-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
       "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",

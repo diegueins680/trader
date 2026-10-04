@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "drain-pool-admission-2026-10-04",
+  "sourceCommit": "91e96444afabc58e16208fb1f942cb7eaa5ea5f0",
+  "formalContract": "formal/research/drain-pool-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "deployment": false,
+  "hypothesis": "Composing the shared monotonic drain latch with each async/backtest capacity reservation in one STM transaction prevents post-drain reservation after a stale ingress check.",
+  "requirements": [
+    "F-DRAIN-POOL-ORDER",
+    "F-DRAIN-POOL-LIFECYCLE",
+    "F-DRAIN-POOL-CONFORMANCE"
+  ],
+  "modelBounds": {
+    "callers": 2,
+    "pools": 2,
+    "capacities": [
+      1,
+      2
+    ],
+    "drainers": 2
+  },
+  "propertySeed": 20261004,
+  "propertyCases": 32,
+  "limitations": "Reservations committed before drain retain ownership and may finish or start their callback afterward. No new reservation can commit afterward. Bot starts, synchronous signal/trade and order authorization remain outside this pool repair; whole-server obligation 14 stays partial. No full STM/IO refinement."
+}

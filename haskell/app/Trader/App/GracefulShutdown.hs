@@ -12,6 +12,7 @@ module Trader.App.GracefulShutdown (
     forkSupervisedWorker,
     isDraining,
     newDrainController,
+    unlessDraining,
     newWorkerRegistry,
     runCleanupStepBounded,
     shouldRejectDuringDrain,
@@ -22,16 +23,16 @@ module Trader.App.GracefulShutdown (
 
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, isEmptyMVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
+import Control.Concurrent.STM (STM, TVar, atomically, newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Exception (AsyncException, SomeException, displayException, finally, fromException, mask_, throwIO, try)
 import Control.Monad (filterM, forM, unless, void)
 import Data.ByteString (ByteString)
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.IO (hPutStrLn, stderr)
 import System.Timeout (timeout)
 
-newtype DrainController = DrainController (IORef Bool)
+newtype DrainController = DrainController (TVar Bool)
 
 newtype WorkerRegistry = WorkerRegistry (MVar WorkerRegistryState)
 
@@ -47,17 +48,23 @@ data SupervisedWorker = SupervisedWorker
     }
 
 newDrainController :: IO DrainController
-newDrainController = DrainController <$> newIORef False
+newDrainController = DrainController <$> newTVarIO False
 
 beginDrain :: DrainController -> IO Bool
-beginDrain (DrainController ref) =
-    atomicModifyIORef' ref $ \draining ->
-        if draining
-            then (True, False)
-            else (True, True)
+beginDrain (DrainController ref) = atomically $ do
+    draining <- readTVar ref
+    writeTVar ref True
+    pure (not draining)
 
 isDraining :: DrainController -> IO Bool
-isDraining (DrainController ref) = readIORef ref
+isDraining (DrainController ref) = readTVarIO ref
+
+-- Compose the guard and resource reservation in the same transaction. A readiness
+-- snapshot alone is not an admission permit. The guarded action cannot perform IO.
+unlessDraining :: DrainController -> STM a -> STM (Maybe a)
+unlessDraining (DrainController ref) action = do
+    draining <- readTVar ref
+    if draining then pure Nothing else Just <$> action
 
 -- Keep polling and cancellation available while draining, but reject endpoints
 -- that can launch expensive compute, orders, bots, or optimizer processes.

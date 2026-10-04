@@ -2728,5 +2728,38 @@ class BacktestGateTests(unittest.TestCase):
         with patch.object(Path,'read_bytes',changed), self.assertRaises(ValueError):gate.extract()
 
 
+class DrainPoolTests(unittest.TestCase):
+    def test_numeric_and_model(self):
+        import drain_pool as pool
+        self.assertEqual(pool.prove_order(), {'F-DRAIN-POOL-ORDER': 'unsat'})
+        self.assertEqual(pool.check_model()['states'], 5376)
+
+    def test_invalid_order_rejected(self):
+        import drain_pool as pool
+        for kind in ('late', 'leak', 'reopen', 'stuck'):
+            def mutation(state, capacity, assignment):
+                draining, counts, closed, callers, drainers = state
+                if kind == 'stuck': return [('bad', state)]
+                if kind == 'reopen' and draining:
+                    return [('bad', (False, counts, closed, callers, drainers))]
+                if kind == 'late' and draining and callers[0][0] == 1:
+                    return [('bad', (draining, pool.replace(counts, assignment[0], counts[assignment[0]]+1), closed,
+                                         pool.replace(callers, 0, (2, False, True)), drainers))]
+                if kind == 'leak' and callers[0][0] == 3:
+                    return [('release', (draining, counts, closed, pool.replace(callers, 0, (4, False, False)), drainers))]
+                return pool.successors(state, capacity, assignment)
+            with self.subTest(kind=kind), self.assertRaises(ValueError): pool.check_model(mutation)
+
+    def test_disconnected_controller_rejected(self):
+        import drain_pool as pool
+        original = Path.read_bytes
+        def changed(path):
+            value = original(path)
+            if str(path).endswith('haskell/app/Main.hs'):
+                return value.replace(b'newBacktestGateWithDrain drain', b'newBacktestGateWithDrain other')
+            return value
+        with patch.object(Path, 'read_bytes', changed), self.assertRaises(ValueError): pool.extract()
+
+
 if __name__ == '__main__':
     unittest.main()

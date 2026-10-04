@@ -110,3 +110,13 @@ rejection constructors and reservation completion notification. The original
 successor model composes closure. Compiled runtime suite now has eleven tests
 including four seal tests and 64 generated concurrency cases in total. Original
 counterexamples remain reproducible. HTTP-wide drain atomicity remains unproved.
+
+## Shared-drain refinement extension (2026-10-04)
+
+The current counter implementation uses STM instead of the baseline IORef.
+Standalone constructors create an independent open controller, retaining the
+original model projection and regression outputs. Server constructors compose
+reservation with the same shared drain TVar; see `drain-pool-contract.md` and
+A-DRAIN-POOL. Existing ownership/cancellation proofs do not establish whole-server
+drain correctness. Existing backtest failure variants retain their mapping;
+BacktestDraining adds HTTP 503 without altering the JSON error shape.

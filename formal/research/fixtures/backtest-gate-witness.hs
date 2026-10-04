@@ -11,6 +11,9 @@ code value = case value of
     Right _ -> "success"
     Left BacktestBusy -> "busy"
     Left BacktestTimedOut -> "timeout"
+#ifndef LEGACY
+    Left BacktestDraining -> "draining"
+#endif
     Left (BacktestException _) -> "error"
 main :: IO ()
 main = do

@@ -2,7 +2,6 @@ module Trader.App.BacktestGate (
     BacktestGate,
     BacktestFailure (..),
     newBacktestGate,
-    newBacktestGateWithDrain,
     runBacktestWithGate,
     runBacktestWithGateWait,
     btTimeoutSec,
@@ -11,36 +10,30 @@ module Trader.App.BacktestGate (
 ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Exception (SomeAsyncException, SomeException, finally, fromException, mask, tryJust)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import System.Timeout (timeout)
 import Trader.App.AsyncJobAdmission (admitSlot, releaseSlot)
-import Trader.App.GracefulShutdown (DrainController, newDrainController, unlessDraining)
 
 data BacktestGate = BacktestGate
-    { btRunning :: !(TVar Int)
+    { btRunning :: !(IORef Int)
     , btMaxRunning :: !Int
     , btTimeoutSec :: !Int
-    , btDrain :: !DrainController
     }
 
 data BacktestFailure
     = BacktestBusy
-    | BacktestDraining
     | BacktestTimedOut
     | BacktestException SomeException
     deriving (Show)
 
 newBacktestGate :: Int -> Int -> IO BacktestGate
-newBacktestGate maxRunning timeoutSec = newDrainController >>= \drain -> newBacktestGateWithDrain drain maxRunning timeoutSec
-
-newBacktestGateWithDrain :: DrainController -> Int -> Int -> IO BacktestGate
-newBacktestGateWithDrain drain maxRunning timeoutSec = do
-    running <- newTVarIO 0
-    pure BacktestGate{btRunning = running, btMaxRunning = max 1 maxRunning, btTimeoutSec = max 1 timeoutSec, btDrain = drain}
+newBacktestGate maxRunning timeoutSec = do
+    running <- newIORef 0
+    pure BacktestGate{btRunning = running, btMaxRunning = max 1 maxRunning, btTimeoutSec = max 1 timeoutSec}
 
 backtestRunningCount :: BacktestGate -> IO Int
-backtestRunningCount = readTVarIO . btRunning
+backtestRunningCount = readIORef . btRunning
 
 -- System.Timeout treats negative microseconds as unlimited, so multiply exactly
 -- and saturate before converting back to the machine representation.
@@ -56,17 +49,12 @@ synchronousFailure ex =
 
 runBacktestWithGate :: BacktestGate -> IO a -> IO (Either BacktestFailure a)
 runBacktestWithGate gate action = mask $ \restore -> do
-    acquired <- atomically $ unlessDraining (btDrain gate) $ do
-        current <- readTVar (btRunning gate)
-        let (next, accepted) = admitSlot (btMaxRunning gate) current
-        writeTVar (btRunning gate) next
-        pure accepted
-    case acquired of
-        Nothing -> pure (Left BacktestDraining)
-        Just False -> pure (Left BacktestBusy)
-        Just True -> restore runTimed `finally` release
+    acquired <- atomicModifyIORef' (btRunning gate) (admitSlot (btMaxRunning gate))
+    if not acquired
+        then pure (Left BacktestBusy)
+        else restore runTimed `finally` release
   where
-    release = atomically (modifyTVar' (btRunning gate) releaseSlot)
+    release = atomicModifyIORef' (btRunning gate) (\count -> (releaseSlot count, ()))
     runTimed = do
         result <- tryJust synchronousFailure (timeout (timeoutMicroseconds (btTimeoutSec gate)) action)
         pure $ case result of

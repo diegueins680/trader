@@ -32,7 +32,7 @@ def extract():
     require('JobSlots (..)' not in core.split(') where')[0], 'private counter exposed')
     main = (ROOT / 'haskell/app/Main.hs').read_text()
     require(main.count('startBoundedJob (jsRunning store) prepare execute publish') == 1, 'Main handoff drift')
-    require('jsRunning :: !JobSlots' in main and 'running <- newJobSlots maxRunning' in main,
+    require('jsRunning :: !JobSlots' in main and 'running <- newJobSlotsWithDrain drain maxRunning' in main,
             'private pool representation drift')
     require('readMVar (jsRunning store)' not in main and 'modifyMVar (jsRunning store)' not in main,
             'legacy counter bypass')
