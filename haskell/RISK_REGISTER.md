@@ -1,5 +1,14 @@
 # Trader Firm — Risk Register
 
+Inference process v2 follow-up: A-INFERENCE-PROCESS assumes bounded OS creation,
+pipe, signal and scheduler service, a trusted self executable and exclusive child
+reaping. The new research-only executable can kill noncooperating workers, rejects
+expired replies after cleanup and reports cleanup failure explicitly. It has no
+production component, order interface or artifact loader. It is not a hostile-code
+sandbox; parent process death/repeated cancellation and inherited server shutdown
+remain unverified. CE-RL-017 remains valid for frozen v1; RL-OFFLINE-001 stays HIGH/OPEN.
+
+
 Closure audit (2026-10-03): [criteria and scope](../formal/research/obligation-closure-audit.md) replace the impossible completion guard (CE-RL-021). Default-disabled, capability separation and no production learning are closed only for delivered offline boundaries under explicit language/runtime assumptions (A-CAPABILITY-BUILD). Actual deployment images and inherited live authority remain unverified; Dockerfile.optimized still names GHC 8.10.4 rather than canonical 9.4.8. The remaining 35 obligations, numerical counterexamples and economic rejection keep `RL-OFFLINE-001` HIGH/OPEN. Earlier 38-open counts below are historical.
 
 Snapshot v2 follow-up: A-SNAPSHOT-V2 trusts pinned CPython/GIL reference/lock semantics and NumPy scan/serialization, with ordinary immutable snapshot discipline. New update/forward consumers use coherent snapshots; interrupted acknowledgement and orphan-lock recovery remain limitations. CE-RL-023 records backend-dependent raw-byte-view numerical parity and its tested native-copy correction. CE-RL-016 in frozen v1 and broader production synchronization remain unresolved; RL-OFFLINE-001 stays HIGH/OPEN.

@@ -2513,5 +2513,39 @@ class SnapshotV2Tests(unittest.TestCase):
         self.assertTrue(all(s is before or s is after for s in seen))
         self.assertIn(before,seen);self.assertIn(after,seen)
 
+
+class InferenceProcessTests(unittest.TestCase):
+    def test_source_admission_rejects_mutated_boundaries(self):
+        import inference_process as process
+        source = (ROOT / process.SOURCE).read_text()
+        process.extract(source)
+        for old, new in [
+            ('elapsed >= budgetNS', 'elapsed > budgetNS'),
+            ('env = Just []', 'env = Nothing'),
+            ('signalProcess sigKILL identity', 'pure ()'),
+            ('admission (ended - started) clean', 'admission 0 True'),
+            ('_ -> putStrLn "(Absent,True)"', '_ -> offline'),
+        ]:
+            with self.subTest(change=old), self.assertRaises(ValueError):
+                process.extract(source.replace(old, new))
+
+    def test_lifecycle_rejects_unbounded_poll_and_restart(self):
+        import inference_process as process
+        for phase, destination in [('pending', 'pending'), ('kill', 'launch')]:
+            def mutated(state):
+                if state[0] == phase:
+                    return [(destination, *state[1:])]
+                return process.successors(state)
+            with self.subTest(phase=phase), self.assertRaises(ValueError):
+                process.check_model(mutated)
+
+    def test_process_guard_and_model(self):
+        import inference_process as process
+        self.assertEqual(process.prove_guard(20000000), {'F-RL-PROCESS-ADMISSION': 'unsat'})
+        self.assertGreater(process.check_model()['expiredReplyStatesRejected'], 0)
+        self.assertIsNone(process.admission(20000000, True, 1))
+        self.assertIsNone(process.admission(0, False, 1))
+        self.assertIsNone(process.admission(0, True, 9))
+
 if __name__ == '__main__':
     unittest.main()

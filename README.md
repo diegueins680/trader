@@ -1,5 +1,14 @@
 # Trader
 
+The new [offline inference process contract](formal/research/inference-process-v2-contract.md)
+adds a default-disabled standalone Haskell engineering fixture. It initializes one
+child before reading a request, keeps the request budget at 20 ms, and rejects
+late results or failed cleanup. TERM/KILL and bounded exit polling replace reliance
+on a post-call elapsed check in this new path. OS scheduling and primitive completion
+remain assumptions. It is not an artifact loader, runner integration or production
+service; v1 CE-RL-017 remains valid. See the [runbook](formal/research/README.md#offline-inference-process-v2).
+
+
 The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: default-disabled, capability separation and no production learning are closed for the delivered offline boundary under the [source-isolation contract](formal/research/capability-isolation-contract.md); 35 obligations and separate economic-evidence gates remain unresolved. This does not certify inherited production authorization or deployed images.
 
 The default-disabled [optimizer snapshot v2](formal/research/optimizer-snapshot-v2-contract.md) repairs partial state publication for its own offline update/forward path using immutable snapshots and conditional single-reference publication. Concurrent stale updates reject; the frozen learner remains reproducible. This does not close whole-system atomicity, prove hard inference cancellation, or change any trading policy.

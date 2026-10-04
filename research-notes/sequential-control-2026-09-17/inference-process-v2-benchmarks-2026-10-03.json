@@ -1,0 +1,602 @@
+{
+  "schemaVersion": 1,
+  "financialTrials": 0,
+  "benchmarkRuns": [
+    {
+      "schemaVersion": 1,
+      "source": "haskell/research/InferenceProcessV2.hs",
+      "sourceSha256": "2aab32a716984ff234e722f5667fc2f10e2c4a74a4b674448f31c5df176e53ae",
+      "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+      "python": "3.13.3",
+      "numpy": "2.3.5",
+      "binaryBytes": 2733344,
+      "maximumResidentSetBytesMacOS": 8458240,
+      "rows": [
+        {
+          "seed": 11,
+          "trial": 0,
+          "requestCharacters": 5874,
+          "startupNS": 444894210,
+          "workerRequestReplyNS": 6040519,
+          "workerReapNS": 8034364,
+          "supervisorTotalNS": 55625860,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 1,
+          "requestCharacters": 5874,
+          "startupNS": 11956957,
+          "workerRequestReplyNS": 3738612,
+          "workerReapNS": 4131661,
+          "supervisorTotalNS": 56620995,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 2,
+          "requestCharacters": 5874,
+          "startupNS": 14796298,
+          "workerRequestReplyNS": 3230517,
+          "workerReapNS": 3919215,
+          "supervisorTotalNS": 55312774,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 3,
+          "requestCharacters": 5874,
+          "startupNS": 12549630,
+          "workerRequestReplyNS": 3947489,
+          "workerReapNS": 3526437,
+          "supervisorTotalNS": 59188702,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 4,
+          "requestCharacters": 5874,
+          "startupNS": 12166776,
+          "workerRequestReplyNS": 3023243,
+          "workerReapNS": 3989530,
+          "supervisorTotalNS": 56035661,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 0,
+          "requestCharacters": 5877,
+          "startupNS": 13033033,
+          "workerRequestReplyNS": 3730897,
+          "workerReapNS": 3611632,
+          "supervisorTotalNS": 58007654,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 1,
+          "requestCharacters": 5877,
+          "startupNS": 12756597,
+          "workerRequestReplyNS": 3180277,
+          "workerReapNS": 3842751,
+          "supervisorTotalNS": 58912348,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 2,
+          "requestCharacters": 5877,
+          "startupNS": 14009327,
+          "workerRequestReplyNS": 4720042,
+          "workerReapNS": 7284658,
+          "supervisorTotalNS": 57190151,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 3,
+          "requestCharacters": 5877,
+          "startupNS": 12065628,
+          "workerRequestReplyNS": 3852198,
+          "workerReapNS": 4268191,
+          "supervisorTotalNS": 60488213,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 4,
+          "requestCharacters": 5877,
+          "startupNS": 15963410,
+          "workerRequestReplyNS": 3663870,
+          "workerReapNS": 4285387,
+          "supervisorTotalNS": 59774704,
+          "reply": "IPV2 1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 0,
+          "requestCharacters": 5869,
+          "startupNS": 13450398,
+          "workerRequestReplyNS": 5250448,
+          "workerReapNS": 8569567,
+          "supervisorTotalNS": 55918254,
+          "reply": "IPV2 -1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 1,
+          "requestCharacters": 5869,
+          "startupNS": 11843109,
+          "workerRequestReplyNS": 3710247,
+          "workerReapNS": 3645791,
+          "supervisorTotalNS": 55534417,
+          "reply": "IPV2 -1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 2,
+          "requestCharacters": 5869,
+          "startupNS": 14203976,
+          "workerRequestReplyNS": 3822081,
+          "workerReapNS": 4369229,
+          "supervisorTotalNS": 56602279,
+          "reply": "IPV2 -1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 3,
+          "requestCharacters": 5869,
+          "startupNS": 12364425,
+          "workerRequestReplyNS": 4238532,
+          "workerReapNS": 7962226,
+          "supervisorTotalNS": 58082010,
+          "reply": "IPV2 -1",
+          "result": "(Absent,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 4,
+          "requestCharacters": 5869,
+          "startupNS": 13182479,
+          "workerRequestReplyNS": 3059238,
+          "workerReapNS": 3624159,
+          "supervisorTotalNS": 55593638,
+          "reply": "IPV2 -1",
+          "result": "(Absent,True)"
+        }
+      ],
+      "accepted": 0,
+      "scope": "15 synthetic calls only; nonisolated host. Worker timing excludes parent IPC, validation and cleanup; supervisor total includes startup. No hard real-time or production capacity guarantee.",
+      "summaryMilliseconds": {
+        "startupNS": {
+          "median": 13.033033,
+          "max": 444.89421
+        },
+        "workerRequestReplyNS": {
+          "median": 3.738612,
+          "max": 6.040519
+        },
+        "workerReapNS": {
+          "median": 4.131661,
+          "max": 8.569567
+        },
+        "supervisorTotalNS": {
+          "median": 56.620995,
+          "max": 60.488213
+        }
+      },
+      "configuration": "warm-text-rejected"
+    },
+    {
+      "schemaVersion": 1,
+      "source": "haskell/research/InferenceProcessV2.hs",
+      "sourceSha256": "f5b3c504698ab79e0ae5101265e1f0930fc59d21a305489158dd11b6c689142a",
+      "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+      "python": "3.13.3",
+      "numpy": "2.3.5",
+      "binaryBytes": 2747112,
+      "maximumResidentSetBytesMacOS": 8404992,
+      "rows": [
+        {
+          "seed": 11,
+          "trial": 0,
+          "requestCharacters": 5874,
+          "startupNS": 491900028,
+          "workerRequestReplyNS": 4846733,
+          "workerReapNS": 8626277,
+          "supervisorTotalNS": 59277211,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 1,
+          "requestCharacters": 5874,
+          "startupNS": 15961714,
+          "workerRequestReplyNS": 3077878,
+          "workerReapNS": 8948982,
+          "supervisorTotalNS": 59934517,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 2,
+          "requestCharacters": 5874,
+          "startupNS": 16221552,
+          "workerRequestReplyNS": 5540508,
+          "workerReapNS": 9498253,
+          "supervisorTotalNS": 54939301,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 3,
+          "requestCharacters": 5874,
+          "startupNS": 14724930,
+          "workerRequestReplyNS": 3815710,
+          "workerReapNS": 7833008,
+          "supervisorTotalNS": 47602472,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 4,
+          "requestCharacters": 5874,
+          "startupNS": 14330388,
+          "workerRequestReplyNS": 3123637,
+          "workerReapNS": 8606166,
+          "supervisorTotalNS": 50539389,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 0,
+          "requestCharacters": 5877,
+          "startupNS": 71653886,
+          "workerRequestReplyNS": 5146555,
+          "workerReapNS": 20922045,
+          "supervisorTotalNS": 55434323,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 1,
+          "requestCharacters": 5877,
+          "startupNS": 13538986,
+          "workerRequestReplyNS": 4379048,
+          "workerReapNS": 8353262,
+          "supervisorTotalNS": 53416788,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 2,
+          "requestCharacters": 5877,
+          "startupNS": 13124938,
+          "workerRequestReplyNS": 2707417,
+          "workerReapNS": 3918149,
+          "supervisorTotalNS": 48983078,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 3,
+          "requestCharacters": 5877,
+          "startupNS": 11056859,
+          "workerRequestReplyNS": 2746428,
+          "workerReapNS": 4209254,
+          "supervisorTotalNS": 47251394,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 4,
+          "requestCharacters": 5877,
+          "startupNS": 14995660,
+          "workerRequestReplyNS": 4100664,
+          "workerReapNS": 4032135,
+          "supervisorTotalNS": 44824138,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 0,
+          "requestCharacters": 5869,
+          "startupNS": 30885220,
+          "workerRequestReplyNS": 8116146,
+          "workerReapNS": 16495892,
+          "supervisorTotalNS": 54236013,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 1,
+          "requestCharacters": 5869,
+          "startupNS": 12221796,
+          "workerRequestReplyNS": 4116389,
+          "workerReapNS": 9162742,
+          "supervisorTotalNS": 50334654,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 2,
+          "requestCharacters": 5869,
+          "startupNS": 14748641,
+          "workerRequestReplyNS": 3660498,
+          "workerReapNS": 4047805,
+          "supervisorTotalNS": 54322949,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 3,
+          "requestCharacters": 5869,
+          "startupNS": 13547772,
+          "workerRequestReplyNS": 4462291,
+          "workerReapNS": 8086110,
+          "supervisorTotalNS": 56031070,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 4,
+          "requestCharacters": 5869,
+          "startupNS": 13278610,
+          "workerRequestReplyNS": 2847874,
+          "workerReapNS": 4161400,
+          "supervisorTotalNS": 52852044,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        }
+      ],
+      "accepted": 15,
+      "scope": "15 synthetic calls only; nonisolated host. Worker timing excludes parent IPC, validation and cleanup; supervisor total includes startup. No hard real-time or production capacity guarantee.",
+      "summaryMilliseconds": {
+        "startupNS": {
+          "median": 14.72493,
+          "max": 491.900028
+        },
+        "workerRequestReplyNS": {
+          "median": 4.100664,
+          "max": 8.116146
+        },
+        "workerReapNS": {
+          "median": 8.353262,
+          "max": 20.922045
+        },
+        "supervisorTotalNS": {
+          "median": 53.416788,
+          "max": 59.934517
+        }
+      },
+      "configuration": "bulk-initial"
+    },
+    {
+      "schemaVersion": 1,
+      "source": "haskell/research/InferenceProcessV2.hs",
+      "sourceSha256": "f93011a2cbb56d17f4b6fb547f8666679dc237edee0441ce0bfb747dd634a308",
+      "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+      "python": "3.13.3",
+      "numpy": "2.3.5",
+      "binaryBytes": 2747416,
+      "maximumResidentSetBytesMacOS": 8400896,
+      "rows": [
+        {
+          "seed": 11,
+          "trial": 0,
+          "requestCharacters": 5874,
+          "startupNS": 418533028,
+          "workerRequestReplyNS": 3664957,
+          "workerReapNS": 7471123,
+          "supervisorTotalNS": 47579565,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 1,
+          "requestCharacters": 5874,
+          "startupNS": 12298400,
+          "workerRequestReplyNS": 3854047,
+          "workerReapNS": 8827387,
+          "supervisorTotalNS": 43614032,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 2,
+          "requestCharacters": 5874,
+          "startupNS": 12427286,
+          "workerRequestReplyNS": 2919194,
+          "workerReapNS": 3404590,
+          "supervisorTotalNS": 54745783,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 3,
+          "requestCharacters": 5874,
+          "startupNS": 14919525,
+          "workerRequestReplyNS": 5040392,
+          "workerReapNS": 7889037,
+          "supervisorTotalNS": 45712927,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 11,
+          "trial": 4,
+          "requestCharacters": 5874,
+          "startupNS": 12289202,
+          "workerRequestReplyNS": 2985585,
+          "workerReapNS": 3258484,
+          "supervisorTotalNS": 49311603,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 0,
+          "requestCharacters": 5877,
+          "startupNS": 12062108,
+          "workerRequestReplyNS": 3850043,
+          "workerReapNS": 7694358,
+          "supervisorTotalNS": 47224460,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 1,
+          "requestCharacters": 5877,
+          "startupNS": 14156540,
+          "workerRequestReplyNS": 3899185,
+          "workerReapNS": 3645929,
+          "supervisorTotalNS": 49681358,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 2,
+          "requestCharacters": 5877,
+          "startupNS": 11441665,
+          "workerRequestReplyNS": 3976635,
+          "workerReapNS": 8478773,
+          "supervisorTotalNS": 55448055,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 3,
+          "requestCharacters": 5877,
+          "startupNS": 15571673,
+          "workerRequestReplyNS": 3252052,
+          "workerReapNS": 3339137,
+          "supervisorTotalNS": 45647142,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 23,
+          "trial": 4,
+          "requestCharacters": 5877,
+          "startupNS": 12501953,
+          "workerRequestReplyNS": 3812721,
+          "workerReapNS": 8237951,
+          "supervisorTotalNS": 52551239,
+          "reply": "IPV2 1",
+          "result": "(QuarterTarget 1,True)"
+        },
+        {
+          "seed": 47,
+          "trial": 0,
+          "requestCharacters": 5869,
+          "startupNS": 15076156,
+          "workerRequestReplyNS": 5305637,
+          "workerReapNS": 3424738,
+          "supervisorTotalNS": 53494141,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 1,
+          "requestCharacters": 5869,
+          "startupNS": 14775115,
+          "workerRequestReplyNS": 4163703,
+          "workerReapNS": 8009184,
+          "supervisorTotalNS": 50511285,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 2,
+          "requestCharacters": 5869,
+          "startupNS": 13802069,
+          "workerRequestReplyNS": 3698265,
+          "workerReapNS": 3739694,
+          "supervisorTotalNS": 47665660,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 3,
+          "requestCharacters": 5869,
+          "startupNS": 11991055,
+          "workerRequestReplyNS": 4330600,
+          "workerReapNS": 8133319,
+          "supervisorTotalNS": 46680682,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        },
+        {
+          "seed": 47,
+          "trial": 4,
+          "requestCharacters": 5869,
+          "startupNS": 15978066,
+          "workerRequestReplyNS": 4967703,
+          "workerReapNS": 8774195,
+          "supervisorTotalNS": 48471219,
+          "reply": "IPV2 -1",
+          "result": "(QuarterTarget (-1),True)"
+        }
+      ],
+      "accepted": 15,
+      "scope": "15 synthetic calls only; nonisolated host. Worker timing excludes parent IPC, validation and cleanup; supervisor total includes startup. No hard real-time or production capacity guarantee.",
+      "summaryMilliseconds": {
+        "startupNS": {
+          "median": 13.802069,
+          "max": 418.533028
+        },
+        "workerRequestReplyNS": {
+          "median": 3.854047,
+          "max": 5.305637
+        },
+        "workerReapNS": {
+          "median": 7.694358,
+          "max": 8.827387
+        },
+        "supervisorTotalNS": {
+          "median": 48.471219,
+          "max": 55.448055
+        }
+      },
+      "configuration": "bulk-bounded-final"
+    }
+  ],
+  "sourceForTextVariant": "d13b07a4",
+  "notes": "Each run includes all 15 synthetic calls. Initial bulk variant differed from final only by the explicit serialized-length guard. Wall-clock measurements vary; no financial or production inference result."
+}

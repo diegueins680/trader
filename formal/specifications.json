@@ -23,6 +23,7 @@
   "coverage": {
     "areas": [
       { "root": "formal/research", "include": ["formal/research/**"] },
+      { "root": "haskell/research", "include": ["haskell/research/*.hs"] },
       { "root": "haskell/app", "include": ["haskell/app/**/*.hs", "haskell/app/*.hs"] },
       { "root": "haskell/web/src", "include": ["haskell/web/src/**/*.ts", "haskell/web/src/**/*.tsx", "haskell/web/src/*.tsx", "haskell/web/src/*.css", "haskell/web/src/*.d.ts"] },
       { "root": "scripts", "include": ["scripts/**/*.mjs", "scripts/**/*.sh", "scripts/**/*.py", "scripts/**/*.jq", "scripts/*.mjs", "scripts/*.sh", "scripts/*.py"] },
@@ -69,7 +70,8 @@
         "scripts/formal/*.py",
         "scripts/formal/requirements.txt",
         "formal/research/**",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -337,6 +339,22 @@
         {
           "id": "F-RL-CLOSURE",
           "statement": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value."
+        },
+        {
+          "id": "F-RL-PROCESS-LIFECYCLE",
+          "statement": "For the one-child/one-request inference-process-v2 control abstraction, every bounded startup, reply, timeout and cleanup branch reaches quiescence or explicit cleanup failure; expired replies and failed cleanup cannot emit a candidate, and no retry, successor or live-authority transition exists. Progress depends on bounded OS primitives and scheduler service; source locks and compiled tests do not establish complete IO refinement."
+        },
+        {
+          "id": "F-RL-PROCESS-ADMISSION",
+          "statement": "The source-bound inference-process-v2 integer admission predicate returns only quarter-exposure codes -1, 0 or 1, only after successful cleanup and with elapsed request time in [0,20000000) nanoseconds. Invalid frames, negative/expired elapsed times and failed cleanup return absence; clock-to-world and IO semantics are assumptions."
+        },
+        {
+          "id": "F-RL-PROCESS-ISOLATION",
+          "statement": "The reviewed research-only inference-process-v2 executable defaults to absence before input or launch, accepts only explicit versioned offline modes, launches only its own trusted binary with fixed worker arguments and an empty environment, writes no files or policy parameters, and has no order/promotion interface or production component reference. This finite source-bound check is not an OS sandbox or deployed-image guarantee."
+        },
+        {
+          "id": "F-RL-PROCESS-CONFORMANCE",
+          "statement": "Compiled inference-process-v2 guards agree with bounded and generated model cases; synthetic network outputs, default modes, malformed inputs, blocked input, worker hangs, ignored TERM, CPU loops, late/invalid/EOF responses, startup timeout and cleanup failure are exercised. Worker termination is checked; these tests supplement the model and do not prove operating-system timing or universal neural numerical parity."
         }
       ],
       "invariants": [
@@ -484,6 +502,21 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_byte_view_parity_counterexample_regression"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/inference_process.py",
+          "contains": "check_model"
+        },
+        {
+          "level": "property",
+          "path": "scripts/formal/inference_process.py",
+          "contains": "conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_lifecycle_rejects_unbounded_poll_and_restart"
         }
       ]
     },

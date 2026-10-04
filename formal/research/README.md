@@ -333,3 +333,57 @@ the registered tests. This is bounded empirical parity, not all-backend bitwise
 proof. The original CE-RL-016 remains in frozen v1. Obligations 33/34 gain partial
 implementation evidence; 35 broader obligations remain unresolved. Formal/full
 wrappers reproduce all new scoped checks without network after pinned installation.
+
+## Offline inference process v2
+
+[Contract](inference-process-v2-contract.md), [registration](../../research-notes/registrations/inference-process-v2-engineering.json)
+and [source/control lock](inference-process-source.json) describe the separate
+`haskell/research/InferenceProcessV2.hs` executable. Its default and unknown modes
+return `(Absent,True)` before input or process creation. Explicit
+`--offline-inference-v2` initializes one child, then admits one bounded synthetic
+request. There is no saved-policy or live interface. The child has an empty
+environment, fixed self-binary arguments and no descendants or parameter writes.
+The Boolean result reports cleanup success; `(Absent,False)` is an explicit
+cleanup/launch failure and must never be treated as an admitted proposal.
+
+Reproduce all evidence, including actual compiled subprocess fault tests:
+
+```sh
+bash scripts/verify.sh formal
+bash scripts/verify.sh full
+```
+
+Standalone engineering build (GHC 9.4.8 and its pinned bundled libraries):
+
+```sh
+mkdir -p /tmp/trader-inference-v2-build
+ghc -O0 -threaded -with-rtsopts=-V0.001 -package process-1.6.18.0 \
+  -package unix-2.7.3 -package bytestring-0.11.5.3 -outputdir /tmp/trader-inference-v2-build \
+  haskell/research/InferenceProcessV2.hs -o /tmp/trader-inference-v2
+/tmp/trader-inference-v2
+```
+
+Use only synthetic fixtures through `scripts/formal/inference_process.py` for
+this engineering registration. The 12–16–3 tanh evaluator reads 12 observations
+and 259 row-major parameters; it is not a claimed NumPy-equivalent policy loader.
+The three output codes represent -1/4, 0 and 1/4 exposure proposals. Ties and
+invalid/non-finite/out-of-bound input abstain. No order constructor is present.
+
+Initialization has a separate 1 s ready wait; no request is read before Ready.
+The unchanged request budget is 20 ms and includes parsing, computation, cleanup
+and the final monotonic guard. A failed or late result cannot be reused because
+there is no second request. Cleanup sends TERM, polls for 50 ms, then sends KILL
+and polls for another 50 ms. Failure to reap or close pipes is explicit. These
+budgets depend on bounded OS primitives and scheduler service; they are not an
+unconditional wall-clock theorem. The first cold-start-inclusive design failed
+its timing goal and is counted as engineering variant 1, not silently discarded.
+
+The source-bound model has 57 states/143 transitions, depth 8, initial progress
+rank 11, one child, one request, three request-time buckets and two abstract poll
+steps per window. Z3 checks the unbounded-integer admission predicate. Compiled
+conformance covers 226 guard cases, 12 synthetic networks (seeds 11/23/47), ten
+normal attempts, seven invalid requests, held-open input, three default modes
+and eight worker fault fixtures. Actual PID disappearance is checked after each
+fault. Neural arithmetic, arbitrary OS schedules and full IO refinement are not
+proved. The frozen learner still has CE-RL-017. No financial trial, holdout access,
+champion change, deployment or broader obligation closure follows.

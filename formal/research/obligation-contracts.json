@@ -128,14 +128,15 @@
       "number": 11,
       "claim": "Capability separation",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
-      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
+      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no production executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
       "requiredCertificates": [
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
         "F-RL-DEFAULT-PATH",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -145,7 +146,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/formal/capability_isolation.py",
         "formal/research/ComponentGraph.hs",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -264,7 +266,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "closureClass": null
     },
@@ -306,7 +309,8 @@
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
         "F-RL-DEFAULT-PATH",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -314,7 +318,8 @@
         "haskell/trader.cabal",
         "scripts/formal/capability_isolation.py",
         "formal/research/ComponentGraph.hs",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -401,14 +406,16 @@
         "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
         "F-RL-ARTIFACT-METADATA",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "scripts/research/sequential_learning.py",
         "scripts/research/gae_targets_v2.py",
         "scripts/research/ess_rational_v2.py",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -473,7 +480,8 @@
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "closureClass": null
     },
