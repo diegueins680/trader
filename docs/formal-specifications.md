@@ -618,3 +618,7 @@ configuration. Exact source bodies and hashes bind the proof to
 full IO refinement proof. A-SHUTDOWN-CLOCK and SHUTDOWN-DEADLINE-001 preserve
 scheduler/logging assumptions and unresolved worker/route races. Broad obligations
 10/21/36 remain unresolved; closure criteria have not been weakened.
+
+### Supervised worker registry follow-up (2026-10-04)
+
+F-WORKER-REGISTRY-LIFECYCLE checks 14,095 states and 55,904 transitions (two workers, two callers, two timeout ticks each). F-WORKER-REGISTRY-INVARIANTS proves seven reviewed Boolean atomic-step predicates with Z3. F-WORKER-REGISTRY-CONFORMANCE runs five compiled tests, 32 fixed-seed scheduling cases, and three preserved old/new regression comparisons. The [contract](../formal/research/worker-registry-contract.md) names A-WORKER-REGISTRY and the model-to-IO refinement gap. Source hashes, traceability and receipts are checked by the existing formal/full gate. SHUTDOWN-DEADLINE-001 remains HIGH/OPEN; no entire broader obligation is closed by this worker-only repair.
