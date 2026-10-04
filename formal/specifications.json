@@ -391,6 +391,18 @@
         {
           "id": "F-ASYNC-ADMISSION-CONFORMANCE",
           "statement": "Compiled async admission helper tests cover preparation/publication failure and interruption, callback cancellation, masked-parent unmasking, queue saturation and generated concurrency; pure counters match exact integer cases. Two baseline control-slice regressions are reproduced and rejected by the new helper; reviewed Main source binds the production integration."
+        },
+        {
+          "id": "F-ASYNC-SEAL-INVARIANTS",
+          "statement": "For valid bounded counts and positive capacity, sealed admission rejects without changing count, open admission preserves bounds, release is nonnegative and nonincreasing, and closed zero is stable; completion notification requires closed zero."
+        },
+        {
+          "id": "F-ASYNC-SEAL-LIFECYCLE",
+          "statement": "In the finite two-caller, two-sealer composition at capacities one and two, closure is permanent, no post-seal reservation is accepted, exact ownership is preserved, completion cannot precede final reservation release, notifications cannot be consumed, and quiescence follows under primitive and callback progress."
+        },
+        {
+          "id": "F-ASYNC-SEAL-CONFORMANCE",
+          "statement": "Compiled seal tests reproduce and repair snapshot-missed preparation and result-before-finalizer false acknowledgement; source-bound Main seals all pools before snapshots and waits on private reservation completion. Generated concurrent cases, interrupted waiters and repeated seals/reads exercise conformance without asserting complete IO refinement."
         }
       ],
       "invariants": [

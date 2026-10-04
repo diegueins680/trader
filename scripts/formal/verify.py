@@ -60,7 +60,7 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-ASYNC-ADMISSION-LIFECYCLE": "model_checked", "F-ASYNC-ADMISSION-CONFORMANCE": "property_tested", "F-WORKER-REGISTRY-LIFECYCLE": "model_checked", "F-WORKER-REGISTRY-CONFORMANCE": "property_tested", "F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
+    supported = {"F-ASYNC-SEAL-LIFECYCLE": "model_checked", "F-ASYNC-SEAL-CONFORMANCE": "property_tested", "F-ASYNC-ADMISSION-LIFECYCLE": "model_checked", "F-ASYNC-ADMISSION-CONFORMANCE": "property_tested", "F-WORKER-REGISTRY-LIFECYCLE": "model_checked", "F-WORKER-REGISTRY-CONFORMANCE": "property_tested", "F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
                  "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
@@ -181,6 +181,7 @@ def run(record=False, require_complete=False):
     from shutdown_deadline import check_shutdown
     from worker_registry import check_worker_registry
     from async_job_admission import check_async_admission
+    from async_shutdown_seal import check_async_seal
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -233,6 +234,8 @@ def run(record=False, require_complete=False):
     result['replayCutoff'] = check_replay_cutoff()
     result['smt'].update(result['replayCutoff']['smt'])
     result['defaultPaths'] = check_defaults()
+    result['asyncShutdownSeal'] = check_async_seal()
+    result['smt'].update(result['asyncShutdownSeal']['smt'])
     result['asyncJobAdmission'] = check_async_admission()
     result['smt'].update(result['asyncJobAdmission']['smt'])
     result['workerRegistry'] = check_worker_registry()
@@ -253,6 +256,7 @@ def run(record=False, require_complete=False):
     reproduced = {key: 'smt_verified' for key, value in result['smt'].items() if value == 'unsat'}
     for requirement, path in {
         'F-RL-LIFECYCLE': ('model',),
+        'F-ASYNC-SEAL-LIFECYCLE': ('asyncShutdownSeal', 'model'),
         'F-ASYNC-ADMISSION-LIFECYCLE': ('asyncJobAdmission', 'model'),
         'F-WORKER-REGISTRY-LIFECYCLE': ('workerRegistry', 'model'),
         'F-SHUTDOWN-STAGES': ('shutdownDeadline', 'model'),
@@ -302,6 +306,7 @@ def run(record=False, require_complete=False):
                       'inferenceProcess': result['inferenceProcess'],
                       'shutdownDeadline': result['shutdownDeadline'],
                       'workerRegistry': result['workerRegistry'],
+                      'asyncShutdownSeal': result['asyncShutdownSeal'],
                       'asyncJobAdmission': result['asyncJobAdmission'],
                       'opeAlgebra': result['opeAlgebra'],
                       'exactESSV2': result['exactESSV2'],

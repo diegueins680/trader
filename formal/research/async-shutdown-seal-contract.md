@@ -66,3 +66,13 @@ of Haskell IO refinement. No financial research data or live authorization chang
 Closed-pool rejection gets an explicit internal constructor and an explanatory
 existing-string-channel API error. Queue-full text and all normal JSON/CLI,
 configuration, persistence and job identifier semantics remain unchanged.
+
+
+## Reproduced bounds
+
+The finite composition checks 2,932 states / 8,622 edges, maximum shortest depth
+17 and initial decreasing rank 206. Capacity one: 1,381 states / 3,864 edges;
+capacity two: 1,551 states / 4,758 edges. Both contain 492 states with a pending
+notification before completion, and 25 terminal states. Six SMT claims accompany
+72 compiled pure cases, four runtime tests and 32 generated schedules. The
+original admission suite remains active (eleven tests total).

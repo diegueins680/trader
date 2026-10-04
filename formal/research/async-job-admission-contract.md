@@ -101,3 +101,12 @@ Persistence still occurs during preparation. An interruption can leave a durable
 running record with no published worker. This pre-existing recovery limitation is
 not repaired or disguised by releasing the in-memory slot. Likewise HTTP draining
 and job-store shutdown snapshots do not yet share an atomic admission gate.
+
+
+Successor note (2026-10-04): the [seal contract](async-shutdown-seal-contract.md)
+adds permanent closure to the private count representation, explicit closed/full
+rejection constructors and reservation completion notification. The original
+369-state model continues to describe the unsealed admission subprotocol; the
+successor model composes closure. Compiled runtime suite now has eleven tests
+including four seal tests and 64 generated concurrency cases in total. Original
+counterexamples remain reproducible. HTTP-wide drain atomicity remains unproved.

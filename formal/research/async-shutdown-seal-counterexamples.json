@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-ASYNC-SEAL-001",
+      "claim": "Snapshot has no published entry although preparation owns capacity.",
+      "before": "(\"preparing outside snapshot\",True,1)",
+      "after": "(\"preparing outside snapshot\",False,1)",
+      "fixture": "formal/research/fixtures/async-seal-witness.hs",
+      "scope": "Main shutdown control-slice adapter with pinned actual baseline admission helper; not complete HTTP server"
+    },
+    {
+      "id": "CE-ASYNC-SEAL-002",
+      "claim": "Result cell is filled while callback finalization is still blocked.",
+      "before": "(\"result before cleanup\",True,1)",
+      "after": "(\"result before cleanup\",False,1)",
+      "fixture": "formal/research/fixtures/async-seal-witness.hs",
+      "scope": "Main shutdown control-slice adapter with pinned actual baseline admission helper; not complete HTTP server"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "hashes": {
     "haskell/app/Trader/App/GracefulShutdown.hs": "24590f9154fcbf601e7d257b3c62745cddc6d3f10b7ac9d51141eb1e460772b5",
-    "haskell/app/Main.hs": "dea9a4aec27115a58ec581d4d753d85dbaac6f92bd51872b66d623c7e6f8c8ab",
+    "haskell/app/Main.hs": "a9e04a6f2126c65e7b461c7eaa87fdb29d9f6aa60ca8c577c3168b4b20933d81",
     "haskell/test/Trader/Test/GracefulShutdown.hs": "5237934157849b58700ff5dc9dcddc8bb647b5a8c09e41c43b191448e837c872",
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546"
   },
