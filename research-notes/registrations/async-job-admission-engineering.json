@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "async-job-admission-engineering-2026-10-04",
+  "sourceCommit": "025557184af9219624fda170f97a95db55529ae8",
+  "formalContract": "formal/research/async-job-admission-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "deployment": false,
+  "hypothesis": "Exception-safe reservation transfer and publish-before-callback gating eliminate stranded capacity and untracked execution during inherited async-job admission.",
+  "modelBounds": {
+    "callers": 2,
+    "capacities": [
+      1,
+      2
+    ]
+  },
+  "propertySeed": 20261004,
+  "propertyCases": 32,
+  "requirements": [
+    "F-ASYNC-ADMISSION-NUMERIC",
+    "F-ASYNC-ADMISSION-LIFECYCLE",
+    "F-ASYNC-ADMISSION-CONFORMANCE"
+  ],
+  "limitations": "Control-slice and compiled helper evidence, not whole-server IO refinement, durable persistence or HTTP drain closure."
+}

@@ -103,6 +103,7 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
+import Trader.App.AsyncJobAdmission (JobSlots, newJobSlots, runningJobSlots, startBoundedJob)
 import Trader.App.AutoStartBackoff (
     BackoffPolicy (..),
     CircuitPolicy (..),
@@ -17841,7 +17842,7 @@ data JobStore a = JobStore
     , jsJobs :: !(MVar (HM.HashMap Text (JobEntry a)))
     , jsMaxJobs :: !Int
     , jsTtlMs :: !Int64
-    , jsRunning :: !(MVar Int)
+    , jsRunning :: !JobSlots
     , jsMaxRunning :: !Int
     , jsDir :: !(Maybe FilePath)
     }
@@ -17856,7 +17857,7 @@ newJobStore :: Text -> Int -> Maybe FilePath -> IO (JobStore a)
 newJobStore prefix maxRunning mAsyncDir = do
     counter <- newIORef 0
     jobs <- newMVar HM.empty
-    running <- newMVar 0
+    running <- newJobSlots maxRunning
     let mDir =
             case mAsyncDir of
                 Nothing -> Nothing
@@ -18099,23 +18100,7 @@ startJob mOps store action = do
     now <- getTimestampMs
     pruneJobStore store now
     let maxRunning = max 1 (jsMaxRunning store)
-    (running, ok) <-
-        modifyMVar (jsRunning store) $ \n ->
-            if n >= maxRunning
-                then pure (n, (n, False))
-                else pure (n + 1, (n, True))
-    if not ok
-        then
-            pure
-                ( Left
-                    ( printf
-                        "Async %s queue is full (%d/%d). Wait for the current job to finish/cancel, or increase TRADER_API_MAX_ASYNC_RUNNING."
-                        (T.unpack (jsPrefix store))
-                        running
-                        maxRunning
-                    )
-                )
-        else do
+        prepare = do
             n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
             r <- (randomIO :: IO Word64)
             let jobId =
@@ -18130,26 +18115,34 @@ startJob mOps store action = do
             out <- newEmptyMVar
             pruneJobStoreDisk store now
             persistAsyncJobState mOps store jobId runningPayload
-            tid <-
-                forkIO $
-                    ( do
-                        result <- try action
-                        case result of
-                            Right v -> do
-                                doneAt <- getTimestampMs
-                                persistAsyncJobState mOps store jobId (object ["status" .= ("done" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "result" .= v])
-                                _ <- tryPutMVar out (Right v)
-                                pure ()
-                            Left ex -> do
-                                let (_, msg) = exceptionToHttp ex
-                                doneAt <- getTimestampMs
-                                persistAsyncJobState mOps store jobId (object ["status" .= ("error" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "error" .= msg])
-                                _ <- tryPutMVar out (Left msg)
-                                pure ()
-                    )
-                        `finally` modifyMVar_ (jsRunning store) (pure . max 0 . subtract 1)
+            pure (jobId, out)
+        execute (jobId, out) = do
+            result <- try action
+            case result of
+                Right v -> do
+                    doneAt <- getTimestampMs
+                    persistAsyncJobState mOps store jobId (object ["status" .= ("done" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "result" .= v])
+                    _ <- tryPutMVar out (Right v)
+                    pure ()
+                Left ex -> do
+                    let (_, msg) = exceptionToHttp ex
+                    doneAt <- getTimestampMs
+                    persistAsyncJobState mOps store jobId (object ["status" .= ("error" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "error" .= msg])
+                    _ <- tryPutMVar out (Left msg)
+                    pure ()
+        publish tid (jobId, out) =
             modifyMVar_ (jsJobs store) (pure . HM.insert jobId (JobEntry now tid out))
-            pure (Right jobId)
+    result <- startBoundedJob (jsRunning store) prepare execute publish
+    pure $ case result of
+        Left running ->
+            Left
+                ( printf
+                    "Async %s queue is full (%d/%d). Wait for the current job to finish/cancel, or increase TRADER_API_MAX_ASYNC_RUNNING."
+                    (T.unpack (jsPrefix store))
+                    running
+                    maxRunning
+                )
+        Right (jobId, _) -> Right jobId
 
 data AsyncStores = AsyncStores
     { asSignal :: !(JobStore LatestSignal)
@@ -18356,7 +18349,7 @@ activeAsyncJobSummaries now store =
 
 asyncQueueSummary :: [Aeson.Value] -> JobStore a -> IO Aeson.Value
 asyncQueueSummary jobs store = do
-    running <- readMVar (jsRunning store)
+    running <- runningJobSlots (jsRunning store)
     pure $
         object
             [ "running" .= running

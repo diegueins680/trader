@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Async jobs: make slot reservation exception-safe and publish the job entry before allowing its callback to run. Preserve queue/API contracts; add source-bound integer proofs, a two-caller lifecycle model, interrupted-admission regressions and compiled conformance. Durable recovery and HTTP drain coordination remain unresolved.
 - Shutdown: retain unfinished supervised workers across timed-out stops, reject registration after closure, and wait for callback finalizers instead of cancellation delivery. Add three compiled legacy regressions, concurrent/interrupted-stop tests, a bounded lifecycle model and SMT predicate checks. Broader server lifecycle obligations remain open.
 - Shutdown: replace UTC-derived cleanup deadlines with monotonic, overflow-safe budgets; pass remaining time to nested waits and report incomplete cleanup after any failed/expired stage. Add source-bound SMT, six-stage model checking and compiled regression tests. This does not prove thread quiescence or resolve admission races.
 

@@ -181,6 +181,12 @@
       "status": "assumption",
       "statement": "Pinned GHC 9.4.8/base 4.17.2.1 MVar, masking, forkIOWithUnmask, finally and System.Timeout semantics; finite registry, available memory, private completion cells and bounded scheduler/primitive progress. Completion covers tracked callback/finalizers only. Atomic-step interpretation and source-to-model correspondence are reviewed and tested, not fully proved IO refinement. Closure begins at registry lock, not HTTP beginDrain.",
       "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-ASYNC-ADMISSION",
+      "status": "assumption",
+      "statement": "Pinned GHC/base mask, forkIOWithUnmask, MVar and atomic IORef semantics; private counters/gates, finite allocation, total nonthrowing counter predicates, failing fork creates no child, and masked atomic exception-safe publication. Actual Main publication uses modifyMVar_ and pure HM.insert. Release has no blocking lock wait. Eventual release requires callback completion/cancellation and scheduler progress; no full IO refinement, durable recovery or HTTP drain guarantee.",
+      "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
   "criticalFiles": [
@@ -231,7 +237,13 @@
     "haskell/test/TestMain.hs",
     "formal/research/WorkerRegistry.hs",
     "formal/research/fixtures/worker-registry-before.hs",
-    "formal/research/fixtures/worker-registry-witness.hs"
+    "formal/research/fixtures/worker-registry-witness.hs",
+    "scripts/formal/async_job_admission.py",
+    "haskell/app/Trader/App/AsyncJobAdmission.hs",
+    "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+    "formal/research/AsyncJobAdmission.hs",
+    "formal/research/fixtures/async-job-before.hs",
+    "formal/research/fixtures/async-job-witness.hs"
   ],
   "entries": [
     {
@@ -2763,6 +2775,111 @@
       "limitations": "Not full IO refinement, exhaustive GHC scheduling, durable recovery, descendant termination, HTTP admission or resource reconciliation. Timeout before registry lock need not close it. Scheduler, masking and finite allocation assumptions are explicit.",
       "counterexample": "formal/research/worker-registry-counterexamples.json",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-ASYNC-ADMISSION-NUMERIC",
+      "claim": "Over the compiled signed Int domain, checked slot admission cannot overflow, accepts only nonnegative counts below a positive limit and preserves valid capacity bounds; total release is nonnegative, never increases valid counts, and reverses a successful admission.",
+      "formalStatement": "Over the compiled signed Int domain, checked slot admission cannot overflow, accepts only nonnegative counts below a positive limit and preserves valid capacity bounds; total release is nonnegative, never increases valid counts, and reverses a successful admission.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/async_job_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/async-job-admission-source.json",
+        "formal/research/async-job-admission-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/AsyncJobAdmission.hs",
+        "formal/research/fixtures/async-job-before.hs",
+        "formal/research/fixtures/async-job-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), seven runtime tests, 32 concurrency cases, seed 20261004.",
+      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
+      "counterexample": "formal/research/async-job-admission-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-ASYNC-ADMISSION-LIFECYCLE",
+      "claim": "The finite two-caller async admission model at capacities one and two preserves exact reservation ownership and bounds, permits callback execution only after publication, releases failed parent reservations or aborted child reservations exactly once, and terminates conditionally on callbacks and primitives returning.",
+      "formalStatement": "The finite two-caller async admission model at capacities one and two preserves exact reservation ownership and bounds, permits callback execution only after publication, releases failed parent reservations or aborted child reservations exactly once, and terminates conditionally on callbacks and primitives returning.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/async_job_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/async-job-admission-source.json",
+        "formal/research/async-job-admission-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/AsyncJobAdmission.hs",
+        "formal/research/fixtures/async-job-before.hs",
+        "formal/research/fixtures/async-job-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), seven runtime tests, 32 concurrency cases, seed 20261004.",
+      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
+      "counterexample": "formal/research/async-job-admission-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-ASYNC-ADMISSION-CONFORMANCE",
+      "claim": "Compiled async admission helper tests cover preparation/publication failure and interruption, callback cancellation, masked-parent unmasking, queue saturation and generated concurrency; pure counters match exact integer cases. Two baseline control-slice regressions are reproduced and rejected by the new helper; reviewed Main source binds the production integration.",
+      "formalStatement": "Compiled async admission helper tests cover preparation/publication failure and interruption, callback cancellation, masked-parent unmasking, queue saturation and generated concurrency; pure counters match exact integer cases. Two baseline control-slice regressions are reproduced and rejected by the new helper; reviewed Main source binds the production integration.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-ADMISSION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver; finite protocol checker; compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/async_job_admission.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/AsyncJobAdmission.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/async-job-admission-source.json",
+        "formal/research/async-job-admission-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/AsyncJobAdmission.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/AsyncJobAdmission.hs",
+        "formal/research/fixtures/async-job-before.hs",
+        "formal/research/fixtures/async-job-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
+      "bounds": "SMT: arbitrary signed Int maximum and all representable inputs. Model: two callers, capacities 1/2, 369 states, 846 transitions, max shortest depth 14, initial rank 20. Compiled 292 numeric cases (256 generated), seven runtime tests, 32 concurrency cases, seed 20261004.",
+      "limitations": "No full IO refinement, arbitrary publisher contract verification, forced cancellation, durable status recovery, HTTP-wide draining or descendant/resource completion. Baseline is a documented source-bound control slice, not the complete server.",
+      "counterexample": "formal/research/async-job-admission-counterexamples.json",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -3019,9 +3136,12 @@
         "F-RL-FUNDING-FINITE",
         "F-SHUTDOWN-BUDGET",
         "F-SHUTDOWN-STAGES",
-        "F-SHUTDOWN-CONFORMANCE"
+        "F-SHUTDOWN-CONFORMANCE",
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Repair and compose numeric admission/publication in a versioned successor rather than count isolated kernels as repairs.",
@@ -3615,9 +3735,12 @@
         "F-RL-SNAPSHOT-CONFORMANCE",
         "F-WORKER-REGISTRY-LIFECYCLE",
         "F-WORKER-REGISTRY-INVARIANTS",
-        "F-WORKER-REGISTRY-CONFORMANCE"
+        "F-WORKER-REGISTRY-CONFORMANCE",
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3644,9 +3767,12 @@
         "F-RL-SNAPSHOT-CONFORMANCE",
         "F-WORKER-REGISTRY-LIFECYCLE",
         "F-WORKER-REGISTRY-INVARIANTS",
-        "F-WORKER-REGISTRY-CONFORMANCE"
+        "F-WORKER-REGISTRY-CONFORMANCE",
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3673,9 +3799,12 @@
         "F-RL-TARGET-V2-PUBLISH",
         "F-WORKER-REGISTRY-LIFECYCLE",
         "F-WORKER-REGISTRY-INVARIANTS",
-        "F-WORKER-REGISTRY-CONFORMANCE"
+        "F-WORKER-REGISTRY-CONFORMANCE",
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
       ],
-      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
+      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
       "nextAction": "Define request identity and atomic deduplication at any future effect boundary; verify retry transitions.",
@@ -3709,9 +3838,12 @@
         "F-SHUTDOWN-CONFORMANCE",
         "F-WORKER-REGISTRY-LIFECYCLE",
         "F-WORKER-REGISTRY-INVARIANTS",
-        "F-WORKER-REGISTRY-CONFORMANCE"
+        "F-WORKER-REGISTRY-CONFORMANCE",
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
       "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",
@@ -3734,9 +3866,12 @@
       "evidenceRequirements": [
         "F-WORKER-REGISTRY-LIFECYCLE",
         "F-WORKER-REGISTRY-INVARIANTS",
-        "F-WORKER-REGISTRY-CONFORMANCE"
+        "F-WORKER-REGISTRY-CONFORMANCE",
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Interrupted recoverable work resumes without violating safety or duplicating irreversible effects.",
       "nextAction": "Specify durable checkpoints and idempotent recovery transitions; inject crashes at each publication boundary.",
@@ -3753,8 +3888,12 @@
       "number": 38,
       "claim": "No permanent lockout",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "evidenceRequirements": [
+        "F-ASYNC-ADMISSION-NUMERIC",
+        "F-ASYNC-ADMISSION-LIFECYCLE",
+        "F-ASYNC-ADMISSION-CONFORMANCE"
+      ],
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
       "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",

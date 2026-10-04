@@ -397,3 +397,5 @@ integer SMT and a six-stage model. No new dependencies. The machine-readable
 ledger distinguishes those three evidence classes and retains all broad blockers.
 
 Worker registry follow-up: [contract](worker-registry-contract.md), [source lock](worker-registry-source.json), [counterexamples](worker-registry-counterexamples.json), and [engineering report](../../research-notes/sequential-control-2026-09-17/worker-registry-followup-2026-10-04.md). The formal gate compiles old/new witnesses plus production tests, checks the finite protocol and atomic SMT predicates, and rejects drift. Full IO refinement and whole-server shutdown remain unresolved.
+
+Async admission follow-up: [contract](async-job-admission-contract.md), [source manifest](async-job-admission-source.json), [counterexamples](async-job-admission-counterexamples.json), and [report](../../research-notes/sequential-control-2026-09-17/async-job-admission-followup-2026-10-04.md). The existing gate reproduces signed-Int SMT, finite ownership/publication transitions and compiled core tests. Main remains responsible for exception-safe publication; durable recovery and HTTP draining are not proved.
