@@ -145,6 +145,12 @@
       "status": "assumption",
       "statement": "Trusted ordinary Python AST/identity/short-circuit execution, GHC constructors and guard order, defined arguments, returning monotonic clock; no runtime patching or compiler corruption. Explicit research command invocation opts into simulation; no production candidate integration exists.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-CLOSURE-REVIEW",
+      "status": "assumption",
+      "statement": "Semantic sufficiency of each certificate set for its exact canonical obligation scope is a reviewed specification judgment. The validator proves neither this implication nor the substance of empirical acceptance evidence; it checks consistency, reproduction and hashes. Scope or sufficiency changes require review.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -2138,7 +2144,8 @@
       "formalStatement": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value.",
       "assumptions": [
         "A-DEFAULT-PATH",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-CLOSURE-REVIEW"
       ],
       "tool": "Python unittest",
       "toolVersion": "closure-v1 / Python 3.13.3",

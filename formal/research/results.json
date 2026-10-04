@@ -937,7 +937,7 @@
     "formal/research/optimizer-publication-contract.md": "f614e5e64994695b27068c6ce7db780c887600a6e2c8c256894ebfb12690ac35",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "f70046d2f3fec984344cc252f913fe675ff123deb60942c69bc35c509a69a933",
+    "formal/research/proof-ledger.json": "6ef92e737703518077f8eb06eb0f5ceb46891bc8a512a4a6d8fec5eb784e82f5",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
