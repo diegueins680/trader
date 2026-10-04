@@ -2547,5 +2547,28 @@ class InferenceProcessTests(unittest.TestCase):
         self.assertIsNone(process.admission(0, False, 1))
         self.assertIsNone(process.admission(0, True, 9))
 
+class ShutdownDeadlineTests(unittest.TestCase):
+    def test_shutdown_counterexamples_and_integer_proof(self):
+        import shutdown_deadline as shutdown
+        self.assertEqual(len(shutdown.counterexamples()), 3)
+        self.assertEqual(shutdown.prove_budget(), {'F-SHUTDOWN-BUDGET': 'unsat'})
+
+    def test_shutdown_model_rejects_late_ack_and_skipped_stage(self):
+        import shutdown_deadline as shutdown
+        for kind in ('late', 'skip', 'history'):
+            def mutation(state):
+                steps = shutdown.successors(state)
+                if not steps:
+                    return steps
+                index, now, outcomes = state
+                if kind == 'late':
+                    return [(index + 1, 20, outcomes + (True,))]
+                if kind == 'skip':
+                    return [(index + 2, now, outcomes + (False, False))]
+                return [(index + 1, now, (True,) * index + (False,))]
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                shutdown.check_model(mutation)
+
+
 if __name__ == '__main__':
     unittest.main()

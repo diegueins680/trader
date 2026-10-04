@@ -169,6 +169,12 @@
       "status": "assumption",
       "statement": "Trusted pinned GHC 9.4.8/process 1.6.18.0/unix 2.7.3/bytestring 0.11.5.3 bounded buffer/IO primitives and self executable; stable PID until this sole parent reaps; no descendants, external reaper, hostile replacement or injected code. Monotonic clock, bounded process creation/IO/signal primitives and parent/timer scheduling. Repeated async cancellation, process death, neural arithmetic equivalence and production shutdown are not proved. See inference-process-v2-contract.md.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SHUTDOWN-CLOCK",
+      "status": "assumption",
+      "statement": "GHC Integer/Int, monotonic clock, System.Timeout and compiler semantics are trusted. Clock does not wrap during one shutdown; bounded scheduler, clock and logging service is needed for wall-time interpretation. Source scalarization and finite atomic-stage abstraction are trusted, not full IO refinement. Child cancellation need not terminate an uninterruptible action.",
+      "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
   "criticalFiles": [
@@ -209,7 +215,12 @@
     "scripts/formal/snapshot_v2.py",
     "haskell/research/InferenceProcessV2.hs",
     "scripts/formal/inference_process.py",
-    "formal/research/inference-process-source.json"
+    "formal/research/inference-process-source.json",
+    "scripts/formal/shutdown_deadline.py",
+    "formal/research/ShutdownDeadline.hs",
+    "haskell/app/Trader/App/GracefulShutdown.hs",
+    "haskell/test/Trader/Test/GracefulShutdown.hs",
+    "haskell/app/Trader/Formal/RiskRegister.hs"
   ],
   "entries": [
     {
@@ -2547,6 +2558,101 @@
       "limitations": "No unconditional wall-clock theorem, full Haskell IO refinement, OS sandbox, artifact compatibility or proof of inherited server shutdown. v1 CE-RL-017 remains refuted. Initialization precedes reading a request; real observation availability remains unverified.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-SHUTDOWN-BUDGET",
+      "claim": "Shutdown remaining microseconds use exact Integer monotonic arithmetic, stay within the compiled nonnegative Int range, never round beyond the remaining deadline, reject backward/expired clock samples, and do not increase as valid time advances.",
+      "criticality": "critical",
+      "formalStatement": "Shutdown remaining microseconds use exact Integer monotonic arithmetic, stay within the compiled nonnegative Int range, never round beyond the remaining deadline, reject backward/expired clock samples, and do not increase as valid time advances.",
+      "assumptions": [
+        "A-SHUTDOWN-CLOCK",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver, source-bound finite checker, compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8",
+      "sourceModel": "scripts/formal/shutdown_deadline.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Main.hs",
+        "formal/research/shutdown-source.json",
+        "formal/research/shutdown-deadline-contract.md"
+      ],
+      "testFiles": [
+        "formal/research/ShutdownDeadline.hs",
+        "haskell/test/Trader/Test/GracefulShutdown.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced; broader obligations 10/21/36 remain unresolved.",
+      "bounds": "SMT: unbounded Integer timestamps and seconds, arbitrary positive Int maximum. Model: 6 stages, 5 time buckets, 506 states, 1347 transitions, depth/rank 6. Conformance: 580 cases including 256 generated, seed 20261004; 8 runtime tests.",
+      "limitations": "No full Haskell IO refinement, worker quiescence, scheduler wall-time bound, admission race or whole-server shutdown proof. Failure logging can block outside the budget under adverse IO.",
+      "counterexample": "formal/research/shutdown-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-SHUTDOWN-STAGES",
+      "claim": "The six-stage shutdown model attempts five work stages then final close in order, rejects expired stages, preserves failures in the aggregate report, and reaches a report under bounded primitive-return assumptions; an acknowledgement is not a proof of resource quiescence.",
+      "criticality": "critical",
+      "formalStatement": "The six-stage shutdown model attempts five work stages then final close in order, rejects expired stages, preserves failures in the aggregate report, and reaches a report under bounded primitive-return assumptions; an acknowledgement is not a proof of resource quiescence.",
+      "assumptions": [
+        "A-SHUTDOWN-CLOCK",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver, source-bound finite checker, compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8",
+      "sourceModel": "scripts/formal/shutdown_deadline.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Main.hs",
+        "formal/research/shutdown-source.json",
+        "formal/research/shutdown-deadline-contract.md"
+      ],
+      "testFiles": [
+        "formal/research/ShutdownDeadline.hs",
+        "haskell/test/Trader/Test/GracefulShutdown.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced; broader obligations 10/21/36 remain unresolved.",
+      "bounds": "SMT: unbounded Integer timestamps and seconds, arbitrary positive Int maximum. Model: 6 stages, 5 time buckets, 506 states, 1347 transitions, depth/rank 6. Conformance: 580 cases including 256 generated, seed 20261004; 8 runtime tests.",
+      "limitations": "No full Haskell IO refinement, worker quiescence, scheduler wall-time bound, admission race or whole-server shutdown proof. Failure logging can block outside the budget under adverse IO.",
+      "counterexample": "formal/research/shutdown-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-SHUTDOWN-CONFORMANCE",
+      "claim": "Compiled production shutdown budget functions agree with edge and generated integer cases; runtime tests exercise expired no-dispatch, exceptions and uninterruptible timeout, and reviewed Main source binds the six stages and truthful aggregate report. This is conformance evidence, not full IO refinement.",
+      "criticality": "critical",
+      "formalStatement": "Compiled production shutdown budget functions agree with edge and generated integer cases; runtime tests exercise expired no-dispatch, exceptions and uninterruptible timeout, and reviewed Main source binds the six stages and truthful aggregate report. This is conformance evidence, not full IO refinement.",
+      "assumptions": [
+        "A-SHUTDOWN-CLOCK",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer solver, source-bound finite checker, compiled Haskell conformance",
+      "toolVersion": "Z3 4.15.4; CPython 3.13.3; GHC 9.4.8",
+      "sourceModel": "scripts/formal/shutdown_deadline.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Main.hs",
+        "formal/research/shutdown-source.json",
+        "formal/research/shutdown-deadline-contract.md",
+        "haskell/app/Trader/Formal/RiskRegister.hs"
+      ],
+      "testFiles": [
+        "formal/research/ShutdownDeadline.hs",
+        "haskell/test/Trader/Test/GracefulShutdown.hs",
+        "scripts/formal/test_integrity.py",
+        "scripts/verify-formal-specs.mjs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced; broader obligations 10/21/36 remain unresolved.",
+      "bounds": "SMT: unbounded Integer timestamps and seconds, arbitrary positive Int maximum. Model: 6 stages, 5 time buckets, 506 states, 1347 transitions, depth/rank 6. Conformance: 580 cases including 256 generated, seed 20261004; 8 runtime tests.",
+      "limitations": "No full Haskell IO refinement, worker quiescence, scheduler wall-time bound, admission race or whole-server shutdown proof. Failure logging can block outside the budget under adverse IO.",
+      "counterexample": "formal/research/shutdown-counterexamples.json",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -2800,9 +2906,12 @@
         "F-RL-ESS-V2-PUBLISH",
         "F-RL-FUNDING-GRID",
         "F-RL-FUNDING-ENDPOINT",
-        "F-RL-FUNDING-FINITE"
+        "F-RL-FUNDING-FINITE",
+        "F-SHUTDOWN-BUDGET",
+        "F-SHUTDOWN-STAGES",
+        "F-SHUTDOWN-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Repair and compose numeric admission/publication in a versioned successor rather than count isolated kernels as repairs.",
@@ -3083,9 +3192,12 @@
         "F-RL-PROCESS-LIFECYCLE",
         "F-RL-PROCESS-ADMISSION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-PROCESS-CONFORMANCE"
+        "F-RL-PROCESS-CONFORMANCE",
+        "F-SHUTDOWN-BUDGET",
+        "F-SHUTDOWN-STAGES",
+        "F-SHUTDOWN-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
       "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
@@ -3469,12 +3581,15 @@
         "F-RL-PROCESS-LIFECYCLE",
         "F-RL-PROCESS-ADMISSION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-PROCESS-CONFORMANCE"
+        "F-RL-PROCESS-CONFORMANCE",
+        "F-SHUTDOWN-BUDGET",
+        "F-SHUTDOWN-STAGES",
+        "F-SHUTDOWN-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
-      "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
+      "nextAction": "Compose the offline successor and verify worker-registry cancellation/registration plus route admission, bounded logging and actual resource completion; monotonic budget/reporting correction alone is insufficient.",
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
@@ -3483,7 +3598,7 @@
       ],
       "blockers": [
         "Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner.",
-        "Inherited server admission/draining and shutdown are not refined by this one-child model; real observation staleness and external primitive bounds remain unverified."
+        "Server route/registry concurrency, uninterruptible resource completion, repeated cancellation and logging/OS timing remain unrefined; frozen v1 and successor runner composition remain unresolved."
       ],
       "requiredCertificates": []
     },

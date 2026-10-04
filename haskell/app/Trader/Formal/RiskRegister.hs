@@ -48,6 +48,7 @@ data RiskID
     | RISK_METRIC_INVALID_001
     | RL_OFFLINE_001
     | SCHEMA_001
+    | SHUTDOWN_DEADLINE_001
     | THRESHOLD_FACTOR_001
     | TRADE_LOG_GAP_001
     | TRADE_LOG_GAP_002
@@ -112,6 +113,7 @@ riskIdText = \case
     RISK_METRIC_INVALID_001 -> "RISK-METRIC-INVALID-001"
     RL_OFFLINE_001 -> "RL-OFFLINE-001"
     SCHEMA_001 -> "SCHEMA-001"
+    SHUTDOWN_DEADLINE_001 -> "SHUTDOWN-DEADLINE-001"
     THRESHOLD_FACTOR_001 -> "THRESHOLD-FACTOR-001"
     TRADE_LOG_GAP_001 -> "TRADE-LOG-GAP-001"
     TRADE_LOG_GAP_002 -> "TRADE-LOG-GAP-002"
@@ -308,6 +310,13 @@ riskRegister =
         "Live trade-log schema could drift from its declared contract"
         "trader-firm-cio"
         "The schema contract and executable validation are tracked"
+    , riskEntry
+        SHUTDOWN_DEADLINE_001
+        HIGH
+        OPEN
+        "Shutdown timing and completion may diverge from the promised lifecycle bound"
+        "trader-firm-cto"
+        "Monotonic Integer budgets and truthful acknowledgements fix three counterexamples; A-SHUTDOWN-CLOCK, resource quiescence and admission/registry races remain open"
     , riskEntry
         THRESHOLD_FACTOR_001
         MEDIUM

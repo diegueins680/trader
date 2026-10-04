@@ -46,3 +46,12 @@ All 38 original titles are retained. A closed affected-scope claim is not a proo
 Current count: 3 affected-scope closures (11, 24, 31); 35 unresolved. The [capability contract](capability-isolation-contract.md) explicitly excludes certification of deployed images and inherited live authority.
 
 Priority order: (1) closed default paths and delivered capability/dependency isolation; (2) remaining production capabilities and filesystem/promotion boundaries for 13/23/26/28; (3) compose the repaired v2 atomic optimizer and certify remaining production publication for 33/34; (4) compose the checked offline process cancellation boundary and verify inherited shutdown for 21/36; (5) complete numeric/accounting and data-admission refinement. Each closure must cite a sufficient source-bound certificate; accumulated related lemmas alone are not sufficient. No new financial trial is authorized by this audit.
+
+
+2026-10-04 inherited shutdown follow-up: the actual server now uses monotonic
+Integer budgets and reports failed/expired cleanup explicitly. F-SHUTDOWN-BUDGET,
+F-SHUTDOWN-STAGES and F-SHUTDOWN-CONFORMANCE add implementation-linked evidence to
+10/21/36. They do not close these obligations: route/registry races, uninterruptible
+resource termination, logging bounds and successor-runner composition remain.
+Next work for 36 is actual worker registration/cancellation and resource-completion
+semantics; the old UTC deadline and misleading-summary defects are corrected.

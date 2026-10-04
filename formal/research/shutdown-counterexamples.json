@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "2ee373709ee52ab4e51f64cd411982e96f082330",
+  "entries": [
+    {"id": "CE-SHUTDOWN-001", "claim": "UTC clock deadlines always respect the configured cleanup budget", "startMs": 100000, "seconds": 20, "sampleMs": 40000, "oldRemainingUs": 80000000, "budgetUs": 20000000, "status": "refuted", "resolution": "Use monotonic nanoseconds; invalid backward monotonic samples fail closed."},
+    {"id": "CE-SHUTDOWN-002", "claim": "Int seconds multiplication cannot overflow", "bits": 64, "seconds": 9223372036854775807, "oldWrappedUs": -1000000, "status": "refuted", "resolution": "Multiply in Integer, saturate to compiled maxBound before conversion, pass remaining budget to nested waits."},
+    {"id": "CE-SHUTDOWN-003", "claim": "The old completed log implies all cleanup steps acknowledged", "outcomes": [true, false, true, true, true, true], "oldLog": "Serve shutdown completed", "status": "refuted", "resolution": "Aggregate six outcomes; emit incomplete cleanup when any step fails or expires."}
+  ]
+}

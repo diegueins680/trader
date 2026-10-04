@@ -56,6 +56,7 @@ import Database.PostgreSQL.Simple (Connection, Only (..), close, connectPostgreS
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (Action, toField)
 import Database.PostgreSQL.Simple.Types (PGArray (..))
+import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
@@ -122,14 +123,16 @@ import Trader.App.Csv (loadCsvPriceSeries)
 import Trader.App.Env (canonicalizeUuidEnvValues, getBuildCommit, loadEnvFile, traderVersion)
 import Trader.App.GracefulShutdown (
     DrainController,
+    ShutdownPhase (..),
     WorkerRegistry,
     beginDrain,
     forkSupervisedWorker,
     isDraining,
     newDrainController,
     newWorkerRegistry,
-    runCleanupStepBounded,
+    runShutdownStep,
     shouldRejectDuringDrain,
+    shutdownBudget,
     stopSupervisedWorkersBounded,
     stopThreadIdsBounded,
  )
@@ -16503,39 +16506,39 @@ stopAndPersistBots mOps mBotStateDir botCtrl = do
 
 runServeShutdown :: Int -> Int -> Maybe Journal -> Maybe OpsStore -> WorkerRegistry -> AsyncStores -> ListenKeyManager -> Maybe FilePath -> BotController -> IO ()
 runServeShutdown shutdownTimeoutSec port mJournal mOps workers asyncStores listenKeyManager mBotStateDir botCtrl = do
+    startedNS <- toInteger <$> getMonotonicTimeNSec
     startedAtMs <- getTimestampMs
-    let totalBudgetMs = fromIntegral shutdownTimeoutSec * 1000
-        closeReserveMs = min 2000 (totalBudgetMs `div` 4)
-        workDeadlineMs = startedAtMs + max 1 (totalBudgetMs - closeReserveMs)
-        finalDeadlineMs = startedAtMs + totalBudgetMs
-        runBefore deadlineMs label action = do
-            nowMs <- getTimestampMs
-            let remainingUs = fromIntegral (max 0 (deadlineMs - nowMs)) * 1000
-            if remainingUs <= 0
-                then hPutStrLn stderr ("Shutdown deadline reached before " ++ label ++ ".")
-                else do
-                    ok <- runCleanupStepBounded remainingUs action
-                    unless ok (hPutStrLn stderr ("Shutdown step failed or timed out: " ++ label ++ "."))
+    let budget = shutdownBudget startedNS shutdownTimeoutSec
+        runBefore phase label action = do
+            ok <- runShutdownStep budget phase action
+            unless ok (hPutStrLn stderr ("Shutdown step unacknowledged (failure or deadline): " ++ label ++ "."))
+            pure ok
         stopRecord =
             object
                 [ "port" .= port
                 , "reason" .= ("shutdown" :: String)
                 , "timeoutSec" .= shutdownTimeoutSec
                 ]
-    runBefore workDeadlineMs "server.stop persistence" $ do
-        journalWriteMaybe mJournal (object ["type" .= ("server.stop" :: String), "atMs" .= startedAtMs, "port" .= port, "reason" .= ("shutdown" :: String)])
-        opsAppendMaybe mOps Nothing "server.stop" Nothing Nothing (Just stopRecord) Nothing Nothing Nothing Nothing
-    runBefore workDeadlineMs "supervised workers" $ do
-        stopped <- stopSupervisedWorkersBounded (shutdownTimeoutSec * 1000000) workers
-        unless stopped (ioError (userError "one or more supervised workers did not stop"))
-    runBefore workDeadlineMs "async jobs" $ do
-        stopped <- stopAsyncStoresBounded (shutdownTimeoutSec * 1000000) asyncStores
-        unless stopped (ioError (userError "one or more async jobs did not stop"))
-    runBefore workDeadlineMs "listen-key streams" (stopListenKeyStreams listenKeyManager)
-    runBefore workDeadlineMs "bot snapshots and workers" (stopAndPersistBots mOps mBotStateDir botCtrl)
-    runBefore finalDeadlineMs "Ops PostgreSQL close" (closeOpsStoreMaybe mOps)
-    finishedAtMs <- getTimestampMs
-    hPutStrLn stderr (printf "Serve shutdown completed in %dms." (max 0 (finishedAtMs - startedAtMs)))
+    outcomes <-
+        sequence
+            [ runBefore WorkCleanup "server.stop persistence" $ \_ -> do
+                journalWriteMaybe mJournal (object ["type" .= ("server.stop" :: String), "atMs" .= startedAtMs, "port" .= port, "reason" .= ("shutdown" :: String)])
+                opsAppendMaybe mOps Nothing "server.stop" Nothing Nothing (Just stopRecord) Nothing Nothing Nothing Nothing
+            , runBefore WorkCleanup "supervised workers" $ \remainingUs -> do
+                stopped <- stopSupervisedWorkersBounded remainingUs workers
+                unless stopped (ioError (userError "one or more supervised workers did not stop"))
+            , runBefore WorkCleanup "async jobs" $ \remainingUs -> do
+                stopped <- stopAsyncStoresBounded remainingUs asyncStores
+                unless stopped (ioError (userError "one or more async jobs did not stop"))
+            , runBefore WorkCleanup "listen-key streams" $ \_ -> stopListenKeyStreams listenKeyManager
+            , runBefore WorkCleanup "bot snapshots and workers" $ \_ -> stopAndPersistBots mOps mBotStateDir botCtrl
+            , runBefore FinalCleanup "Ops PostgreSQL close" $ \_ -> closeOpsStoreMaybe mOps
+            ]
+    finishedNS <- toInteger <$> getMonotonicTimeNSec
+    let elapsedMs = max 0 ((finishedNS - startedNS) `div` 1000000)
+        outcome :: String
+        outcome = if and outcomes then "all cleanup steps acknowledged" else "incomplete cleanup (failure or deadline)"
+    hPutStrLn stderr (printf "Serve shutdown: %s in %dms." outcome elapsedMs)
     hFlush stderr
 
 runRestApi :: Args -> Maybe Webhook -> IO ()

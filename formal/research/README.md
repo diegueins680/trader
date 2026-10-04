@@ -387,3 +387,11 @@ and eight worker fault fixtures. Actual PID disappearance is checked after each
 fault. Neural arithmetic, arbitrary OS schedules and full IO refinement are not
 proved. The frozen learner still has CE-RL-017. No financial trial, holdout access,
 champion change, deployment or broader obligation closure follows.
+
+
+Shutdown follow-up: [contract](shutdown-deadline-contract.md),
+[source lock](shutdown-source.json), [counterexamples](shutdown-counterexamples.json).
+The formal wrapper compiles actual production budget functions, checks 580
+integer cases (256 generated, seed 20261004) and eight runtime tests, alongside
+integer SMT and a six-stage model. No new dependencies. The machine-readable
+ledger distinguishes those three evidence classes and retains all broad blockers.

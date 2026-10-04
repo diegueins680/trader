@@ -355,6 +355,18 @@
         {
           "id": "F-RL-PROCESS-CONFORMANCE",
           "statement": "Compiled inference-process-v2 guards agree with bounded and generated model cases; synthetic network outputs, default modes, malformed inputs, blocked input, worker hangs, ignored TERM, CPU loops, late/invalid/EOF responses, startup timeout and cleanup failure are exercised. Worker termination is checked; these tests supplement the model and do not prove operating-system timing or universal neural numerical parity."
+        },
+        {
+          "id": "F-SHUTDOWN-BUDGET",
+          "statement": "Shutdown remaining microseconds use exact Integer monotonic arithmetic, stay within the compiled nonnegative Int range, never round beyond the remaining deadline, reject backward/expired clock samples, and do not increase as valid time advances."
+        },
+        {
+          "id": "F-SHUTDOWN-STAGES",
+          "statement": "The six-stage shutdown model attempts five work stages then final close in order, rejects expired stages, preserves failures in the aggregate report, and reaches a report under bounded primitive-return assumptions; an acknowledgement is not a proof of resource quiescence."
+        },
+        {
+          "id": "F-SHUTDOWN-CONFORMANCE",
+          "statement": "Compiled production shutdown budget functions agree with edge and generated integer cases; runtime tests exercise expired no-dispatch, exceptions and uninterruptible timeout, and reviewed Main source binds the six stages and truthful aggregate report. This is conformance evidence, not full IO refinement."
         }
       ],
       "invariants": [

@@ -60,7 +60,7 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
+    supported = {"F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
                  "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
@@ -178,6 +178,7 @@ def run(record=False, require_complete=False):
     from capability_isolation import check_isolation
     from snapshot_v2 import check_snapshot
     from inference_process import check_process
+    from shutdown_deadline import check_shutdown
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -230,6 +231,8 @@ def run(record=False, require_complete=False):
     result['replayCutoff'] = check_replay_cutoff()
     result['smt'].update(result['replayCutoff']['smt'])
     result['defaultPaths'] = check_defaults()
+    result['shutdownDeadline'] = check_shutdown()
+    result['smt'].update(result['shutdownDeadline']['smt'])
     result['inferenceProcess'] = check_process()
     result['smt'].update(result['inferenceProcess']['smt'])
     result['snapshotV2'] = check_snapshot()
@@ -244,6 +247,7 @@ def run(record=False, require_complete=False):
     reproduced = {key: 'smt_verified' for key, value in result['smt'].items() if value == 'unsat'}
     for requirement, path in {
         'F-RL-LIFECYCLE': ('model',),
+        'F-SHUTDOWN-STAGES': ('shutdownDeadline', 'model'),
         'F-RL-PROCESS-LIFECYCLE': ('inferenceProcess', 'model'),
         'F-RL-SNAPSHOT-PUBLISH': ('snapshotV2', 'model'),
         'F-RL-ARTIFACT-PATH': ('artifactAdmission', 'model'),
@@ -288,6 +292,7 @@ def run(record=False, require_complete=False):
                       'optimizerPublication': result['optimizerPublication'],
                       'inferenceBoundary': result['inferenceBoundary'],
                       'inferenceProcess': result['inferenceProcess'],
+                      'shutdownDeadline': result['shutdownDeadline'],
                       'opeAlgebra': result['opeAlgebra'],
                       'exactESSV2': result['exactESSV2'],
                       'fundingBoundary': result['fundingBoundary'],
