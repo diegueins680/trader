@@ -57,8 +57,9 @@ verify_haskell() {
   # formatting/lint failure that aborts the script early (set -e). This mirrors
   # the autoloop merge build gate.
   run_haskell_shell "cabal build"
-  run_haskell_shell "find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check"
+  run_haskell_shell "find app test bench research -name '*.hs' -print0 | xargs -0 fourmolu --mode check"
   run_haskell_shell "bash scripts/hlint_check.sh"
+  run_haskell_shell "hlint research"
   run_haskell_shell "bash scripts/ci_smoke.sh"
   run_haskell_shell "cabal test --test-show-details=direct"
 }

@@ -60,7 +60,7 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
+    supported = {"F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
                  "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
@@ -177,6 +177,7 @@ def run(record=False, require_complete=False):
     from default_paths import check_defaults
     from capability_isolation import check_isolation
     from snapshot_v2 import check_snapshot
+    from inference_process import check_process
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -229,6 +230,8 @@ def run(record=False, require_complete=False):
     result['replayCutoff'] = check_replay_cutoff()
     result['smt'].update(result['replayCutoff']['smt'])
     result['defaultPaths'] = check_defaults()
+    result['inferenceProcess'] = check_process()
+    result['smt'].update(result['inferenceProcess']['smt'])
     result['snapshotV2'] = check_snapshot()
     result['smt'].update(result['snapshotV2']['smt'])
     result['capabilityIsolation'] = check_isolation()
@@ -241,6 +244,7 @@ def run(record=False, require_complete=False):
     reproduced = {key: 'smt_verified' for key, value in result['smt'].items() if value == 'unsat'}
     for requirement, path in {
         'F-RL-LIFECYCLE': ('model',),
+        'F-RL-PROCESS-LIFECYCLE': ('inferenceProcess', 'model'),
         'F-RL-SNAPSHOT-PUBLISH': ('snapshotV2', 'model'),
         'F-RL-ARTIFACT-PATH': ('artifactAdmission', 'model'),
         'F-RL-TARGET-V2-PUBLISH': ('targetV2', 'model'),
@@ -260,6 +264,7 @@ def run(record=False, require_complete=False):
     reproduced['F-RL-DEFAULT-PATH'] = result['defaultPaths']['status']
     for part in ('graph', 'effects'):
         reproduced[result['capabilityIsolation'][part]['requirement']] = 'exhaustively_checked'
+    reproduced['F-RL-PROCESS-ISOLATION'] = result['inferenceProcess']['isolation']['status']
     reproduced['F-RL-SNAPSHOT-ISOLATION'] = result['snapshotV2']['isolation']['status']
     acceptance = acceptance_summary(ledger['missionObligations'], ledger['entries'], reproduced, ledger['researchAcceptanceGates'], ROOT)
     result['obligationClosure'] = acceptance
@@ -282,6 +287,7 @@ def run(record=False, require_complete=False):
                       'valueObjective': result['valueObjective'],
                       'optimizerPublication': result['optimizerPublication'],
                       'inferenceBoundary': result['inferenceBoundary'],
+                      'inferenceProcess': result['inferenceProcess'],
                       'opeAlgebra': result['opeAlgebra'],
                       'exactESSV2': result['exactESSV2'],
                       'fundingBoundary': result['fundingBoundary'],

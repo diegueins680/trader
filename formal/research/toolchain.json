@@ -29,7 +29,8 @@
     "scripts/formal/default_paths.py",
     "scripts/formal/capability_isolation.py",
     "formal/research/ComponentGraph.hs",
-    "scripts/formal/snapshot_v2.py"
+    "scripts/formal/snapshot_v2.py",
+    "scripts/formal/inference_process.py"
   ],
   "sourceHashes": {
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
@@ -37,14 +38,14 @@
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
-    "scripts/formal/verify.py": "d896189cf7fd47b677caf44420d02e3d8c854ee17f8170be3fee619afa4a47ee",
-    "scripts/formal/test_integrity.py": "dccdd16eb22f7666ac8aeefae1bd6ad96eaf1f0b11424e0fcfd3fcf0013f5e6e",
+    "scripts/formal/verify.py": "a612663784aaeb21296436052a46522788a235398a92d84505f3c74c1e3d21a6",
+    "scripts/formal/test_integrity.py": "8e6249d8dee0fd372d0efef8aeb0c844a096c2e214159465e465dc321cc050df",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
-    "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
+    "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/proof-ledger.json": "0fa10690b7812cc248fa0ef171f38173e9575ae994049066d52a39ad1fe5f0f5",
+    "formal/research/proof-ledger.json": "1fd0dab2ab133fce912da6e9759acebe6a2f93e4436990a3da8196faff57d918",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -120,10 +121,10 @@
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "scripts/formal/default_paths.py": "48959a79c17e0cd96e89929df5eefec819fd824349c525ed597f4011b463d85d",
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
-    "formal/research/obligation-closure-audit.md": "b84c7c5e555fa45154db799bab772be5e62746aaaa9bc7e68bf8e29aa3cb03bc",
+    "formal/research/obligation-closure-audit.md": "8527df8273c4af559af83fb89c1328e00a81b25675aec908da118e1a2d12a207",
     "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
-    "formal/research/obligation-contracts.json": "9b78e99728aeb6a816833b31ee3f2330f87aaa9248869e870471052a6262db74",
+    "formal/research/obligation-contracts.json": "fe66e17d979de184c609a187b61de05e15e2c3cdafea9621e40e46deaf1fab2f",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
     "formal/research/capability-source-contract.json": "2638e58baf5593cdd3226a8db15825fef15446d07d5df679c7f0528a952b941d",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
@@ -256,8 +257,16 @@
     "formal/research/snapshot-v2-source.json": "24bcfa01d029c9067d899ab080d523ba6d3bcc9eda5de21cd9ab217f1d98415b",
     "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
     "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
-    "research-notes/registrations/optimizer-snapshot-v2-engineering.json": "7716738a757a6b9b85c251235366ed94eefe5554d4a2deeddb7d2230ea489545"
+    "research-notes/registrations/optimizer-snapshot-v2-engineering.json": "7716738a757a6b9b85c251235366ed94eefe5554d4a2deeddb7d2230ea489545",
+    "haskell/research/InferenceProcessV2.hs": "2aab32a716984ff234e722f5667fc2f10e2c4a74a4b674448f31c5df176e53ae",
+    "scripts/formal/inference_process.py": "f674b064e2e1c70fab40d3eedea4badcc199063a3c7b4e85e5d4c12d19e689a2",
+    "formal/research/inference-process-source.json": "2963191a3e1c4c2424065fab8f60cb92d61ec8daca15b7a9e95c019dfae9d2b2",
+    "formal/research/inference-process-v2-contract.md": "6b528b91af01054ee24bb270227dc7ef9629831bcc1ad06aa296c3c0433bf5a7",
+    "research-notes/registrations/inference-process-v2-engineering.json": "55102aca5df4e79e2aa82df87a22809097f867da3d5001905291c1d1451cf757"
   },
   "numpy": "2.3.5",
-  "cabalParserLibrary": "3.8.1.0"
+  "cabalParserLibrary": "3.8.1.0",
+  "process": "1.6.18.0",
+  "unix": "2.7.3",
+  "researchWorkerRts": "-threaded -with-rtsopts=-V0.001"
 }

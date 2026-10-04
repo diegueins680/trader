@@ -1,5 +1,13 @@
 # Canonical Formal Specifications
 
+The [inference process v2 contract](../formal/research/inference-process-v2-contract.md)
+adds F-RL-PROCESS-LIFECYCLE (conditional finite model), F-RL-PROCESS-ADMISSION
+(integer SMT), F-RL-PROCESS-ISOLATION (reviewed finite source boundary) and
+F-RL-PROCESS-CONFORMANCE (compiled property/fault tests). A-INFERENCE-PROCESS
+names OS, compiler, self-binary and PID assumptions. Source locks and tests do not
+constitute full IO refinement. No broader closure is inferred from these components.
+
+
 Current closure status (2026-10-03): [all 38 audited obligations](../formal/research/obligation-closure-audit.md) now have explicit criteria. Obligations 11, 24 and 31 are `exhaustively_checked` for the delivered offline boundary; 35 remain open/partial. The [capability contract](../formal/research/capability-isolation-contract.md) combines complete parsed dependency closure, enumerated inference effects and SMT artifact-key incompatibility, under explicit compiler/primitive/packaging assumptions; it does not certify inherited live authority or deployed images. Earlier all-38 statements below describe historical audit snapshots. Formal completion is computed separately from empirical research acceptance.
 
 The [snapshot v2 contract](../formal/research/optimizer-snapshot-v2-contract.md) adds a source-bound two-writer model, integer/IEEE guard checks, source-effect enumeration and real implementation conformance. Immutable single-reference publication repairs the new optimizer path; inherited atomicity/race obligations remain partial. No hard deadline, durable transaction, recovery or frozen-v1 repair is implied.

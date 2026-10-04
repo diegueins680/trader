@@ -1,5 +1,18 @@
 ## Unreleased
 
+## Offline inference cancellation engineering follow-up (2026-10-03)
+
+- Add a separately registered, default-disabled Haskell subprocess fixture for
+  one-shot synthetic inference, strict versioned reply frames and a 20 ms request
+  budget including input parsing, cleanup and final admission. Startup is separate.
+- Add source-bound integer SMT, a 57-state/143-transition conditional lifecycle
+  model, compiled guard/property tests and real process fault fixtures including
+  ignored TERM, CPU hangs and cleanup failure. General-purpose OS timing is not proved.
+- Preserve frozen v1, the sealed holdout, champion and all production controls.
+  Obligations 21/36 gain implementation evidence but remain partial; three of 38
+  broader obligations are closed only for their explicit affected scope.
+
+
 - Research infrastructure: add `optimizer-snapshot-v2`, disabled by default, with immutable numeric state, single-snapshot forward/update reads, nonblocking conditional publication and pinned runtime admission. Verify two-writer publication and preserve the byte-view one-ULP regression as CE-RL-023; use native working copies for arithmetic. Frozen algorithms, artifacts and production behavior are unchanged; broad atomicity/race obligations remain partial.
 
 - Research assurance: extract all six executable dependency graphs with pinned GHC/Cabal parsers, check admitted inference effects and prove emitted RL/native LSTM artifact key incompatibility. Close obligations 11 and 24 only for the delivered research boundary under explicit compiler/runtime assumptions; 35 remain unresolved. Production and frozen research behavior are unchanged.

@@ -647,6 +647,65 @@
       "F-RL-INFER-SELECTION": "unsat"
     }
   },
+  "inferenceProcess": {
+    "conformance": {
+      "defaultModes": 3,
+      "faultFixtures": [
+        "bad_reply",
+        "cleanup_failed",
+        "cpu_hang",
+        "eof",
+        "hang",
+        "ignore_term",
+        "late",
+        "startup_hang"
+      ],
+      "generatedSeed": 20261003,
+      "guardCases": 226,
+      "heldOpenInput": true,
+      "invalidRequestCases": 7,
+      "networkSeeds": [
+        11,
+        23,
+        47
+      ],
+      "normalAttempts": 10,
+      "scope": "compiled conformance and process tests, not OS or real-time proof",
+      "syntheticNetworkCases": 12
+    },
+    "isolation": {
+      "childEnvironment": [],
+      "dispatchCases": 4,
+      "launchCommands": 1,
+      "productionComponents": 0,
+      "requirement": "F-RL-PROCESS-ISOLATION",
+      "scope": "reviewed closed source boundary under A-INFERENCE-PROCESS, not OS sandbox",
+      "sourceSha256": "2aab32a716984ff234e722f5667fc2f10e2c4a74a4b674448f31c5df176e53ae",
+      "status": "exhaustively_checked"
+    },
+    "model": {
+      "acceptedStates": 6,
+      "children": 1,
+      "cleanupFailureStates": 3,
+      "expiredReplyStatesRejected": 3,
+      "initialRank": 11,
+      "maxShortestDepth": 8,
+      "pollStepsPerWindow": 2,
+      "requests": 1,
+      "retries": 0,
+      "scope": "conditional finite control abstraction; OS primitives and compiler trusted",
+      "states": 57,
+      "timeBuckets": [
+        0,
+        1,
+        2
+      ],
+      "transitions": 143
+    },
+    "smt": {
+      "F-RL-PROCESS-ADMISSION": "unsat"
+    }
+  },
   "model": {
     "callers": 2,
     "counterexampleToRevocation": [
@@ -1306,6 +1365,7 @@
     "F-RL-POSTCOST-EXPOSURE": "unsat",
     "F-RL-PPO-COEFFICIENT": "unsat",
     "F-RL-PPO-OBJECTIVE": "unsat",
+    "F-RL-PROCESS-ADMISSION": "unsat",
     "F-RL-REPLAY-CUTOFF": "unsat",
     "F-RL-REPLAY-DUE": "unsat",
     "F-RL-REWARD-RECONCILE": "unsat",
@@ -1419,8 +1479,10 @@
     "formal/research/gap-risk-contract.md": "daf4b639258035c8c92c6a7a7c026480a74901e51152baa7c7bd930f3598a83f",
     "formal/research/inference-boundary-contract.md": "31d8e3cbc412bd519365542d5db3c9eccc42d07346bafac8141a053bd2cc67d6",
     "formal/research/inference-counterexamples.json": "861bbecef8f56379e6590508820ed52597c0100bb302cb1f289fe39303a5f838",
-    "formal/research/obligation-closure-audit.md": "b84c7c5e555fa45154db799bab772be5e62746aaaa9bc7e68bf8e29aa3cb03bc",
-    "formal/research/obligation-contracts.json": "9b78e99728aeb6a816833b31ee3f2330f87aaa9248869e870471052a6262db74",
+    "formal/research/inference-process-source.json": "2963191a3e1c4c2424065fab8f60cb92d61ec8daca15b7a9e95c019dfae9d2b2",
+    "formal/research/inference-process-v2-contract.md": "6b528b91af01054ee24bb270227dc7ef9629831bcc1ad06aa296c3c0433bf5a7",
+    "formal/research/obligation-closure-audit.md": "8527df8273c4af559af83fb89c1328e00a81b25675aec908da118e1a2d12a207",
+    "formal/research/obligation-contracts.json": "fe66e17d979de184c609a187b61de05e15e2c3cdafea9621e40e46deaf1fab2f",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
@@ -1428,7 +1490,7 @@
     "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "0fa10690b7812cc248fa0ef171f38173e9575ae994049066d52a39ad1fe5f0f5",
+    "formal/research/proof-ledger.json": "1fd0dab2ab133fce912da6e9759acebe6a2f93e4436990a3da8196faff57d918",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
@@ -1564,6 +1626,7 @@
     "haskell/app/Trader/Trading.hs": "c65596455803112e30986fc638e5975daac0ab4e57dc0206454fc49888473693",
     "haskell/app/Trader/Types/Safe.hs": "5c03e2856590967c717f2c0dc026636497f8dbd2f64d98f2e845473f72e78263",
     "haskell/app/Trader/VolConfGate.hs": "960283ce0191fed59f9d554276e6b07fe4c75b3c2a1c1a211ee24a0d9d8c8cdd",
+    "haskell/research/InferenceProcessV2.hs": "2aab32a716984ff234e722f5667fc2f10e2c4a74a4b674448f31c5df176e53ae",
     "haskell/scripts/rollup_performance.sh": "450d7650ca208938cbc4c7ef24c630415b9a15c06e8bbdb06437942354c5d5e4",
     "haskell/trader.cabal": "abdc34bf8b1d245497ca15810c13a06e0f96a23088025d7942564837fbe20369",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
@@ -1571,6 +1634,7 @@
     "research-notes/registrations/funding-boundary-audit-engineering.json": "cc16f1ff23ba0012bc3fb1d3f09edcf3a14742d49ebb64223c9c83858e7fc398",
     "research-notes/registrations/gae-targets-v2-engineering.json": "293eb15ab55924c7b05c28be805ad787c1e821c1d12220f676b973c851f5e4d7",
     "research-notes/registrations/inference-boundary-audit-engineering.json": "79a56c520b05c76bbe941dd56645b3cc7bd5702474e3830831d7c90619d01f76",
+    "research-notes/registrations/inference-process-v2-engineering.json": "55102aca5df4e79e2aa82df87a22809097f867da3d5001905291c1d1451cf757",
     "research-notes/registrations/numerical-query-isolation-engineering.json": "fa70b6d59e461b2b2b337a55f911c5541891783edd5e8e79b7f37ea7c63e9af5",
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
     "research-notes/registrations/ope-algebra-audit-engineering.json": "7c9b5f1c5b03888f8fbd7705c70a03e6b949fb227ff52e60d2f78a6e9e6c097c",
@@ -1594,6 +1658,7 @@
     "scripts/formal/gap_conformance.py": "e5e900f8aa492c786f61d69d4e791f09dd87833229a3f820c0afefb9d753ac7a",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
     "scripts/formal/inference_boundary.py": "b5c567d975661a28f1e7fb8b884b71e98210c20b9deba97cdf6d068432a18ead",
+    "scripts/formal/inference_process.py": "f674b064e2e1c70fab40d3eedea4badcc199063a3c7b4e85e5d4c12d19e689a2",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/ope_algebra.py": "3e7eeae7e52732464e34d15210c0d479e1414eae05e945b69b7a18ef4483413e",
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
@@ -1606,11 +1671,11 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "dccdd16eb22f7666ac8aeefae1bd6ad96eaf1f0b11424e0fcfd3fcf0013f5e6e",
+    "scripts/formal/test_integrity.py": "8e6249d8dee0fd372d0efef8aeb0c844a096c2e214159465e465dc321cc050df",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "d896189cf7fd47b677caf44420d02e3d8c854ee17f8170be3fee619afa4a47ee",
+    "scripts/formal/verify.py": "a612663784aaeb21296436052a46522788a235398a92d84505f3c74c1e3d21a6",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
@@ -1619,7 +1684,7 @@
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/research/sequential_evaluation.py": "fbe9c0a1c974c55985c8dcdfe19479072215b384af567daa5c0a710e6da2ad48",
     "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
-    "scripts/verify.sh": "1d796ef06d1c58553e83988e21b82b758bcc6cabd5af1fcf98b001b9912d8f07",
+    "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
     "test/sequential_screen_test.py": "c8d365e228ee4e7a5ec4b9bd06f725a671510b9806a2a5b93b7ca836f9cf5176"
   },

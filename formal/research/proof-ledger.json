@@ -163,6 +163,12 @@
       "status": "assumption",
       "statement": "Ordinary pinned GIL-enabled CPython 3.13.3 slotted reference reads/stores and lock primitives are atomic; stable base NumPy 2.3.5 arrays, finite scans and byte serialization preserve values; frozen dataclass/native bytes discipline is respected. Stable caller buffers during copies, normal resources, no malicious reflection, custom dispatch or monkeypatching. No compiler/runtime refinement theorem, wall-clock preemption or durable transaction is established; interrupted lock handoff may strand writers but cannot expose a mixed snapshot.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-INFERENCE-PROCESS",
+      "status": "assumption",
+      "statement": "Trusted pinned GHC 9.4.8/process 1.6.18.0/unix 2.7.3 and self executable; stable PID until this sole parent reaps; no descendants, external reaper, hostile replacement or injected code. Monotonic clock, bounded process creation/IO/signal primitives and parent/timer scheduling. Repeated async cancellation, process death, neural arithmetic equivalence and production shutdown are not proved. See inference-process-v2-contract.md.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -200,7 +206,10 @@
     "scripts/formal/capability_isolation.py",
     "formal/research/ComponentGraph.hs",
     "scripts/research/optimizer_snapshot_v2.py",
-    "scripts/formal/snapshot_v2.py"
+    "scripts/formal/snapshot_v2.py",
+    "haskell/research/InferenceProcessV2.hs",
+    "scripts/formal/inference_process.py",
+    "formal/research/inference-process-source.json"
   ],
   "entries": [
     {
@@ -2422,6 +2431,122 @@
       "limitations": "Trusted primitive/reference semantics and typed ordinary API domain. No claim about arbitrary private-state tampering, full NumPy arithmetic, all BLAS bit patterns, durable state, automatic retry, hard cancellation or production ownership/lifecycle.",
       "counterexample": "CE-RL-023",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-PROCESS-LIFECYCLE",
+      "claim": "For the one-child/one-request inference-process-v2 control abstraction, every bounded startup, reply, timeout and cleanup branch reaches quiescence or explicit cleanup failure; expired replies and failed cleanup cannot emit a candidate, and no retry, successor or live-authority transition exists. Progress depends on bounded OS primitives and scheduler service; source locks and compiled tests do not establish complete IO refinement.",
+      "criticality": "critical",
+      "formalStatement": "For the one-child/one-request inference-process-v2 control abstraction, every bounded startup, reply, timeout and cleanup branch reaches quiescence or explicit cleanup failure; expired replies and failed cleanup cannot emit a candidate, and no retry, successor or live-authority transition exists. Progress depends on bounded OS primitives and scheduler service; source locks and compiled tests do not establish complete IO refinement.",
+      "assumptions": [
+        "A-INFERENCE-PROCESS",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite checker and compiled Haskell conformance",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_process.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/research/InferenceProcessV2.hs",
+        "formal/research/inference-process-source.json",
+        "formal/research/inference-process-v2-contract.md"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/inference_process.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced by the canonical gate; no runner or production integration and no economic acceptance.",
+      "bounds": "One child/request; zero retries; 57 states, 143 transitions, depth 8, initial rank 11; three saturated request-time buckets, two poll steps/window; integer guard unbounded timestamps, elapsed admitted [0,20000000) ns. Startup wait 1 s, two cleanup windows 50 ms each, plus named OS/scheduler overhead.",
+      "limitations": "No unconditional wall-clock theorem, full Haskell IO refinement, OS sandbox, artifact compatibility or proof of inherited server shutdown. v1 CE-RL-017 remains refuted. Initialization precedes reading a request; real observation availability remains unverified.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-PROCESS-ADMISSION",
+      "claim": "The source-bound inference-process-v2 integer admission predicate returns only quarter-exposure codes -1, 0 or 1, only after successful cleanup and with elapsed request time in [0,20000000) nanoseconds. Invalid frames, negative/expired elapsed times and failed cleanup return absence; clock-to-world and IO semantics are assumptions.",
+      "criticality": "critical",
+      "formalStatement": "The source-bound inference-process-v2 integer admission predicate returns only quarter-exposure codes -1, 0 or 1, only after successful cleanup and with elapsed request time in [0,20000000) nanoseconds. Invalid frames, negative/expired elapsed times and failed cleanup return absence; clock-to-world and IO semantics are assumptions.",
+      "assumptions": [
+        "A-INFERENCE-PROCESS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_process.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/research/InferenceProcessV2.hs",
+        "formal/research/inference-process-source.json",
+        "formal/research/inference-process-v2-contract.md"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/inference_process.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced by the canonical gate; no runner or production integration and no economic acceptance.",
+      "bounds": "One child/request; zero retries; 57 states, 143 transitions, depth 8, initial rank 11; three saturated request-time buckets, two poll steps/window; integer guard unbounded timestamps, elapsed admitted [0,20000000) ns. Startup wait 1 s, two cleanup windows 50 ms each, plus named OS/scheduler overhead.",
+      "limitations": "No unconditional wall-clock theorem, full Haskell IO refinement, OS sandbox, artifact compatibility or proof of inherited server shutdown. v1 CE-RL-017 remains refuted. Initialization precedes reading a request; real observation availability remains unverified.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PROCESS-ISOLATION",
+      "claim": "The reviewed research-only inference-process-v2 executable defaults to absence before input or launch, accepts only explicit versioned offline modes, launches only its own trusted binary with fixed worker arguments and an empty environment, writes no files or policy parameters, and has no order/promotion interface or production component reference. This finite source-bound check is not an OS sandbox or deployed-image guarantee.",
+      "criticality": "critical",
+      "formalStatement": "The reviewed research-only inference-process-v2 executable defaults to absence before input or launch, accepts only explicit versioned offline modes, launches only its own trusted binary with fixed worker arguments and an empty environment, writes no files or policy parameters, and has no order/promotion interface or production component reference. This finite source-bound check is not an OS sandbox or deployed-image guarantee.",
+      "assumptions": [
+        "A-INFERENCE-PROCESS",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite checker and compiled Haskell conformance",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_process.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/research/InferenceProcessV2.hs",
+        "formal/research/inference-process-source.json",
+        "formal/research/inference-process-v2-contract.md"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/inference_process.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced by the canonical gate; no runner or production integration and no economic acceptance.",
+      "bounds": "One child/request; zero retries; 57 states, 143 transitions, depth 8, initial rank 11; three saturated request-time buckets, two poll steps/window; integer guard unbounded timestamps, elapsed admitted [0,20000000) ns. Startup wait 1 s, two cleanup windows 50 ms each, plus named OS/scheduler overhead.",
+      "limitations": "No unconditional wall-clock theorem, full Haskell IO refinement, OS sandbox, artifact compatibility or proof of inherited server shutdown. v1 CE-RL-017 remains refuted. Initialization precedes reading a request; real observation availability remains unverified.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-PROCESS-CONFORMANCE",
+      "claim": "Compiled inference-process-v2 guards agree with bounded and generated model cases; synthetic network outputs, default modes, malformed inputs, blocked input, worker hangs, ignored TERM, CPU loops, late/invalid/EOF responses, startup timeout and cleanup failure are exercised. Worker termination is checked; these tests supplement the model and do not prove operating-system timing or universal neural numerical parity.",
+      "criticality": "high",
+      "formalStatement": "Compiled inference-process-v2 guards agree with bounded and generated model cases; synthetic network outputs, default modes, malformed inputs, blocked input, worker hangs, ignored TERM, CPU loops, late/invalid/EOF responses, startup timeout and cleanup failure are exercised. Worker termination is checked; these tests supplement the model and do not prove operating-system timing or universal neural numerical parity.",
+      "assumptions": [
+        "A-INFERENCE-PROCESS",
+        "A-SOLVER"
+      ],
+      "tool": "source-bound finite checker and compiled Haskell conformance",
+      "toolVersion": "GHC 9.4.8; process 1.6.18.0; unix 2.7.3; CPython 3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/inference_process.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/research/InferenceProcessV2.hs",
+        "formal/research/inference-process-source.json",
+        "formal/research/inference-process-v2-contract.md"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/inference_process.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped certificate reproduced by the canonical gate; no runner or production integration and no economic acceptance.",
+      "bounds": "One child/request; zero retries; 57 states, 143 transitions, depth 8, initial rank 11; three saturated request-time buckets, two poll steps/window; integer guard unbounded timestamps, elapsed admitted [0,20000000) ns. Startup wait 1 s, two cleanup windows 50 ms each, plus named OS/scheduler overhead.",
+      "limitations": "No unconditional wall-clock theorem, full Haskell IO refinement, OS sandbox, artifact compatibility or proof of inherited server shutdown. v1 CE-RL-017 remains refuted. Initialization precedes reading a request; real observation availability remains unverified.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -2701,11 +2826,12 @@
         "F-RL-POLICY-EFFECTS",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-DEFAULT-PATH",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ],
-      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open.",
+      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
-      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
+      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no production executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
       "nextAction": "Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates.",
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -2715,7 +2841,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/formal/capability_isolation.py",
         "formal/research/ComponentGraph.hs",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -2724,7 +2851,8 @@
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
         "F-RL-DEFAULT-PATH",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ]
     },
     {
@@ -2951,18 +3079,24 @@
         "F-RL-SHIELD-FALLBACK",
         "F-RL-INFER-ADMISSION",
         "F-RL-INFER-SELECTION",
-        "F-RL-INFER-PATH"
+        "F-RL-INFER-PATH",
+        "F-RL-PROCESS-LIFECYCLE",
+        "F-RL-PROCESS-ADMISSION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-PROCESS-CONFORMANCE"
       ],
-      "limitations": "Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
-      "nextAction": "Implement a separate bounded worker/cancellation interface with typed absent results; model check timeout and late-result races.",
+      "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "blockers": [
-        "CE-RL-017: post-call elapsed check cannot preempt a nonreturning forward call."
+        "Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner.",
+        "Inherited server admission/draining and shutdown are not refined by this one-child model; real observation staleness and external primitive bounds remain unverified."
       ],
       "requiredCertificates": []
     },
@@ -3032,9 +3166,10 @@
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
         "F-RL-DEFAULT-PATH",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ],
-      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open.",
+      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
       "closureCriteria": "The pinned executable/deployment source boundary excludes delivered research training; admitted offline inference never writes policy parameters, and emitted policies cannot enter native LSTM persistence unchanged.",
       "nextAction": "Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates.",
@@ -3044,7 +3179,8 @@
         "haskell/trader.cabal",
         "scripts/formal/capability_isolation.py",
         "formal/research/ComponentGraph.hs",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -3053,7 +3189,8 @@
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-AUTH",
         "F-RL-DEFAULT-PATH",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ]
     },
     {
@@ -3194,9 +3331,10 @@
         "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
         "F-RL-ARTIFACT-METADATA",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ],
-      "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit.",
+      "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
       "closureCriteria": "All delivered candidate inference/proposal/numeric entry points default to absent and persisted policy enabled flags remain False.",
       "nextAction": "Closed for delivered offline boundary; reopen before any new entry point, production integration or changed default.",
@@ -3205,14 +3343,16 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/gae_targets_v2.py",
         "scripts/research/ess_rational_v2.py",
-        "scripts/research/optimizer_snapshot_v2.py"
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "blockers": [],
       "requiredCertificates": [
         "F-RL-DEFAULT-PATH",
         "F-RL-DEFAULT",
         "F-RL-ARTIFACT-METADATA",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION"
       ]
     },
     {
@@ -3325,19 +3465,25 @@
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
         "F-RL-TARGET-V2-PUBLISH",
-        "F-RL-INFER-DEADLINE"
+        "F-RL-INFER-DEADLINE",
+        "F-RL-PROCESS-LIFECYCLE",
+        "F-RL-PROCESS-ADMISSION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-PROCESS-CONFORMANCE"
       ],
-      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-017 records a nonreturning inference model; this does not model or verify server shutdown or cancellation.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
-      "nextAction": "Implement and model cancellation/timeout/failure states, then connect actual shutdown to the rank argument.",
+      "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/research/InferenceProcessV2.hs"
       ],
       "blockers": [
-        "CE-RL-017 nonreturning inference and absent runtime cancellation defeat unconditional liveness."
+        "Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner.",
+        "Inherited server admission/draining and shutdown are not refined by this one-child model; real observation staleness and external primitive bounds remain unverified."
       ],
       "requiredCertificates": []
     },
