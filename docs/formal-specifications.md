@@ -622,3 +622,7 @@ scheduler/logging assumptions and unresolved worker/route races. Broad obligatio
 ### Supervised worker registry follow-up (2026-10-04)
 
 F-WORKER-REGISTRY-LIFECYCLE checks 14,095 states and 55,904 transitions (two workers, two callers, two timeout ticks each). F-WORKER-REGISTRY-INVARIANTS proves seven reviewed Boolean atomic-step predicates with Z3. F-WORKER-REGISTRY-CONFORMANCE runs five compiled tests, 32 fixed-seed scheduling cases, and three preserved old/new regression comparisons. The [contract](../formal/research/worker-registry-contract.md) names A-WORKER-REGISTRY and the model-to-IO refinement gap. Source hashes, traceability and receipts are checked by the existing formal/full gate. SHUTDOWN-DEADLINE-001 remains HIGH/OPEN; no entire broader obligation is closed by this worker-only repair.
+
+### Async job admission follow-up (2026-10-04)
+
+F-ASYNC-ADMISSION-NUMERIC checks six bounded-Int SMT predicates; F-ASYNC-ADMISSION-LIFECYCLE checks two callers at capacities one/two (369 states, 846 transitions, depth 14, rank 20); F-ASYNC-ADMISSION-CONFORMANCE runs 292 numeric cases, seven runtime tests and 32 generated concurrency cases. The [contract](../formal/research/async-job-admission-contract.md) scopes A-ASYNC-ADMISSION, the baseline control-slice adapter and the unresolved full IO refinement, durable persistence and HTTP admission gaps. No broader obligation is closed by these scoped certificates.
