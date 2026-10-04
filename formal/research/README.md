@@ -1,6 +1,6 @@
 # Offline research verification runbook
 
-Closure correction (2026-10-03): [contract](closure-contract.md), [all-38 audit](obligation-closure-audit.md), and [CE-RL-021](closure-counterexamples.json). Source-derived finite default paths close obligation 31 for the delivered offline boundary. Same-run certificates are required for closure; 37 other obligations and both research acceptance gates remain blocked.
+Closure correction (2026-10-03): [contract](closure-contract.md), [all-38 audit](obligation-closure-audit.md), and [CE-RL-021](closure-counterexamples.json). Source-derived default paths and [capability isolation](capability-isolation-contract.md) close obligations 11, 24 and 31 for the delivered offline boundary. Same-run certificates are required for closure; 35 other obligations and both research acceptance gates remain blocked.
 
 
 Reward accounting (2026-10-03): [contract](reward-accounting-contract.md), [registration](../../research-notes/registrations/reward-accounting-audit-engineering.json), [fixtures](reward-accounting-fixtures.json). Seven SAT-premise/UNSAT-violation pairs cover three real-arithmetic requirements; a separate SAT witness refutes additive reward-as-return interpretation. Both wrappers run 1,944 synthetic episode checks. No new dependency.
@@ -44,7 +44,7 @@ A separate acceptance diagnostic deliberately fails today:
 "${TRADER_FORMAL_PYTHON:-python3}" scripts/formal/verify.py --require-complete
 ```
 
-It computes 37 unresolved obligations and one closed affected-scope obligation. The count is not hardcoded.
+It computes 35 unresolved obligations and three closed affected-scope obligations. The count is not hardcoded.
 A green scoped gate does not make this draft ready for candidate integration.
 There is no switch in this work to authorize a candidate, experiment or order.
 
@@ -276,3 +276,26 @@ conformance. `ess-rational-v2` defaults disabled and is not imported by existing
 research consumers. Dynamic import exclusion and full Python/Fraction refinement
 are not proved. CE-RL-018 remains in the frozen helper; no statistical or policy
 claim is repaired by this independent arithmetic diagnostic.
+
+## Capability source extraction
+
+`ComponentGraph.hs` compiles with `ghc -package ghc-9.4.8 -package Cabal-3.8.1.0`.
+Cabal 3.8.1.0 here is the parser library bundled with pinned GHC 9.4.8; the command
+line Cabal remains 3.12.1.0. No new package download is required. The formal wrapper
+builds the parser in a temporary directory and runs without network access.
+
+The pinned inventory has 116 application source files and 286 local import edges.
+All six executable roots are traversed to a fixed point, without a depth cutoff.
+Parsed declarations bind the private pure Haskell surface and native JSON decoder;
+three Python inference helper ASTs bind a reviewed primitive-effect contract.
+The schema SMT query uses 12 Boolean membership variables, checks a satisfiable
+premise and an unsatisfiable violation. It does not verify profitability or native
+Aeson implementation semantics. Three rejected type forgeries and inference-state
+snapshots are conformance tests. Mutation tests exercise missing/transitive imports,
+source generation, build branches, new writes/calls and schema overlap.
+
+Re-review is required on source/inventory/schema/helper/packaging drift. Runtime
+binary/PATH integrity and no injected code are named assumptions, not checked OS
+isolation. Existing production authorization and existing champion learning are
+outside these closures. The legacy GHC 8.10.4 Docker recipe remains unmodified and
+is not certified buildable; actual deployment images were not inspected or changed.

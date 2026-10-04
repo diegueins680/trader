@@ -127,15 +127,25 @@
     {
       "number": 11,
       "claim": "Capability separation",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
-      "closureCriteria": "No research value can construct an authorized order capability across the delivered import/call graph.",
-      "requiredCertificates": [],
+      "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
+      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
+      "requiredCertificates": [
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH"
+      ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Trader/LiveOrderIntent.hs",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 12,
@@ -286,14 +296,23 @@
     {
       "number": 24,
       "claim": "No production learning",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
-      "closureCriteria": "Production execution cannot mutate policy parameters.",
-      "requiredCertificates": [],
+      "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
+      "closureCriteria": "The pinned executable/deployment source boundary excludes delivered research training; admitted offline inference never writes policy parameters, and emitted policies cannot enter native LSTM persistence unchanged.",
+      "requiredCertificates": [
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH"
+      ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 25,

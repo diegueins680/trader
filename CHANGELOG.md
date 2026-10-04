@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research assurance: extract all six executable dependency graphs with pinned GHC/Cabal parsers, check admitted inference effects and prove emitted RL/native LSTM artifact key incompatibility. Close obligations 11 and 24 only for the delivered research boundary under explicit compiler/runtime assumptions; 35 remain unresolved. Production and frozen research behavior are unchanged.
+
 - Research assurance: replace the impossible obligation-closure restriction with same-run certificate validation, audit all 38 closure criteria, and close delivered default-disabled control paths. Preserve unresolved production, numerical and economic gates.
 
 

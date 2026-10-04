@@ -342,6 +342,18 @@
         {
           "id": "F-RL-NO-PROMOTION",
           "statement": "Passing scoped certificates never permits candidate promotion or access to protected outcomes."
+        },
+        {
+          "id": "F-RL-COMPONENT-ISOLATION",
+          "statement": "For the pinned GHC/Cabal parsed source graph, the complete dependency closure and declared module roster of every executable exclude Trader.Research.PolicyProposalV1. The graph certificate covers source build reachability, not server control flow or deployed images."
+        },
+        {
+          "id": "F-RL-POLICY-EFFECTS",
+          "statement": "For ordinary admitted Network objects and base numeric arrays under A-CAPABILITY-BUILD, every enumerated inference helper uses only reviewed numeric primitives and clock reads and contains no parameter write or order/process/network operation; the parsed Haskell proposal surface remains pure with a private constructor and constant false authority."
+        },
+        {
+          "id": "F-RL-ARTIFACT-DISJOINT",
+          "statement": "Under trusted Aeson generic required-field semantics, the exact top-level key set emitted by save_policy cannot satisfy the required-key predicate of the unchanged native PersistedLstmModel decoder. This excludes emitted offline artifacts, not arbitrary converted JSON."
         }
       ],
       "failures": [

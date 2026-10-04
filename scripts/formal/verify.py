@@ -60,7 +60,7 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-CONFORMANCE": "property_tested",
+    supported = {"F-RL-LIFECYCLE": "model_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
                  "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
@@ -175,6 +175,7 @@ def run(record=False, require_complete=False):
     from replay_cutoff import check_replay_cutoff
     from reward_accounting import check_reward_accounting
     from default_paths import check_defaults
+    from capability_isolation import check_isolation
     started = time.monotonic()
     lock = read_json(ROOT / 'formal/research/toolchain.json')
     require(z3.get_version_string() == lock['z3'], 'Z3 version mismatch')
@@ -227,6 +228,8 @@ def run(record=False, require_complete=False):
     result['replayCutoff'] = check_replay_cutoff()
     result['smt'].update(result['replayCutoff']['smt'])
     result['defaultPaths'] = check_defaults()
+    result['capabilityIsolation'] = check_isolation()
+    result['smt'].update(result['capabilityIsolation']['smt'])
     result['rewardAccounting'] = check_reward_accounting()
     result['smt'].update(result['rewardAccounting']['smt'])
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
@@ -251,6 +254,8 @@ def run(record=False, require_complete=False):
     require(result['replayConformance']['boundedAccountingTraces'] == 180, 'incomplete gap conformance')
     reproduced['F-RL-GAP-CONFORMANCE'] = 'exhaustively_checked'
     reproduced['F-RL-DEFAULT-PATH'] = result['defaultPaths']['status']
+    for part in ('graph', 'effects'):
+        reproduced[result['capabilityIsolation'][part]['requirement']] = 'exhaustively_checked'
     acceptance = acceptance_summary(ledger['missionObligations'], ledger['entries'], reproduced, ledger['researchAcceptanceGates'], ROOT)
     result['obligationClosure'] = acceptance
     path = ROOT / 'formal/research/results.json'

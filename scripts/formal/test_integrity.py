@@ -2072,10 +2072,10 @@ class ObligationClosureTests(unittest.TestCase):
     def setUp(self):
         self.ledger = read_json(ROOT / 'formal/research/proof-ledger.json')
 
-    def test_real_default_obligation_closed_others_remain(self):
+    def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 37)
-        self.assertEqual(self.ledger['missionObligations'][30]['status'], 'exhaustively_checked')
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 35)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [11,24,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -2206,6 +2206,121 @@ class DefaultPathTests(unittest.TestCase):
         self.assertIsNone(batch_v2(poison, poison))
         self.assertIsNone(effective_sample_size_v2(poison))
 
+
+
+class CapabilityIsolationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import subprocess
+        import capability_isolation as c
+        cls.c = c
+        cls.directory = tempfile.TemporaryDirectory(prefix='trader-parser-test-')
+        cls.exe = str(Path(cls.directory.name) / 'parser')
+        subprocess.run(['ghc','-v0','-O0','-package','ghc-9.4.8','-package','Cabal-3.8.1.0',
+                        '-outputdir',cls.directory.name,c.HELPER,'-o',cls.exe],cwd=ROOT,check=True)
+        cls.parsed = c.parse_receipt(c.parser_output(executable=cls.exe))
+        cls.registry = read_json(ROOT / c.REGISTRY)
+        cls.source = (ROOT / c.LEARNING).read_text()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.directory.cleanup()
+
+    def test_actual_graph_effects_schema_and_types(self):
+        c = self.c
+        result = c.graph_certificate(self.parsed,self.registry['executables'])
+        self.assertEqual(len(result['roots']),6)
+        self.assertTrue(all(v['states'] > 0 for v in result['roots'].values()))
+        self.assertEqual(c.effect_certificate(self.source,self.parsed,self.registry)['parameterWrites'],0)
+        emitted,required = c.artifact_keys(self.source,self.parsed,self.registry)
+        self.assertEqual(c.prove_disjoint(emitted,required)['membershipBits'],12)
+        self.assertTrue(c.check_types()['allRejected'])
+
+    def test_graph_mutations_fail_with_path_or_reason(self):
+        c = self.c
+        mutations = [
+            (lambda p:p['modules']['haskell/app/Trader/LSTM.hs']['imports'].append('Trader.Research.PolicyProposalV1'),'research import reachable'),
+            (lambda p:p['roots']['trader-hs']['declared'].append('Trader.Research.PolicyProposalV1'),'declared in executable'),
+            (lambda p:p['modules']['haskell/app/Main.hs']['imports'].append('Trader.Missing'),'missing local'),
+            (lambda p:p['modules']['haskell/app/Main.hs']['imports'].append('Main'),'ambiguous import'),
+            (lambda p:p['modules'].update({'duplicate.hs':p['modules'][c.PROPOSAL]}),'duplicate local'),
+            (lambda p:p['roots'].pop('trader-hs'),'inventory drift')]
+        for mutate,reason in mutations:
+            parsed = copy.deepcopy(self.parsed); mutate(parsed)
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError,reason):
+                c.graph_certificate(parsed,self.registry['executables'])
+
+    def parse_fixture(self,source,cabal_suffix=''):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'haskell/app').mkdir(parents=True)
+            (root / 'haskell/app/Main.hs').write_text(source)
+            (root / 'haskell/trader.cabal').write_text(
+                'name: fixture\nversion: 0.1.0.0\nbuild-type: Simple\ncabal-version: >=1.10\n'
+                'executable fixture\n  hs-source-dirs: app\n  main-is: Main.hs\n'
+                '  build-depends: base\n  default-language: Haskell2010\n' + cabal_suffix)
+            return self.c.parse_receipt(self.c.parser_output(root,self.exe))
+
+    def test_real_parser_preserves_multiline_qualified_import(self):
+        parsed = self.parse_fixture('module Main where\n-- import Trader.Fake\nimport qualified\n Trader.Research.PolicyProposalV1 as P\nmain = pure ()\n')
+        self.assertEqual(parsed['modules']['haskell/app/Main.hs']['imports'],['Trader.Research.PolicyProposalV1'])
+
+    def test_unsupported_parser_and_build_constructs_refused(self):
+        import subprocess
+        cases = [
+            '{-# LANGUAGE TemplateHaskell #-}\nmodule Main where\nmain = pure ()',
+            '{-# OPTIONS_GHC -fplugin=Evil #-}\nmodule Main where\nmain = pure ()',
+            'module Main where\nimport {-# SOURCE #-} Trader.X\nmain = pure ()',
+            '{-# LANGUAGE PackageImports #-}\nmodule Main where\nimport "base" Prelude\nmain = pure ()',
+            'module Main where\nforeign import ccall "evil" evil :: IO ()\nmain = pure ()',
+            '#if EVIL\nmodule Main where\n#endif',
+            'module Main where\nimport ???']
+        for source in cases:
+            with self.subTest(source=source), self.assertRaises(subprocess.CalledProcessError):
+                self.parse_fixture(source)
+        for suffix in ['  ghc-options: -fplugin=Evil\n','  if flag(extra)\n    ghc-options: -O0\n',
+                       '  hs-source-dirs: injected\n']:
+            with self.subTest(suffix=suffix), self.assertRaises(subprocess.CalledProcessError):
+                self.parse_fixture('module Main where\nmain = pure ()',suffix)
+
+    def test_effect_writes_calls_and_keyword_mutants_rejected(self):
+        for old,new in [('hidden = x @','self.steps = 4\n                hidden = x @'),
+                        ('hidden = x @','place_order()\n                hidden = x @'),
+                        ('np.tanh(hidden)','np.tanh(hidden, out=self.p["b1"])'),
+                        ('hidden = x @','hidden = (x * 2) @')]:
+            self.assertIn(old,self.source)
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                self.c.effect_certificate(self.source.replace(old,new),self.parsed,self.registry)
+
+    def test_schema_overlap_unknown_and_source_drift_refused(self):
+        c = self.c
+        with self.assertRaises(ValueError): c.prove_disjoint(['version'],['version'])
+        class Unknown:
+            def set(self,**kwargs): pass
+            def add(self,*args): pass
+            def check(self): return z3.unknown
+        with patch.object(c.z,'Solver',Unknown), self.assertRaises(ValueError):
+            c.prove_disjoint(['schema'],['version'])
+        registry = copy.deepcopy(self.registry); registry['savePolicyAST'] = '0'*64
+        with self.assertRaisesRegex(ValueError,'writer drift'):
+            c.artifact_keys(self.source,self.parsed,registry)
+        parsed = copy.deepcopy(self.parsed)
+        parsed['declarations']['haskell/app/Main.hs'].append('decoder changed')
+        with self.assertRaisesRegex(ValueError,'decoder semantics drift'):
+            c.artifact_keys(self.source,parsed,self.registry)
+
+    def test_actual_inference_preserves_numeric_policy_state(self):
+        import sys
+        sys.path.insert(0,str(ROOT / "scripts/research"))
+        import sequential_learning as learning
+        net = learning.Network(11)
+        before = copy.deepcopy(net.__dict__)
+        for observation in [np.zeros(learning.FEATURE_COUNT),np.full(learning.FEATURE_COUNT,np.nan)]:
+            learning.infer(net,observation,enabled=True)
+            self.assertEqual(net.steps,before['steps'])
+            for field in ('p','m','v'):
+                for key in before[field]:
+                    np.testing.assert_array_equal(getattr(net,field)[key],before[field][key])
 
 if __name__ == '__main__':
     unittest.main()

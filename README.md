@@ -1,6 +1,6 @@
 # Trader
 
-The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: default-disabled behavior is closed for the delivered offline boundary; 37 obligations and separate economic-evidence gates remain unresolved.
+The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: default-disabled, capability separation and no production learning are closed for the delivered offline boundary under the [source-isolation contract](formal/research/capability-isolation-contract.md); 35 obligations and separate economic-evidence gates remain unresolved. This does not certify inherited production authorization or deployed images.
 
 
 The [reward accounting audit](formal/research/reward-accounting-contract.md) distinguishes call-relative learning reward from compounded economic return. Source-derived real identities and synthetic tolerance checks preserve the existing simulator/reporter; no candidate or live behavior is introduced.

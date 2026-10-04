@@ -151,6 +151,12 @@
       "status": "assumption",
       "statement": "Semantic sufficiency of each certificate set for its exact canonical obligation scope is a reviewed specification judgment. The validator proves neither this implication nor the substance of empirical acceptance evidence; it checks consistency, reproduction and hashes. Scope or sufficiency changes require review.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-CAPABILITY-BUILD",
+      "status": "assumption",
+      "statement": "Trust pinned GHC 9.4.8, bundled Cabal 3.8.1.0 parsing/linking/type semantics, Aeson generic required fields, ordinary Python Network/base numeric arrays, NumPy primitives and clock reads. No runtime monkeypatching, custom ndarray dispatch, injected code/mounts, replaced packages/binaries/PATH, manual artifact conversion or administrative invocation of training from production. Reviewed runtime recipes/helpers are unchanged, not a proof of deployed images. Existing champion learning and live authority are outside this delivered-research isolation claim.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -184,7 +190,9 @@
     "scripts/formal/replay_order.py",
     "scripts/formal/replay_cutoff.py",
     "scripts/formal/reward_accounting.py",
-    "scripts/formal/default_paths.py"
+    "scripts/formal/default_paths.py",
+    "scripts/formal/capability_isolation.py",
+    "formal/research/ComponentGraph.hs"
   ],
   "entries": [
     {
@@ -2166,6 +2174,105 @@
       "limitations": "Trusted checker/language semantics; empirical and production integration gates remain separate. Validator tests are not a formal proof.",
       "counterexample": "CE-RL-021",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-COMPONENT-ISOLATION",
+      "claim": "For the pinned GHC/Cabal parsed source graph, the complete dependency closure and declared module roster of every executable exclude Trader.Research.PolicyProposalV1. The graph certificate covers source build reachability, not server control flow or deployed images.",
+      "criticality": "critical",
+      "formalStatement": "For the pinned GHC/Cabal parsed source graph, the complete dependency closure and declared module roster of every executable exclude Trader.Research.PolicyProposalV1. The graph certificate covers source build reachability, not server control flow or deployed images.",
+      "assumptions": [
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "GHC/Cabal parser and finite graph/AST enumeration",
+      "toolVersion": "GHC 9.4.8 / Cabal library 3.8.1.0 / Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/capability_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source-derived certificate reproduced in the same verification invocation; mutations and compiled type refusal are conformance tests, not universal refinement.",
+      "bounds": "116 application files, 286 local edges, six roots to reachable fixed point; three inference helper ASTs; 12 Boolean key-presence bits; three negative type compilations.",
+      "limitations": "Exact reviewed source and named primitive/compiler assumptions. Source graph is not runtime process reachability or OS sandboxing; decoder membership is necessary, not sufficient, for native loading. Legacy GHC 8.10.4 Docker profile and actual fleet images are not certified. No claim about inherited live authorization, production learning of existing models or numerical correctness.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-POLICY-EFFECTS",
+      "claim": "For ordinary admitted Network objects and base numeric arrays under A-CAPABILITY-BUILD, every enumerated inference helper uses only reviewed numeric primitives and clock reads and contains no parameter write or order/process/network operation; the parsed Haskell proposal surface remains pure with a private constructor and constant false authority.",
+      "criticality": "critical",
+      "formalStatement": "For ordinary admitted Network objects and base numeric arrays under A-CAPABILITY-BUILD, every enumerated inference helper uses only reviewed numeric primitives and clock reads and contains no parameter write or order/process/network operation; the parsed Haskell proposal surface remains pure with a private constructor and constant false authority.",
+      "assumptions": [
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "GHC/Cabal parser and finite graph/AST enumeration",
+      "toolVersion": "GHC 9.4.8 / Cabal library 3.8.1.0 / Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/capability_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source-derived certificate reproduced in the same verification invocation; mutations and compiled type refusal are conformance tests, not universal refinement.",
+      "bounds": "116 application files, 286 local edges, six roots to reachable fixed point; three inference helper ASTs; 12 Boolean key-presence bits; three negative type compilations.",
+      "limitations": "Exact reviewed source and named primitive/compiler assumptions. Source graph is not runtime process reachability or OS sandboxing; decoder membership is necessary, not sufficient, for native loading. Legacy GHC 8.10.4 Docker profile and actual fleet images are not certified. No claim about inherited live authorization, production learning of existing models or numerical correctness.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-DISJOINT",
+      "claim": "Under trusted Aeson generic required-field semantics, the exact top-level key set emitted by save_policy cannot satisfy the required-key predicate of the unchanged native PersistedLstmModel decoder. This excludes emitted offline artifacts, not arbitrary converted JSON.",
+      "criticality": "critical",
+      "formalStatement": "Under trusted Aeson generic required-field semantics, the exact top-level key set emitted by save_policy cannot satisfy the required-key predicate of the unchanged native PersistedLstmModel decoder. This excludes emitted offline artifacts, not arbitrary converted JSON.",
+      "assumptions": [
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 with GHC/Cabal source extraction",
+      "toolVersion": "GHC 9.4.8 / Cabal library 3.8.1.0 / Python 3.13.3 / Z3 4.15.4",
+      "sourceModel": "scripts/formal/capability_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_learning.py",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source-derived certificate reproduced in the same verification invocation; mutations and compiled type refusal are conformance tests, not universal refinement.",
+      "bounds": "116 application files, 286 local edges, six roots to reachable fixed point; three inference helper ASTs; 12 Boolean key-presence bits; three negative type compilations.",
+      "limitations": "Exact reviewed source and named primitive/compiler assumptions. Source graph is not runtime process reachability or OS sandboxing; decoder membership is necessary, not sufficient, for native loading. Legacy GHC 8.10.4 Docker profile and actual fleet images are not certified. No claim about inherited live authorization, production learning of existing models or numerical correctness.",
+      "counterexample": null,
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -2438,23 +2545,35 @@
     {
       "number": 11,
       "claim": "Capability separation",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
-        "F-RL-AUTH"
+        "F-RL-AUTH",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-DEFAULT-PATH"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
-      "closureCriteria": "No research value can construct an authorized order capability across the delivered import/call graph.",
-      "nextAction": "Check production dependency exclusion and typed order constructors across all reachable call sites.",
+      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open.",
+      "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
+      "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
+      "nextAction": "Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates.",
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Trader/LiveOrderIntent.hs",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
       ],
-      "blockers": [
-        "Private Haskell constructor and constant authority are checked; whole import/effect graph is not certified."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH"
+      ]
     },
     {
       "number": 12,
@@ -2753,22 +2872,34 @@
     {
       "number": 24,
       "claim": "No production learning",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
-      "closureCriteria": "Production execution cannot mutate policy parameters.",
-      "nextAction": "Verify that production entry points cannot reach research training/update functions or writable candidate state.",
+      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open.",
+      "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
+      "closureCriteria": "The pinned executable/deployment source boundary excludes delivered research training; admitted offline inference never writes policy parameters, and emitted policies cannot enter native LSTM persistence unchanged.",
+      "nextAction": "Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs"
       ],
-      "blockers": [
-        "No deployed policy exists; no checked production dependency/effect exclusion certificate."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH"
+      ]
     },
     {
       "number": 25,
