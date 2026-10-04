@@ -1,0 +1,755 @@
+{
+  "schemaVersion": 1,
+  "scope": "offline research assurance only; not mission completion",
+  "assumptions": [
+    {
+      "id": "A-FP",
+      "status": "assumption",
+      "statement": "Defined GHC Double values use IEEE binary64, without unsafe capability forgery; excludes bottom and compiler/hardware bugs.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-GUARDS",
+      "status": "assumption",
+      "statement": "Trusted callers provide truthful evidence; no research proposal is imported into an order-authorizing path.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SOLVER",
+      "status": "assumption",
+      "statement": "Z3, the checker, compiler, runtimes and hardware belong to the trusted computing base; no independently checked proof certificate.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-INTERLEAVING",
+      "status": "assumption",
+      "statement": "Two callers and atomic abstract steps; completion fairness for draining; no production refinement.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-CAUSAL",
+      "status": "assumption",
+      "statement": "Integer indexing is exact; historical publication and first-seen timing are not independently witnessed.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ACCOUNT",
+      "status": "assumption",
+      "statement": "Exact real algebra does not establish binary64 accounting, market fills or calibrated costs.",
+      "risk": "RL-OFFLINE-001"
+    }
+  ],
+  "criticalFiles": [
+    "scripts/formal/verify.py",
+    "scripts/formal/proofs.py",
+    "scripts/formal/lifecycle.py",
+    "scripts/formal/conformance.py",
+    "scripts/formal/test_integrity.py",
+    "formal/research/Conformance.hs",
+    "scripts/verify.sh",
+    "scripts/autoloop.mjs",
+    ".github/workflows/ci.yml",
+    "package.json"
+  ],
+  "entries": [
+    {
+      "requirementId": "F-RL-SHIELD-BOUNDS",
+      "claim": "Accepted binary64 targets are finite with absolute value <= 1/4.",
+      "criticality": "critical",
+      "formalStatement": "Accepted binary64 targets are finite with absolute value <= 1/4.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs",
+        "haskell/test/Trader/Test/ResearchPolicy.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "All IEEE binary64 values and all 64 combinations of mode/evidence booleans.",
+      "limitations": "SMT encoding is manually reviewed; compiled Haskell conformance is tested, not universally proved. Guards are not proofs of world state.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-GUARDS",
+      "claim": "Acceptance implies offline mode, all five evidence guards and finite elapsed milliseconds in [0,20].",
+      "criticality": "critical",
+      "formalStatement": "Acceptance implies offline mode, all five evidence guards and finite elapsed milliseconds in [0,20].",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs",
+        "haskell/test/Trader/Test/ResearchPolicy.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "All IEEE binary64 values and all 64 combinations of mode/evidence booleans.",
+      "limitations": "SMT encoding is manually reviewed; compiled Haskell conformance is tested, not universally proved. Guards are not proofs of world state.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-FALLBACK",
+      "claim": "Non-finite target, invalid timing or any false evidence guard implies rejection.",
+      "criticality": "critical",
+      "formalStatement": "Non-finite target, invalid timing or any false evidence guard implies rejection.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs",
+        "haskell/test/Trader/Test/ResearchPolicy.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "All IEEE binary64 values and all 64 combinations of mode/evidence booleans.",
+      "limitations": "SMT encoding is manually reviewed; compiled Haskell conformance is tested, not universally proved. Guards are not proofs of world state.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-DEFAULT",
+      "claim": "Disabled mode rejects every defined binary64 target and elapsed value.",
+      "criticality": "critical",
+      "formalStatement": "Disabled mode rejects every defined binary64 target and elapsed value.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs",
+        "haskell/test/Trader/Test/ResearchPolicy.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "All IEEE binary64 values and all 64 combinations of mode/evidence booleans.",
+      "limitations": "SMT encoding is manually reviewed; compiled Haskell conformance is tested, not universally proved. Guards are not proofs of world state.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-IDEMPOTENT",
+      "claim": "Rechecking an accepted target with identical mode and evidence remains accepted.",
+      "criticality": "critical",
+      "formalStatement": "Rechecking an accepted target with identical mode and evidence remains accepted.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs",
+        "haskell/test/Trader/Test/ResearchPolicy.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "All IEEE binary64 values and all 64 combinations of mode/evidence booleans.",
+      "limitations": "SMT encoding is manually reviewed; compiled Haskell conformance is tested, not universally proved. Guards are not proofs of world state.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-AUTH",
+      "claim": "An accepted research proposal has constant false order authority.",
+      "criticality": "critical",
+      "formalStatement": "An accepted research proposal has constant false order authority.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs",
+        "haskell/test/Trader/Test/ResearchPolicy.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "All IEEE binary64 values and all 64 combinations of mode/evidence booleans.",
+      "limitations": "SMT encoding is manually reviewed; compiled Haskell conformance is tested, not universally proved. Guards are not proofs of world state.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-CAUSAL-SLICE",
+      "claim": "For t>=24 and 0<=offset<25, t-24+offset<=t.",
+      "criticality": "critical",
+      "formalStatement": "For t>=24 and 0<=offset<25, t-24+offset<=t.",
+      "assumptions": [
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "research-notes/registrations/sequential-control-screen-v1.json"
+      ],
+      "testFiles": [
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "Unbounded mathematical integers.",
+      "limitations": "Algebra/index lemma only; no universal implementation refinement, source-availability, execution or floating-point accounting proof.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SPLIT",
+      "claim": "For h>0, testStart>=trainStop+h, i<trainStop and j>=testStart, i+h<j.",
+      "criticality": "critical",
+      "formalStatement": "For h>0, testStart>=trainStop+h, i<trainStop and j>=testStart, i+h<j.",
+      "assumptions": [
+        "A-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "research-notes/registrations/sequential-control-screen-v1.json"
+      ],
+      "testFiles": [
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "Unbounded mathematical integers.",
+      "limitations": "Algebra/index lemma only; no universal implementation refinement, source-availability, execution or floating-point accounting proof.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ACCOUNT",
+      "claim": "Ending wealth less starting wealth equals gross plus funding minus costs minus terminal costs; reward penalty is not cash.",
+      "criticality": "critical",
+      "formalStatement": "Ending wealth less starting wealth equals gross plus funding minus costs minus terminal costs; reward penalty is not cash.",
+      "assumptions": [
+        "A-ACCOUNT",
+        "A-SOLVER"
+      ],
+      "tool": "Z3",
+      "toolVersion": "4.15.4",
+      "sourceModel": "scripts/formal/proofs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "research-notes/registrations/sequential-control-screen-v1.json"
+      ],
+      "testFiles": [
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Negated formula is UNSAT; reproduced by verify.py.",
+      "bounds": "Exact real arithmetic; no binary64 rounding theorem.",
+      "limitations": "Algebra/index lemma only; no universal implementation refinement, source-availability, execution or floating-point accounting proof.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-LIFECYCLE",
+      "claim": "The two-caller abstract protocol never gains authority, forbids new calls while draining and decreases outstanding calls on every completion.",
+      "criticality": "critical",
+      "formalStatement": "The two-caller abstract protocol never gains authority, forbids new calls while draining and decreases outstanding calls on every completion.",
+      "assumptions": [
+        "A-INTERLEAVING",
+        "A-GUARDS"
+      ],
+      "tool": "explicit-state BFS",
+      "toolVersion": "research-lifecycle-v1",
+      "sourceModel": "scripts/formal/lifecycle.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/formal/lifecycle.py"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "All reachable-state and transition invariants pass; stop drains within two completion events under stated fairness.",
+      "bounds": "Two callers, 75 reachable states, 349 directed transitions; reachable fixed point, maximum shortest path 6.",
+      "limitations": "Abstract client protocol only. No implemented production lifecycle, locks, persisted ownership, bounded timeout or server refinement. Liveness requires completion fairness.",
+      "counterexample": "CE-RL-001",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-CONFORMANCE",
+      "claim": "Compiled Haskell agrees with the independent executable contract on all enumerated and seeded binary64 fixtures.",
+      "criticality": "critical",
+      "formalStatement": "Compiled Haskell agrees with the independent executable contract on all enumerated and seeded binary64 fixtures.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-SOLVER"
+      ],
+      "tool": "GHC plus deterministic generated fixtures",
+      "toolVersion": "GHC 9.4.8 / Python 3.13.3",
+      "sourceModel": "scripts/formal/conformance.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "scripts/formal/conformance.py",
+        "formal/research/Conformance.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "All 20,480 fixtures and default mode match; 240 accepted fixtures preserve bits and deny authority.",
+      "bounds": "16,384 exhaustive representative cases; 4,096 generated bit-pattern cases; seed 20260920.",
+      "limitations": "Only the explicitly enumerated representative domain is exhaustive. Generated cases and cross-language tests are not a universal proof.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-INTEGRITY",
+      "claim": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch.",
+      "criticality": "critical",
+      "formalStatement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch.",
+      "assumptions": [
+        "A-SOLVER"
+      ],
+      "tool": "unittest mutation regressions",
+      "toolVersion": "Python 3.13.3",
+      "sourceModel": "scripts/formal/verify.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/formal/verify.py",
+        "scripts/formal/proofs.py",
+        "scripts/formal/lifecycle.py",
+        "scripts/formal/conformance.py",
+        "scripts/verify.sh",
+        "scripts/autoloop.mjs",
+        "package.json",
+        ".github/workflows/ci.yml"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Malformed ledger and safety mutations are rejected by regression tests.",
+      "bounds": "Declared schema, source hashes and deterministic negative fixtures.",
+      "limitations": "Trusted checker code and reviewed Git changes; not tamper-proof against a maintainer editing the verifier and receipts together.",
+      "counterexample": null,
+      "status": "property_tested",
+      "relatedRequirements": [
+        "F-RL-ASSUMPTIONS",
+        "F-RL-FAIL-CLOSED"
+      ]
+    },
+    {
+      "requirementId": "F-RL-REFINEMENT",
+      "claim": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open.",
+      "criticality": "critical",
+      "formalStatement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open.",
+      "assumptions": [
+        "A-FP",
+        "A-GUARDS",
+        "A-INTERLEAVING",
+        "A-CAUSAL",
+        "A-ACCOUNT"
+      ],
+      "tool": "none",
+      "toolVersion": "not applicable",
+      "sourceModel": "formal/research/contract.md",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "scripts/research/sequential_env.py"
+      ],
+      "testFiles": [
+        "test/sequential_screen_test.py",
+        "scripts/formal/conformance.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "BLOCKER: no end-to-end machine-checked refinement.",
+      "bounds": "Whole affected research-to-production system.",
+      "limitations": "No promotion allowed. Existing empirical rejection and protected data constraints also remain binding.",
+      "counterexample": null,
+      "status": "open",
+      "relatedRequirements": [
+        "F-RL-NO-PROMOTION"
+      ]
+    }
+  ],
+  "missionObligations": [
+    {
+      "number": 1,
+      "claim": "No-lookahead",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-CAUSAL-SLICE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 2,
+      "claim": "Split isolation",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SPLIT"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 3,
+      "claim": "Causal normalization",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 4,
+      "claim": "Revision timing",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 5,
+      "claim": "Symbol isolation",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 6,
+      "claim": "Finite outputs",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-BOUNDS"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 7,
+      "claim": "Bounded values",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-BOUNDS"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 8,
+      "claim": "Accounting",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-ACCOUNT"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 9,
+      "claim": "Rounding",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 10,
+      "claim": "Overflow and underflow",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 11,
+      "claim": "Capability separation",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-AUTH"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 12,
+      "claim": "Safety-shield precedence",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-GUARDS"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 13,
+      "claim": "Live-authority isolation",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-AUTH",
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 14,
+      "claim": "Draining",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 15,
+      "claim": "Position ownership",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 16,
+      "claim": "Reconciliation",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 17,
+      "claim": "Observation causality",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-CAUSAL-SLICE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 18,
+      "claim": "Valid transitions",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 19,
+      "claim": "Terminal accounting",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 20,
+      "claim": "Action safety",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-BOUNDS"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 21,
+      "claim": "Invalid output fallback",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-FALLBACK"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 22,
+      "claim": "Replay determinism",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 23,
+      "claim": "No self-promotion",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 24,
+      "claim": "No production learning",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 25,
+      "claim": "Valid lifecycle transitions",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 26,
+      "claim": "No automatic live transition",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 27,
+      "claim": "Rollback",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-DEFAULT",
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 28,
+      "claim": "Champion preservation",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-AUTH"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 29,
+      "claim": "Artifact compatibility",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 30,
+      "claim": "Hash and provenance checks",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 31,
+      "claim": "Default-disabled",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-DEFAULT"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 32,
+      "claim": "Configuration bounds",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-GUARDS"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 33,
+      "claim": "Atomicity",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 34,
+      "claim": "Race freedom",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 35,
+      "claim": "Idempotence",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-SHIELD-IDEMPOTENT"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 36,
+      "claim": "Shutdown termination",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-LIFECYCLE"
+      ],
+      "limitations": "Narrow model/lemma and tests only; full affected-system implementation proof remains a blocker."
+    },
+    {
+      "number": 37,
+      "claim": "Recovery",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    },
+    {
+      "number": 38,
+      "claim": "No permanent lockout",
+      "status": "open",
+      "evidenceRequirements": [],
+      "limitations": "No machine-checked implementation theorem delivered for this obligation; existing regressions are not a formal proof."
+    }
+  ]
+}

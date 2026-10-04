@@ -678,3 +678,12 @@ artifacts/, reports/  Research, risk, and engineering records
 ## License
 
 See [LICENSE](LICENSE).
+
+### Scoped research proof checks
+
+Run `bash scripts/verify.sh formal` (also included in `full`) for the pinned SMT,
+finite research-call model, Haskell conformance and proof-ledger checks. Install
+the verification-only tools using the [formal runbook](formal/research/README.md).
+`TRADER_FORMAL_PYTHON` optionally selects that Python environment; it has no trading
+effect. The gate reports its scope and unresolved whole-system obligations. A
+passing result does not authorize research promotion or establish profitability.

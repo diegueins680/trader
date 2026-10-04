@@ -1,5 +1,11 @@
 ## Unreleased
 
+## Research assurance — 2026-09-20
+
+- Add `verify.sh formal` and include it in `full`: pinned Z3 binary64/index/accounting lemmas, a bounded research-call model, compiled Haskell conformance, source-bound receipts and explicit proof gaps.
+- Preserve the rejected RL screen, champion, sealed holdouts and all production authorization settings. No candidate integration or deployment.
+
+
 - Research/Provenance: parse registration settings and persist source/registration hashes from the exact Git-validated snapshots; prevent mid-run file replacement from relabeling manifests and saved policy artifacts.
 
 - Research/RL: reject overflowing gradient norms and invalid Adam arithmetic; admit optimizer controls and publish parameters, moments and counters atomically after complete validation. Preserve valid numerical update results.

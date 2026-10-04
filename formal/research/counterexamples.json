@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-RL-001",
+      "status": "refuted",
+      "claim": "Disabling a mode erases all immutable proposals held by callers.",
+      "trace": [
+        "enable_offline",
+        "start0:1",
+        "disable",
+        "finish0"
+      ],
+      "resolution": "Specification corrected: disable rejects subsequent admissions; retained proposals never carry order authority. No production revocation implementation is claimed.",
+      "regression": "scripts/formal/test_integrity.py",
+      "requirement": "F-RL-LIFECYCLE"
+    }
+  ]
+}
