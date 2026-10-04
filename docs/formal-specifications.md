@@ -603,3 +603,18 @@ conformance. `ess-rational-v2` defaults disabled and is not imported by existing
 research consumers. Dynamic import exclusion and full Python/Fraction refinement
 are not proved. CE-RL-018 remains in the frozen helper; no statistical or policy
 claim is repaired by this independent arithmetic diagnostic.
+
+
+### Inherited shutdown deadline repair (2026-10-04)
+
+`F-SHUTDOWN-BUDGET` checks integer deadline bounds with Z3;
+`F-SHUTDOWN-STAGES` checks the six-stage finite lifecycle;
+`F-SHUTDOWN-CONFORMANCE` records compiled model/implementation comparisons and
+runtime failure tests. The [contract](../formal/research/shutdown-deadline-contract.md)
+resolves UTC-clock and completion-wording inconsistencies without changing live
+configuration. Exact source bodies and hashes bind the proof to
+`runServeShutdown` and `Trader.App.GracefulShutdown`; pinned tools run through
+`bash scripts/verify.sh formal` and `full`. Source locking plus tests is not a
+full IO refinement proof. A-SHUTDOWN-CLOCK and SHUTDOWN-DEADLINE-001 preserve
+scheduler/logging assumptions and unresolved worker/route races. Broad obligations
+10/21/36 remain unresolved; closure criteria have not been weakened.
