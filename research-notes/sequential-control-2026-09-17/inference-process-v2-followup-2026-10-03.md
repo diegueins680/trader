@@ -98,6 +98,17 @@ machine-checked semantics of Haskell IO. No proof placeholders are introduced.
 traceability directions. Formal specifications and RL-OFFLINE-001 now name the
 process boundary and A-INFERENCE-PROCESS. That risk remains HIGH/OPEN.
 
+## Consistency resolution
+
+Obligation 11's older audit wording said "no executable reaches its module".
+Its canonical scope and the existing capability contract explicitly enumerate
+six **production** executables; research conformance executables already imported
+the proposal module. The intended requirement is therefore production isolation,
+not prohibition of all research/test executables. The canonical closure criterion,
+ledger and human-readable audit now all say "no production executable". The new
+standalone worker receives its own required isolation certificate; this is not
+an exemption from the original no-order requirement or a new live capability.
+
 ## Acceptance and remaining work
 
 Three of 38 broader obligations remain closed for their explicit affected offline

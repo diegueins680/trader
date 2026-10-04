@@ -141,5 +141,16 @@
   "liveConfigurationChanges": false,
   "productionIntegration": false,
   "proofPlaceholders": false,
-  "readyForAcceptance": false
+  "readyForAcceptance": false,
+  "documentationRefresh": {
+    "recordedAtUTC": "2026-10-04T04:56:47.901585+00:00",
+    "change": "Align the human-readable obligation 11 criterion with its canonical six-production-executable scope. No implementation or proof payload change.",
+    "formalCommand": "bash scripts/verify.sh formal",
+    "exitCode": 0,
+    "logSha256": "0b94239b134b351b015f0d95a8ce523ccd7ea8abf2d55512454d3ac15626b3a0",
+    "proofPayloadUnchanged": true,
+    "implementationSourceFreezeUnchanged": true,
+    "evidenceCommitCI": "https://github.com/diegueins680/trader/actions/runs/37178028672",
+    "evidenceCommitCIResult": "formal, haskell, web, automation passed; build/deploy skipped"
+  }
 }

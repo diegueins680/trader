@@ -121,7 +121,7 @@
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "scripts/formal/default_paths.py": "48959a79c17e0cd96e89929df5eefec819fd824349c525ed597f4011b463d85d",
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
-    "formal/research/obligation-closure-audit.md": "8527df8273c4af559af83fb89c1328e00a81b25675aec908da118e1a2d12a207",
+    "formal/research/obligation-closure-audit.md": "adf8b3f5a7ebca4fd0b6dd83ad5ce3be400b776d3130e4fb594bdbf87285da7d",
     "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
     "formal/research/obligation-contracts.json": "fe66e17d979de184c609a187b61de05e15e2c3cdafea9621e40e46deaf1fab2f",
