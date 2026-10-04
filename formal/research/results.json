@@ -32,6 +32,51 @@
       "universalRuntimeRefinement": false
     }
   },
+  "asyncJobAdmission": {
+    "conformance": {
+      "concurrentCases": 32,
+      "counterexamples": [
+        "CE-ASYNC-001",
+        "CE-ASYNC-002"
+      ],
+      "generatedNumericCases": 256,
+      "intBits": 64,
+      "numericCases": 292,
+      "runtimeTests": 7,
+      "scope": "compiled helper and source-bound baseline control slice; not full HTTP/runtime refinement",
+      "seed": 20261004
+    },
+    "model": {
+      "callers": 2,
+      "capacities": [
+        {
+          "capacity": 1,
+          "executedStates": 43,
+          "maxShortestDepth": 14,
+          "rejectedStates": 26,
+          "states": 173,
+          "terminalStates": 24,
+          "transitions": 342
+        },
+        {
+          "capacity": 2,
+          "executedStates": 52,
+          "maxShortestDepth": 14,
+          "rejectedStates": 0,
+          "states": 196,
+          "terminalStates": 16,
+          "transitions": 504
+        }
+      ],
+      "initialRank": 20,
+      "scope": "finite atomic protocol; liveness conditional on callbacks and primitives returning, not IO refinement",
+      "states": 369,
+      "transitions": 846
+    },
+    "smt": {
+      "F-ASYNC-ADMISSION-NUMERIC": "unsat"
+    }
+  },
   "capabilityIsolation": {
     "effects": {
       "functions": {
@@ -64,8 +109,8 @@
       "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
     },
     "graph": {
-      "localEdges": 286,
-      "moduleFiles": 116,
+      "localEdges": 287,
+      "moduleFiles": 117,
       "requirement": "F-RL-COMPONENT-ISOLATION",
       "roots": {
         "analyze-close-timing": {
@@ -146,12 +191,13 @@
           "states": 1
         },
         "trader-hs": {
-          "edges": 248,
+          "edges": 249,
           "maxShortestDepth": 3,
           "reachableFiles": [
             "haskell/app/Main.hs",
             "haskell/app/Trader/Api/Routes.hs",
             "haskell/app/Trader/App/Args.hs",
+            "haskell/app/Trader/App/AsyncJobAdmission.hs",
             "haskell/app/Trader/App/AutoStartBackoff.hs",
             "haskell/app/Trader/App/BinanceProbe.hs",
             "haskell/app/Trader/App/Csv.hs",
@@ -243,7 +289,7 @@
             "haskell/app/Trader/Trading.hs",
             "haskell/app/Trader/VolConfGate.hs"
           ],
-          "states": 93
+          "states": 94
         }
       },
       "search": "reachable_fixed_point"
@@ -300,12 +346,13 @@
     "sourceHashes": {
       "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
       "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-      "haskell/app/Main.hs": "b1bf0f8aa395c63797f4a638182bed3220132776de4e90cd4001919471d4ff59",
+      "haskell/app/Main.hs": "dea9a4aec27115a58ec581d4d753d85dbaac6f92bd51872b66d623c7e6f8c8ab",
       "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
       "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
       "haskell/app/OutboxPublisherMain.hs": "6447406bcca3a421dd28bfc8e7735308ec2d74609c1f673ba71b8c1a025b62ee",
       "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
       "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
+      "haskell/app/Trader/App/AsyncJobAdmission.hs": "1f3e94cd3e5129a7fdfa62bdbe469a407f1a4767ef8665207bee8b1a90e7f6e3",
       "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
       "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
       "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
@@ -333,7 +380,7 @@
       "haskell/app/Trader/Formal/Execution.hs": "5c64f0281592a63c029415db5e798e39a6370f933a556e912999f93a0cf222b0",
       "haskell/app/Trader/Formal/Optimization.hs": "2222eea7b8777556fe031f61590e5de1f34dabd0986ce5565bf9495c6de1c622",
       "haskell/app/Trader/Formal/Risk.hs": "bb59c75e6158479f49dda9c57d9a9c920fe15bdca35d77fbb8ba76160ade8540",
-      "haskell/app/Trader/Formal/RiskRegister.hs": "855d0a30583c1970da32134038c42829dde073c9a1fe16e15e4e7000c5f4c1ca",
+      "haskell/app/Trader/Formal/RiskRegister.hs": "26e6682fcaa97a2a51adda281fe8876ff4b0b8aef518f3d380fbc5acd3e59fbb",
       "haskell/app/Trader/GateTelemetry.hs": "7e66adc99577e9b2a23bb5a963a73ecf75e6e69d5fac23313ef16d2a52aac7b5",
       "haskell/app/Trader/Http.hs": "589de8dd96eb9039832bd04222f44f473d20fa776f7de4d089503ec723e247cd",
       "haskell/app/Trader/Kalman3.hs": "cebcb101865e8b7fcbbebbce866ea57cc6e8bf26d0df4263f4703e0977992477",
@@ -1374,6 +1421,7 @@
     }
   },
   "smt": {
+    "F-ASYNC-ADMISSION-NUMERIC": "unsat",
     "F-RL-ACCOUNT": "unsat",
     "F-RL-ARTIFACT-DISJOINT": "unsat",
     "F-RL-ARTIFACT-METADATA": "unsat",
@@ -1497,14 +1545,18 @@
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
+    "formal/research/AsyncJobAdmission.hs": "edc72532790a4089791532462b37897ec83172b7b8220020d3a5df6d6bdb819c",
     "formal/research/ComponentGraph.hs": "adce2baf7f0b713dfc2835502dc5459295ac799cd208d96404d09b3a5e7a48b4",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-counterexamples.json": "0ffc100916d1af5646e985441529e4941d3b16e8fbc12f108a036c1d0f678315",
+    "formal/research/async-job-admission-contract.md": "4610e35648500dea46625c97e05aef842e6cae113e73004b559cc99413f9738f",
+    "formal/research/async-job-admission-counterexamples.json": "37546208297c2d1f11fb2f2014de6c3660e5df4a57a339402830c80b511120f3",
+    "formal/research/async-job-admission-source.json": "7da7fb936488ce7f6d36d4d1a6c0ef5f8f41812876f83db730f54fd806632601",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
-    "formal/research/capability-source-contract.json": "fb117310cd5c4fc8569f2ca074a2bcc5fdd1a231af0bb490893c0c1bf36832a0",
+    "formal/research/capability-source-contract.json": "e3e59433aea297bb5892d64ad9cd83fffc8ee6be689b3ca63a295344857357b9",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
@@ -1512,6 +1564,8 @@
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     "formal/research/ess-v2-contract.md": "a4f73a8e95156068f44131e63137fdd9871641599615cae5efa91e08b441e400",
+    "formal/research/fixtures/async-job-before.hs": "0b0f227a943c38219ca1d2c6d76a1525a66223706a52a1cdad9751f1388e7e6d",
+    "formal/research/fixtures/async-job-witness.hs": "43c736ca16c70e2858de42baf32d8a1f10981889966619f68306c3a4f0d1d4e2",
     "formal/research/fixtures/worker-registry-before.hs": "425b04e98553bc6bbaf9d088d0cdcc1799243a83bc364bca1b9f5ab68e6df387",
     "formal/research/fixtures/worker-registry-witness.hs": "e8d1e491f09433438493e30f78398187547349f756561e49c266e6026c681aec",
     "formal/research/funding-boundary-contract.md": "97a8cc3e97751b714a33b1874ced95c80ca06c9e536aba3ff09394d15ade566e",
@@ -1531,7 +1585,7 @@
     "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "8104f36049fd2055278d0c39a5aeaf84dbd3254c8c800cb08feebcfbca920613",
+    "formal/research/proof-ledger.json": "9b65692d1a85a6cbe283467da5ed336f56eb4fa2a9c45e1501269f08603995d8",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
@@ -1541,7 +1595,7 @@
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
     "formal/research/shutdown-deadline-contract.md": "052481312f9074fc73118ce6ea9e13b8b32ff7e4f32b1a60dfff8159d661b9fd",
-    "formal/research/shutdown-source.json": "9913f1286f8fd1b3644e81dc9260499da446cf14dd8d4dd8dcf4b067b9f219d0",
+    "formal/research/shutdown-source.json": "50010ac9c49d0a67e5c57f02144e713345af94b5ee333c2c88438e9cb57c77ed",
     "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
     "formal/research/snapshot-v2-source.json": "24bcfa01d029c9067d899ab080d523ba6d3bcc9eda5de21cd9ab217f1d98415b",
     "formal/research/target-v2-contract.md": "795cebf7bcd712e9af8c3f639dfb7f33d28a08322dd160d2f0d5fb4c6defbc96",
@@ -1556,15 +1610,16 @@
     "formal/research/value-objective-contract.md": "588f5a0be6bde1517440dab9236fb8a8c44b8827bd7725acfae3880ed3e5a7a7",
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
-    "formal/research/worker-registry-source.json": "a98bb6bcac71a59a28e6cafe1009fcc6846444a792ee57ae1c7c6ee2bdc62011",
+    "formal/research/worker-registry-source.json": "88f8a298af4224d91d34925e83e43048ea6c4255f1836e0976d79e58e5163bb0",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-    "haskell/app/Main.hs": "b1bf0f8aa395c63797f4a638182bed3220132776de4e90cd4001919471d4ff59",
+    "haskell/app/Main.hs": "dea9a4aec27115a58ec581d4d753d85dbaac6f92bd51872b66d623c7e6f8c8ab",
     "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
     "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
     "haskell/app/OutboxPublisherMain.hs": "6447406bcca3a421dd28bfc8e7735308ec2d74609c1f673ba71b8c1a025b62ee",
     "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
     "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
+    "haskell/app/Trader/App/AsyncJobAdmission.hs": "1f3e94cd3e5129a7fdfa62bdbe469a407f1a4767ef8665207bee8b1a90e7f6e3",
     "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
     "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
     "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
@@ -1592,7 +1647,7 @@
     "haskell/app/Trader/Formal/Execution.hs": "5c64f0281592a63c029415db5e798e39a6370f933a556e912999f93a0cf222b0",
     "haskell/app/Trader/Formal/Optimization.hs": "2222eea7b8777556fe031f61590e5de1f34dabd0986ce5565bf9495c6de1c622",
     "haskell/app/Trader/Formal/Risk.hs": "bb59c75e6158479f49dda9c57d9a9c920fe15bdca35d77fbb8ba76160ade8540",
-    "haskell/app/Trader/Formal/RiskRegister.hs": "855d0a30583c1970da32134038c42829dde073c9a1fe16e15e4e7000c5f4c1ca",
+    "haskell/app/Trader/Formal/RiskRegister.hs": "26e6682fcaa97a2a51adda281fe8876ff4b0b8aef518f3d380fbc5acd3e59fbb",
     "haskell/app/Trader/GateTelemetry.hs": "7e66adc99577e9b2a23bb5a963a73ecf75e6e69d5fac23313ef16d2a52aac7b5",
     "haskell/app/Trader/Http.hs": "589de8dd96eb9039832bd04222f44f473d20fa776f7de4d089503ec723e247cd",
     "haskell/app/Trader/Kalman3.hs": "cebcb101865e8b7fcbbebbce866ea57cc6e8bf26d0df4263f4703e0977992477",
@@ -1675,9 +1730,11 @@
     "haskell/app/Trader/VolConfGate.hs": "960283ce0191fed59f9d554276e6b07fe4c75b3c2a1c1a211ee24a0d9d8c8cdd",
     "haskell/research/InferenceProcessV2.hs": "f93011a2cbb56d17f4b6fb547f8666679dc237edee0441ce0bfb747dd634a308",
     "haskell/scripts/rollup_performance.sh": "450d7650ca208938cbc4c7ef24c630415b9a15c06e8bbdb06437942354c5d5e4",
-    "haskell/test/TestMain.hs": "406bec4907b67a3782f46cdea0b0624e7e447df8279a7abc32f1568d834b883e",
+    "haskell/test/TestMain.hs": "44534d3b8585aae449edd6fff4c5d06b24ea6a255477158645878c51d8280dfe",
+    "haskell/test/Trader/Test/AsyncJobAdmission.hs": "c017429544e74f5a6e9e5c807aaf053cedb226ab0355c964e8d6a40edd26a47f",
     "haskell/test/Trader/Test/GracefulShutdown.hs": "5237934157849b58700ff5dc9dcddc8bb647b5a8c09e41c43b191448e837c872",
-    "haskell/trader.cabal": "abdc34bf8b1d245497ca15810c13a06e0f96a23088025d7942564837fbe20369",
+    "haskell/trader.cabal": "e16c565f8316f7e2bda8fe505d366860255ca348cdcb591ae46f51b44ea10399",
+    "research-notes/registrations/async-job-admission-engineering.json": "c0f554260134deadb6f7fb7aaa4361cfa0ec1dd5602ef123b9acbf5ae8bbef8a",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
     "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14",
     "research-notes/registrations/funding-boundary-audit-engineering.json": "cc16f1ff23ba0012bc3fb1d3f09edcf3a14742d49ebb64223c9c83858e7fc398",
@@ -1700,6 +1757,7 @@
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
     "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
     "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
+    "scripts/formal/async_job_admission.py": "bcda677c59d4ba167b2536ceec107a40495e067a25d5edac0d2f6ffeccb89c11",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
@@ -1723,11 +1781,11 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "28777ccc005cd7f360b03facf3ef27fe195064a7439a1adc0674ef66684a5bf2",
+    "scripts/formal/test_integrity.py": "05b8a5467f09c926a885a0a97d68278417088b6fb20644c8155c60626297fc13",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "1335c9f2c6b3c38d97753de0d5fa10e89821bcaedae7ff1c4e879ed7deb9f082",
+    "scripts/formal/verify.py": "10fa0b0a2d266e2256e0ab19b00950c5e0675966b5352abbfb59b3dee824ec7b",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",

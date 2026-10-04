@@ -2616,5 +2616,43 @@ class WorkerRegistryTests(unittest.TestCase):
             worker.extract()
 
 
+class AsyncAdmissionTests(unittest.TestCase):
+    def test_numeric_and_model(self):
+        import async_job_admission as admission
+        self.assertEqual(admission.prove_numeric(), {'F-ASYNC-ADMISSION-NUMERIC': 'unsat'})
+        self.assertEqual(admission.check_model()['states'], 369)
+
+    def test_mutated_ownership_and_publication(self):
+        import async_job_admission as admission
+        for kind in ('leak', 'double-release', 'early-execute', 'loop', 'overbook'):
+            def mutation(state, capacity):
+                count, callers = state
+                if kind == 'loop':
+                    return [('mutant', state)]
+                if kind == 'overbook' and count == capacity and callers[1][0] == 'new':
+                    row = ('prepare', 'none', None, False, False)
+                    return [('mutant', (count+1, (callers[0], row)))]
+                if callers[0][0] == 'prepare' and kind in ('leak', 'double-release'):
+                    row = ('failed', 'none', None, False, False)
+                    return [('mutant', (count if kind == 'leak' else count-2, (row, callers[1])))]
+                if callers[0][0] == 'waiting' and kind == 'early-execute':
+                    row = ('waiting', 'running', True, False, True)
+                    return [('mutant', (count, (row, callers[1])))]
+                return admission.successors(state, capacity)
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                admission.check_model(mutation)
+
+    def test_source_boundary_drift(self):
+        import async_job_admission as admission
+        original = Path.read_bytes
+        def changed(path):
+            content = original(path)
+            if str(path).endswith(admission.SOURCE):
+                return content.replace(b'putMVar gate False', b'putMVar gate True')
+            return content
+        with patch.object(Path, 'read_bytes', changed), self.assertRaises(ValueError):
+            admission.extract()
+
+
 if __name__ == '__main__':
     unittest.main()

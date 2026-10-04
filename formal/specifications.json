@@ -379,6 +379,18 @@
         {
           "id": "F-WORKER-REGISTRY-CONFORMANCE",
           "statement": "The compiled production worker registry rejects three preserved legacy counterexamples and passes barrier-controlled completion, closed-start, interrupted-stop, callback-unmasking and fixed-seed concurrent start/stop tests; source hashes and private exports bind the reviewed implementation."
+        },
+        {
+          "id": "F-ASYNC-ADMISSION-NUMERIC",
+          "statement": "Over the compiled signed Int domain, checked slot admission cannot overflow, accepts only nonnegative counts below a positive limit and preserves valid capacity bounds; total release is nonnegative, never increases valid counts, and reverses a successful admission."
+        },
+        {
+          "id": "F-ASYNC-ADMISSION-LIFECYCLE",
+          "statement": "The finite two-caller async admission model at capacities one and two preserves exact reservation ownership and bounds, permits callback execution only after publication, releases failed parent reservations or aborted child reservations exactly once, and terminates conditionally on callbacks and primitives returning."
+        },
+        {
+          "id": "F-ASYNC-ADMISSION-CONFORMANCE",
+          "statement": "Compiled async admission helper tests cover preparation/publication failure and interruption, callback cancellation, masked-parent unmasking, queue saturation and generated concurrency; pure counters match exact integer cases. Two baseline control-slice regressions are reproduced and rejected by the new helper; reviewed Main source binds the production integration."
         }
       ],
       "invariants": [

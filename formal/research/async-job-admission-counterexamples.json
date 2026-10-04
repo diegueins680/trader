@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-ASYNC-001",
+      "claim": "Preparation failure strands a capacity reservation.",
+      "baselineStatus": "refuted",
+      "before": "(\"prepare failure\",1)",
+      "after": "(\"prepare failure\",0)",
+      "scope": "compiled control-slice adapter bound to baseline Main; repaired production helper compiled",
+      "requirement": "F-ASYNC-ADMISSION-CONFORMANCE"
+    },
+    {
+      "id": "CE-ASYNC-002",
+      "claim": "Callback starts before failed publication, leaving untracked execution.",
+      "baselineStatus": "refuted",
+      "before": "(\"failed publication callback ran\",True,1)",
+      "after": "(\"failed publication callback ran\",False,0)",
+      "scope": "compiled control-slice adapter bound to baseline Main; repaired production helper compiled",
+      "requirement": "F-ASYNC-ADMISSION-CONFORMANCE"
+    }
+  ]
+}

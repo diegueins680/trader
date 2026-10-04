@@ -316,7 +316,7 @@ riskRegister =
         OPEN
         "Shutdown timing and completion may diverge from the promised lifecycle bound"
         "trader-firm-cto"
-        "Monotonic budgets plus persistent worker closure/completion fix six counterexamples; A-SHUTDOWN-CLOCK and A-WORKER-REGISTRY, HTTP admission, detached resources and full IO refinement remain open"
+        "Monotonic budgets, worker closure/completion and async reservation/publication fix eight counterexamples; named clock/worker/async runtime assumptions, HTTP draining, durable recovery and full IO refinement remain open"
     , riskEntry
         THRESHOLD_FACTOR_001
         MEDIUM
