@@ -103,7 +103,7 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
-import Trader.App.AsyncJobAdmission (JobAdmissionFailure (..), JobSlots, closeJobSlots, newJobSlots, runningJobSlots, startBoundedJob, waitJobSlots)
+import Trader.App.AsyncJobAdmission (JobAdmissionFailure (..), JobSlots, closeJobSlots, newJobSlotsWithDrain, runningJobSlots, startBoundedJob, waitJobSlots)
 import Trader.App.AutoStartBackoff (
     BackoffPolicy (..),
     CircuitPolicy (..),
@@ -119,7 +119,7 @@ import Trader.App.AutoStartBackoff (
     shouldOpenCircuit,
     summarizeAuthSymbols,
  )
-import Trader.App.BacktestGate (BacktestFailure (..), BacktestGate, btTimeoutSec, newBacktestGate, runBacktestWithGate, runBacktestWithGateWait)
+import Trader.App.BacktestGate (BacktestFailure (..), BacktestGate, btTimeoutSec, newBacktestGateWithDrain, runBacktestWithGate, runBacktestWithGateWait)
 import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceAuthFailureFromMessage, binanceTradeTestConfirmsAuth, parseBinanceError)
 import Trader.App.Csv (loadCsvPriceSeries)
 import Trader.App.Env (canonicalizeUuidEnvValues, getBuildCommit, loadEnvFile, traderVersion)
@@ -16788,7 +16788,7 @@ runRestApi cliArgs mWebhook = do
     workers <- newWorkerRegistry
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir
-    backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
+    backtestGate <- newBacktestGateWithDrain drain maxBacktestRunning backtestTimeoutSec
     topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
     let topCombosEnabled = readEnvBool topCombosEnabledEnv True
     botStartMinTradesEnv <- lookupEnv "TRADER_BOT_START_BACKTEST_MIN_TRADES"
@@ -16878,9 +16878,9 @@ runRestApi cliArgs mWebhook = do
         _ <- forkSupervisedWorker workers "top-combos-candle" (topCombosCandleWorker topCombosCtx)
         _ <- forkSupervisedWorker workers "top-combos-scheduled-backtest" (autoTopCombosBacktestLoop topCombosCtx)
         pure ()
-    asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
-    asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
-    asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
+    asyncSignal <- newJobStore drain "signal" maxAsyncRunning mAsyncDir
+    asyncBacktest <- newJobStore drain "backtest" maxAsyncRunning mAsyncDir
+    asyncTrade <- newJobStore drain "trade" maxAsyncRunning mAsyncDir
     let asyncStores = AsyncStores asyncSignal asyncBacktest asyncTrade
     requestProgressStore <- newRequestProgressStore
     hFlush stdout
@@ -17858,11 +17858,11 @@ data JobEntry a = JobEntry
     , jeResult :: !(MVar (Either String a))
     }
 
-newJobStore :: Text -> Int -> Maybe FilePath -> IO (JobStore a)
-newJobStore prefix maxRunning mAsyncDir = do
+newJobStore :: DrainController -> Text -> Int -> Maybe FilePath -> IO (JobStore a)
+newJobStore drain prefix maxRunning mAsyncDir = do
     counter <- newIORef 0
     jobs <- newMVar HM.empty
-    running <- newJobSlots maxRunning
+    running <- newJobSlotsWithDrain drain maxRunning
     let mDir =
             case mAsyncDir of
                 Nothing -> Nothing
@@ -18178,6 +18178,7 @@ backtestFailureMessage gate failure =
     case failure of
         BacktestBusy ->
             "Backtest queue is busy. Wait for the current job to finish, or increase TRADER_API_MAX_BACKTEST_RUNNING."
+        BacktestDraining -> "Server is draining; retry on a ready instance."
         BacktestTimedOut ->
             printf
                 "Backtest timed out after %ds. Increase TRADER_API_BACKTEST_TIMEOUT_SEC if needed."
@@ -18188,6 +18189,7 @@ backtestFailureToHttp :: BacktestGate -> BacktestFailure -> (Status, String)
 backtestFailureToHttp gate failure =
     case failure of
         BacktestBusy -> (status429, backtestFailureMessage gate failure)
+        BacktestDraining -> (status503, backtestFailureMessage gate failure)
         BacktestTimedOut -> (status504, backtestFailureMessage gate failure)
         BacktestException ex -> exceptionToHttp ex
 

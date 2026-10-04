@@ -439,6 +439,7 @@ import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BacktestGate (backtestGateSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
+import Trader.Test.DrainPool (drainPoolSuite)
 import Trader.Test.FormalVerification (formalVerificationSuite)
 import Trader.Test.GracefulShutdown (gracefulShutdownSuite, workerRegistrySuite)
 import Trader.Test.MarketRisk (marketRiskSuite)
@@ -872,6 +873,7 @@ main = do
     runSuite "gracefulShutdown" gracefulShutdownSuite
     runSuite "workerRegistry" workerRegistrySuite
     runSuite "backtestGate" backtestGateSuite
+    runSuite "drainPool" drainPoolSuite
     runSuite "asyncJobAdmission" asyncJobAdmissionSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite

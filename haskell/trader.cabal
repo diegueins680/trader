@@ -143,7 +143,7 @@ executable trader-hs
                      , process
                      , ad >=4.4
                      , scientific
-                     , stm
+                     , stm ==2.5.1.0
                      , text
                      , time
                      , unix
@@ -379,6 +379,7 @@ test-suite trader-tests
                      , Trader.Test.BinanceProbe
                      , Trader.Test.Cors
                      , Trader.Test.FormalVerification
+                     , Trader.Test.DrainPool
                      , Trader.Test.BacktestGate
                      , Trader.Test.AsyncJobAdmission
                      , Trader.Test.GracefulShutdown
@@ -422,6 +423,7 @@ test-suite trader-tests
                      , unordered-containers
                      , optparse-applicative >=0.17
                      , random >=1.2
+                     , stm ==2.5.1.0
                      , process
                      , ad >=4.4
                      , scientific
