@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "optimizer-snapshot-v2-engineering-2026-10-03",
+  "kind": "engineering repair only",
+  "sourceCommit": "efe88a73e956bd7e633428b4a688c555cae1c472",
+  "formalContract": "formal/research/optimizer-snapshot-v2-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "frozenLearnerChanges": false,
+  "version": "optimizer-snapshot-v2",
+  "defaultEnabled": false,
+  "formalRequirements": [
+    "F-RL-SNAPSHOT-PUBLISH",
+    "F-RL-SNAPSHOT-CAS",
+    "F-RL-SNAPSHOT-FINITE",
+    "F-RL-SNAPSHOT-CONFORMANCE"
+  ],
+  "modelBounds": {
+    "writers": 2,
+    "callsPerWriter": 2,
+    "readers": 1,
+    "search": "reachable_fixed_point",
+    "interruptions": "before/after publication; acquire-to-finally orphan lock allowed"
+  },
+  "syntheticSeeds": [
+    11,
+    23,
+    47
+  ],
+  "outputWidths": [
+    1,
+    3
+  ],
+  "syntheticUpdateSteps": [
+    0,
+    1,
+    2,
+    8
+  ],
+  "batchRows": [
+    1,
+    8,
+    256
+  ],
+  "stepCap": 2147483647,
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "proofScope": "immutable optimizer publication, not full training, persistence or server concurrency",
+  "promotion": "none",
+  "failureConditions": [
+    "Mixed snapshot",
+    "Stale overwrite",
+    "Non-finite published field",
+    "Lost generation increment",
+    "Unknown solver result",
+    "Source/model drift",
+    "Default enabled",
+    "Any financial or protected-data access"
+  ]
+}
