@@ -767,3 +767,12 @@ including preparations absent from the snapshot, rather than trusting result
 cells alone. A stuck preparation or finalizer can still exhaust the existing
 shutdown deadline. No global HTTP-drain transaction or durable multi-instance
 recovery guarantee is claimed. See the [seal contract](formal/research/async-shutdown-seal-contract.md).
+
+
+Backtest execution gates distinguish their own timeout (HTTP 504 on synchronous
+requests) from external cancellation. Cancellation and outer timeouts propagate
+after releasing capacity; synchronous domain errors retain their existing error
+mapping. Seconds-to-microseconds conversion saturates safely instead of wrapping
+into an unlimited timeout. Waiting admission retains its one-second retry; the
+execution timeout starts after admission and does not bound queue wait. Callbacks
+must remain interruptible for timeout delivery. See the [backtest gate contract](formal/research/backtest-gate-contract.md).
