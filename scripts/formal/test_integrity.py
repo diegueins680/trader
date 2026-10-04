@@ -2570,5 +2570,51 @@ class ShutdownDeadlineTests(unittest.TestCase):
                 shutdown.check_model(mutation)
 
 
+class WorkerRegistryTests(unittest.TestCase):
+    def test_atomic_predicates_and_model(self):
+        import worker_registry as worker
+        self.assertEqual(worker.prove_predicates(), {'F-WORKER-REGISTRY-INVARIANTS': 'unsat'})
+        receipt = worker.check_model()
+        self.assertGreater(receipt['deliveryWithoutCompletionStates'], 0)
+        self.assertEqual(receipt['initialRank'], 24)
+        self.assertGreater(receipt['requestAfterCompletionTransitions'], 0)
+        self.assertEqual(worker.check_capture_trace(), 'MC-WORKER-001')
+
+    def test_mutated_protocol_is_rejected(self):
+        import worker_registry as worker
+        for kind in ('reopen', 'premature', 'forget', 'duplicate', 'delivery', 'loop'):
+            def mutated(state):
+                closed, workers, requests, delivered, callers, ticks, captured = state
+                steps = worker.successors(state)
+                if kind == 'reopen' and closed:
+                    return [('mutant', (False, workers, requests, delivered, callers, ticks, captured))]
+                if kind == 'premature' and closed and 1 in workers:
+                    return [('mutant', (closed, workers, requests, delivered, (3, callers[1]), ticks, captured))]
+                if kind == 'forget' and 1 in workers:
+                    return [('mutant', (closed, worker.replace(workers, workers.index(1), 3), requests, delivered, callers, ticks, captured))]
+                if kind == 'duplicate' and 1 in requests:
+                    return [('mutant', (closed, workers, worker.replace(requests, requests.index(1), 2), delivered, callers, ticks, captured))]
+                if kind == 'delivery' and any(d and w == 1 for d, w in zip(delivered, workers)):
+                    i = next(i for i in range(2) if delivered[i] and workers[i] == 1)
+                    return [('deliver', (closed, worker.replace(workers, i, 2), requests, delivered, callers, ticks, captured))]
+                if kind == 'loop':
+                    return [('mutant', state)]
+                return steps
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                worker.check_model(mutated)
+
+    def test_source_drift_rejected(self):
+        import worker_registry as worker
+        from unittest.mock import patch
+        original = Path.read_bytes
+        def altered(path):
+            data = original(path)
+            if str(path).endswith(worker.SOURCE):
+                return data.replace(b'WorkerRegistryState True retained', b'WorkerRegistryState False retained')
+            return data
+        with patch.object(Path, 'read_bytes', altered), self.assertRaises(ValueError):
+            worker.extract()
+
+
 if __name__ == '__main__':
     unittest.main()

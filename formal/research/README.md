@@ -395,3 +395,5 @@ The formal wrapper compiles actual production budget functions, checks 580
 integer cases (256 generated, seed 20261004) and eight runtime tests, alongside
 integer SMT and a six-stage model. No new dependencies. The machine-readable
 ledger distinguishes those three evidence classes and retains all broad blockers.
+
+Worker registry follow-up: [contract](worker-registry-contract.md), [source lock](worker-registry-source.json), [counterexamples](worker-registry-counterexamples.json), and [engineering report](../../research-notes/sequential-control-2026-09-17/worker-registry-followup-2026-10-04.md). The formal gate compiles old/new witnesses plus production tests, checks the finite protocol and atomic SMT predicates, and rejects drift. Full IO refinement and whole-server shutdown remain unresolved.

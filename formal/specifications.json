@@ -367,6 +367,18 @@
         {
           "id": "F-SHUTDOWN-CONFORMANCE",
           "statement": "Compiled production shutdown budget functions agree with edge and generated integer cases; runtime tests exercise expired no-dispatch, exceptions and uninterruptible timeout, and reviewed Main source binds the six stages and truthful aggregate report. This is conformance evidence, not full IO refinement."
+        },
+        {
+          "id": "F-WORKER-REGISTRY-LIFECYCLE",
+          "statement": "In the finite two-worker/two-stop protocol, closure never reopens, closed starts are rejected, unfinished entries persist, cancellation helpers are unique, delivery is distinct from completion, and stop success requires all captured workers finished; a decreasing rank excludes infinite protocol paths under primitive progress."
+        },
+        {
+          "id": "F-WORKER-REGISTRY-INVARIANTS",
+          "statement": "The reviewed atomic Boolean predicates preserve closed state, exclude closed admission, retain every registered unfinished entry, require per-entry completion for acknowledgement, and make cancellation-request creation idempotent. These are atomic predicate properties, not a proof of Haskell IO refinement."
+        },
+        {
+          "id": "F-WORKER-REGISTRY-CONFORMANCE",
+          "statement": "The compiled production worker registry rejects three preserved legacy counterexamples and passes barrier-controlled completion, closed-start, interrupted-stop, callback-unmasking and fixed-seed concurrent start/stop tests; source hashes and private exports bind the reviewed implementation."
         }
       ],
       "invariants": [

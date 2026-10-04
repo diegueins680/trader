@@ -175,6 +175,12 @@
       "status": "assumption",
       "statement": "GHC Integer/Int, monotonic clock, System.Timeout and compiler semantics are trusted. Clock does not wrap during one shutdown; bounded scheduler, clock and logging service is needed for wall-time interpretation. Source scalarization and finite atomic-stage abstraction are trusted, not full IO refinement. Child cancellation need not terminate an uninterruptible action.",
       "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-WORKER-REGISTRY",
+      "status": "assumption",
+      "statement": "Pinned GHC 9.4.8/base 4.17.2.1 MVar, masking, forkIOWithUnmask, finally and System.Timeout semantics; finite registry, available memory, private completion cells and bounded scheduler/primitive progress. Completion covers tracked callback/finalizers only. Atomic-step interpretation and source-to-model correspondence are reviewed and tested, not fully proved IO refinement. Closure begins at registry lock, not HTTP beginDrain.",
+      "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
   "criticalFiles": [
@@ -220,7 +226,12 @@
     "formal/research/ShutdownDeadline.hs",
     "haskell/app/Trader/App/GracefulShutdown.hs",
     "haskell/test/Trader/Test/GracefulShutdown.hs",
-    "haskell/app/Trader/Formal/RiskRegister.hs"
+    "haskell/app/Trader/Formal/RiskRegister.hs",
+    "scripts/formal/worker_registry.py",
+    "haskell/test/TestMain.hs",
+    "formal/research/WorkerRegistry.hs",
+    "formal/research/fixtures/worker-registry-before.hs",
+    "formal/research/fixtures/worker-registry-witness.hs"
   ],
   "entries": [
     {
@@ -2653,6 +2664,105 @@
       "limitations": "No full Haskell IO refinement, worker quiescence, scheduler wall-time bound, admission race or whole-server shutdown proof. Failure logging can block outside the budget under adverse IO.",
       "counterexample": "formal/research/shutdown-counterexamples.json",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-WORKER-REGISTRY-LIFECYCLE",
+      "claim": "In the finite two-worker/two-stop protocol, closure never reopens, closed starts are rejected, unfinished entries persist, cancellation helpers are unique, delivery is distinct from completion, and stop success requires all captured workers finished; a decreasing rank excludes infinite protocol paths under primitive progress.",
+      "formalStatement": "In the finite two-worker/two-stop protocol, closure never reopens, closed starts are rejected, unfinished entries persist, cancellation helpers are unique, delivery is distinct from completion, and stop success requires all captured workers finished; a decreasing rank excludes infinite protocol paths under primitive progress.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-WORKER-REGISTRY",
+        "A-SOLVER"
+      ],
+      "tool": "finite transition checker; Z3 Boolean solver; compiled Haskell conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/worker_registry.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "formal/research/worker-registry-source.json",
+        "formal/research/worker-registry-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/GracefulShutdown.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/WorkerRegistry.hs",
+        "formal/research/fixtures/worker-registry-before.hs",
+        "formal/research/fixtures/worker-registry-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped worker certificate reproduced; no whole-server lifecycle or mission closure.",
+      "bounds": "Two workers, two stop callers, two timeout ticks each; 14095 states, 55904 transitions, max shortest depth 16, initial rank 24. SMT: all Boolean valuations of reviewed per-entry atomic predicates. Five runtime tests, 32 scheduling cases, seed 20261004; three compiled legacy/refutation comparisons.",
+      "limitations": "Not full IO refinement, exhaustive GHC scheduling, durable recovery, descendant termination, HTTP admission or resource reconciliation. Timeout before registry lock need not close it. Scheduler, masking and finite allocation assumptions are explicit.",
+      "counterexample": "formal/research/worker-registry-counterexamples.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-WORKER-REGISTRY-INVARIANTS",
+      "claim": "The reviewed atomic Boolean predicates preserve closed state, exclude closed admission, retain every registered unfinished entry, require per-entry completion for acknowledgement, and make cancellation-request creation idempotent. These are atomic predicate properties, not a proof of Haskell IO refinement.",
+      "formalStatement": "The reviewed atomic Boolean predicates preserve closed state, exclude closed admission, retain every registered unfinished entry, require per-entry completion for acknowledgement, and make cancellation-request creation idempotent. These are atomic predicate properties, not a proof of Haskell IO refinement.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-WORKER-REGISTRY",
+        "A-SOLVER"
+      ],
+      "tool": "finite transition checker; Z3 Boolean solver; compiled Haskell conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/worker_registry.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "formal/research/worker-registry-source.json",
+        "formal/research/worker-registry-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/GracefulShutdown.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/WorkerRegistry.hs",
+        "formal/research/fixtures/worker-registry-before.hs",
+        "formal/research/fixtures/worker-registry-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped worker certificate reproduced; no whole-server lifecycle or mission closure.",
+      "bounds": "Two workers, two stop callers, two timeout ticks each; 14095 states, 55904 transitions, max shortest depth 16, initial rank 24. SMT: all Boolean valuations of reviewed per-entry atomic predicates. Five runtime tests, 32 scheduling cases, seed 20261004; three compiled legacy/refutation comparisons.",
+      "limitations": "Not full IO refinement, exhaustive GHC scheduling, durable recovery, descendant termination, HTTP admission or resource reconciliation. Timeout before registry lock need not close it. Scheduler, masking and finite allocation assumptions are explicit.",
+      "counterexample": "formal/research/worker-registry-counterexamples.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-WORKER-REGISTRY-CONFORMANCE",
+      "claim": "The compiled production worker registry rejects three preserved legacy counterexamples and passes barrier-controlled completion, closed-start, interrupted-stop, callback-unmasking and fixed-seed concurrent start/stop tests; source hashes and private exports bind the reviewed implementation.",
+      "formalStatement": "The compiled production worker registry rejects three preserved legacy counterexamples and passes barrier-controlled completion, closed-start, interrupted-stop, callback-unmasking and fixed-seed concurrent start/stop tests; source hashes and private exports bind the reviewed implementation.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-WORKER-REGISTRY",
+        "A-SOLVER"
+      ],
+      "tool": "finite transition checker; Z3 Boolean solver; compiled Haskell conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/worker_registry.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "formal/research/worker-registry-source.json",
+        "formal/research/worker-registry-contract.md"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/GracefulShutdown.hs",
+        "haskell/test/TestMain.hs",
+        "formal/research/WorkerRegistry.hs",
+        "formal/research/fixtures/worker-registry-before.hs",
+        "formal/research/fixtures/worker-registry-witness.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Scoped worker certificate reproduced; no whole-server lifecycle or mission closure.",
+      "bounds": "Two workers, two stop callers, two timeout ticks each; 14095 states, 55904 transitions, max shortest depth 16, initial rank 24. SMT: all Boolean valuations of reviewed per-entry atomic predicates. Five runtime tests, 32 scheduling cases, seed 20261004; three compiled legacy/refutation comparisons.",
+      "limitations": "Not full IO refinement, exhaustive GHC scheduling, durable recovery, descendant termination, HTTP admission or resource reconciliation. Timeout before registry lock need not close it. Scheduler, masking and finite allocation assumptions are explicit.",
+      "counterexample": "formal/research/worker-registry-counterexamples.json",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -3010,9 +3120,12 @@
       "claim": "Draining",
       "status": "partially_verified",
       "evidenceRequirements": [
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
       "nextAction": "Extract actual runtime admission transitions and match every drain/start race to the state model.",
@@ -3499,9 +3612,12 @@
         "F-RL-SNAPSHOT-CAS",
         "F-RL-SNAPSHOT-FINITE",
         "F-RL-SNAPSHOT-ISOLATION",
-        "F-RL-SNAPSHOT-CONFORMANCE"
+        "F-RL-SNAPSHOT-CONFORMANCE",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3525,9 +3641,12 @@
         "F-RL-SNAPSHOT-CAS",
         "F-RL-SNAPSHOT-FINITE",
         "F-RL-SNAPSHOT-ISOLATION",
-        "F-RL-SNAPSHOT-CONFORMANCE"
+        "F-RL-SNAPSHOT-CONFORMANCE",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "Compose the repaired snapshot boundary into a separately registered successor runner; certify actual production ownership/lifecycle/persistence boundaries independently. Do not treat the isolated optimizer model as whole-system atomicity.",
@@ -3551,9 +3670,12 @@
         "F-RL-TARGET-V2-TERMINAL",
         "F-RL-TARGET-V2-FINITE",
         "F-RL-TARGET-V2-REAL",
-        "F-RL-TARGET-V2-PUBLISH"
+        "F-RL-TARGET-V2-PUBLISH",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-CONFORMANCE"
       ],
-      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation.",
+      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
       "nextAction": "Define request identity and atomic deduplication at any future effect boundary; verify retry transitions.",
@@ -3584,12 +3706,15 @@
         "F-RL-PROCESS-CONFORMANCE",
         "F-SHUTDOWN-BUDGET",
         "F-SHUTDOWN-STAGES",
-        "F-SHUTDOWN-CONFORMANCE"
+        "F-SHUTDOWN-CONFORMANCE",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
-      "nextAction": "Compose the offline successor and verify worker-registry cancellation/registration plus route admission, bounded logging and actual resource completion; monotonic budget/reporting correction alone is insufficient.",
+      "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
@@ -3598,7 +3723,7 @@
       ],
       "blockers": [
         "Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner.",
-        "Server route/registry concurrency, uninterruptible resource completion, repeated cancellation and logging/OS timing remain unrefined; frozen v1 and successor runner composition remain unresolved."
+        "HTTP admission, detached/async workers, bots/listen-key completion, resource reconciliation, repeated process signals and logging/OS timing remain unrefined."
       ],
       "requiredCertificates": []
     },
@@ -3606,8 +3731,12 @@
       "number": 37,
       "claim": "Recovery",
       "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "evidenceRequirements": [
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-CONFORMANCE"
+      ],
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Interrupted recoverable work resumes without violating safety or duplicating irreversible effects.",
       "nextAction": "Specify durable checkpoints and idempotent recovery transitions; inject crashes at each publication boundary.",

@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Shutdown: retain unfinished supervised workers across timed-out stops, reject registration after closure, and wait for callback finalizers instead of cancellation delivery. Add three compiled legacy regressions, concurrent/interrupted-stop tests, a bounded lifecycle model and SMT predicate checks. Broader server lifecycle obligations remain open.
 - Shutdown: replace UTC-derived cleanup deadlines with monotonic, overflow-safe budgets; pass remaining time to nested waits and report incomplete cleanup after any failed/expired stage. Add source-bound SMT, six-stage model checking and compiled regression tests. This does not prove thread quiescence or resolve admission races.
 
 ## Offline inference cancellation engineering follow-up (2026-10-03)

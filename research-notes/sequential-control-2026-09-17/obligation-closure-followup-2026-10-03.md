@@ -57,3 +57,5 @@ No market data, protected holdout or historical OPE was accessed or rerun. Exist
 new financial training campaign, live exploration, policy adoption, live authorization, fleet change,
 merge or deployment occurred. Existing financial rejection and champion are
 unchanged. Recommendation: continue offline verification; no candidate integration.
+
+2026-10-04 worker follow-up: [three inherited defects repaired](worker-registry-followup-2026-10-04.md), with source-bound model/SMT and compiled conformance evidence. This narrows worker-lifecycle blockers without closing the broader HTTP, ownership, durable recovery or resource-completion obligations. Aggregate remains 3 closed / 28 partial / 7 open.

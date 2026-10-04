@@ -20,10 +20,10 @@ module Trader.App.GracefulShutdown (
     supervisedWorkerCount,
 ) where
 
-import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
-import Control.Concurrent.MVar (MVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar)
-import Control.Exception (AsyncException, SomeException, displayException, finally, fromException, throwIO, try)
-import Control.Monad (forM, void)
+import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, threadDelay)
+import Control.Concurrent.MVar (MVar, isEmptyMVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
+import Control.Exception (AsyncException, SomeException, displayException, finally, fromException, mask_, throwIO, try)
+import Control.Monad (filterM, forM, unless, void)
 import Data.ByteString (ByteString)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
@@ -33,7 +33,18 @@ import System.Timeout (timeout)
 
 newtype DrainController = DrainController (IORef Bool)
 
-newtype WorkerRegistry = WorkerRegistry (MVar [(String, ThreadId)])
+newtype WorkerRegistry = WorkerRegistry (MVar WorkerRegistryState)
+
+data WorkerRegistryState = WorkerRegistryState
+    { registryClosed :: !Bool
+    , registryWorkers :: [SupervisedWorker]
+    }
+
+data SupervisedWorker = SupervisedWorker
+    { workerThread :: !ThreadId
+    , workerFinished :: !(MVar ())
+    , workerCancelRequested :: !(MVar Bool)
+    }
 
 newDrainController :: IO DrainController
 newDrainController = DrainController <$> newIORef False
@@ -71,40 +82,50 @@ shouldRejectDuringDrain method path =
         ]
 
 newWorkerRegistry :: IO WorkerRegistry
-newWorkerRegistry = WorkerRegistry <$> newMVar []
+newWorkerRegistry = WorkerRegistry <$> newMVar (WorkerRegistryState False [])
+
+unfinishedWorkers :: [SupervisedWorker] -> IO [SupervisedWorker]
+unfinishedWorkers = filterM (isEmptyMVar . workerFinished)
 
 supervisedWorkerCount :: WorkerRegistry -> IO Int
-supervisedWorkerCount (WorkerRegistry workers) = length <$> readMVar workers
+supervisedWorkerCount (WorkerRegistry workers) = do
+    snapshot <- readMVar workers
+    length <$> unfinishedWorkers (registryWorkers snapshot)
 
-forkSupervisedWorker :: WorkerRegistry -> String -> IO () -> IO ThreadId
-forkSupervisedWorker (WorkerRegistry workers) name action = do
-    ready <- newEmptyMVar
-    tid <-
-        forkIO $ do
-            takeMVar ready
-            current <- myThreadId
-            loop 0 `finally` modifyMVar_ workers (pure . filter ((/= current) . snd))
-    modifyMVar_ workers (pure . ((name, tid) :))
-    putMVar ready ()
-    pure tid
+-- Nothing rejects a closed registry without creating a thread. Publication is
+-- masked and holds the same lock that the child reads before its first action.
+forkSupervisedWorker :: WorkerRegistry -> String -> IO () -> IO (Maybe ThreadId)
+forkSupervisedWorker (WorkerRegistry workers) name action = mask_ $
+    modifyMVar workers $ \state ->
+        if registryClosed state
+            then pure (state, Nothing)
+            else do
+                retained <- unfinishedWorkers (registryWorkers state)
+                finished <- newEmptyMVar
+                requested <- newMVar False
+                tid <- forkIOWithUnmask $ \unmask -> unmask (loop 0) `finally` putMVar finished ()
+                let entry = SupervisedWorker tid finished requested
+                pure (state{registryWorkers = entry : retained}, Just tid)
   where
     restartDelayUs = 1000000
 
     loop :: Int -> IO ()
     loop restartCount = do
-        result <- try action
-        case result of
-            Right () -> do
-                hPutStrLn stderr (workerMessage "exited" restartCount Nothing)
-                threadDelay restartDelayUs
-                loop (restartCount + 1)
-            Left ex ->
-                case fromException ex :: Maybe AsyncException of
-                    Just asyncEx -> throwIO asyncEx
-                    Nothing -> do
-                        hPutStrLn stderr (workerMessage "crashed" restartCount (Just ex))
-                        threadDelay restartDelayUs
-                        loop (restartCount + 1)
+        closed <- registryClosed <$> readMVar workers
+        unless closed $ do
+            result <- try action
+            case result of
+                Right () -> restart "exited" restartCount Nothing
+                Left ex ->
+                    case fromException ex :: Maybe AsyncException of
+                        Just asyncEx -> throwIO asyncEx
+                        Nothing -> restart "crashed" restartCount (Just ex)
+
+    restart :: String -> Int -> Maybe SomeException -> IO ()
+    restart outcome restartCount problem = do
+        hPutStrLn stderr (workerMessage outcome restartCount problem)
+        threadDelay restartDelayUs
+        loop (restartCount + 1)
 
     workerMessage :: String -> Int -> Maybe SomeException -> String
     workerMessage outcome restartCount mException =
@@ -147,10 +168,25 @@ stopThreadIdsBounded timeoutUs tids = do
         Just () -> True
         Nothing -> False
 
+-- Retrying shares both the cancellation request and the completion cell. A
+-- delivered ThreadKilled is not evidence that callback finalizers have finished.
+requestWorkerCancellation :: SupervisedWorker -> IO ()
+requestWorkerCancellation worker = mask_ $
+    modifyMVar_ (workerCancelRequested worker) $ \requested -> do
+        unless requested (void (forkIO (killThread (workerThread worker))))
+        pure True
+
 stopSupervisedWorkersBounded :: Int -> WorkerRegistry -> IO Bool
 stopSupervisedWorkersBounded timeoutUs (WorkerRegistry workers) = do
-    registered <- swapMVar workers []
-    stopThreadIdsBounded timeoutUs (map snd registered)
+    completed <- timeout (max 1 timeoutUs) $ do
+        captured <- modifyMVar workers $ \state -> do
+            retained <- unfinishedWorkers (registryWorkers state)
+            pure (WorkerRegistryState True retained, retained)
+        mapM_ requestWorkerCancellation captured
+        mapM_ (readMVar . workerFinished) captured
+    pure $ case completed of
+        Just () -> True
+        Nothing -> False
 
 -- Exact nanoseconds keep deadline construction independent of Int overflow.
 -- Constructors stay private so callers cannot fabricate inconsistent deadlines.
