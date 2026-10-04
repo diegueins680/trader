@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "inference-process-v2-engineering-2026-10-03",
+  "sourceCommit": "be66dbc2bfd6a5e50b0aaa7490d1f6906364c6a9",
+  "kind": "offline cancellation engineering repair",
+  "formalContract": "formal/research/inference-process-v2-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "frozenLearnerChanges": false,
+  "defaultEnabled": false,
+  "promotion": "none",
+  "version": "inference-process-v2",
+  "admissionNanoseconds": 20000000,
+  "cleanupWindowsMicroseconds": [50000, 50000],
+  "modelBounds": {"children": 1, "requests": 1, "retries": 0},
+  "syntheticSeeds": [11, 23, 47],
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "requirements": ["F-RL-PROCESS-LIFECYCLE", "F-RL-PROCESS-ADMISSION", "F-RL-PROCESS-CONFORMANCE", "F-RL-PROCESS-ISOLATION"],
+  "failureConditions": ["late accepted reply", "unbounded supervisor wait", "live capability", "enabled default", "cleanup failure reported as quiescence", "unknown solver result", "source/model drift"],
+  "limitations": "General-purpose OS timing is conditional; v1 deadline counterexample and inherited production shutdown remain unresolved. No policy or financial evidence is promoted."
+}
