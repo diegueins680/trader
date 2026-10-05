@@ -1,5 +1,13 @@
 ## Unreleased
 
+- Research: connect trained PPO snapshots to supervised Haskell inference through
+  a versioned, default-disabled exact-bit encoder and checked pure decoder. Keep
+  existing v2 flags and worker protocol; add an explicit v3 request mode, source-
+  bound model/SMT evidence and actual trained-policy/process conformance. Require
+  an optimized research build for the new codec without widening the 20 ms guard.
+  No persisted artifact, production integration, live permission or financial
+  result changes; broader unresolved obligations remain blocked.
+
 - Add a default-disabled, versioned PPO engineering successor connecting actual
   collection/training to checked GAE and immutable actor/critic snapshots. Reject
   invalid funding, non-finite objectives and incomplete updates before final

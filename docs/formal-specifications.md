@@ -683,3 +683,16 @@ finite control model, source-derived integer/IEEE guard SMT, enumerated source
 boundary and actual synthetic tests retain distinct proof statuses. The successor
 composes real training with existing checked kernels but does not close any
 additional broad obligation or establish economic acceptance.
+
+
+The [PPO snapshot/process bridge](../formal/research/ppo-process-bridge-v3-contract.md)
+adds F-RL-BRIDGE-V3-CODEC/FLOW/BOUNDARY/CONFORMANCE under A-BRIDGE-V3. Twenty-five SMT
+checks cover checked Integer conversion, metadata shape/step admission, completed
+PPO step budgets, binary64 finite/bounded selection, decimal-fold bounds and list-count descent. The composed process
+model has 83 states and 189 transitions (one request/child; three time buckets;
+two cleanup poll steps per window); its maximum shortest depth is 10.
+Actual training-to-Haskell tests supplement these conditional abstractions.
+A transient exact-bit request does not authenticate provenance, prove observation
+causality or establish neural numerical parity near ties. Existing v2 interfaces,
+source-level capability separation and disabled defaults remain checked. Counts
+remain five scoped closures, 26 partial and seven open; no candidate promotion.

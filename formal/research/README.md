@@ -420,3 +420,40 @@ in [the contract](ppo-successor-v2-contract.md). There is no CLI, artifact write
 production selector or promotion capability. No financial trial is run by CI.
 Use `verify.py --require-complete` to observe the still-blocked whole-mission gate;
 a scoped `formal` pass is not research completion.
+
+## PPO snapshot/process bridge v3 (2026-10-05)
+
+The [contract](ppo-process-bridge-v3-contract.md) and
+[source inventory](ppo-process-bridge-source.json) bind the pure encoder/decoder
+and existing supervisor. `formal` and `full` reproduce codec SMT, the 83-state /
+189-transition composed process model, source inventory and nine synthetic PPO
+fits across seeds 11/23/47 and horizons 1/3/6 (17 steps each). Twenty-seven
+observation requests, bit/invalid-input fixtures and actual timeout/cleanup tests
+connect the model to code. No historical data is read. Proof ledger entries
+F-RL-BRIDGE-V3-* provide bidirectional file/test/CI traceability.
+
+The bridge fixture uses GHC9.4.8/base4.17.2.1 with `-O2`; the original v2 tests
+retain `-O0`. The first unoptimized bridge run did not satisfy per-policy success
+within the unchanged 20 ms deadline; optimization is an explicit engineering
+build choice. Neither optimized code nor tests establish a real-time OS guarantee.
+Reproduce the optional timing report separately (temporary files only):
+
+```sh
+"${TRADER_FORMAL_PYTHON:-python3}" scripts/formal/ppo_process_bridge.py --benchmark
+```
+
+To compile the research executable outside the working tree:
+
+```sh
+mkdir -p /tmp/trader-snapshot-v3-build
+ghc -O2 -threaded -with-rtsopts=-V0.001 -ihaskell/research   -package process-1.6.18.0 -package unix-2.7.3 -package bytestring-0.11.5.3   -outputdir /tmp/trader-snapshot-v3-build   haskell/research/InferenceProcessV2.hs -o /tmp/trader-snapshot-v3-build/infer
+```
+
+An already constructed width-12 float64 observation and a `TrainingResult` may be
+encoded with `encode_request_v3(result, observation, enabled=True)`. Send its
+bytes to `/tmp/trader-snapshot-v3-build/infer --offline-snapshot-v3`. Unsupported
+input encodes to `None`; the Haskell boundary returns absence on invalid input,
+timeout or failed cleanup. `--snapshot-contract-v3` is a pure bit-roundtrip probe.
+The existing `--offline-inference-v2` contract is preserved. These commands do not
+persist or authenticate models, select datasets, construct observations, authorize
+orders or register production components. No new configuration/environment flag.
