@@ -31,6 +31,10 @@ def require(ok, reason):
 def extract(source=None, registry=None):
     source = (ROOT/SOURCE).read_text() if source is None else source
     registry = json.loads((ROOT/REGISTRY).read_text()) if registry is None else registry
+    require(set(registry) == {'schemaVersion', 'exporter', 'supportHashes'} and registry['schemaVersion'] == 1, 'registry schema')
+    expected_support = {LEGACY, FIXTURE, source_path('run_sequential_screen'), source_path('sequential_learning'),
+                        'scripts/formal/promotion_boundary.py', 'formal/research/promotion-boundary-source.json'}
+    require(set(registry['supportHashes']) == expected_support, 'support coverage omitted')
     require(source == registry['exporter'], 'complete exporter drift')
     for path, expected in registry['supportHashes'].items():
         require(hashlib.sha256((ROOT/path).read_bytes()).hexdigest() == expected, 'support drift: ' + path)

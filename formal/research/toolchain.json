@@ -77,7 +77,7 @@
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
     "scripts/formal/verify.py": "4022956059d9cb0578f8cdda1b037f27a56f2ccb84d720414cdfd2e8ad3c82d6",
-    "scripts/formal/test_integrity.py": "8ec558fcde1537f3c50232f0013d79b61bbf172671491210e65a501ea62cf001",
+    "scripts/formal/test_integrity.py": "fe92358a754805a6407fb7d91ee0c1274d3c74163c021316bdc9a0b9aac44fd7",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
@@ -437,7 +437,7 @@
     "formal/research/champion-archive-contract.md": "7f184d931a68f620707b532cb93c76158bd2978a190cf74b8f3a05f36a2098b7",
     "formal/research/fixtures/champion-archive.json": "a709d111d6bde0a232632644d1bcca202f6257fa3cdcb767f10b3c44d68c4732",
     "research-notes/registrations/champion-archive-engineering.json": "c85ffe9f4f1dcca1bc02a83784bbe4e18278a587fced36cd417242d95eef0a00",
-    "scripts/formal/champion_archive.py": "b671f7482f9bd3a1d547202f64de4da0bbad0663e5da67584a4bf8251e8a3357"
+    "scripts/formal/champion_archive.py": "d794da8095117537b707763280181506fad2acc2caf48d4d5c0a2c6df5415e40"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

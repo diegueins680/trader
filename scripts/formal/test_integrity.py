@@ -3484,6 +3484,15 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
             p.check_archive({'surface':{'moduleCount':12}, 'composition':{'productionRoots':[]}})
+        original = p.successors
+        def overwrite(state, legacy=False):
+            names, data, phases, handles, keys, injected = state
+            return original(state, legacy) + [('bad-write', (names, (0, *data[1:]), phases, handles, keys, injected))]
+        with patch.object(p, 'successors', overwrite), self.assertRaisesRegex(ValueError, 'protected object modified'):
+            p.model()
+        for missing in read_json(ROOT/p.REGISTRY)['supportHashes']:
+            registry = read_json(ROOT/p.REGISTRY); del registry['supportHashes'][missing]
+            with self.assertRaisesRegex(ValueError, 'support coverage omitted'): p.extract(registry=registry)
         registry = read_json(ROOT/p.REGISTRY); registry['supportHashes'][p.FIXTURE] = '0'*64
         with self.assertRaisesRegex(ValueError, 'support drift'): p.extract(registry=registry)
 
