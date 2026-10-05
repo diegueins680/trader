@@ -104,6 +104,7 @@
     "haskell/app/Trader/Predictors/TCN.hs",
     "haskell/app/Trader/Predictors/Transformer.hs",
     "haskell/app/Trader/Predictors/Types.hs",
+    "haskell/app/Trader/QuantityRounding.hs",
     "haskell/app/Trader/Research/PolicyProposalV1.hs",
     "haskell/app/Trader/Revenue.hs",
     "haskell/app/Trader/RoiScore.hs",
@@ -160,10 +161,10 @@
     "ab0034d9f6953afd4749059ce65d521a7e8ac911146727222403d00218c438af"
   ],
   "supportSourceHashes": {
-    "haskell/trader.cabal": "3b446707f5fd891e3051bbe0dd0eca80ee8f1fb9b296cb1f2281f245ef38928a",
+    "haskell/trader.cabal": "291940c7cd03a1d999abdaadfb8397a42881ab10a25ebe730c7ccd97d3dc3322",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
-    "haskell/app/Main.hs": "d365891c8f2734211a74b4e9e56fe3791dd19fd3f3289b092a7e76ffbd9b104c",
+    "haskell/app/Main.hs": "1172c3ed63d189bfad8f4ce2bc359275c5db8e53b2e2c3777dfadc513886de6f",
     "haskell/app/Trader/Optimizer/Optimize.hs": "366de00ef8aa38a35435656a994d89e9a8c2a4ac6c3f7881e41f65bc3a88abb4",
     "haskell/app/Trader/Dex.hs": "c046e597672e112d88b2cb3eac0eb7994c411502637b5192c9e3e539e76de33f",
     "haskell/app/Trader/App/Env.hs": "ba0aa10931c35f211003ebf4ffe55efebe973feed72b1125d0149111b0654fac",

@@ -1,5 +1,10 @@
 # Trader
 
+Quantity-normalization callers reject non-finite values and invalid grid metadata before minimum-size fallback, preventing a zero rejection from becoming a positive minimum order.
+
+The Binance downward-rounding helper now uses exact rational grid flooring and rejects invalid numeric inputs. It cannot return a finite value above its input; values just below a grid boundary may conservatively lose one step (binary64 `0.3` on a `0.1` grid becomes `0.2`). See the [contract](formal/research/quantity-rounding-contract.md). Final decimal order serialization and minimum-size increases remain unverified. Current obligation status: five scoped closures, 27 partial, six open.
+
+
 The default-disabled [PPO artifact byte codec v4](formal/research/ppo-artifact-v4-contract.md)
 now checks caller-supplied SHA256/provenance references and preserves completed
 immutable PPO training state before producing the existing Haskell v3 request.
@@ -15,8 +20,8 @@ versions, dimensions, completed-step metadata, finiteness and numeric bounds.
 Build the research executable with GHC 9.4.8 `-O2` as described in the
 [runbook](formal/research/README.md). The 20 ms final admission guard remains.
 This transient request is not an authenticated artifact or a production model;
-no candidate is adopted. Five scoped obligations are closed, 26 partial and seven
-open remain. See the [engineering report](research-notes/sequential-control-2026-09-17/ppo-process-bridge-followup-2026-10-05.md).
+no candidate is adopted. At that bridge milestone, five scoped obligations were closed, 26 partial and seven
+open remained. See the [engineering report](research-notes/sequential-control-2026-09-17/ppo-process-bridge-followup-2026-10-05.md).
 
 
 The default-disabled [PPO successor v2](formal/research/ppo-successor-v2-contract.md)

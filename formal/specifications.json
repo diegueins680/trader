@@ -76,7 +76,9 @@
         "scripts/formal/ppo_successor.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Trader/Binance.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -492,6 +494,18 @@
         {
           "id": "F-RL-ARTIFACT-V4-CONFORMANCE",
           "statement": "Nine synthetic PPO configurations preserve immutable training state, canonical artifact bytes and compiled Haskell request bit patterns; generated finite bit patterns round-trip and registered malformed artifacts reject."
+        },
+        {
+          "id": "F-ROUND-DOWN-INTEGER",
+          "statement": "For exact nonnegative N and positive D, u=N div D satisfies 0<=u, u*D<=N<(u+1)*D; reconstructing positive-scale/increment rational grid values preserves downward bounds."
+        },
+        {
+          "id": "F-ROUND-DOWN-FINITE",
+          "statement": "The source-bound binary64 publication guard returns finite nonnegative output no greater than a valid positive finite input, independently of intermediate conversion output; invalid input or nonpositive scale/increment returns zero before division. The shared preflight accepts only finite quantities and positive present grid fields; source-bound Either ordering rejects these invalid inputs before minimum-size fallback."
+        },
+        {
+          "id": "F-ROUND-DOWN-CONFORMANCE",
+          "statement": "The compiled exact rounding core matches an independent Fraction oracle on 130 boundary and 4096 seeded bit-pattern cases, preserves CE-ROUND-001, and the Binance adapter passes generated finite/non-increase/delegation tests."
         }
       ],
       "invariants": [

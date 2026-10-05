@@ -1,5 +1,8 @@
 # Offline research verification runbook
 
+[Quantity rounding](quantity-rounding-contract.md) adds exact integer/real and IEEE binary64 guard lemmas, an independent Fraction oracle (4226 compiled cases), source mutation tests, and production adapter generated properties. No new dependency, temporal state, model integration or financial trial. Run the existing formal/full wrappers; broader rounding remains partial.
+
+
 Closure correction (2026-10-03): [contract](closure-contract.md), [all-38 audit](obligation-closure-audit.md), and [CE-RL-021](closure-counterexamples.json). Source-derived default paths and [capability isolation](capability-isolation-contract.md) close obligations 11, 24 and 31; [data composition](data-composition-contract.md) additionally closes 3 and 5 for the delivered offline boundary. Same-run certificates are required for closure; 33 other obligations and both research acceptance gates remain blocked.
 
 

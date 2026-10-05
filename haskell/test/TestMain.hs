@@ -445,6 +445,7 @@ import Trader.Test.GracefulShutdown (gracefulShutdownSuite, workerRegistrySuite)
 import Trader.Test.MarketRisk (marketRiskSuite)
 import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
+import Trader.Test.QuantityRounding (quantityRoundingSuite)
 import Trader.Test.ResearchPolicy (runResearchPolicyTests)
 import Trader.Test.Revenue (revenueSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
@@ -873,6 +874,7 @@ main = do
     runSuite "gracefulShutdown" gracefulShutdownSuite
     runSuite "workerRegistry" workerRegistrySuite
     runSuite "backtestGate" backtestGateSuite
+    runSuite "quantityRounding" quantityRoundingSuite
     runSuite "drainPool" drainPoolSuite
     runSuite "asyncJobAdmission" asyncJobAdmissionSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
