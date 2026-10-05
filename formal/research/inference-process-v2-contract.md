@@ -89,3 +89,12 @@ The correction writes one checked byte buffer of fewer than 32768 bytes plus
 newline. Numeric Show output is ASCII; the request format and deadline are unchanged.
 Byte-buffer conversion/IO join the named trusted primitives. No new package is
 installed: bytestring 0.11.5.3 ships with the pinned GHC distribution.
+
+
+Composition update (2026-10-05): an explicit `--offline-snapshot-v3` branch now
+supplies the pure SnapshotRequestV3 decoder to the same exchange/supervise/offline
+functions. The fixed v2 child identity and Show/Read payload, admission deadline,
+cleanup and previous flags retain their semantics. A sixth dispatch case includes
+the pure bit probe. The source inventory locks the new helper. See the separate
+PPO bridge contract and F-RL-BRIDGE-V3 evidence for trained-input conformance;
+there is still no persistent artifact loader or production caller.
