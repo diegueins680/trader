@@ -1,5 +1,16 @@
 # Trader Firm — Risk Register
 
+PPO snapshot bridge v3: trained-policy requests now pass through checked integer
+bit decoding and the existing supervised Haskell inference guard. A-BRIDGE-V3
+names the parser, bit-cast, Show/Read, runtime and process assumptions. The first
+unoptimized build safely timed out on some policies; `-O2` passed the targeted
+per-policy conformance test without changing the deadline, but a later loaded-host
+benchmark had 30/30 absences in both builds. Operational timing is not qualified. Request metadata is not authenticated provenance and supplied
+observations have no new availability witness. No persistent artifact or order
+capability is added. RL-OFFLINE-001 remains HIGH/OPEN; no broad obligation closes.
+See the [contract](../formal/research/ppo-process-bridge-v3-contract.md).
+
+
 PPO successor v2: actual offline training now uses checked GAE and private immutable
 actor/critic snapshots under A-PPO-SUCCESSOR. Numeric and partial-update failure
 publishes no TrainingResult. Runtime/helper semantics and training-prefix selection

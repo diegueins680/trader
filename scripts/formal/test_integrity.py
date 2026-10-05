@@ -2999,5 +2999,101 @@ class PPOSuccessorTests(unittest.TestCase):
 
 
 
+
+class PPOProcessBridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import ppo_inference_v3
+        cls.impl = ppo_inference_v3
+
+    def fixture(self):
+        from dataclasses import replace
+        from optimizer_snapshot_v2 import create_v2
+        from ppo_successor_v2 import TrainingResult
+        snapshot = create_v2(11, 3, enabled=True).snapshot()
+        # Deliberately constructed metadata tests compatibility, not provenance.
+        actor = replace(snapshot, step=4)
+        return TrainingResult('ppo-successor-v2', 11, 1, 17, ('ALPHA',), (), actor, actor, ())
+
+    def test_default_disabled_invalid_types_versions_and_shapes(self):
+        from dataclasses import replace
+        result = self.fixture(); obs = np.zeros(12)
+        with patch.object(self.impl, '_words', side_effect=RuntimeError('must not encode')):
+            self.assertIsNone(self.impl.encode_request_v3(object(), object()))
+            for flag in (False, None, 1, 'true', np.bool_(True)):
+                self.assertIsNone(self.impl.encode_request_v3(result, obs, enabled=flag))
+            self.assertIsNone(self.impl.encode_request_v3(result, obs, enabled=True, version='v2'))
+        for observation in (None, obs.tolist(), np.zeros(11), np.zeros((1,12)),
+                            np.zeros(12, dtype=np.float32), np.full(12, np.nan),
+                            np.full(12, np.inf), np.full(12, -np.inf), np.full(12, 1001)):
+            self.assertIsNone(self.impl.encode_request_v3(result, observation, enabled=True))
+        actors = [replace(result.actor, **fields) for fields in
+                  ({'version':'v1'}, {'outputs':True}, {'outputs':1}, {'step':0}, {'step':True},
+                   {'step':8}, {'p':list(result.actor.p)}, {'p':result.actor.p[:-1]},
+                   {'p':(bytearray(result.actor.p[0]), *result.actor.p[1:])},
+                   {'p':(result.actor.p[0][:-8], *result.actor.p[1:])})]
+        for value in (np.nan, np.inf, -np.inf, 1001.0, -1001.0):
+            actors.append(replace(result.actor, p=(np.full(192,value).astype('<f8').tobytes(), *result.actor.p[1:])))
+        for actor in actors:
+            self.assertIsNone(self.impl.encode_request_v3(replace(result,actor=actor), obs, enabled=True))
+        for fields in ({'version':'v1'}, {'seed':True}, {'steps':4097}, {'horizon':2}):
+            self.assertIsNone(self.impl.encode_request_v3(replace(result,**fields), obs, enabled=True))
+
+    def test_generated_bit_preservation_and_immutable_request(self):
+        import ast
+        from dataclasses import replace
+        rng = np.random.default_rng(20261005)
+        result = self.fixture()
+        for _ in range(128):
+            steps = int(rng.integers(1,4097))
+            value = replace(result, steps=steps, actor=replace(result.actor, step=4*((steps+255)//256)))
+            obs = rng.uniform(-1000,1000,12)
+            frame = self.impl.encode_request_v3(value, obs, enabled=True)
+            self.assertIs(type(frame), bytes)
+            self.assertLess(len(frame),32768)
+            tag, step, ow, pw = ast.literal_eval(frame.decode('ascii'))
+            self.assertEqual(tag, self.impl.VERSION)
+            self.assertEqual(step,value.actor.step)
+            self.assertEqual(ow,[int(w) for w in obs.astype('<f8').view('<u8')])
+            self.assertEqual(pw,[int(w) for w in np.frombuffer(b''.join(value.actor.p),dtype='<u8')])
+            frozen = frame[:]; obs[:] = np.nan
+            self.assertEqual(frame,frozen)
+        for error in (ValueError, MemoryError, FloatingPointError):
+            with patch.object(self.impl,'_words',side_effect=error('fixture')):
+                self.assertIsNone(self.impl.encode_request_v3(result,np.zeros(12),enabled=True))
+
+    def test_source_coverage_mutants_and_model_bypass_reject(self):
+        import ppo_process_bridge as proof
+        source = (ROOT / proof.SOURCE).read_text()
+        for old,new in [('enabled: object = False','enabled: object = True'),
+                        ('actor.step != 4','actor.step == 4'),
+                        ('np.abs(value) > 1000','np.abs(value) > 10000'),
+                        ('type(b) is not bytes','type(b) is not bytearray'),
+                        ('len(frame) < 32768','len(frame) < 65536')]:
+            mutated = source.replace(old,new); self.assertNotEqual(source,mutated)
+            with self.assertRaises(ValueError): proof.extract(source=mutated)
+        decoder = (ROOT / proof.DECODER).read_text()
+        for old,new in [('word < 0','word < -1'),('step > 64','step > 128'),
+                        ('length digits > 20','length digits > 200'),('remaining - 1','remaining + 1'),
+                        ('abs value > 1000','abs value > 10000'),('length observation /= 12','length observation /= 11')]:
+            mutated = decoder.replace(old,new); self.assertNotEqual(decoder,mutated)
+            with self.assertRaises(ValueError): proof.extract(decoder=mutated)
+        registry = read_json(ROOT / proof.REGISTRY)
+        for key in ('definitions','helperHashes'):
+            missing = copy.deepcopy(registry); missing[key] = {}
+            with self.assertRaisesRegex(ValueError,'coverage omitted'): proof.extract(registry=missing)
+        with self.assertRaisesRegex(ValueError,'bypassed decoder'): proof.check_model(mutant=True)
+
+    def test_source_bound_smt_model_and_actual_trained_process(self):
+        import ppo_process_bridge as proof
+        result = proof.check_bridge()
+        self.assertEqual(result['smt'],{'F-RL-BRIDGE-V3-CODEC':'unsat'})
+        self.assertEqual(result['model']['states'],83)
+        self.assertEqual(result['model']['transitions'],189)
+        self.assertEqual(result['conformance']['syntheticFits'],9)
+        self.assertEqual(result['conformance']['trainedObservationCases'],27)
+
 if __name__ == '__main__':
     unittest.main()

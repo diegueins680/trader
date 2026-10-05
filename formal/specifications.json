@@ -73,7 +73,9 @@
         "scripts/research/optimizer_snapshot_v2.py",
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
-        "scripts/formal/ppo_successor.py"
+        "scripts/formal/ppo_successor.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -457,6 +459,22 @@
         {
           "id": "F-RL-PPO-V2-CONFORMANCE",
           "statement": "Actual synthetic PPO successor training composes collection, training-only scale fitting, terminal-safe GAE and immutable actor/critic updates; all registered seed/horizon/budget cases replay identically and injected partial, invalid or non-finite failures publish no result."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-CODEC",
+          "statement": "The reviewed Haskell Integer-word, version, step, shape and binary64 guards reject unsupported transient requests; accepted word conversion is lossless modulo 2^64 and every completed supported PPO step budget maps to an allowed snapshot step."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-FLOW",
+          "statement": "In the source-bound one-child request lifecycle, a published proposal requires successful snapshot decoding, request revalidation, successful cleanup and a fresh unexpired final deadline check; every modeled transition lowers rank."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-BOUNDARY",
+          "statement": "The complete reviewed PPO request encoder is default-disabled and version-guarded; its pure decoder and explicit research-only Haskell dispatch cannot construct an order capability, persist an artifact, train a policy or promote a candidate. Existing v2 dispatch semantics remain explicit."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-CONFORMANCE",
+          "statement": "Nine actual synthetic PPO training configurations pass exact-bit request encoding, compiled Haskell decoding and supervised inference checks on 27 clear-margin observations; invalid, tied, late and cleanup-failed requests yield absence."
         }
       ],
       "invariants": [

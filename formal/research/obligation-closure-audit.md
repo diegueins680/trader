@@ -66,3 +66,11 @@ accounting/admission, Q/CQL/OPE, artifact/process inference and inherited produc
 correctness remain unfinished. The frozen screen stays unchanged. Earlier table
 references to disconnected kernels describe frozen v1; the successor is now an
 actual engineering training path. Next steps are recorded in obligation-contracts.
+
+PPO process bridge v3 (2026-10-05): [contract](ppo-process-bridge-v3-contract.md)
+connects actual trained snapshots to the existing Haskell supervisor. New codec,
+flow, source-boundary and conformance evidence retains distinct proof statuses.
+The existing five scoped closures now also require F-RL-BRIDGE-V3-BOUNDARY for
+this added entry; their criteria are unchanged. No additional closure is claimed:
+26 partial and seven open remain. Provenance/persistence, historical availability,
+accounting, OPE and production lifecycle still require separate work.

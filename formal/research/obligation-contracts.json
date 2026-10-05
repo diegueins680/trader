@@ -35,14 +35,17 @@
         "F-RL-DATA-COMPOSITION",
         "F-RL-FIT-PREFIX",
         "F-RL-FEATURE-FOOTPRINT",
-        "F-RL-PPO-V2-BOUNDARY"
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -67,14 +70,17 @@
         "F-RL-DATA-COMPOSITION",
         "F-RL-DATA-KEYS",
         "F-RL-FEATURE-FOOTPRINT",
-        "F-RL-PPO-V2-BOUNDARY"
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -155,7 +161,8 @@
         "F-RL-DEFAULT-PATH",
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-PPO-V2-BOUNDARY"
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -167,7 +174,9 @@
         "formal/research/ComponentGraph.hs",
         "scripts/research/optimizer_snapshot_v2.py",
         "haskell/research/InferenceProcessV2.hs",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -333,7 +342,8 @@
         "F-RL-DEFAULT-PATH",
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-PPO-V2-BOUNDARY"
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -343,7 +353,9 @@
         "formal/research/ComponentGraph.hs",
         "scripts/research/optimizer_snapshot_v2.py",
         "haskell/research/InferenceProcessV2.hs",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -432,7 +444,8 @@
         "F-RL-ARTIFACT-METADATA",
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-PPO-V2-BOUNDARY"
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -441,7 +454,9 @@
         "scripts/research/ess_rational_v2.py",
         "scripts/research/optimizer_snapshot_v2.py",
         "haskell/research/InferenceProcessV2.hs",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
       "closureClass": "exhaustively_checked"
     },

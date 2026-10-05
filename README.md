@@ -1,5 +1,17 @@
 # Trader
 
+The explicit [PPO snapshot bridge v3](formal/research/ppo-process-bridge-v3-contract.md)
+now connects trained offline PPO snapshots to the existing supervised Haskell
+inference process. Its Python encoder defaults to disabled; use `enabled=True`
+and `--offline-snapshot-v3` only for research. Exact-bit request decoding checks
+versions, dimensions, completed-step metadata, finiteness and numeric bounds.
+Build the research executable with GHC 9.4.8 `-O2` as described in the
+[runbook](formal/research/README.md). The 20 ms final admission guard remains.
+This transient request is not an authenticated artifact or a production model;
+no candidate is adopted. Five scoped obligations are closed, 26 partial and seven
+open remain. See the [engineering report](research-notes/sequential-control-2026-09-17/ppo-process-bridge-followup-2026-10-05.md).
+
+
 The default-disabled [PPO successor v2](formal/research/ppo-successor-v2-contract.md)
 now composes actual offline collection and training with checked GAE and immutable
 actor/critic snapshots. Numeric or partial-update failure returns no training

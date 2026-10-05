@@ -42,6 +42,9 @@ def extract(source=None):
     require(expected in source, 'guard semantics drift')
     cap = re.findall(r'^budgetNS = ([0-9]+)$', source, re.M)
     require(cap == ['20000000'], 'admission deadline changed')
+    require(set(registry['helperHashes']) == {'haskell/research/SnapshotRequestV3.hs'}, 'missing decoder coverage')
+    for path, expected in registry['helperHashes'].items():
+        require(hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected, 'decoder helper drift')
     # Exact reviewed IO bodies are separately locked, not interpreted as an IO theorem.
     for name, body in registry['controlBodies'].items():
         require(body in source and source.count(name + ' ::') == 1, 'control skeleton drift: ' + name)
@@ -138,13 +141,14 @@ def check_model(next_states=successors):
             'scope': 'conditional finite control abstraction; OS primitives and compiler trusted'}
 
 
-def compile_source(source, directory):
+def compile_source(source, directory, optimization="-O0"):
+    require(optimization in ("-O0", "-O2"), "unsupported compiler optimization")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / 'Main.hs'; path.write_text(source)
     exe = directory / 'worker'
-    result = subprocess.run(['ghc', '-v0', '-O0', '-threaded', '-with-rtsopts=-V0.001',
+    result = subprocess.run(['ghc', '-v0', optimization, '-threaded', '-with-rtsopts=-V0.001',
                     '-package', 'process-1.6.18.0', '-package', 'unix-2.7.3', '-package', 'bytestring-0.11.5.3',
-                    '-outputdir', str(directory), str(path), '-o', str(exe)],
+                    '-ihaskell/research', '-outputdir', str(directory), str(path), '-o', str(exe)],
                    cwd=ROOT, capture_output=True, text=True, timeout=90)
     require(result.returncode == 0, 'GHC fixture failed: ' + result.stderr)
     return exe
@@ -247,6 +251,6 @@ def check_process():
     return {'smt': prove_guard(cap), 'model': check_model(),
             'conformance': conformance((ROOT / SOURCE).read_text()),
             'isolation': {'requirement': 'F-RL-PROCESS-ISOLATION', 'status': 'exhaustively_checked',
-                          'sourceSha256': registry['sha256'], 'dispatchCases': 4,
+                          'sourceSha256': registry['sha256'], 'dispatchCases': 6,
                           'launchCommands': 1, 'childEnvironment': [], 'productionComponents': 0,
                           'scope': 'reviewed closed source boundary under A-INFERENCE-PROCESS, not OS sandbox'}}
