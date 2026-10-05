@@ -1,0 +1,62 @@
+name: Temporary research receipt reproduction
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    if: github.head_ref == 'fix/order-wire-zero-2026-10-05'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20.19.0'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.3'
+      - uses: haskell/ghcup-setup@v1
+        with:
+          ghc: '9.4.8'
+          cabal: '3.12.1.0'
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            haskell/dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('haskell/trader.cabal') }}-${{ hashFiles('haskell/app/**') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-${{ hashFiles('haskell/trader.cabal') }}-
+            ${{ runner.os }}-cabal-
+      - name: Install pinned verification dependencies
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
+          python3 -m pip install -r scripts/research/sequential-requirements.txt
+          npm --workspaces=false --prefix haskell/web ci
+          cabal update
+          mkdir -p "$HOME/.local/bin" "$RUNNER_TEMP/hlint-pinned"
+          curl --fail --silent --show-error --location https://github.com/ndmitchell/hlint/releases/download/v3.8/hlint-3.8-x86_64-linux.tar.gz --output "$RUNNER_TEMP/hlint-pinned.tar.gz"
+          tar -xzf "$RUNNER_TEMP/hlint-pinned.tar.gz" -C "$RUNNER_TEMP/hlint-pinned" --strip-components=1
+          curl --fail --silent --show-error --location https://github.com/fourmolu/fourmolu/releases/download/v0.15.0.0/fourmolu-0.15.0.0-linux-x86_64 --output "$HOME/.local/bin/fourmolu"
+          chmod +x "$HOME/.local/bin/fourmolu"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/hlint-pinned" >> "$GITHUB_PATH"
+      - name: Reproduce reviewed scoped certificate
+        run: |
+          python3 scripts/formal/verify.py --record
+          python3 - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          print('REPRODUCED_RECEIPT=' + base64.b64encode(gzip.compress(Path('formal/research/results.json').read_bytes(), mtime=0)).decode())
+          PY
+      - name: Run canonical formal wrapper
+        run: bash scripts/verify.sh formal
+      - name: Run canonical full wrapper
+        run: bash scripts/verify.sh full
