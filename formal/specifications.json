@@ -506,6 +506,22 @@
         {
           "id": "F-ROUND-DOWN-CONFORMANCE",
           "statement": "The compiled exact rounding core matches an independent Fraction oracle on 130 boundary and 4096 seeded bit-pattern cases, preserves CE-ROUND-001, and the Binance adapter passes generated finite/non-increase/delegation tests."
+        },
+        {
+          "id": "F-ROUND-UP-INTEGER",
+          "statement": "For positive exact N,D, ceiling quotient u=(N+D-1) div D satisfies (u-1)D<N<=uD; positive-scale rational reconstruction is no smaller than the exact input and less than one grid increment above it."
+        },
+        {
+          "id": "F-ROUND-UP-FINITE",
+          "statement": "The source-bound upward binary64 guard returns zero or a finite value at least its finite positive input; invalid input/grid returns zero before partial arithmetic. The maker-price predicate accepts only finite positive prices."
+        },
+        {
+          "id": "F-ROUND-UP-FLOW",
+          "statement": "In the one-call maker price dispatch model, invalid price reaches only terminal rejection for either fallback setting, while valid price reaches eligibility; the numeric rejection branch contains no order or fallback effect."
+        },
+        {
+          "id": "F-ROUND-UP-CONFORMANCE",
+          "statement": "Both actual Main upward delegates match the exact Fraction oracle on 130 boundary and 4096 seeded cases; compiled actual maker-price dispatch rejects invalid prices for both fallback settings and reproduces the old numeric-error market fallback."
         }
       ],
       "invariants": [

@@ -235,6 +235,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ROUND-UP",
+      "status": "assumption",
+      "statement": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -331,7 +337,12 @@
     "formal/research/quantity-rounding-contract.md",
     "formal/research/quantity-rounding-source.json",
     "formal/research/quantity-rounding-counterexamples.json",
-    "haskell/test/Trader/Test/QuantityRounding.hs"
+    "haskell/test/Trader/Test/QuantityRounding.hs",
+    "scripts/formal/upward_rounding.py",
+    "formal/research/upward-rounding-contract.md",
+    "formal/research/upward-rounding-source.json",
+    "formal/research/upward-rounding-counterexamples.json",
+    "research-notes/registrations/upward-rounding-engineering.json"
   ],
   "entries": [
     {
@@ -3888,6 +3899,138 @@
       "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
       "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-ROUND-UP-INTEGER",
+      "claim": "For positive exact N,D, ceiling quotient u=(N+D-1) div D satisfies (u-1)D<N<=uD; positive-scale rational reconstruction is no smaller than the exact input and less than one grid increment above it.",
+      "formalStatement": "For positive exact N,D, ceiling quotient u=(N+D-1) div D satisfies (u-1)D<N<=uD; positive-scale rational reconstruction is no smaller than the exact input and less than one grid increment above it.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-UP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/upward_rounding.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/upward-rounding-contract.md",
+        "formal/research/upward-rounding-source.json",
+        "formal/research/upward-rounding-counterexamples.json",
+        "research-notes/registrations/upward-rounding-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "counterexample": "CE-ROUND-003; CE-ROUND-004",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-ROUND-UP-FINITE",
+      "claim": "The source-bound upward binary64 guard returns zero or a finite value at least its finite positive input; invalid input/grid returns zero before partial arithmetic. The maker-price predicate accepts only finite positive prices.",
+      "formalStatement": "The source-bound upward binary64 guard returns zero or a finite value at least its finite positive input; invalid input/grid returns zero before partial arithmetic. The maker-price predicate accepts only finite positive prices.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-UP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/upward_rounding.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/upward-rounding-contract.md",
+        "formal/research/upward-rounding-source.json",
+        "formal/research/upward-rounding-counterexamples.json",
+        "research-notes/registrations/upward-rounding-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "counterexample": "CE-ROUND-003; CE-ROUND-004",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-ROUND-UP-FLOW",
+      "claim": "In the one-call maker price dispatch model, invalid price reaches only terminal rejection for either fallback setting, while valid price reaches eligibility; the numeric rejection branch contains no order or fallback effect.",
+      "formalStatement": "In the one-call maker price dispatch model, invalid price reaches only terminal rejection for either fallback setting, while valid price reaches eligibility; the numeric rejection branch contains no order or fallback effect.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-UP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/upward_rounding.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/upward-rounding-contract.md",
+        "formal/research/upward-rounding-source.json",
+        "formal/research/upward-rounding-counterexamples.json",
+        "research-notes/registrations/upward-rounding-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "counterexample": "CE-ROUND-003; CE-ROUND-004",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-ROUND-UP-CONFORMANCE",
+      "claim": "Both actual Main upward delegates match the exact Fraction oracle on 130 boundary and 4096 seeded cases; compiled actual maker-price dispatch rejects invalid prices for both fallback settings and reproduces the old numeric-error market fallback.",
+      "formalStatement": "Both actual Main upward delegates match the exact Fraction oracle on 130 boundary and 4096 seeded cases; compiled actual maker-price dispatch rejects invalid prices for both fallback settings and reproduces the old numeric-error market fallback.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-UP",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/upward_rounding.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/upward-rounding-contract.md",
+        "formal/research/upward-rounding-source.json",
+        "formal/research/upward-rounding-counterexamples.json",
+        "research-notes/registrations/upward-rounding-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "counterexample": "CE-ROUND-003; CE-ROUND-004",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -4155,12 +4298,16 @@
       "evidenceRequirements": [
         "F-ROUND-DOWN-INTEGER",
         "F-ROUND-DOWN-FINITE",
-        "F-ROUND-DOWN-CONFORMANCE"
+        "F-ROUND-DOWN-CONFORMANCE",
+        "F-ROUND-UP-INTEGER",
+        "F-ROUND-UP-FINITE",
+        "F-ROUND-UP-FLOW",
+        "F-ROUND-UP-CONFORMANCE"
       ],
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
-      "nextAction": "Verify final 8-decimal wire rendering, both quantizeUp helpers, minimum-size increases and all venue adapters against an explicit authorized exposure cap.",
+      "nextAction": "Carry exact tick/lot metadata through final wire serialization, then prove order-cap and minimum-size composition without changing live limits.",
       "implementationFiles": [
         "haskell/app/Trader/Binance.hs",
         "haskell/app/Trader/Research/PolicyProposalV1.hs",

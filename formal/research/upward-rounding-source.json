@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "coreSha256": "199155bcecbabe8ba69461605c2beb0320922a9b1ccb2b37dd5a0d95ab463ba9",
+  "mainFragments": [
+    [
+      "    quantizeUp ::",
+      "    normalizeProbeQty mSf mPrice qtyRaw =",
+      "    quantizeUp :: Step -> Double -> Double\n    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)\n\n    validateProbeQuote mSf qq =\n        if qq <= 0\n            then Left \"Quote is 0.\"\n            else case mSf >>= sfMinNotional of\n                Just mn | qq < mn -> Right mn\n                _ -> Right qq\n\n"
+    ],
+    [
+      "    stepValue ::",
+      "    isTooSmallQtyError ::",
+      "    stepValue :: Step -> Double\n    stepValue st = fromIntegral (stepInt st) / fromIntegral (stepScale st)\n\n    quantizeUp :: Step -> Double -> Double\n    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)\n\n    minTradeQty :: SymbolFilters -> Double -> Maybe Double\n    minTradeQty sf price =\n        let minQ = fromMaybe 0 (effectiveMinQty sf)\n            stepQ = maybe 0 stepValue (effectiveStep sf)\n            notionalQ =\n                case sfMinNotional sf of\n                    Just mn | price > 0 -> mn / price\n                    _ -> 0\n            minRaw = max minQ (max stepQ notionalQ)\n            minAdj =\n                case effectiveStep sf of\n                    Just st -> quantizeUp st minRaw\n                    Nothing -> minRaw\n         in if minAdj > 0 then Just minAdj else Nothing\n\n    minTradeQtyMaybe :: Maybe SymbolFilters -> Double -> Maybe Double\n    minTradeQtyMaybe mSf price = mSf >>= \\sf -> minTradeQty sf price\n\n    isLongSpot :: Maybe SymbolFilters -> Double -> Double -> Bool\n    isLongSpot mSf price baseBal =\n        case minTradeQtyMaybe mSf price of\n            Just minQ -> baseBal >= minQ\n            Nothing -> baseBal > 0\n\n"
+    ],
+    [
+      "    sendPostOnlyEntry ::",
+      "                        ts <- getTimestampMs",
+      "    sendPostOnlyEntry :: Maybe SymbolFilters -> String -> OrderSide -> Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult\n    sendPostOnlyEntry mSfPx sideLabel side qty mQuote mReduceOnly = do\n        let baseOut =\n                baseResult\n                    { aorSide = Just sideLabel\n                    , aorQuantity = Just qty\n                    , aorQuoteQuantity = mQuote\n                    , aorReduceOnly = fromMaybe False mReduceOnly\n                    }\n            fallback reason =\n                if argExecutionMakerFallbackMarket args\n                    then do\n                        out <- sendMarketOrder sideLabel side (Just qty) mQuote mReduceOnly\n                        pure out{aorMessage = aorMessage out ++ \" (maker \" ++ reason ++ \"; market fallback)\"}\n                    else pure baseOut{aorMessage = \"No order: maker entry \" ++ reason ++ \" (market fallback disabled).\"}\n        bookOrErr <- try (fetchBookTickerQuote env sym) :: IO (Either SomeException BookTickerQuote)\n        case bookOrErr of\n            Left _ -> fallback \"book unavailable\"\n            Right quote -> do\n                let pxRaw =\n                        case side of\n                            Buy -> btqBid quote * (1 - makerOffsetFrac)\n                            Sell -> btqAsk quote * (1 + makerOffsetFrac)\n                    -- Round AWAY from the spread (down for buys, up for\n                    -- sells) so tick rounding can never turn the post-only\n                    -- price into a crossing one.\n                    px =\n                        case mSfPx >>= sfTickSize of\n                            Just tick ->\n                                case side of\n                                    Buy -> quantizeDown tick pxRaw\n                                    Sell -> quantizeUp tick pxRaw\n                            Nothing -> pxRaw\n                if not (validOrderPrice px)\n                    then pure baseOut{aorMessage = \"No order: invalid maker price.\"}\n                    else do\n"
+    ],
+    [
+      "    baseResult :: ApiOrderResult",
+      "    noOrder ::",
+      "    baseResult :: ApiOrderResult\n    baseResult =\n        ApiOrderResult\n            { aorSent = False\n            , aorMode = Just (modeLabel mode)\n            , aorSide = Nothing\n            , aorSymbol = Just sym\n            , aorQuantity = Nothing\n            , aorQuoteQuantity = Nothing\n            , aorOrderId = Nothing\n            , aorClientOrderId = clientOrderId\n            , aorStatus = Nothing\n            , aorExecutedQty = Nothing\n            , aorCummulativeQuoteQty = Nothing\n            , aorTxHash = Nothing\n            , aorResponse = Nothing\n            , aorMarketRisk = Nothing\n            , aorReduceOnly = False\n            , aorPrecedingClose = Nothing\n            , aorMessage = \"\"\n            }\n\n"
+    ]
+  ]
+}

@@ -3151,5 +3151,25 @@ class QuantityRoundingTests(unittest.TestCase):
         self.assertEqual(result['conformance']['cases'],4226)
 
 
+
+class UpwardRoundingTests(unittest.TestCase):
+    def test_caller_and_guard_mutations(self):
+        import upward_rounding as u
+        core=(u.ROOT/u.CORE).read_text(); main=(u.ROOT/u.MAIN).read_text()
+        u.extract()
+        for before,after in [('rounded < x','rounded < x - 1e-9'),('+ divisor - 1','+ divisor'),('price > 0','price >= 0')]:
+            with self.assertRaises(ValueError): u.extract(core=core.replace(before,after))
+        for before,after in [(u.DELEGATE,u.DELEGATE.replace('stepScale','stepInt')),('then pure baseOut{aorMessage = "No order: invalid maker price."}','then fallback "price unavailable"')]:
+            with self.assertRaises(ValueError): u.extract(main=main.replace(before,after,1))
+
+    def test_smt_model_and_compiled_callers(self):
+        import upward_rounding as u
+        result=u.check_upward()
+        self.assertEqual(len(result['smt']),2)
+        self.assertEqual(result['model']['states'],8)
+        self.assertEqual(result['conformance']['cases'],4226)
+        self.assertEqual(result['conformance']['dispatchCases'],8452)
+
+
 if __name__ == '__main__':
     unittest.main()

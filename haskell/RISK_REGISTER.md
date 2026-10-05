@@ -198,3 +198,14 @@ CE-DATA-COMPOSITION-001 records and fixes a verifier coverage omission: the firs
 source-composition checker did not require its full skeleton roster. The corrected
 checker requires every reviewed block and rejects omitted coverage. No historical
 market leakage or trading behavior change is inferred from this injected mutant.
+
+
+Upward rounding follow-up (2026-10-05): [the contract](../formal/research/upward-rounding-contract.md)
+adds F-ROUND-UP-INTEGER/FINITE/FLOW/CONFORMANCE and A-ROUND-UP. Exact Integer/Real
+ceiling lemmas and binary64 guard checks are distinct from the eight-state local
+dispatch model and compiled actual-caller properties. CE-ROUND-003 preserves
+unit-grid under-rounding; CE-ROUND-004 preserves invalid-price market fallback.
+Invalid maker prices now return an unsent result. Other configured fallback
+reasons remain unchanged. Runtime/compiler primitives and source-to-model
+mapping remain assumptions; no whole-Main, final-wire or complete order-cap
+proof. Five scoped closures, 27 partial, six open; RL-OFFLINE-001 stays HIGH/OPEN.

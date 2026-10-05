@@ -60,3 +60,7 @@ correspondence under ordinary Either semantics, backed by helper/composition
 properties, not complete Main or order authorization refinement. Preserve the
 intermediate-repair counterexample CE-ROUND-002 (infinity -> zero -> minimum)
 as a regression. Existing finite minimum-size behavior is unchanged.
+
+The subsequent [upward contract](upward-rounding-contract.md) adds scoped evidence
+for the two Main helpers and invalid-price dispatch. The remaining broad wire
+and caller-composition limitations above still apply.

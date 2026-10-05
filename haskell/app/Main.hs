@@ -535,7 +535,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToList,
  )
-import Trader.QuantityRounding (validateQuantityInput)
+import Trader.QuantityRounding (quantizeUpExact, validOrderPrice, validateQuantityInput)
 import Trader.Revenue (RevenueLedger, buildRevenueLedger)
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig, sanitizeRoiScoreConfig)
 import Trader.S3 (
@@ -26058,14 +26058,7 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
             _ -> s
 
     quantizeUp :: Step -> Double -> Double
-    quantizeUp st x
-        | x <= 0 = 0
-        | otherwise =
-            let scaleD = fromIntegral (stepScale st) :: Double
-                scaled = ceiling (x * scaleD - 1e-9) :: Integer
-                stepI = stepInt st
-                q = ((scaled + stepI - 1) `div` stepI) * stepI
-             in fromIntegral q / scaleD
+    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)
 
     validateProbeQuote mSf qq =
         if qq <= 0
@@ -28639,14 +28632,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
     stepValue st = fromIntegral (stepInt st) / fromIntegral (stepScale st)
 
     quantizeUp :: Step -> Double -> Double
-    quantizeUp st x
-        | x <= 0 = 0
-        | otherwise =
-            let scaleD = fromIntegral (stepScale st) :: Double
-                scaled = ceiling (x * scaleD - 1e-9) :: Integer
-                stepI = stepInt st
-                q = ((scaled + stepI - 1) `div` stepI) * stepI
-             in fromIntegral q / scaleD
+    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)
 
     minTradeQty :: SymbolFilters -> Double -> Maybe Double
     minTradeQty sf price =
@@ -28771,8 +28757,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                     Buy -> quantizeDown tick pxRaw
                                     Sell -> quantizeUp tick pxRaw
                             Nothing -> pxRaw
-                if px <= 0 || isNaN px || isInfinite px
-                    then fallback "price unavailable"
+                if not (validOrderPrice px)
+                    then pure baseOut{aorMessage = "No order: invalid maker price."}
                     else do
                         ts <- getTimestampMs
                         let cid = take 36 ("trader_mkr_" ++ show ts)
