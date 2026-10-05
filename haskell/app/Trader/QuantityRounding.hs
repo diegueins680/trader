@@ -1,6 +1,7 @@
 module Trader.QuantityRounding (quantizeDownExact, quantizeUpExact, validOrderPrice, validateQuantityInput) where
 
 import Data.Ratio (denominator, numerator, (%))
+import Trader.OrderNumeric (validateOrderNumber)
 
 {- | Floor the exact value of a binary64 input to an exact rational grid.
 Reject invalid inputs before partial conversions; validate the final Double
@@ -39,4 +40,4 @@ quantizeUpExact scale increment x
 
 -- | Invalid maker prices reject before any order or market fallback.
 validOrderPrice :: Double -> Bool
-validOrderPrice price = not (isNaN price || isInfinite price) && price > 0
+validOrderPrice price = either (const False) (const True) (validateOrderNumber "Invalid maker price." price)

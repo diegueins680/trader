@@ -82,3 +82,5 @@ boundary certificate. No closure criterion is weakened and no broad status chang
 29/30 still require Haskell-side admission, provenance trust and loader lifecycle.
 
 Order-number follow-up (2026-10-05): invalid selected Binance numbers now fail at the constructor before credential access. Four scoped requirements add evidence to obligation 21; its full policy/caller-retry composition remains partial. No broad status or closure criterion changed.
+
+Wire-admission follow-up (2026-10-05): selected Binance values must also parse to positive exact wire units. Obligations 9 and 21 gain scoped evidence; their cap/grid/caller composition criteria and all broader statuses remain unchanged. Fixed parser/formatter correctness is a named assumption, not a discharged library theorem.

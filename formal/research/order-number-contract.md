@@ -1,5 +1,9 @@
 # Binance order-number admission v1
 
+The [wire-admission extension](order-wire-contract.md) supersedes the current
+wire behavior and conformance bounds below. This v1 text records the original
+repair; the current ledger and source-bound verifier include the extension.
+
 Baseline a772ca0ffcde120134bda927e38387258bd94435. Engineering safety repair;
 no financial trial, exchange endpoint invocation, live configuration or deployment.
 
