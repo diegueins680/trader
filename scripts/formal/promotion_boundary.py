@@ -126,13 +126,14 @@ def extract(sources=None, registry=None):
                             ('run_sequential_screen',"(output / 'returns.csv').open",'x'),
                             ('run_sequential_screen','path.open','x'),
                             ('sequential_learning','path.open','rb'),('sequential_learning','path.open','xb'),
+                            ('summarize_sequential_screen',"(output / name).open",'xb'),
                             ('summarize_sequential_screen','path.open','rb')], 'file boundary coverage')
     require(sorted(dirs)==[('run_sequential_screen',"(output / 'policies').mkdir"),('run_sequential_screen','output.mkdir'),('summarize_sequential_screen','output.mkdir')], 'directory coverage')
     require(len(processes)==2 and all('cwd=ROOT' in p for p in processes), 'source-identity process coverage')
     require(sorted(writes)==[('run_sequential_screen','ledger.flush'),('run_sequential_screen','ledger.write'),
                              ('run_sequential_screen','stream.write'),('run_sequential_screen','writer.writerow'),
                              ('run_sequential_screen','writer.writerow'),('sequential_learning','stream.write'),
-                             ('summarize_sequential_screen','(output / name).write_bytes'),
+                             ('summarize_sequential_screen','stream.write'),
                              ('summarize_sequential_screen','writer.writeheader'),('summarize_sequential_screen','writer.writerows')], 'write sink coverage')
     destinations = check_destinations(trees)
     check_saved_default(sources['sequential_learning'])
@@ -175,7 +176,7 @@ def check_destinations(trees):
         'multi-seed-training.json','ope-report.json','evaluation-summary.json','experiment-manifest.json']), 'report destination roster')
     exporter = definition(trees['summarize_sequential_screen'], 'export')
     require(ast.unparse(exporter.body[-2]) == 'output.mkdir(parents=True, exist_ok=False)', 'report directory must be fresh')
-    require(ast.unparse(exporter.body[-1]) == 'for name, content in reports.items():\n    (output / name).write_bytes(content)', 'report writer binding drift')
+    require(ast.unparse(exporter.body[-1]) == "for name, content in reports.items():\n    with (output / name).open('xb') as stream:\n        stream.write(content)", 'report writer binding drift')
     # A fixed directory is created before any runner effect; the path cannot be
     # reassigned by results. External analyst path selection stays an assumption.
     for function in (runner, exporter):

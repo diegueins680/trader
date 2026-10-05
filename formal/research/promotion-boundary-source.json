@@ -8246,7 +8246,7 @@
       ]
     },
     "summarize_sequential_screen": {
-      "moduleASTHash": "df50cc995e45350a864ec03ee09187e5938a039d6eeed8b3baa650cdc869f18e",
+      "moduleASTHash": "b7e6efd542847098bd82f02b4c319a46bf91c076df015679e959d1f6a16c4c09",
       "imports": [
         "from collections import Counter",
         "from pathlib import Path",
@@ -8366,8 +8366,8 @@
         ],
         [
           "export",
-          "(output / name).write_bytes",
-          "d853ed2ebe26882fb819ad81493ab383af8014472f43beaf11925d3c9d370c1f"
+          "(output / name).open",
+          "fd6455f2e7e0bda673d48c95bf903c4c2959a6395f6330a772ef7cd20a08200d"
         ],
         [
           "export",
@@ -8608,6 +8608,11 @@
           "export",
           "str",
           "880a3e068852ba99c30a3db1cc0d6e815f06e5fa725cb0dbe7f76db6912b9e5d"
+        ],
+        [
+          "export",
+          "stream.write",
+          "3070a99a27da952c8155592f5393a517bffb6b4a99b363e5a483269cd23dec03"
         ],
         [
           "render_reports",

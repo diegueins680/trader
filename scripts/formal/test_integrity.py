@@ -3455,5 +3455,60 @@ class BotWorkerPublicationTests(unittest.TestCase):
         with self.assertRaises(ValueError):b.prove(z3.BoolVal(True),z3.BoolVal(False))
 
 
+class ChampionArchiveTests(unittest.TestCase):
+    def test_actual_archive_writers_and_legacy_collisions(self):
+        import champion_archive as p
+        result = p.conformance()
+        self.assertEqual((result['cases'], result['compatibleReportFiles'], result['legacyCounterexamples']), (16, 7, 3))
+        self.assertEqual(result['trainingRuns'], 0)
+
+    def test_source_bound_smt_and_interleavings(self):
+        import champion_archive as p
+        self.assertEqual(len(p.extract()['writerSites']), 5)
+        self.assertEqual(p.preserve(), {'F-RL-ARCHIVE-PRESERVE':'unsat'})
+        fixed, legacy = p.model(), p.model(True)
+        self.assertEqual((fixed['states'], fixed['transitions']), (110, 359))
+        self.assertEqual((legacy['states'], legacy['transitions']), (242, 815))
+        self.assertEqual(legacy['legacyCounterexample'], ['insert-collision', '0:select-1', '0:open'])
+        self.assertEqual(fixed, p.model())
+
+    def test_source_solver_and_composition_mutations(self):
+        import champion_archive as p
+        source = (ROOT/p.SOURCE).read_text()
+        for before, after in [('open("xb")', 'open("wb")'), ('output / name', 'output.parent / name'),
+                              ('exist_ok=False', 'exist_ok=True'), ('stream.write(content)', 'stream.write(b"bad")')]:
+            changed = source.replace(before, after)
+            self.assertNotEqual(changed, source)
+            with self.assertRaises(ValueError): p.extract(changed)
+        with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
+        with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
+        with self.assertRaisesRegex(ValueError, 'production-root composition'):
+            p.check_archive({'surface':{'moduleCount':12}, 'composition':{'productionRoots':[]}})
+        registry = read_json(ROOT/p.REGISTRY); registry['supportHashes'][p.FIXTURE] = '0'*64
+        with self.assertRaisesRegex(ValueError, 'support drift'): p.extract(registry=registry)
+
+    def test_composed_receipt_roundtrip(self):
+        import champion_archive as p
+        import promotion_boundary, json
+        # Transport test only; verify.run reproduces the graph before closure.
+        prior_graph = read_json(ROOT/'formal/research/results.json')['capabilityIsolation']
+        result = p.check_archive(promotion_boundary.check_promotion(prior_graph))
+        self.assertEqual(result, json.loads(json.dumps(result, allow_nan=False)))
+
+    def test_generated_existing_files_are_never_replaced(self):
+        import champion_archive as p
+        import random, tempfile
+        import summarize_sequential_screen as exporter
+        rng = random.Random(20261005)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve(); source, kwargs, _ = p.prepare_fixture(root)
+            for i in range(32):
+                output = root/('case-'+str(i)); output.mkdir()
+                path = output/'sentinel'; value = rng.randbytes(rng.randrange(0, 512)); path.write_bytes(value)
+                with self.assertRaises(FileExistsError): exporter.export(source, output, **kwargs)
+                self.assertEqual(path.read_bytes(), value)
+                self.assertEqual(list(output.iterdir()), [path])
+
+
 if __name__ == '__main__':
     unittest.main()

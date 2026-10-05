@@ -475,13 +475,43 @@
       "claim": "Champion preservation",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Challenger failure cannot modify champion configuration/artifacts or selection.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-RL-ARCHIVE-SOURCE",
+        "F-RL-ARCHIVE-PRESERVE",
+        "F-RL-ARCHIVE-FLOW",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-DISJOINT"
+      ],
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "scripts/research/summarize_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/champion-archive-source.json",
+        "formal/research/champion-archive-legacy.json",
+        "formal/research/champion-archive-contract.md",
+        "formal/research/fixtures/champion-archive.json",
+        "research-notes/registrations/champion-archive-engineering.json",
+        "scripts/formal/champion_archive.py",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 29,

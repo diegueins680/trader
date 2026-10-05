@@ -289,6 +289,12 @@
       "status": "assumption",
       "statement": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
       "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-CHAMPION-ARCHIVE",
+      "status": "assumption",
+      "statement": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -432,7 +438,16 @@
     "formal/research/bot-worker-publication-source.json",
     "formal/research/bot-worker-publication-legacy.json",
     "formal/research/bot-worker-publication-contract.md",
-    "research-notes/registrations/bot-worker-publication-engineering.json"
+    "research-notes/registrations/bot-worker-publication-engineering.json",
+    "scripts/research/summarize_sequential_screen.py",
+    "scripts/research/run_sequential_screen.py",
+    "scripts/research/sequential_learning.py",
+    "formal/research/champion-archive-source.json",
+    "formal/research/champion-archive-legacy.json",
+    "formal/research/champion-archive-contract.md",
+    "formal/research/fixtures/champion-archive.json",
+    "research-notes/registrations/champion-archive-engineering.json",
+    "scripts/formal/champion_archive.py"
   ],
   "entries": [
     {
@@ -4763,7 +4778,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "exhaustively_checked"
@@ -4810,7 +4825,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "smt_verified"
@@ -4857,7 +4872,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "smt_verified"
@@ -4904,7 +4919,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "model_checked"
@@ -4951,7 +4966,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "property_tested"
@@ -5230,6 +5245,158 @@
       "bounds": "Two callers,one protected map key,empty or preexisting registration;158 states308 edges,max shortest depth12,rank18;legacy225 states450 edges. Six SAT-premise/UNSAT queries over Boolean gates and unbounded SMT nested arrays. Six compiled cases,three publication failure cuts;two concurrent real starts.",
       "limitations": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
       "counterexample": "formal/research/bot-worker-publication-legacy.json",
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-ARCHIVE-SOURCE",
+      "claim": "All delivered archive writes are bound to five actual exclusive-create sites, fixed destinations and reviewed callback/effect closures; candidate output cannot invoke a production selector or choose a persistence destination.",
+      "formalStatement": "All delivered archive writes are bound to five actual exclusive-create sites, fixed destinations and reviewed callback/effect closures; candidate output cannot invoke a production selector or choose a persistence destination.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-CHAMPION-ARCHIVE",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 array/integer obligations; finite reachable-state checker; source-derived effect correspondence; actual Python writer/exporter conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/champion_archive.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/summarize_sequential_screen.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/champion-archive-source.json",
+        "formal/research/champion-archive-legacy.json",
+        "formal/research/champion-archive-contract.md",
+        "formal/research/fixtures/champion-archive.json",
+        "research-notes/registrations/champion-archive-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_archive and ChampionArchiveTests; closure additionally requires all freshly reproduced capability, metadata, effect, type, schema and process constituents.",
+      "bounds": "Eight SAT-premise/UNSAT queries over unbounded integer keys, identities and opaque bytes. Two writers, two keys, four object identities, six byte classes; fixed model110 states359 edges,depth7;legacy242 states815 edges,depth9. Sixteen conformance cases,seven byte-compatible reports,three legacy collision witnesses,32 generated existing-file cases. No market data/training.",
+      "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
+      "counterexample": "CE-RL-ARCHIVE-COLLISION",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-ARCHIVE-PRESERVE",
+      "claim": "Exclusive acquisition and writes through newly owned handles preserve every existing protected file identity and byte value, including rejected collisions, partial writes and retries, under named filesystem semantics.",
+      "formalStatement": "Exclusive acquisition and writes through newly owned handles preserve every existing protected file identity and byte value, including rejected collisions, partial writes and retries, under named filesystem semantics.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-CHAMPION-ARCHIVE",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 array/integer obligations; finite reachable-state checker; source-derived effect correspondence; actual Python writer/exporter conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/champion_archive.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/summarize_sequential_screen.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/champion-archive-source.json",
+        "formal/research/champion-archive-legacy.json",
+        "formal/research/champion-archive-contract.md",
+        "formal/research/fixtures/champion-archive.json",
+        "research-notes/registrations/champion-archive-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_archive and ChampionArchiveTests; closure additionally requires all freshly reproduced capability, metadata, effect, type, schema and process constituents.",
+      "bounds": "Eight SAT-premise/UNSAT queries over unbounded integer keys, identities and opaque bytes. Two writers, two keys, four object identities, six byte classes; fixed model110 states359 edges,depth7;legacy242 states815 edges,depth9. Sixteen conformance cases,seven byte-compatible reports,three legacy collision witnesses,32 generated existing-file cases. No market data/training.",
+      "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
+      "counterexample": "CE-RL-ARCHIVE-COLLISION",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ARCHIVE-FLOW",
+      "claim": "The finite two-writer namespace/handle protocol preserves protected objects across acquisition, colliding insertion, partial/full write, failures and unbounded retries; the legacy truncating mode reaches a preserved counterexample.",
+      "formalStatement": "The finite two-writer namespace/handle protocol preserves protected objects across acquisition, colliding insertion, partial/full write, failures and unbounded retries; the legacy truncating mode reaches a preserved counterexample.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-CHAMPION-ARCHIVE",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 array/integer obligations; finite reachable-state checker; source-derived effect correspondence; actual Python writer/exporter conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/champion_archive.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/summarize_sequential_screen.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/champion-archive-source.json",
+        "formal/research/champion-archive-legacy.json",
+        "formal/research/champion-archive-contract.md",
+        "formal/research/fixtures/champion-archive.json",
+        "research-notes/registrations/champion-archive-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_archive and ChampionArchiveTests; closure additionally requires all freshly reproduced capability, metadata, effect, type, schema and process constituents.",
+      "bounds": "Eight SAT-premise/UNSAT queries over unbounded integer keys, identities and opaque bytes. Two writers, two keys, four object identities, six byte classes; fixed model110 states359 edges,depth7;legacy242 states815 edges,depth9. Sixteen conformance cases,seven byte-compatible reports,three legacy collision witnesses,32 generated existing-file cases. No market data/training.",
+      "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
+      "counterexample": "CE-RL-ARCHIVE-COLLISION",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ARCHIVE-CONFORMANCE",
+      "claim": "Actual exporter and writer regressions reproduce three legacy collision failures, preserve regular/symlink/hardlink targets after repair, retain seven report byte streams and preserve existing files on failed writes and retries.",
+      "formalStatement": "Actual exporter and writer regressions reproduce three legacy collision failures, preserve regular/symlink/hardlink targets after repair, retain seven report byte streams and preserve existing files on failed writes and retries.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-CHAMPION-ARCHIVE",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 array/integer obligations; finite reachable-state checker; source-derived effect correspondence; actual Python writer/exporter conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/champion_archive.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/summarize_sequential_screen.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/champion-archive-source.json",
+        "formal/research/champion-archive-legacy.json",
+        "formal/research/champion-archive-contract.md",
+        "formal/research/fixtures/champion-archive.json",
+        "research-notes/registrations/champion-archive-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_archive and ChampionArchiveTests; closure additionally requires all freshly reproduced capability, metadata, effect, type, schema and process constituents.",
+      "bounds": "Eight SAT-premise/UNSAT queries over unbounded integer keys, identities and opaque bytes. Two writers, two keys, four object identities, six byte classes; fixed model110 states359 edges,depth7;legacy242 states815 edges,depth9. Sixteen conformance cases,seven byte-compatible reports,three legacy collision witnesses,32 generated existing-file cases. No market data/training.",
+      "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
+      "counterexample": "CE-RL-ARCHIVE-COLLISION",
       "status": "property_tested"
     }
   ],
@@ -6228,23 +6395,68 @@
     {
       "number": 28,
       "claim": "Champion preservation",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
-        "F-RL-AUTH"
+        "F-RL-ARCHIVE-SOURCE",
+        "F-RL-ARCHIVE-PRESERVE",
+        "F-RL-ARCHIVE-FLOW",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-ARCHIVE-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Challenger failure cannot modify champion configuration/artifacts or selection.",
-      "nextAction": "Audit and restrict archive destinations and candidate-to-selector dependencies; prove champion paths unreachable from failure handlers.",
+      "nextAction": "Reopen on any new archive writer, destination, callback, selector consumer, filesystem identity assumption, executable/helper or production integration change. Durable recovery, inherited live authorization and economic gates remain unresolved.",
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "scripts/research/summarize_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/champion-archive-source.json",
+        "formal/research/champion-archive-legacy.json",
+        "formal/research/champion-archive-contract.md",
+        "formal/research/fixtures/champion-archive.json",
+        "research-notes/registrations/champion-archive-engineering.json",
+        "scripts/formal/champion_archive.py",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs"
       ],
-      "blockers": [
-        "F-RL-AUTH is not a proof about filesystem or champion selector writes."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-ARCHIVE-SOURCE",
+        "F-RL-ARCHIVE-PRESERVE",
+        "F-RL-ARCHIVE-FLOW",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-DISJOINT"
+      ]
     },
     {
       "number": 29,

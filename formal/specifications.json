@@ -82,7 +82,8 @@
         "haskell/app/Trader/OrderNumeric.hs",
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotSnapshotRecovery.hs",
-        "haskell/app/Trader/App/WorkerPublication.hs"
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "scripts/research/summarize_sequential_screen.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -646,6 +647,22 @@
         {
           "id": "F-BOT-PUBLICATION-CONFORMANCE",
           "statement": "Compiled Haskell regressions reproduce the legacy unpublished-worker interleaving and check committed identity, unmasked execution, retained state, three publication failure cuts, preparation cancellation and two concurrent starts."
+        },
+        {
+          "id": "F-RL-ARCHIVE-SOURCE",
+          "statement": "All delivered archive writes are bound to five actual exclusive-create sites, fixed destinations and reviewed callback/effect closures; candidate output cannot invoke a production selector or choose a persistence destination."
+        },
+        {
+          "id": "F-RL-ARCHIVE-PRESERVE",
+          "statement": "Exclusive acquisition and writes through newly owned handles preserve every existing protected file identity and byte value, including rejected collisions, partial writes and retries, under named filesystem semantics."
+        },
+        {
+          "id": "F-RL-ARCHIVE-FLOW",
+          "statement": "The finite two-writer namespace/handle protocol preserves protected objects across acquisition, colliding insertion, partial/full write, failures and unbounded retries; the legacy truncating mode reaches a preserved counterexample."
+        },
+        {
+          "id": "F-RL-ARCHIVE-CONFORMANCE",
+          "statement": "Actual exporter and writer regressions reproduce three legacy collision failures, preserve regular/symlink/hardlink targets after repair, retain seven report byte streams and preserve existing files on failed writes and retries."
         }
       ],
       "invariants": [
@@ -868,6 +885,16 @@
           "level": "regression",
           "path": "haskell/test/Trader/Test/WorkerPublication.hs",
           "contains": "legacyCounterexample"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ChampionArchiveTests"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_refuses_leaf_collisions_after_directory_creation"
         }
       ]
     },
