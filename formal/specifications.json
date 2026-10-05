@@ -427,6 +427,14 @@
         {
           "id": "F-DRAIN-POOL-CONFORMANCE",
           "statement": "Compiled literal baseline fixtures reproduce stale-ingress async, immediate and waiting backtest admissions; real shared-latch helpers reject them without effects. Runtime tests cover transaction rollback, both ownership/drain orderings, waiting rejection, release, independent controllers and generated concurrency. Source binding checks all four server pools share the controller; no complete HTTP or IO refinement is claimed."
+        },
+        {
+          "id": "F-RL-DATA-COMPOSITION",
+          "statement": "Every admitted scale reference in the four-source offline runner is a checked training fit, immutable owner binding, read, serialization or parameter-preserving forwarding edge; reviewed loader and caller composition preserves local market provenance. The 28 source-use sites are exhaustively checked under A-DATA-COMPOSITION, not a verified Python interpreter."
+        },
+        {
+          "id": "F-RL-DATA-KEYS",
+          "statement": "Source-derived panel equality filters and collector, replay and OPE call arguments select the declared symbol and pair prices with funding for arbitrary mathematical symbol strings. Six satisfiable-premise/UNSAT-violation queries compose with the checked dataflow skeleton."
         }
       ],
       "invariants": [
@@ -589,6 +597,21 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_lifecycle_rejects_unbounded_poll_and_restart"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/data_composition.py",
+          "contains": "check_composition"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_leakage_mutants_fail_semantic_admission"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_loader_fit_replay_symbol_conformance"
         }
       ]
     },

@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "uses": [
+    {
+      "file": "sequential_env.py",
+      "scope": "Scale.fit",
+      "value": "Scale",
+      "context": "return_annotation"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "collect",
+      "value": "Scale",
+      "context": "argument_annotation"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "Replay.__init__",
+      "value": "Scale",
+      "context": "argument_annotation"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "Replay.__init__",
+      "value": "self.scale",
+      "context": "(self.horizon, self.scale, self.execution)"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "Replay.__init__",
+      "value": "scale",
+      "context": "(horizon, scale, execution)"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "collect",
+      "value": "scale",
+      "context": "Replay(p, funding[symbol], start, start + 97, horizon, scale, execution, enabled=True)"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "Replay.observation",
+      "value": "self.scale",
+      "context": "self.scale.transform"
+    },
+    {
+      "file": "sequential_env.py",
+      "scope": "Replay.supported",
+      "value": "self.scale",
+      "context": "self.scale.supported"
+    },
+    {
+      "file": "sequential_learning.py",
+      "scope": "train_ppo",
+      "value": "scale",
+      "context": "collect(prices, funding, scale, horizon, seed + 1000 + batch, count, policy=lambda s: softmax(net.forward(s)))"
+    },
+    {
+      "file": "sequential_learning.py",
+      "scope": "train_q",
+      "value": "scale",
+      "context": "collect(prices, funding, scale, horizon, seed + 2000, steps, execution=cfg)"
+    },
+    {
+      "file": "sequential_learning.py",
+      "scope": "train_q",
+      "value": "scale",
+      "context": "collect(prices, funding, scale, horizon, seed + 3000 + batch, count, policy=explore, execution=cfg)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "replay_policy",
+      "value": "scale",
+      "context": "Replay(p, funding, start, stop, horizon, scale, execution, enabled=True)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "Baselines.__init__",
+      "value": "self.scale",
+      "context": "(self.scale, self.horizon)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "Baselines.__init__",
+      "value": "scale",
+      "context": "(scale, horizon)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "Baselines.__init__",
+      "value": "scale",
+      "context": "collect(prices, funding, scale, horizon, 20260917, 4096)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "short_ope",
+      "value": "scale",
+      "context": "Replay(prices[sym], funding[sym], t, t + 6 * horizon + 1, horizon, scale, enabled=True)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "short_ope",
+      "value": "scale",
+      "context": "Replay(prices[sym], funding[sym], t, t + 6 * horizon + 1, horizon, scale, enabled=True)"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "Baselines.forecast",
+      "value": "self.scale",
+      "context": "self.scale.mean"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "Baselines.__init__",
+      "value": "scale",
+      "context": "scale.transform"
+    },
+    {
+      "file": "sequential_evaluation.py",
+      "scope": "Baselines.forecast",
+      "value": "self.scale",
+      "context": "self.scale.std"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "scale = Scale.fit(list(train.values()))"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "Baselines(train, funds, scale, h)"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "Scale",
+      "context": "Scale.fit"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "short_ope(prices, funding, scale, h, split['testStart'], split['testStop'], net, seed)"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "train_ppo(train, funds, scale, h, seed)"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "train_q(train, funds, scale, h, seed, offline=alg != 'double_dqn', risk_penalty=0 if alg == 'cql_no_inventory_penalty' else 0.01)"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "replay_policy(prices[symbol], funding[symbol], split['testStart'], split['testStop'], h, scale, choose, cfg)"
+    },
+    {
+      "file": "run_sequential_screen.py",
+      "scope": "run",
+      "value": "scale",
+      "context": "getattr(scale, k)"
+    }
+  ],
+  "blocks": {
+    "run_sequential_screen.py": {
+      "load_development": "def load_development(panel: Path, settlements: Path, registration: dict):\n    spec = registration['data']\n    panel_bytes, settlement_bytes = (panel.read_bytes(), settlements.read_bytes())\n    if hashlib.sha256(panel_bytes).hexdigest() != spec['panelSha256'] or hashlib.sha256(settlement_bytes).hexdigest() != spec['settlementsSha256']:\n        raise ValueError('only exact registered development bytes are permitted')\n    bars = pd.read_csv(BytesIO(panel_bytes))\n    events = pd.read_csv(BytesIO(settlement_bytes))\n    if list(bars.columns) != ['symbol', 'openTime', 'closeTime', 'close']:\n        raise ValueError('panel schema')\n    if sorted(bars.symbol.unique()) != spec['symbols'] or sorted(events.symbol.unique()) != spec['symbols']:\n        raise ValueError('symbol coverage')\n    prices, funding = ({}, {})\n    times = np.arange(spec['startOpenTime'], spec['endOpenTime'] + 1, spec['intervalMilliseconds'], dtype=np.int64)\n    for symbol in spec['symbols']:\n        rows = bars[bars.symbol == symbol]\n        if len(rows) != spec['rowsPerSymbol'] or not np.array_equal(rows.openTime, times):\n            raise ValueError('registered grid')\n        closes = times + spec['intervalMilliseconds'] - 1\n        if not np.array_equal(rows.closeTime, closes):\n            raise ValueError('close timestamps')\n        p = rows.close.to_numpy(dtype=float)\n        if not np.isfinite(p).all() or np.any(p <= 0):\n            raise ValueError('invalid price')\n        f = np.zeros(len(p))\n        es = events[events.symbol == symbol]\n        if not np.isfinite(es[['fundingTime', 'fundingRate', 'resolvedMarkPrice']].to_numpy()).all():\n            raise ValueError('invalid funding')\n        if np.any(es.resolvedMarkPrice <= 0) or np.any(np.diff(es.fundingTime) <= 0):\n            raise ValueError('funding identity/order')\n        for event in es.itertuples():\n            j = int(np.searchsorted(closes, event.fundingTime, side='left'))\n            if j >= len(f):\n                raise ValueError('funding beyond development')\n            f[j] += event.fundingRate * event.resolvedMarkPrice\n        p.setflags(write=False)\n        f.setflags(write=False)\n        prices[symbol], funding[symbol] = (p, f)\n    return (prices, funding, times)"
+    },
+    "sequential_env.py": {
+      "Scale.__post_init__": "def __post_init__(self) -> None:\n    snapshots = {}\n    for name in ('mean', 'std', 'low', 'high'):\n        value = getattr(self, name)\n        if not _real_series(value) or value.shape != (6,):\n            raise ValueError('invalid scale parameter shape or type')\n        with np.errstate(over='ignore', invalid='ignore'):\n            snapshot = np.frombuffer(np.asarray(value, dtype=float).tobytes(), dtype=float)\n        if not _feature_vector(snapshot):\n            raise ValueError('non-finite scale parameter')\n        snapshots[name] = snapshot\n    if np.any(snapshots['std'] <= 0) or np.any(snapshots['low'] > snapshots['high']):\n        raise ValueError('invalid scale deviation or support bounds')\n    for name, value in snapshots.items():\n        object.__setattr__(self, name, value)",
+      "Scale.transform": "def transform(self, x: np.ndarray) -> np.ndarray:\n    if not _feature_vector(x):\n        raise ValueError('invalid observation')\n    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):\n        result = (np.asarray(x, dtype=float) - self.mean) / self.std\n    if not _feature_vector(result):\n        raise ValueError('non-finite normalized observation')\n    return result",
+      "Scale.supported": "def supported(self, x: np.ndarray) -> bool:\n    return bool(_feature_vector(x) and np.all(x >= self.low) and np.all(x <= self.high))",
+      "Replay.__init__": "def __init__(self, prices: np.ndarray, funding: np.ndarray, start: int, stop: int, horizon: int, scale: Scale, execution: Execution=Execution(), *, enabled: bool=False) -> None:\n    if not _real_series(prices) or not _real_series(funding):\n        raise ValueError('invalid market series representation')\n    if not all((_integer(v) for v in (start, stop, horizon))):\n        raise ValueError('episode indices and horizon must be integers')\n    start, stop, horizon = (int(start), int(stop), int(horizon))\n    if horizon not in (1, 3, 6) or not 24 <= start < stop - 1 <= len(prices) - 1:\n        raise ValueError('invalid episode boundaries')\n    if len(prices) != len(funding):\n        raise ValueError('funding shape mismatch')\n    self.prices, self.funding = (prices, funding)\n    self.start, self.stop, self.t = (start, stop, start)\n    self.horizon, self.scale, self.execution = (horizon, scale, execution)\n    self.enabled = enabled\n    self.units, self.equity, self.peak = (0.0, 1.0, 1.0)\n    self.pending: tuple[int, float] | None = None\n    self.done, self.failure = (False, None)\n    self.fills, self.proposals, self.rejections, self.modifications = (0, 0, 0, 0)\n    self.rows: list[dict] = []\n    self.actions: list[float] = []",
+      "collect": "def collect(prices: dict[str, np.ndarray], funding: dict[str, np.ndarray], scale: Scale, horizon: int, seed: int, count: int, policy=None, execution: Execution=Execution()) -> dict:\n    \"\"\"Training-only prefixes physically bound every replay and episode.\"\"\"\n    if not all((_integer(v) for v in (horizon, seed, count))) or horizon not in (1, 3, 6) or seed < 0 or (count <= 0):\n        raise ValueError('invalid collection horizon, seed or transition budget')\n    if not isinstance(prices, dict) or not isinstance(funding, dict) or (not prices) or (set(prices) != set(funding)) or any((not isinstance(s, str) or not s for s in prices)):\n        raise ValueError('invalid collection symbol coverage')\n    for symbol, p in prices.items():\n        f = funding[symbol]\n        if not _real_series(p) or not _real_series(f) or len(p) != len(f) or (len(p) <= 120):\n            raise ValueError('invalid collection series or insufficient episode history')\n    horizon, seed, count = (int(horizon), int(seed), int(count))\n    rng = np.random.default_rng(seed)\n    symbols = sorted(prices)\n    rows, episodes, env, starts = ([], [], None, 0)\n    while len(rows) < count:\n        if env is None or env.done:\n            symbol = symbols[int(rng.integers(len(symbols)))]\n            p = prices[symbol]\n            start = int(rng.integers(24, len(p) - 96))\n            env = Replay(p, funding[symbol], start, start + 97, horizon, scale, execution, enabled=True)\n            starts += 1\n        s = env.observation()\n        if s is None:\n            raise ValueError('invalid training observation')\n        probs = np.full(3, 1 / 3) if policy is None else policy(s)\n        if not _real_series(probs) or probs.shape != (3,) or (not np.isfinite(probs).all()) or np.any(probs < 0) or (not np.isclose(probs.sum(), 1)):\n            raise ValueError('invalid behavior probabilities')\n        a = int(rng.choice(3, p=probs))\n        left = env.t\n        nxt, reward, done = env.step(float(ACTIONS[a]))\n        _admit_training_transition(env, left, nxt, reward, done)\n        rows.append((s, a, reward, np.zeros(FEATURE_COUNT) if nxt is None else nxt, done, probs[a]))\n        if done:\n            episodes.append({'return': env.equity - 1, 'failure': env.failure})\n    return {'s': np.array([r[0] for r in rows]), 'a': np.array([r[1] for r in rows]), 'r': np.array([r[2] for r in rows]), 'next': np.array([r[3] for r in rows]), 'done': np.array([r[4] for r in rows]), 'prob': np.array([r[5] for r in rows]), 'episodes': episodes, 'episodeAccountingV2': {'collections': 1, 'started': starts, 'completed': len(episodes), 'truncated': int(not env.done), 'decisions': len(rows)}}"
+    },
+    "sequential_evaluation.py": {
+      "short_ope": "def short_ope(prices, funding, scale, horizon, start, stop, net, seed, episodes=200):\n    horizon, start, stop, seed, episodes = _admit_ope_window(prices, funding, horizon, start, stop, seed, episodes)\n    rng = np.random.default_rng(seed)\n    symbols = sorted(prices)\n    all_r, all_a, all_b, all_pi, all_q, all_v, direct = ([], [], [], [], [], [], [])\n    failed = 0\n    for _ in range(episodes):\n        sym = symbols[int(rng.integers(len(symbols)))]\n        t = int(rng.integers(start, stop - 6 * horizon))\n        env = Replay(prices[sym], funding[sym], t, t + 6 * horizon + 1, horizon, scale, enabled=True)\n        replay = Replay(prices[sym], funding[sym], t, t + 6 * horizon + 1, horizon, scale, enabled=True)\n        rs, ac, pi, qs, vs = ([], [], [], [], [])\n        for j in range(6):\n            obs = env.observation()\n            out = _ope_policy_values(net, obs)\n            chosen = int(np.argmax(out)) if env.supported() else 1\n            a = int(rng.integers(3))\n            vs.append(float(out[chosen]))\n            qs.append(float(out[a]))\n            pi.append(float(a == chosen))\n            ac.append(a)\n            _, reward, done = env.step(float(ACTIONS[a]))\n            rs.append(reward)\n            if done and j < 5:\n                break\n        value = 0.0\n        for j in range(6):\n            if replay.done:\n                break\n            a = int(np.argmax(_ope_policy_values(net, replay.observation()))) if replay.supported() else 1\n            _, reward, _ = replay.step(float(ACTIONS[a]))\n            value += 0.99 ** (horizon * j) * reward\n        if len(rs) != 6 or env.failure or replay.failure:\n            failed += 1\n            continue\n        all_r.append(rs)\n        all_a.append(ac)\n        all_b.append([1 / 3] * 6)\n        all_pi.append(pi)\n        all_q.append(qs)\n        all_v.append(vs + [0.0])\n        direct.append(value)\n    if failed:\n        return {'status': 'invalid', 'failedEpisodes': failed, 'reason': 'No failed episodes may be silently excluded from OPE.'}\n    result = ope_estimates(np.array(all_r), np.array(all_a), np.array(all_b), np.array(all_pi), np.array(all_q), np.array(all_v), 0.99 ** horizon)\n    result.update({'directSimulatorValue': float(np.mean(direct)), 'valueModel': 'policy network outputs used only as a DR control variate; PPO logits are not calibrated Q estimates', 'uncertaintyScope': 'bootstrap of randomized behavior conditional on sampled fixed historical episodes; not a market-generalization interval', 'liveStateActionSupport': 'unavailable', 'simulatedActionSupport': [1 / 3, 1 / 3, 1 / 3]})\n    return result",
+      "replay_policy": "def replay_policy(p, funding, start, stop, horizon, scale, action, execution=Execution()):\n    env = Replay(p, funding, start, stop, horizon, scale, execution, enabled=True)\n    latencies, ood, proposals = ([], 0, 0)\n    while not env.done:\n        obs = env.observation()\n        proposals += 1\n        if not env.supported():\n            ood += 1\n            target = 0.0\n            ms = 0.0\n        else:\n            target, ms = action(obs)\n        latencies.append(ms)\n        env.step(target, elapsed_ms=ms)\n    result = economic(env)\n    result.update({'oodObservationRate': ood / max(1, proposals), 'latencyP50Ms': finite(np.median(latencies)), 'latencyP99Ms': finite(np.quantile(latencies, 0.99)), 'forecastMetrics': 'not_applicable_to_policy_values'})\n    return (env, result)",
+      "Baselines.__init__": "def __init__(self, prices, funding, scale, horizon: int):\n    self.scale, self.horizon = (scale, horizon)\n    x, y = ([], [])\n    for p in prices.values():\n        for t in range(24, len(p) - horizon - 1):\n            x.append(np.r_[scale.transform(market_features(p, t)), 1.0])\n            y.append(p[t + 1 + horizon] / p[t + 1] - 1)\n    x, y = (np.array(x), np.array(y))\n    self.mean = float(y.mean())\n    self.ridge = np.linalg.solve(x.T @ x + np.eye(7), x.T @ y)\n    self.logistic = np.zeros(7)\n    for _ in range(200):\n        probs = 1 / (1 + np.exp(-np.clip(x @ self.logistic, -30, 30)))\n        self.logistic -= 0.05 * (x.T @ (probs - (y > 0)) / len(y) + 0.001 * self.logistic)\n    logs = collect(prices, funding, scale, horizon, 20260917, 4096)\n    state = np.c_[logs['s'], np.ones(len(logs['s']))]\n    self.bandit = np.empty((13, 3))\n    for a in range(3):\n        idx = logs['a'] == a\n        self.bandit[:, a] = np.linalg.solve(state[idx].T @ state[idx] + np.eye(13), state[idx].T @ logs['r'][idx])\n    counts = np.bincount(logs['a'], minlength=3)\n    self.clone_action = float(ACTIONS[int(np.argmax(counts))])\n    self.behavior_counts = counts.tolist()"
+    },
+    "sequential_learning.py": {
+      "train_ppo": "def train_ppo(prices, funding, scale, horizon: int, seed: int, steps: int=4096):\n    horizon, seed, steps = _training_indices(horizon, seed, steps)\n    net, value = (Network(seed), Network(seed + 1, 1))\n    episodes, losses, rollouts = ([], [], [])\n    for batch in range((steps + 255) // 256):\n        count = min(256, steps - batch * 256)\n        data = collect(prices, funding, scale, horizon, seed + 1000 + batch, count, policy=lambda s: softmax(net.forward(s)))\n        episodes.extend(data['episodes'])\n        rollouts.append(data['episodeAccountingV2'])\n        adv, targets = advantages(data, value, 0.99 ** horizon)\n        for _ in range(4):\n            loss, grad = ppo_gradient(net.forward(data['s']), data['a'], data['prob'], adv)\n            net.update(data['s'], grad, 0.0003)\n            residual = value.forward(data['s']).ravel() - targets\n            value.update(data['s'], (residual / count)[:, None], 0.0003)\n        losses.append(loss)\n    return (net, {'steps': steps, 'updates': net.steps, 'episodes': episodes, 'losses': losses, 'episodeAccountingV2': _episode_totals(rollouts)})",
+      "train_q": "def train_q(prices, funding, scale, horizon: int, seed: int, *, offline: bool, risk_penalty: float=0.01, steps: int=4096):\n    horizon, seed, steps = _training_indices(horizon, seed, steps)\n    if type(offline) is not bool:\n        raise ValueError('offline training mode must be boolean')\n    cfg = Execution(risk_penalty=risk_penalty)\n    net, target = (Network(seed), Network(seed))\n    rng = np.random.default_rng(seed + 2)\n    episodes, losses, rollouts = ([], [], [])\n    buffer = None\n    if offline:\n        buffer = collect(prices, funding, scale, horizon, seed + 2000, steps, execution=cfg)\n        episodes.extend(buffer['episodes'])\n        rollouts.append(buffer['episodeAccountingV2'])\n    for batch in range((steps + 255) // 256):\n        count = min(256, steps - batch * 256)\n        if not offline:\n\n            def explore(s):\n                probs = np.full(3, 0.2 / 3)\n                probs[int(np.argmax(net.forward(s)))] += 0.8\n                return probs\n            new = collect(prices, funding, scale, horizon, seed + 3000 + batch, count, policy=explore, execution=cfg)\n            episodes.extend(new['episodes'])\n            rollouts.append(new['episodeAccountingV2'])\n            buffer = new if buffer is None else {k: np.concatenate([buffer[k], new[k]]) for k in ('s', 'a', 'r', 'next', 'done', 'prob')}\n        for _ in range(count):\n            idx = rng.integers(len(buffer['a']), size=64)\n            x, nxt = (buffer['s'][idx], buffer['next'][idx])\n            greedy = np.argmax(net.forward(nxt), axis=1)\n            targets = buffer['r'][idx] + 0.99 ** horizon * ~buffer['done'][idx] * target.forward(nxt)[np.arange(64), greedy]\n            loss, grad = bellman_gradient(net.forward(x), buffer['a'][idx], targets, 0.1 if offline else 0.0)\n            net.update(x, grad, 0.001)\n            if net.steps % 100 == 0:\n                target.copy_from(net)\n        losses.append(loss)\n    support = np.bincount(buffer['a'], minlength=3).tolist()\n    return (net, {'steps': steps, 'updates': net.steps, 'episodes': episodes, 'episodeAccountingV2': _episode_totals(rollouts), 'losses': losses, 'behaviorActionCounts': support, 'bufferTransitions': len(buffer['a']), 'behavior': 'uniform_simulated' if offline else 'epsilon_greedy_simulated'})"
+    }
+  },
+  "sourceHashes": {
+    "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+    "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
+    "scripts/research/sequential_evaluation.py": "fbe9c0a1c974c55985c8dcdfe19479072215b384af567daa5c0a710e6da2ad48",
+    "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb"
+  },
+  "sharedInputs": [
+    "Scale fitted over registered training prefixes of all declared symbols",
+    "Shared policy and baseline parameters fitted over those training prefixes"
+  ],
+  "primitiveContract": "A-DATA-COMPOSITION"
+}

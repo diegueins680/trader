@@ -1,6 +1,6 @@
 # Offline research verification runbook
 
-Closure correction (2026-10-03): [contract](closure-contract.md), [all-38 audit](obligation-closure-audit.md), and [CE-RL-021](closure-counterexamples.json). Source-derived default paths and [capability isolation](capability-isolation-contract.md) close obligations 11, 24 and 31 for the delivered offline boundary. Same-run certificates are required for closure; 35 other obligations and both research acceptance gates remain blocked.
+Closure correction (2026-10-03): [contract](closure-contract.md), [all-38 audit](obligation-closure-audit.md), and [CE-RL-021](closure-counterexamples.json). Source-derived default paths and [capability isolation](capability-isolation-contract.md) close obligations 11, 24 and 31; [data composition](data-composition-contract.md) additionally closes 3 and 5 for the delivered offline boundary. Same-run certificates are required for closure; 33 other obligations and both research acceptance gates remain blocked.
 
 
 Reward accounting (2026-10-03): [contract](reward-accounting-contract.md), [registration](../../research-notes/registrations/reward-accounting-audit-engineering.json), [fixtures](reward-accounting-fixtures.json). Seven SAT-premise/UNSAT-violation pairs cover three real-arithmetic requirements; a separate SAT witness refutes additive reward-as-return interpretation. Both wrappers run 1,944 synthetic episode checks. No new dependency.
@@ -44,7 +44,7 @@ A separate acceptance diagnostic deliberately fails today:
 "${TRADER_FORMAL_PYTHON:-python3}" scripts/formal/verify.py --require-complete
 ```
 
-It computes 35 unresolved obligations and three closed affected-scope obligations. The count is not hardcoded.
+It computes 33 unresolved obligations and five closed affected-scope obligations. The count is not hardcoded.
 A green scoped gate does not make this draft ready for candidate integration.
 There is no switch in this work to authorize a candidate, experiment or order.
 
@@ -399,3 +399,11 @@ ledger distinguishes those three evidence classes and retains all broad blockers
 Worker registry follow-up: [contract](worker-registry-contract.md), [source lock](worker-registry-source.json), [counterexamples](worker-registry-counterexamples.json), and [engineering report](../../research-notes/sequential-control-2026-09-17/worker-registry-followup-2026-10-04.md). The formal gate compiles old/new witnesses plus production tests, checks the finite protocol and atomic SMT predicates, and rejects drift. Full IO refinement and whole-server shutdown remain unresolved.
 
 Async admission follow-up: [contract](async-job-admission-contract.md), [source manifest](async-job-admission-source.json), [counterexamples](async-job-admission-counterexamples.json), and [report](../../research-notes/sequential-control-2026-09-17/async-job-admission-followup-2026-10-04.md). The existing gate reproduces signed-Int SMT, finite ownership/publication transitions and compiled core tests. Main remains responsible for exception-safe publication; durable recovery and HTTP draining are not proved.
+
+Data composition (2026-10-04): F-RL-DATA-COMPOSITION checks every scale use in
+the four delivered screen modules (28 sites); F-RL-DATA-KEYS proves six extracted
+key equalities over arbitrary strings. The actual loader/fit/collect/replay/OPE
+fixture runs in the existing automation suite, which already pins pandas 2.3.3.
+The formal-only environment remains NumPy/Z3-only. Causal normalization and
+symbol isolation close under A-DATA-COMPOSITION; publication timing, full split
+isolation, state/accounting and lifecycle remain separate obligations.

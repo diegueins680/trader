@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 35)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [11,24,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 33)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,24,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -2759,6 +2759,75 @@ class DrainPoolTests(unittest.TestCase):
                 return value.replace(b'newBacktestGateWithDrain drain', b'newBacktestGateWithDrain other')
             return value
         with patch.object(Path, 'read_bytes', changed), self.assertRaises(ValueError): pool.extract()
+
+
+
+class DataCompositionTests(unittest.TestCase):
+    def sources(self):
+        import data_composition as dc
+        return {f: (ROOT / 'scripts/research' / f).read_text() for f in dc.FILES}
+
+    def test_complete_source_graph(self):
+        import data_composition as dc
+        result = dc.check_composition()
+        self.assertEqual(result['scaleUseSites'], 28)
+        self.assertEqual(result['keys']['violationChecks'], 6)
+        self.assertFalse(result['publicationWitnessesVerified'])
+
+    def test_leakage_mutants_fail_semantic_admission(self):
+        import data_composition as dc
+        mutants = [
+            ('run_sequential_screen.py', 'Scale.fit(list(train.values()))', 'Scale.fit(list(prices.values()))'),
+            ('run_sequential_screen.py', 'bars[bars.symbol == symbol]', 'bars[bars.symbol == "FOREIGN"]'),
+            ('run_sequential_screen.py', 'events[events.symbol == symbol]', 'events[events.symbol == "FOREIGN"]'),
+            ('sequential_env.py', 'p = prices[symbol]', 'p = prices["FOREIGN"]'),
+            ('sequential_evaluation.py', 'Replay(prices[sym], funding[sym]', 'Replay(prices[sym], funding["FOREIGN"]'),
+            ('sequential_env.py', 'dataclass(frozen=True)', 'dataclass(frozen=False)'),
+            ('sequential_env.py', 'np.frombuffer(np.asarray(value, dtype=float).tobytes(), dtype=float)', 'np.asarray(value, dtype=float)'),
+            ('run_sequential_screen.py', 'controls = Baselines(train, funds, scale, h)', 'stolen = scale\n                controls = Baselines(train, funds, scale, h)'),
+        ]
+        for file, old, new in mutants:
+            with self.subTest(file=file, mutation=new):
+                sources = self.sources()
+                self.assertIn(old, sources[file])
+                sources[file] = sources[file].replace(old, new)
+                # These fail before source hashes; a hash mismatch is not a semantic proof.
+                with self.assertRaises((ValueError, RuntimeError)) as caught:
+                    dc.check_composition(sources)
+                self.assertNotIn('unreviewed helper/source drift', str(caught.exception))
+
+    def test_missing_reviewed_coverage_cannot_certify(self):
+        import data_composition as dc
+        original = read_json(ROOT / dc.REGISTRY)
+        for mutate in (lambda r: r.update(blocks={}),
+                       lambda r: r['blocks']['sequential_env.py'].pop('Scale.__post_init__'),
+                       lambda r: r.update(sourceHashes={}),
+                       lambda r: r.update(sharedInputs=[]),
+                       lambda r: r.update(schemaVersion=2)):
+            registry = copy.deepcopy(original)
+            mutate(registry)
+            with self.assertRaises(ValueError):
+                dc.check_composition(registry=registry)
+        fixture = read_json(ROOT / 'formal/research/data-composition-counterexamples.json')
+        self.assertEqual(fixture['entries'][0]['id'], 'CE-DATA-COMPOSITION-001')
+        self.assertEqual(fixture['entries'][0]['mutation'], {'blocks': {}})
+
+    def test_equal_foreign_keys_are_not_declared_symbol(self):
+        import data_composition as dc
+        sources = self.sources()
+        sources['sequential_env.py'] = sources['sequential_env.py'].replace(
+            'p = prices[symbol]', 'p = prices["FOREIGN"]').replace(
+            'Replay(p, funding[symbol]', 'Replay(p, funding["FOREIGN"]')
+        with self.assertRaisesRegex(RuntimeError, 'violating source bound'):
+            dc.check_keys({file: ast.parse(source) for file, source in sources.items()})
+
+    def test_wrong_key_yields_smt_counterexample(self):
+        import data_composition as dc
+        sources = self.sources()
+        sources['sequential_env.py'] = sources['sequential_env.py'].replace(
+            'p = prices[symbol]', 'p = prices["FOREIGN"]')
+        with self.assertRaisesRegex(RuntimeError, 'violating source bound'):
+            dc.check_keys({file: ast.parse(source) for file, source in sources.items()})
 
 
 if __name__ == '__main__':

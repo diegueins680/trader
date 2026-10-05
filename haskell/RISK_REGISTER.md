@@ -150,3 +150,20 @@ typed Haskell risk projection remain unchanged.
 The [worker registry contract](../formal/research/worker-registry-contract.md) scopes CE-WORKER-001/002/003 and the source-bound model/SMT/conformance repair. Completion covers tracked callbacks and their finalizers, not descendants or exchange/resource reconciliation. Cancellation timeout remains an explicit failure.
 
 A-ASYNC-ADMISSION and [its contract](../formal/research/async-job-admission-contract.md) scope CE-ASYNC-001/002: failed preparation leaked a queue slot and failed publication could leave an untracked callback. The repaired in-memory boundary does not reconcile persisted running records or close the HTTP drain gate.
+
+### RL-OFFLINE-001 — data composition follow-up (2026-10-04)
+
+The offline screen now has source-composed evidence for causal normalization
+and local symbol isolation: 28 checked scale-use sites, six source-derived key
+SMT checks, immutable snapshots, and actual loader/fit/replay/OPE conformance.
+Obligations 3 and 5 close under A-DATA-COMPOSITION (trusted pinned Python, pandas,
+NumPy, cryptographic identity and source grammar; no hostile objects or concurrent
+mutation). The shared training transform/policy is explicitly global. Historical
+publication/revision witnesses, online admission causality, full split isolation,
+numeric/accounting refinement and inherited production correctness remain open.
+Risk remains HIGH/OPEN; current broad count is 5 closed, 26 partial, 7 open.
+
+CE-DATA-COMPOSITION-001 records and fixes a verifier coverage omission: the first
+source-composition checker did not require its full skeleton roster. The corrected
+checker requires every reviewed block and rejects omitted coverage. No historical
+market leakage or trading behavior change is inferred from this injected mutant.

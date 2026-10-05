@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research verification: compose actual dataset loading, training-prefix fitting, immutable scale use, and symbol-paired replay/OPE calls. Close affected-scope obligations 3 and 5 under named Python/pandas/NumPy assumptions; 26 partial and 7 open remain. Add source mutation and real-loader conformance tests. No research algorithm, live setting, deployment, or holdout change.
+
 - Compose async/backtest capacity reservations with the server drain latch in STM.
   Reject stale-ingress reservations after drain; return HTTP 503 for drained
   synchronous backtests and stop waiting retries. Preserve pre-drain ownership,

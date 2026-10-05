@@ -31,12 +31,18 @@
       "claim": "Causal normalization",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every fitted scale depends only on admitted training rows and evaluation cannot mutate it.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT"
+      ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 4,
@@ -55,12 +61,18 @@
       "claim": "Symbol isolation",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Each local observation reads only its declared symbol; global inputs must be explicitly tagged.",
-      "requiredCertificates": [],
-      "implementationFiles": [
-        "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_env.py"
+      "requiredCertificates": [
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-DATA-KEYS",
+        "F-RL-FEATURE-FOOTPRINT"
       ],
-      "closureClass": null
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py"
+      ],
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 6,
