@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-04",
+  "sourceBaseline": "bd05460d9aaf3eb469b620922da2b61bc9e9a2b2",
+  "purpose": "Compose existing prefix and immutable-scale certificates with actual loader and caller dataflow, and audit mission obligations 3 and 5 against unchanged criteria.",
+  "financialTrials": 0,
+  "data": "Small synthetic deterministic fixtures only; no historical or protected data reads.",
+  "implementation": "No trading, research-algorithm, registration, model identifier or production behavior changes. Source-derived finite dataflow certificate plus SMT index/key lemmas and runtime conformance.",
+  "proofObligations": [
+    "Every scale fit in the delivered runner consumes only admitted training prefixes.",
+    "Every admitted scale use is a read or a checked passthrough; snapshots have immutable bytes backing.",
+    "Each local price/funding pair is selected using the same symbol from loader through collector, replay and OPE.",
+    "Pooled training transforms and learned policies are explicitly shared inputs, not undeclared local market observations."
+  ],
+  "closureRule": "Close an obligation only after exact source composition, mutation tests, formal reproduction and repository verification pass. Preserve unproved publication timing, full split isolation, numeric, lifecycle and empirical obligations.",
+  "assumptions": [
+    "Ordinary pinned Python/NumPy/pandas primitives and SHA-256 collision resistance; no hostile subclasses, runtime patching, concurrent mutation or external arbitrary callbacks.",
+    "Source grammar, AST parser and proof checker are in the trusted computing base; compiler/library semantics are not re-proved."
+  ],
+  "verification": [
+    "bash scripts/verify.sh formal",
+    "bash scripts/verify.sh full"
+  ],
+  "counterexamples": "Preserve deliberate foreign-symbol, full-panel fit and mutable-scale mutants as regression cases, separately from historical defects.",
+  "acceptance": "No new candidate eligibility, adoption, holdout permission, deployment or live authority."
+}
