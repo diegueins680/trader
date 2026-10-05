@@ -32,6 +32,66 @@
       "universalRuntimeRefinement": false
     }
   },
+  "artifactComposition": {
+    "conformance": {
+      "financialTrials": 0,
+      "fixedRaceRejected": true,
+      "holdoutAccess": false,
+      "legacyRaceReproduced": true,
+      "postReadReplacementAcceptedOriginalBytes": true,
+      "rejections": 29,
+      "scheduling": "deterministic instrumentation at actual file-read/hash boundaries; no timing races",
+      "stableCompatibilityCases": 3,
+      "v4SnapshotRejected": true
+    },
+    "legacyModel": {
+      "acceptedStates": 64,
+      "callerClasses": 2,
+      "counterexample": [
+        "path=3",
+        "capture",
+        "caller=1",
+        "read",
+        "hash",
+        "decode",
+        "metadata",
+        "publish"
+      ],
+      "expectedDigestClass": 0,
+      "fileClasses": 8,
+      "fixedPoint": true,
+      "maxShortestDepth": 11,
+      "states": 944,
+      "transitions": 10064,
+      "unboundedRuntimeRefinement": false
+    },
+    "model": {
+      "acceptedStates": 32,
+      "callerClasses": 2,
+      "counterexample": null,
+      "expectedDigestClass": 0,
+      "fileClasses": 8,
+      "fixedPoint": true,
+      "maxShortestDepth": 10,
+      "states": 848,
+      "transitions": 9072,
+      "unboundedRuntimeRefinement": false
+    },
+    "queries": 6,
+    "smt": {
+      "F-RL-ARTIFACT-IDENTITY": "unsat"
+    },
+    "surface": {
+      "formats": [
+        "offline_policy_v1",
+        "ppo-artifact-v4"
+      ],
+      "maximumArtifactBytes": 65536,
+      "readerDefinitions": 13,
+      "sourceToPrimitiveCorrespondence": "reviewed assumption; not interpreter refinement",
+      "status": "exhaustively_checked"
+    }
+  },
   "artifactV4": {
     "boundary": {
       "defaultEnabled": false,
@@ -1290,10 +1350,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 7,
+    "closedMissionObligations": 9,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 31
+    "openMissionObligations": 29
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -1840,7 +1900,7 @@
       "F-RL-PROMOTION-SCHEMA": "unsat"
     },
     "surface": {
-      "callSites": 1733,
+      "callSites": 1736,
       "callbacks": [
         [
           "ppo_successor_v2",
@@ -2568,6 +2628,7 @@
     "F-RECOVERY-NUMERIC": "unsat",
     "F-RL-ACCOUNT": "unsat",
     "F-RL-ARTIFACT-DISJOINT": "unsat",
+    "F-RL-ARTIFACT-IDENTITY": "unsat",
     "F-RL-ARTIFACT-METADATA": "unsat",
     "F-RL-ARTIFACT-V4-GUARD": "unsat",
     "F-RL-AUTH": "unsat",
@@ -2712,7 +2773,10 @@
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
+    "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
+    "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
     "formal/research/artifact-counterexamples.json": "0ffc100916d1af5646e985441529e4941d3b16e8fbc12f108a036c1d0f678315",
+    "formal/research/artifact-legacy-loader.json": "70b0d6100c25a6c4af88c31ad600a41d000fd0fcdf5a1a46117c7a7630f7dc8b",
     "formal/research/async-job-admission-contract.md": "da92366084a287bd590fb3ca3446c784f85bc83f99405307f647f958223ab964",
     "formal/research/async-job-admission-counterexamples.json": "37546208297c2d1f11fb2f2014de6c3660e5df4a57a339402830c80b511120f3",
     "formal/research/async-job-admission-source.json": "62a1af2afbcaf7cd10e80a31f23de42b16276da705900d56082fa493e4d37981",
@@ -2732,10 +2796,10 @@
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
     "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
+    "formal/research/counterexamples.json": "f75753fe49d5b6dd8e16e9fc65450aa7c5bcdd74080bb1a1f1f6570be9380aad",
     "formal/research/data-composition-contract.md": "eefa7a6863bd2b7a0c680c4dd85e2d683d0c594bd3148a2300aa7bcf27cd2591",
     "formal/research/data-composition-counterexamples.json": "f6cf00b5d33bc7305f6334581e2707feec118f4cb913ad3b4518538b56f66a2d",
-    "formal/research/data-composition-source.json": "f236cc942635acd29c02113fee02b93776aaf65e613c53ae51e2786bd56f5b31",
+    "formal/research/data-composition-source.json": "c31a4f86f01e8853235f1891d37be8c7d65af1916f48b76add3cca7ba142e1b6",
     "formal/research/drain-pool-contract.md": "409f48af808731543eb59e2bc74204d9f17cd9cfef581d365420641bfdc3b051",
     "formal/research/drain-pool-counterexamples.json": "9046e06d60ef6be96080ef0935592c8972ee1fb5bacc60ad4092e8f4a8bf3b36",
     "formal/research/drain-pool-source.json": "37c10a395922f28226c5fef918ceeeaf837a8f1b8f31e8657c84dfa0ce6310cf",
@@ -2763,8 +2827,8 @@
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "82f2f2cb4184b06b8c4c347a6e2a4addd0a115eb33dc892aaecb5d56824c7d13",
-    "formal/research/obligation-closure-audit.md": "9b5607d198e02b91e786f7e442e7532cf37167cc7761374a48865d46c947ff26",
-    "formal/research/obligation-contracts.json": "0d8025e912adbdab497fc0702b08c719464774be1579baa816ca949548ae805f",
+    "formal/research/obligation-closure-audit.md": "ee07dd99a229d8fb05c2a7fbda01e16c13411f3457a08550c3eed06c62582a26",
+    "formal/research/obligation-contracts.json": "59c41bf94e8b2188ff9b48d4362f101138bf3a1a75952e32f2f1faf4a26c0f54",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
@@ -2781,11 +2845,11 @@
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
     "formal/research/ppo-process-bridge-source.json": "41db0057b11313b1e641be56dcd6ac473eaa25f9f369dc2723fb9673b895634a",
     "formal/research/ppo-process-bridge-v3-contract.md": "69a8a784ad4a4ab24b383436bf27474cb0c9f4d95e63f5b7d9610f46a4f88bf1",
-    "formal/research/ppo-successor-source.json": "af5e4ea735c591efa2b27f0f9c6a8a3d1cba53148f0512eda8d9be9b258e036d",
+    "formal/research/ppo-successor-source.json": "b58e97c2ab60b48fe812e8c7b92ff1de9d40cb5c7399a0f60eb786d22956c08c",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
-    "formal/research/promotion-boundary-source.json": "3dc67c1e51fdfc8c9cd7cd53ad1187e4a7403607a360825d46fc9e9f3b2d3224",
-    "formal/research/proof-ledger.json": "44716d97a00042773d9af85da4f32ff14ecd72f60d11b7f8dccb055e8a368921",
+    "formal/research/promotion-boundary-source.json": "dc7a99297dd6e28cffeb360937fd26cf8504114e6f8a766bcc8f7ec6e1c728ee",
+    "formal/research/proof-ledger.json": "9b58fc48af8a36e1a30256bc2a64d0277c2fc86ff4443a8a511093b84dbec027",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -2820,7 +2884,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "afa53c18746c959cc0836e706cd99c07b0fdf08f7e9e72609df219dad8fd3147",
-    "formal/specifications.json": "aabf1ad07544da3557fb051d2d4d026ddbcd549af6e29dd0b64e0e2c5115cd8a",
+    "formal/specifications.json": "78396e46de37444420e502c7d4f64d05bc56b758f159b3e7de9b47fb059a4a9a",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "4a6fe23d0c4279f8571c74f44a917aa0d202ec9bb0d20d55f24a9965c4a65573",
@@ -2952,6 +3016,7 @@
     "haskell/test/Trader/Test/OrderNumeric.hs": "e14bb5fbd8482b2f9e3da9be9a6768a0d2f2d4ab79ea142042a705650684ea2c",
     "haskell/test/Trader/Test/QuantityRounding.hs": "be0364bc21f0b90a8d8ac07eba2b034d23ca72ec9a12ab5163a820a5b3293900",
     "haskell/trader.cabal": "19d3e18cefef2224cfabf54ee126e51571371d3f7fca40736cd5e03fe26d4a05",
+    "research-notes/registrations/artifact-admission-engineering.json": "4f213bd86f2ffcda662f1c2f2a4a1f6e11bc25ef8fe92202dfed5389b79cc258",
     "research-notes/registrations/async-job-admission-engineering.json": "c0f554260134deadb6f7fb7aaa4361cfa0ec1dd5602ef123b9acbf5ae8bbef8a",
     "research-notes/registrations/async-shutdown-seal-engineering.json": "7a00d9dc56e5e23f5c0bde996cbb2323ea5305142d29c14e49cec6d2a226b896",
     "research-notes/registrations/backtest-gate-engineering.json": "8982091af1f7b9590e461c6118f2229c9b8d300d4a03b111beb3749b9491e6a4",
@@ -2989,7 +3054,8 @@
     "research-notes/registrations/worker-registry-engineering.json": "b953fe44a73076e465749fb4ff18e05c939ec7ef1b0c04da5ca598fac85f0eca",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
     "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
-    "scripts/formal/artifact_admission.py": "69d89eeac1e807537cf7d156d0e4dd1a2cea6e759a942e0d38ef67e6cae9ba09",
+    "scripts/formal/artifact_admission.py": "3a431db8ce7522046308af1c97375a9a96957c2a34b553ffc07fe822e2a7200e",
+    "scripts/formal/artifact_composition.py": "011e213a9c445e4b325084cdd4f90aa73abad83f4c133470160a1178739426f7",
     "scripts/formal/artifact_v4.py": "c763874bcd83869f3ebaac11f019a1119b268121d1498cb1ce15811e76294e8b",
     "scripts/formal/async_job_admission.py": "392c8e4557956ee49ae66a0ab6bc40689b378c3b509ceca2155798ee01d3f61a",
     "scripts/formal/async_shutdown_seal.py": "27d3ea78b02790e39f06f577f608fef24393068ca934b5cbab8a37ad0d9f5083",
@@ -3027,12 +3093,12 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "397f6738a7f54147b3fe586257c972355daaf85c52065dcb060083eacc7951a3",
+    "scripts/formal/test_integrity.py": "c4beaad0dfef9c51df021b312d29a70b5cd85348d9130933a9ab7dfa939cb9f9",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "043a6c145ab45f551906c52ebab022e51a68142f736c84f56c27ecdfa20fca64",
+    "scripts/formal/verify.py": "30cf1cbd560e3c2014a0a615d05033d27fb7dd82555783959d79968729b6fef3",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
@@ -3044,7 +3110,7 @@
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/research/sequential_evaluation.py": "fbe9c0a1c974c55985c8dcdfe19479072215b384af567daa5c0a710e6da2ad48",
-    "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
+    "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
     "test/sequential_screen_test.py": "f64f6b0db30bef28fde5652a9a0fd1fe508337bc7c498d5d1876da7fc341e1e5"

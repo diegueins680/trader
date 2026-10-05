@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Fix offline v1 policy loading to snapshot expected provenance before file I/O. Preserve the old race as a regression; compose version, hash, helper, byte-snapshot and non-authorizing consumer checks for scoped obligations29/30. Stable v1 artifacts and numerical policy behavior remain compatible; no live configuration or financial evidence changes.
+
 - Add source-derived candidate promotion composition: audit research writers/callbacks, verify v1/v4 metadata and native-schema exclusion, model retries/successors, and test actual codecs. Close scoped obligations23/26 only through freshly reproduced certificates; no runtime, artifact semantics, configuration or trading changes.
 
 - Separate readiness certification from permissive position-adoption eligibility. Check all inventory rows, require matching running local ownership evidence, clear old readiness before scans, and remove optimistic post-start readiness. Preserve adoption and ownership behavior; add SMT, finite scan-model and actual-Haskell predicate regressions.

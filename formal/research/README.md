@@ -495,3 +495,10 @@ Closed-trade recovery: `closed_trade_recovery.py` checks the [registered contrac
 Inventory readiness: `inventory_readiness.py` checks the [registered contract](inventory-readiness-contract.md), four SMT predicates, two non-vacuity witnesses, a 25-state publication model and 6468 compiled actual-predicate cases. Obligation16 is partial, not a complete owner-reconciliation proof.
 
 Promotion composition: `promotion_boundary.py` checks the [contract](promotion-boundary-contract.md), complete 12-module source/effect inventory, seven metadata queries, two native-schema exclusions,18 states/88 edges and72 actual codec cases. The ledger requires current-run reproduction of every composing certificate before scoped23/26 closure. `--require-complete` still fails for the31 unresolved formal obligations and empirical gates.
+
+Artifact admission composition: `artifact_composition.py` reproduces six source-bound
+SMT queries,848 fixed-loader states/9072 edges and the preserved legacy provenance
+race, plus actual codec/interleaving and compatibility tests. See the
+[contract](artifact-composition-contract.md). Required current-run certificates close
+scoped29/30. `--require-complete` still rejects29 unresolved broader obligations and
+separate economic gates. No new dependencies or financial trials.

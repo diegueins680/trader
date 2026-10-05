@@ -277,6 +277,12 @@
       "status": "assumption",
       "statement": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ARTIFACT-COMPOSITION",
+      "status": "assumption",
+      "statement": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -408,7 +414,12 @@
     "scripts/formal/promotion_boundary.py",
     "formal/research/promotion-boundary-contract.md",
     "formal/research/promotion-boundary-source.json",
-    "research-notes/registrations/promotion-boundary-engineering.json"
+    "research-notes/registrations/promotion-boundary-engineering.json",
+    "scripts/formal/artifact_composition.py",
+    "formal/research/artifact-composition-source.json",
+    "formal/research/artifact-legacy-loader.json",
+    "formal/research/artifact-composition-contract.md",
+    "research-notes/registrations/artifact-admission-engineering.json"
   ],
   "entries": [
     {
@@ -4739,7 +4750,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "exhaustively_checked"
@@ -4786,7 +4797,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "smt_verified"
@@ -4833,7 +4844,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "smt_verified"
@@ -4880,7 +4891,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "model_checked"
@@ -4927,9 +4938,149 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "12 modules, 15 local imports, 1736 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-COMPOSITION",
+      "claim": "Both delivered artifact readers bind validation to immutable expected identity and the exact hashed byte snapshot, construct parameters through reviewed helpers and retain the separately checked non-authorizing Haskell/native-decoder boundary.",
+      "formalStatement": "Both delivered artifact readers bind validation to immutable expected identity and the exact hashed byte snapshot, construct parameters through reviewed helpers and retain the separately checked non-authorizing Haskell/native-decoder boundary.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-COMPOSITION",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 source-predicate translation, finite concurrent snapshot model, reviewed primitive composition, actual codec conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_composition.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by artifact_composition.check_composition and ArtifactCompositionTests; closure additionally requires current-invocation reader/bridge/build/promotion certificates.",
+      "bounds": "13 reviewed reader/helper definitions, two formats, 65536 artifact bytes; six SAT-premise/UNSAT queries; fixed model848 states9072 edges depth10, legacy944 states10064 edges depth11; two caller classes,eight file classes; three stable compatibility cases,29 rejections and deterministic interleavings.",
+      "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
+      "counterexample": "formal/research/artifact-legacy-loader.json",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-IDENTITY",
+      "claim": "Accepted source-derived v1/v4 digest and provenance predicates imply equality with the captured expected values; outer and nested snapshot version predicates imply the supported version literals.",
+      "formalStatement": "Accepted source-derived v1/v4 digest and provenance predicates imply equality with the captured expected values; outer and nested snapshot version predicates imply the supported version literals.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-COMPOSITION",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 source-predicate translation, finite concurrent snapshot model, reviewed primitive composition, actual codec conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_composition.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by artifact_composition.check_composition and ArtifactCompositionTests; closure additionally requires current-invocation reader/bridge/build/promotion certificates.",
+      "bounds": "13 reviewed reader/helper definitions, two formats, 65536 artifact bytes; six SAT-premise/UNSAT queries; fixed model848 states9072 edges depth10, legacy944 states10064 edges depth11; two caller classes,eight file classes; three stable compatibility cases,29 rejections and deterministic interleavings.",
+      "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
+      "counterexample": "formal/research/artifact-legacy-loader.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+      "claim": "In the finite equality-class concurrent replacement model, every published artifact matches the captured expected provenance, expected digest and supported versions regardless of later caller or path replacement.",
+      "formalStatement": "In the finite equality-class concurrent replacement model, every published artifact matches the captured expected provenance, expected digest and supported versions regardless of later caller or path replacement.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-COMPOSITION",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 source-predicate translation, finite concurrent snapshot model, reviewed primitive composition, actual codec conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_composition.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by artifact_composition.check_composition and ArtifactCompositionTests; closure additionally requires current-invocation reader/bridge/build/promotion certificates.",
+      "bounds": "13 reviewed reader/helper definitions, two formats, 65536 artifact bytes; six SAT-premise/UNSAT queries; fixed model848 states9072 edges depth10, legacy944 states10064 edges depth11; two caller classes,eight file classes; three stable compatibility cases,29 rejections and deterministic interleavings.",
+      "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
+      "counterexample": "formal/research/artifact-legacy-loader.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-COMPOSITION-CONFORMANCE",
+      "claim": "The preserved old loader reproduces the provenance race; the repaired loader and v4 reject the scheduled mismatch, preserve single-read bytes and stable-input compatibility, and reject incompatible versions and malformed parameters.",
+      "formalStatement": "The preserved old loader reproduces the provenance race; the repaired loader and v4 reject the scheduled mismatch, preserve single-read bytes and stable-input compatibility, and reject incompatible versions and malformed parameters.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-COMPOSITION",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 source-predicate translation, finite concurrent snapshot model, reviewed primitive composition, actual codec conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_composition.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_learning.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by artifact_composition.check_composition and ArtifactCompositionTests; closure additionally requires current-invocation reader/bridge/build/promotion certificates.",
+      "bounds": "13 reviewed reader/helper definitions, two formats, 65536 artifact bytes; six SAT-premise/UNSAT queries; fixed model848 states9072 edges depth10, legacy944 states10064 edges depth11; two caller classes,eight file classes; three stable compatibility cases,29 rejections and deterministic interleavings.",
+      "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
+      "counterexample": "formal/research/artifact-legacy-loader.json",
       "status": "property_tested"
     }
   ],
@@ -5943,7 +6094,7 @@
     {
       "number": 29,
       "claim": "Artifact compatibility",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-ARTIFACT-PATH",
         "F-RL-ARTIFACT-METADATA",
@@ -5958,25 +6109,56 @@
         "F-RECOVERY-NUMERIC",
         "F-RECOVERY-INDEX",
         "F-RECOVERY-FLOW",
-        "F-RECOVERY-CONFORMANCE"
+        "F-RECOVERY-CONFORMANCE",
+        "F-RL-ARTIFACT-COMPOSITION",
+        "F-RL-ARTIFACT-IDENTITY",
+        "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+        "F-RL-ARTIFACT-COMPOSITION-CONFORMANCE",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
-      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
+      "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
-      "nextAction": "Compose decoder, hash, schema, immutable parameter admission and activation with explicit version compatibility.",
+      "nextAction": "Reopen before any reader/helper/format/version/consumer or artifact-activation path changes. Expected provenance authenticity and scientific validity, filesystem crash recovery and inherited production correctness remain separate unresolved claims.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json",
+        "scripts/formal/artifact_composition.py"
       ],
-      "blockers": [
-        "Gate abstraction trusts helper/provenance semantics and does not refine every decoder path."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-ARTIFACT-COMPOSITION",
+        "F-RL-ARTIFACT-IDENTITY",
+        "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-BRIDGE-V3-CODEC",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ]
     },
     {
       "number": 30,
       "claim": "Hash and provenance checks",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-ARTIFACT-PATH",
         "F-RL-ARTIFACT-METADATA",
@@ -5987,21 +6169,51 @@
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-ARTIFACT-V4-CONFORMANCE"
+        "F-RL-ARTIFACT-V4-CONFORMANCE",
+        "F-RL-ARTIFACT-COMPOSITION",
+        "F-RL-ARTIFACT-IDENTITY",
+        "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+        "F-RL-ARTIFACT-COMPOSITION-CONFORMANCE",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION"
       ],
-      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
+      "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Hash/provenance mismatch prevents loading or activation.",
-      "nextAction": "Verify hash-before-decode relation and immutable expected provenance inputs across all loaders.",
+      "nextAction": "Reopen before any reader/helper/format/version/consumer or artifact-activation path changes. Expected provenance authenticity and scientific validity, filesystem crash recovery and inherited production correctness remain separate unresolved claims.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "scripts/research/run_sequential_screen.py",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json",
+        "scripts/formal/artifact_composition.py"
       ],
-      "blockers": [
-        "Expected provenance trust and complete hash-to-decoded-object composition remain assumptions."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-ARTIFACT-COMPOSITION",
+        "F-RL-ARTIFACT-IDENTITY",
+        "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-BRIDGE-V3-CODEC",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ]
     },
     {
       "number": 31,

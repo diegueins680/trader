@@ -487,25 +487,72 @@
       "claim": "Artifact compatibility",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-RL-ARTIFACT-COMPOSITION",
+        "F-RL-ARTIFACT-IDENTITY",
+        "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-BRIDGE-V3-CODEC",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json",
+        "scripts/formal/artifact_composition.py"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 30,
       "claim": "Hash and provenance checks",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Hash/provenance mismatch prevents loading or activation.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-RL-ARTIFACT-COMPOSITION",
+        "F-RL-ARTIFACT-IDENTITY",
+        "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+        "F-RL-ARTIFACT-METADATA",
+        "F-RL-ARTIFACT-PATH",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-BRIDGE-V3-CODEC",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION"
+      ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "scripts/research/run_sequential_screen.py",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "formal/research/artifact-composition-source.json",
+        "formal/research/artifact-legacy-loader.json",
+        "formal/research/artifact-composition-contract.md",
+        "research-notes/registrations/artifact-admission-engineering.json",
+        "scripts/formal/artifact_composition.py"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 31,
