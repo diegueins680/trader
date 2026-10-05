@@ -581,6 +581,18 @@
         {
           "id": "F-RECOVERY-CONFORMANCE",
           "statement": "Compiled actual recovery helpers agree with independent numeric/index oracles on 2675 numeric rows and 1031 histories, preserve admitted legacy returns and indices, repeat deterministically and reproduce four preserved counterexamples."
+        },
+        {
+          "id": "F-INVENTORY-READINESS-PREDICATE",
+          "statement": "The source-bound inventory row predicate admits only finite amounts and requires every admitted nonzero row to have a nonempty symbol and an existing running, non-starting, trade-enabled runtime with matching signed side; opposite sides cannot both match one runtime."
+        },
+        {
+          "id": "F-INVENTORY-READINESS-FLOW",
+          "statement": "The two-cycle inventory readiness publication model clears prior readiness before scanning, rejects failed or interrupted scans, never promotes from start acknowledgment, and can recover only through a successful reconciled scan."
+        },
+        {
+          "id": "F-INVENTORY-READINESS-CONFORMANCE",
+          "statement": "The compiled actual Haskell inventory readiness predicate agrees with the independent oracle on 6468 finite metadata/numeric partition cases in two repeated runs; source-bound scan/caller checks preserve four counterexample regressions."
         }
       ],
       "invariants": [
@@ -783,6 +795,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_closed_trade_recovery_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_inventory_readiness_conformance"
         }
       ]
     },

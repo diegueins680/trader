@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "baseline": "902a45786f1bee407731765bd45c608a6e06cab0",
+  "runtimeType": "data RuntimeAdoptionInfo = RuntimeAdoptionInfo\n    { raiRunning :: !Bool\n    , raiStarting :: !Bool\n    , raiTradeEnabled :: !Bool\n    , raiSide :: !(Maybe Int)\n    }\n",
+  "adoptionPredicate": "positionAdoptedByRuntime :: Maybe RuntimeAdoptionInfo -> FuturesPositionRisk -> Bool\npositionAdoptedByRuntime mInfo pos =\n    case mInfo of\n        Nothing -> False\n        Just info ->\n            raiTradeEnabled info\n                && case futuresPositionSideSign pos of\n                    Nothing -> False\n                    Just posSide ->\n                        let activeSides = maybeToList (raiSide info)\n                            hasStarting = raiStarting info\n                            hasRunning = raiRunning info\n                         in posSide `elem` activeSides || (null activeSides && (hasStarting || hasRunning))\n",
+  "witnesses": [
+    {
+      "id": "CE-READINESS-001",
+      "case": "running trade-enabled flat runtime, positive exchange position",
+      "old": true,
+      "new": false
+    },
+    {
+      "id": "CE-READINESS-002",
+      "case": "simultaneous long/short rows omitted from adoptable orphan list",
+      "old": true,
+      "new": false
+    },
+    {
+      "id": "CE-READINESS-003",
+      "case": "post-start running acknowledgment with wrong local side",
+      "old": true,
+      "new": false
+    },
+    {
+      "id": "CE-READINESS-004",
+      "case": "prior ready retained during interrupted inventory scan",
+      "old": true,
+      "new": false
+    }
+  ]
+}

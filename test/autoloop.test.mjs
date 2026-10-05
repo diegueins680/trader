@@ -1798,7 +1798,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(autoStartLoop, /forceEnvPreset <- botStartForceEnvPresetFromEnv[\s\S]*?applyBotStartupEnvPreset argsCombo/);
   assert.match(
     autoStartLoop,
-    /if bsTradeEnabled settings\s+then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0\s+else pure \(Right \(\[\], \[\]\)\)/,
+    /if bsTradeEnabled settings\s+then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0\s+else pure \(Right \(\[\], \[\], False\)\)/,
   );
   const orphanScanIndex = autoStartLoop.indexOf("resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0");
   const portfolioSelectionIndex = autoStartLoop.indexOf("topTargets <-\n                                    if adoptionPriority");
@@ -1812,12 +1812,18 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(autoStartLoop, /startupPhase && orphanScanReady && not adoptionPriority/);
   assert.match(
     autoStartLoop,
-    /writeIORef recoveryReadyRef \(orphanScanReady && null orphanSymbols && null adoptionStartingSymbols\)/,
+    /writeIORef recoveryReadyRef \(orphanScanReady && inventoryReconciled && null adoptionStartingSymbols\)/,
   );
-  assert.match(
-    autoStartLoop,
-    /writeIORef recoveryReadyRef \(orphanScanReady && null adoptionStartingSymbols && and registered\)/,
-  );
+  const readinessClearIndex = autoStartLoop.indexOf("writeIORef recoveryReadyRef False");
+  const runtimeCaptureIndex = autoStartLoop.indexOf("mrt <- readMVar (bcRuntime botCtrl)", readinessClearIndex);
+  assert.ok(readinessClearIndex >= 0 && runtimeCaptureIndex > readinessClearIndex && runtimeCaptureIndex < orphanScanIndex,
+    "the prior readiness snapshot must be cleared before runtime capture and inventory IO");
+  assert.doesNotMatch(autoStartLoop, /writeIORef recoveryReadyRef .*and registered/);
+  assert.equal((autoStartLoop.match(/writeIORef recoveryReadyRef/g) || []).length, 2,
+    "only pre-scan clearing and complete-snapshot publication may write readiness");
+  const scan = main.slice(main.indexOf("resolveOrphanOpenPositionActions ::"), main.indexOf("resolveAdoptionRequirement ::"));
+  assert.match(scan, /inventoryReconciled =\s+all[\s\S]*?inventoryRowReconciled[\s\S]*?\n\s+positions\n/);
+  assert.doesNotMatch(scan, /inventoryReconciled =[\s\S]*?\n\s+openPositions\n/);
   assert.match(
     autoStartLoop,
     /case effectivePortfolioMode of\s+PortfolioShadow -> do\s+writeIORef portfolioSelectionFailureRef Nothing\s+pure Nothing/,

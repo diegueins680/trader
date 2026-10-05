@@ -491,3 +491,5 @@ The wire-aware maker-price preflight also rejects zero-wire prices before constr
 Sizing admission: `sizing_inputs.py` verifies the [registered contract](sizing-input-contract.md) with 14 SMT queries, a 56-state retry model and actual pure Main fragments on 6214 rows. Both formal/full wrappers include it; no exchange module or authenticated effect is linked. Existing downward/upward source bindings are refreshed for the reviewed guards without changing their rounding algorithms.
 
 Closed-trade recovery: `closed_trade_recovery.py` checks the [registered contract](closed-trade-recovery-contract.md), seven SMT queries, 22-state local model, 341 finite histories and actual pure helpers; JSON recovery regressions run in the Haskell suite. No whole-recovery or broad-obligation closure.
+
+Inventory readiness: `inventory_readiness.py` checks the [registered contract](inventory-readiness-contract.md), four SMT predicates, two non-vacuity witnesses, a 25-state publication model and 6468 compiled actual-predicate cases. Obligation16 is partial, not a complete owner-reconciliation proof.

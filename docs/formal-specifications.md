@@ -761,3 +761,14 @@ failures; actual Aeson integration is tested separately. No parser/compiler,
 authenticity, freshness, durable crash recovery, resource-bound or ownership
 certificate is inferred. Obligations 6/10/29/37 receive evidence without status
 changes: five scoped closures, 27 partial, six open. RL-OFFLINE-001 remains open.
+
+Inventory readiness now has [strict snapshot admission](../formal/research/inventory-readiness-contract.md)
+under A-INVENTORY-READINESS. CE-READINESS-001–004 retain flat-owner, unsupported
+hedge, wrong-side start-acknowledgment and interrupted-rescan failures. Four SMT
+predicate queries, a 25-state/33-transition two-cycle publication model and 6468
+actual-Haskell predicate cases cover this boundary. Complete/truthful venue data
+and ordinary runtime semantics remain assumptions. Persistent-owner uniqueness,
+concurrent snapshot consistency, continuous freshness and HTTP/drain linearization
+are not proved. Obligation16 advances from open to partial; totals are five scoped
+closures, 28 partial, five open. No closure criterion is weakened; RL-OFFLINE-001
+remains open. This health repair does not modify adoption or production ownership.

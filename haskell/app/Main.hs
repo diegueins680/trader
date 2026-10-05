@@ -10096,10 +10096,28 @@ positionAdoptedByRuntime mInfo pos =
                             hasRunning = raiRunning info
                          in posSide `elem` activeSides || (null activeSides && (hasStarting || hasRunning))
 
-resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO (Either String ([String], [String]))
+{- | Readiness is stricter than eligibility for adoption: every nonzero venue
+row needs an already running owner whose local side matches that row.
+-}
+inventoryRowReconciled :: Double -> Maybe Int -> String -> Maybe RuntimeAdoptionInfo -> Bool
+inventoryRowReconciled amount side symbol mInfo
+    | isNaN amount || isInfinite amount = False
+    | amount == 0 = True
+    | null symbol = False
+    | otherwise =
+        case (side, mInfo) of
+            (Just positionSide, Just info) ->
+                (positionSide == 1 || positionSide == (-1))
+                    && raiRunning info
+                    && not (raiStarting info)
+                    && raiTradeEnabled info
+                    && raiSide info == Just positionSide
+            _ -> False
+
+resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO (Either String ([String], [String], Bool))
 resolveOrphanOpenPositionActions mOps args tenantMap =
     if not (platformSupportsLiveBot (argPlatform args))
-        then pure (Right ([], []))
+        then pure (Right ([], [], False))
         else do
             let argsFutures =
                     args
@@ -10149,7 +10167,18 @@ resolveOrphanOpenPositionActions mOps args tenantMap =
                             | sym <- orphanSymbols
                             , HM.member sym tenantMapNorm
                             ]
-                    pure (Right (dedupeStable orphanSymbols, dedupeStable orphanRestartSymbols))
+                        inventoryReconciled =
+                            all
+                                ( \pos ->
+                                    let sym = normalizeSymbol (fprSymbol pos)
+                                     in inventoryRowReconciled
+                                            (fprPositionAmt pos)
+                                            (futuresPositionSideSign pos)
+                                            sym
+                                            (HM.lookup sym runtimeBySymbol)
+                                )
+                                positions
+                    pure (Right (dedupeStable orphanSymbols, dedupeStable orphanRestartSymbols, inventoryReconciled))
 
 resolveAdoptionRequirement :: Maybe OpsStore -> Args -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirement mOps args sym = do
@@ -10996,6 +11025,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                     Left err -> recordError sym err
                                                     Right _ -> clearError sym
                             loop = do
+                                -- Revoke the previous snapshot before work that can fail or block.
+                                when (bsTradeEnabled settings) (writeIORef recoveryReadyRef False)
                                 startupPhase <- readIORef startupPhaseRef
                                 let topComboTargetCount =
                                         if startupPhase
@@ -11007,9 +11038,9 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 orphanActionsOrErr <-
                                     if bsTradeEnabled settings
                                         then resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0
-                                        else pure (Right ([], []))
+                                        else pure (Right ([], [], False))
                                 let orphanScanReady = isRight orphanActionsOrErr
-                                    (orphanSymbols, orphanRestartSymbols) = fromRight ([], []) orphanActionsOrErr
+                                    (orphanSymbols, orphanRestartSymbols, inventoryReconciled) = fromRight ([], [], False) orphanActionsOrErr
                                     adoptionStartingSymbols =
                                         [ normalizeSymbol sym
                                         | (sym, BotStarting rt) <- HM.toList tenantMap0
@@ -11024,7 +11055,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             ("Live bot auto-start blocked: unable to inspect existing Binance positions before starting or rotating bots: " ++ err)
                                     Right _ -> writeIORef orphanScanWarnRef Nothing
                                 when (bsTradeEnabled settings) $
-                                    writeIORef recoveryReadyRef (orphanScanReady && null orphanSymbols && null adoptionStartingSymbols)
+                                    writeIORef recoveryReadyRef (orphanScanReady && inventoryReconciled && null adoptionStartingSymbols)
                                 let adoptionPrioritySymbols = dedupeStable (orphanSymbols ++ adoptionStartingSymbols)
                                     adoptionPriority = not (null adoptionPrioritySymbols)
                                 if adoptionPriority
@@ -11199,17 +11230,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         ++ show (sbConsecutiveFails sb)
                                                     )
                                 mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) allowedMissing
-                                when (bsTradeEnabled settings) $ do
-                                    mrtAfterStarts <- readMVar (bcRuntime botCtrl)
-                                    let tenantMapAfterStarts = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterStarts)
-                                    registered <-
-                                        forM orphanSymbols $ \sym ->
-                                            case HM.lookup sym tenantMapAfterStarts of
-                                                Nothing -> pure False
-                                                Just runtimeState -> do
-                                                    info <- runtimeAdoptionInfo runtimeState
-                                                    pure (raiTradeEnabled info && raiRunning info)
-                                    writeIORef recoveryReadyRef (orphanScanReady && null adoptionStartingSymbols && and registered)
+                                -- Start acknowledgment is not reconciliation. Only the next complete
+                                -- inventory scan may report newly adopted positions as ready.
                                 when (startupPhase && orphanScanReady && not adoptionPriority) $ do
                                     writeIORef startupPhaseRef False
                                     putStrLn "Live bot auto-start startup phase complete; enabling steady-state top-combo targets."
