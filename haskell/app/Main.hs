@@ -535,7 +535,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToList,
  )
-import Trader.QuantityRounding (quantizeUpExact, validOrderPrice, validateQuantityInput)
+import Trader.QuantityRounding (quantizeUpExact, validOrderPrice, validateMinimumNotional, validateQuantityInput, validateSizingInputs)
 import Trader.Revenue (RevenueLedger, buildRevenueLedger)
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig, sanitizeRoiScoreConfig)
 import Trader.S3 (
@@ -26060,7 +26060,9 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
     quantizeUp :: Step -> Double -> Double
     quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)
 
-    validateProbeQuote mSf qq =
+    validateProbeQuote mSf qq = do
+        validateQuantityInput Nothing qq
+        validateMinimumNotional (mSf >>= sfMinNotional)
         if qq <= 0
             then Left "Quote is 0."
             else case mSf >>= sfMinNotional of
@@ -26069,12 +26071,13 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
 
     normalizeProbeQty mSf mPrice qtyRaw = do
         validateQuantityInput (fmap (\st -> (stepScale st, stepInt st)) (mSf >>= effectiveStep)) qtyRaw
+        validateSizingInputs (mSf >>= effectiveMinQty) (mSf >>= effectiveMaxQty) (mSf >>= sfMinNotional) mPrice
         case mSf of
             Nothing ->
                 if qtyRaw > 0
                     then Right qtyRaw
                     else Left "Quantity is 0."
-            Just sf ->
+            Just sf -> do
                 let qty0 = max 0 qtyRaw
                     qty1 = maybe qty0 (`quantizeDown` qty0) (effectiveStep sf)
                     qty2 =
@@ -26084,17 +26087,18 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                     let minQ = mn / price
                                      in maybe minQ (`quantizeUp` minQ) (effectiveStep sf)
                             _ -> qty1
-                 in if qty2 <= 0
-                        then Left "Quantity rounds to 0."
-                        else case effectiveMinQty sf of
-                            Just minQ | qty2 < minQ -> Left ("Quantity below minQty (" ++ show minQ ++ ").")
-                            _ ->
-                                case effectiveMaxQty sf of
-                                    Just maxQ | qty2 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
-                                    _ ->
-                                        case (mPrice, sfMinNotional sf) of
-                                            (Just price, Just mn) | price > 0 && qty2 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
-                                            _ -> Right qty2
+                validateQuantityInput Nothing qty2
+                if qty2 <= 0
+                    then Left "Quantity rounds to 0."
+                    else case effectiveMinQty sf of
+                        Just minQ | qty2 < minQ -> Left ("Quantity below minQty (" ++ show minQ ++ ").")
+                        _ ->
+                            case effectiveMaxQty sf of
+                                Just maxQ | qty2 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
+                                _ ->
+                                    case (mPrice, sfMinNotional sf) of
+                                        (Just price, Just mn) | price > 0 && qty2 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
+                                        _ -> Right qty2
 
 computeCoinbaseKeysStatusFromArgs :: Args -> IO ApiCoinbaseKeysStatus
 computeCoinbaseKeysStatusFromArgs args = do
@@ -28667,6 +28671,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
     normalizeQty :: SymbolFilters -> Double -> Double -> Either String Double
     normalizeQty sf price qtyRaw = do
         validateQuantityInput (fmap (\st -> (stepScale st, stepInt st)) (effectiveStep sf)) qtyRaw
+        validateSizingInputs (effectiveMinQty sf) (effectiveMaxQty sf) (sfMinNotional sf) (Just price)
         let qty0 = max 0 qtyRaw
             qty1 = maybe qty0 (`quantizeDown` qty0) (effectiveStep sf)
          in if qty1 <= 0

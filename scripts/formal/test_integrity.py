@@ -3197,5 +3197,34 @@ class OrderNumberTests(unittest.TestCase):
         self.assertEqual(result['conformance']['currentPrefixCases'],28640)
 
 
+
+class SizingInputTests(unittest.TestCase):
+    def test_source_and_caller_mutations(self):
+        import sizing_inputs as s
+        core=(s.ROOT/s.CORE).read_text(); main=(s.ROOT/s.MAIN).read_text()
+        s.extract()
+        for before,after in [('x < 0 = Left','x <= 0 = Left'),('x >= 0','x > 0'),('lo > hi','lo < hi'),('p <= 0','p < 0'),
+                             ('Invalid sizing price.','Quantity below minQty invalid price')]:
+            changed=core.replace(before,after,1)
+            self.assertNotEqual(core,changed)
+            with self.assertRaises(ValueError): s.extract(core=changed)
+        for line in main.splitlines(keepends=True):
+            if any(x in line for x in ['validateSizingInputs (effectiveMinQty sf)', 'validateSizingInputs (mSf >>= effectiveMinQty)',
+                                       'validateMinimumNotional (mSf >>= sfMinNotional)', 'validateQuantityInput Nothing qty2']):
+                with self.assertRaises(ValueError): s.extract(main=main.replace(line,'',1))
+        import json
+        registry=json.loads((s.ROOT/s.REGISTRY).read_text());registry['functions'].pop()
+        with self.assertRaises(ValueError): s.extract(registry=registry)
+
+    def test_smt_model_and_actual_functions(self):
+        import sizing_inputs as s
+        result=s.check_sizing()
+        self.assertEqual(len(result['smt']),3)
+        self.assertEqual(result['model']['states'],56)
+        self.assertEqual(result['model']['transitions'],32)
+        self.assertEqual(result['conformance']['rows'],6214)
+        self.assertEqual(result['conformance']['currentFunctionCases'],24856)
+
+
 if __name__ == '__main__':
     unittest.main()

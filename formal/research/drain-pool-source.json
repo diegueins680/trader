@@ -5,7 +5,7 @@
     "haskell/app/Trader/App/GracefulShutdown.hs": "fbd3cbd0e9a310dc4f31cf421479008689d08cc2914ef3d2a9e4c8214e91b092",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
     "haskell/app/Trader/App/BacktestGate.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
-    "haskell/app/Main.hs": "09cae4fc0cd50567caff7f52cd18220f1bfb8dbe7911b4c6ecfe36371bacea9c",
+    "haskell/app/Main.hs": "2c2eddf5d9c0bc505fd7b0d1cdd6e792a1facbb8f10a58220d5c00e3d427d151",
     "haskell/trader.cabal": "19d3e18cefef2224cfabf54ee126e51571371d3f7fca40736cd5e03fe26d4a05",
     "haskell/test/TestMain.hs": "18f7c17352e64ed3986d14f6b11919512011e56868670153115e29892f431310",
     "haskell/test/Trader/Test/DrainPool.hs": "80c310115e97a338062f02bb0176e85c100b79a33d886653f78bddd7a4186430",

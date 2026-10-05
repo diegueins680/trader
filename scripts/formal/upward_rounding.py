@@ -32,7 +32,7 @@ def extract(core=None, main=None):
     registry = json.loads((ROOT/REGISTRY).read_text())
     require(hashlib.sha256(core.encode()).hexdigest() == registry['coreSha256'], 'core drift')
     require(main.count(DELEGATE) == 2 and main.count('    quantizeUp ::') == 2, 'delegate coverage')
-    require('import Trader.QuantityRounding (quantizeUpExact, validOrderPrice, validateQuantityInput)' in main, 'core import')
+    require('import Trader.QuantityRounding (quantizeUpExact, validOrderPrice, validateMinimumNotional, validateQuantityInput, validateSizingInputs)' in main, 'core import')
     require([(a,b) for a,b,_ in registry['mainFragments']] == [
         ('    quantizeUp ::', '    normalizeProbeQty mSf mPrice qtyRaw ='),
         ('    stepValue ::', '    isTooSmallQtyError ::'),

@@ -6,11 +6,11 @@ import Control.Monad (forM_, unless)
 import Data.Word (Word64)
 import GHC.Float (castWord64ToDouble)
 import Trader.Binance (Step (..), quantizeDown)
-import Trader.QuantityRounding (quantizeDownExact, quantizeUpExact, validOrderPrice, validateQuantityInput)
+import Trader.QuantityRounding (quantizeDownExact, quantizeUpExact, validOrderPrice, validateMinimumNotional, validateQuantityInput, validateSizingInputs)
 
 quantityRoundingSuite :: [(String, IO ())]
 quantityRoundingSuite =
-    [("downward rounding bounds and Binance delegation", testRounding)]
+    [("downward rounding bounds and Binance delegation", testRounding), ("sizing metadata and price admission", testSizing)]
 
 testRounding :: IO ()
 testRounding = do
@@ -30,7 +30,7 @@ testRounding = do
             let y = quantizeDown (Step scale increment "fixture") x
                 invalid = isNaN x || isInfinite x || x <= 0 || scale <= 0 || increment <= 0
             let checked = validateQuantityInput (Just (scale, increment)) x
-                invalidMetadata = isNaN x || isInfinite x || scale <= 0 || increment <= 0
+                invalidMetadata = isNaN x || isInfinite x || x < 0 || scale <= 0 || increment <= 0
             check "preflight classification" (either (const True) (const False) checked == invalidMetadata)
             check "preflight blocks minimum fallback" (not invalidMetadata || either (const True) (const False) (checked >> Right (1 :: Double)))
             let up = quantizeUpExact scale increment x
@@ -42,3 +42,24 @@ testRounding = do
             check "invalid fallback / non-increase" (if invalid then y == 0 else y <= x)
   where
     check label ok = unless ok (ioError (userError label))
+
+testSizing :: IO ()
+testSizing = do
+    check "CE-SIZING-006 negative input" (validateQuantityInput Nothing (-1) == Left "Invalid quantity input.")
+    check "zero input compatibility" (ok (validateQuantityInput Nothing 0) && ok (validateQuantityInput Nothing (-0)))
+    check "missing required price" (not (ok (validateSizingInputs Nothing Nothing (Just 1) Nothing)))
+    check "zero notional needs no price" (ok (validateSizingInputs Nothing Nothing (Just 0) Nothing))
+    check "inverted bounds" (not (ok (validateSizingInputs (Just 2) (Just 1) Nothing (Just 1))))
+    check "NaN maximum" (not (ok (validateSizingInputs Nothing (Just (0 / 0)) Nothing (Just 1))))
+    check "NaN price" (not (ok (validateSizingInputs Nothing Nothing (Just 1) (Just (0 / 0)))))
+    let words64 = take 1000 (iterate (\w -> w * 6364136223846793005 + 1442695040888963407) (20261005 :: Word64))
+    forM_ (map castWord64ToDouble words64) $ \x -> do
+        let finite = not (isNaN x || isInfinite x)
+            metadata = ok (validateMinimumNotional (Just x))
+            price = ok (validateSizingInputs Nothing Nothing Nothing (Just x))
+        check "admitted metadata is finite nonnegative" (not metadata || finite && x >= 0)
+        check "admitted price is finite positive" (not price || finite && x > 0)
+        check "invalid metadata cannot become a bound" (metadata || not (ok (validateSizingInputs (Just x) Nothing Nothing (Just 1))))
+  where
+    ok = either (const False) (const True)
+    check label passed = unless passed (ioError (userError label))

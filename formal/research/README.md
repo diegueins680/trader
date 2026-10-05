@@ -487,3 +487,5 @@ Order-number verification: `order_numbers.py` checks the shared base-only valida
 The [wire extension](order-wire-contract.md) updates the same verifier to seven SMT queries, an 80-state local model, 5728 conformance rows and unchanged wire-byte checks. It relies explicitly on pinned base parsing/formatting. No financial trial or broader closure.
 
 The wire-aware maker-price preflight also rejects zero-wire prices before constructor exceptions can enter configured market fallback (CE-ORDER-WIRE-002). Other maker fallback reasons and the fallback flag are unchanged; this is a source-bound local guard with compiled conformance, not a whole-caller proof.
+
+Sizing admission: `sizing_inputs.py` verifies the [registered contract](sizing-input-contract.md) with 14 SMT queries, a 56-state retry model and actual pure Main fragments on 6214 rows. Both formal/full wrappers include it; no exchange module or authenticated effect is linked. Existing downward/upward source bindings are refreshed for the reviewed guards without changing their rounding algorithms.

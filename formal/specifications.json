@@ -79,7 +79,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "haskell/app/Trader/QuantityRounding.hs",
         "haskell/app/Trader/Binance.hs",
-        "haskell/app/Trader/OrderNumeric.hs"
+        "haskell/app/Trader/OrderNumeric.hs",
+        "haskell/app/Main.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -543,6 +544,26 @@
         {
           "id": "F-ORDER-WIRE-POSITIVE",
           "statement": "Under the pinned deterministic formatter and Fixed E12 parser assumptions, source-bound selected-value admission requires a successful parse and strictly positive unbounded Integer wire units; failed parsing or nonpositive wire units rejects before credentials."
+        },
+        {
+          "id": "F-SIZING-INPUT",
+          "statement": "The source-bound binary64 admission model requires finite nonnegative present effective quantity/notional bounds, ordered present quantity bounds, finite positive supplied prices, and a supplied price for positive minimum notional."
+        },
+        {
+          "id": "F-SIZING-PUBLISH",
+          "statement": "Conditional on upstream quantity finiteness and rounding certificates, the source-bound publication comparison model permits only finite positive quantities within present effective quantity bounds; quote minimum expansion remains finite positive and satisfies present minimum notional."
+        },
+        {
+          "id": "F-SIZING-RETRY",
+          "statement": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate."
+        },
+        {
+          "id": "F-SIZING-FLOW",
+          "statement": "In the local minimum-retry model, invalid quantity/metadata admission is terminal and cannot reach normalization, minimum expansion or publication; only the existing too-small outcome permits retry."
+        },
+        {
+          "id": "F-SIZING-CONFORMANCE",
+          "statement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker."
         }
       ],
       "invariants": [
@@ -730,6 +751,16 @@
           "level": "property",
           "path": "haskell/test/Trader/Test/OrderNumeric.hs",
           "contains": "orderNumericSuite"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_smt_model_and_actual_functions"
+        },
+        {
+          "level": "property",
+          "path": "haskell/test/Trader/Test/QuantityRounding.hs",
+          "contains": "testSizing"
         }
       ]
     },

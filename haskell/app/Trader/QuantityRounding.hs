@@ -1,4 +1,4 @@
-module Trader.QuantityRounding (quantizeDownExact, quantizeUpExact, validOrderPrice, validateQuantityInput) where
+module Trader.QuantityRounding (quantizeDownExact, quantizeUpExact, validOrderPrice, validateQuantityInput, validateMinimumNotional, validateSizingInputs) where
 
 import Data.Ratio (denominator, numerator, (%))
 import Trader.OrderNumeric (validateOrderNumber)
@@ -21,7 +21,7 @@ quantizeDownExact scale increment x
 -- | Errors deliberately do not match the minimum-size retry classifier.
 validateQuantityInput :: Maybe (Integer, Integer) -> Double -> Either String ()
 validateQuantityInput grid x
-    | isNaN x || isInfinite x = Left "Invalid quantity input."
+    | isNaN x || isInfinite x || x < 0 = Left "Invalid quantity input."
     | Just (scale, increment) <- grid, scale <= 0 || increment <= 0 = Left "Invalid quantity step."
     | otherwise = Right ()
 
@@ -41,3 +41,28 @@ quantizeUpExact scale increment x
 -- | Invalid maker prices reject before any order or market fallback.
 validOrderPrice :: Double -> Bool
 validOrderPrice price = either (const False) (const True) (validateOrderNumber "Invalid maker price." price)
+
+-- | Validate present notional metadata; absence and zero preserve legacy meaning.
+validateMinimumNotional :: Maybe Double -> Either String ()
+validateMinimumNotional minimumNotional
+    | maybe False (not . finiteNonnegative) minimumNotional = Left "Invalid minimum notional."
+    | otherwise = Right ()
+
+-- | Validate effective sizing metadata before comparisons or minimum retries.
+validateSizingInputs :: Maybe Double -> Maybe Double -> Maybe Double -> Maybe Double -> Either String ()
+validateSizingInputs minimumQty maximumQty minimumNotional price = do
+    validateMinimumNotional minimumNotional
+    if not (all (maybe True finiteNonnegative) [minimumQty, maximumQty])
+        then Left "Invalid quantity filter."
+        else case (minimumQty, maximumQty) of
+            (Just lo, Just hi) | lo > hi -> Left "Invalid quantity bounds."
+            _ -> case price of
+                Just p
+                    | isNaN p || isInfinite p || p <= 0 -> Left "Invalid sizing price."
+                    | otherwise -> Right ()
+                Nothing
+                    | maybe False (> 0) minimumNotional -> Left "Missing sizing price for minimum notional."
+                    | otherwise -> Right ()
+
+finiteNonnegative :: Double -> Bool
+finiteNonnegative x = not (isNaN x || isInfinite x) && x >= 0

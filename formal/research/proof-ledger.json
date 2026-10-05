@@ -253,6 +253,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SIZING-INPUT",
+      "status": "assumption",
+      "statement": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -364,7 +370,12 @@
     "research-notes/registrations/order-number-engineering.json",
     "formal/research/order-wire-contract.md",
     "formal/research/order-wire-counterexamples.json",
-    "research-notes/registrations/order-wire-engineering.json"
+    "research-notes/registrations/order-wire-engineering.json",
+    "scripts/formal/sizing_inputs.py",
+    "formal/research/sizing-input-contract.md",
+    "formal/research/sizing-input-source.json",
+    "formal/research/sizing-input-counterexamples.json",
+    "research-notes/registrations/sizing-input-engineering.json"
   ],
   "entries": [
     {
@@ -4270,6 +4281,171 @@
       "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
       "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001; CE-ORDER-WIRE-002",
       "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-SIZING-INPUT",
+      "claim": "The source-bound binary64 admission model requires finite nonnegative present effective quantity/notional bounds, ordered present quantity bounds, finite positive supplied prices, and a supplied price for positive minimum notional.",
+      "formalStatement": "The source-bound binary64 admission model requires finite nonnegative present effective quantity/notional bounds, ordered present quantity bounds, finite positive supplied prices, and a supplied price for positive minimum notional.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SIZING-INPUT",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/sizing_inputs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/sizing-input-contract.md",
+        "formal/research/sizing-input-source.json",
+        "formal/research/sizing-input-counterexamples.json",
+        "research-notes/registrations/sizing-input-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-SIZING-PUBLISH",
+      "claim": "Conditional on upstream quantity finiteness and rounding certificates, the source-bound publication comparison model permits only finite positive quantities within present effective quantity bounds; quote minimum expansion remains finite positive and satisfies present minimum notional.",
+      "formalStatement": "Conditional on upstream quantity finiteness and rounding certificates, the source-bound publication comparison model permits only finite positive quantities within present effective quantity bounds; quote minimum expansion remains finite positive and satisfies present minimum notional.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SIZING-INPUT",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/sizing_inputs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/sizing-input-contract.md",
+        "formal/research/sizing-input-source.json",
+        "formal/research/sizing-input-counterexamples.json",
+        "research-notes/registrations/sizing-input-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-SIZING-RETRY",
+      "claim": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate.",
+      "formalStatement": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SIZING-INPUT",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/sizing_inputs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/sizing-input-contract.md",
+        "formal/research/sizing-input-source.json",
+        "formal/research/sizing-input-counterexamples.json",
+        "research-notes/registrations/sizing-input-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-SIZING-FLOW",
+      "claim": "In the local minimum-retry model, invalid quantity/metadata admission is terminal and cannot reach normalization, minimum expansion or publication; only the existing too-small outcome permits retry.",
+      "formalStatement": "In the local minimum-retry model, invalid quantity/metadata admission is terminal and cannot reach normalization, minimum expansion or publication; only the existing too-small outcome permits retry.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SIZING-INPUT",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/sizing_inputs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/sizing-input-contract.md",
+        "formal/research/sizing-input-source.json",
+        "formal/research/sizing-input-counterexamples.json",
+        "research-notes/registrations/sizing-input-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-SIZING-CONFORMANCE",
+      "claim": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker.",
+      "formalStatement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SIZING-INPUT",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/sizing_inputs.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs",
+        "formal/research/sizing-input-contract.md",
+        "formal/research/sizing-input-source.json",
+        "formal/research/sizing-input-counterexamples.json",
+        "research-notes/registrations/sizing-input-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/QuantityRounding.hs",
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -4452,9 +4628,14 @@
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-ARTIFACT-V4-CONFORMANCE"
+        "F-RL-ARTIFACT-V4-CONFORMANCE",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-SIZING-CONFORMANCE"
       ],
-      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
       "nextAction": "Extend the composed PPO successor through checked artifact/process inference and full numeric replay/accounting; separately repair Q/CQL/OPE paths without changing frozen v1.",
@@ -4483,9 +4664,14 @@
         "F-RL-GAP-CONFORMANCE",
         "F-RL-INFER-ADMISSION",
         "F-RL-INFER-SELECTION",
-        "F-RL-INFER-PATH"
+        "F-RL-INFER-PATH",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-SIZING-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Shielded targets and post-cost positions respect registered hard bounds under explicit gap/solvency assumptions.",
       "nextAction": "Separate proposal bounds from realized exposure; specify rejection/liquidation under loss and quantify admissible gap assumptions.",
@@ -4542,9 +4728,14 @@
         "F-ROUND-UP-FINITE",
         "F-ROUND-UP-FLOW",
         "F-ROUND-UP-CONFORMANCE",
-        "F-ORDER-WIRE-POSITIVE"
+        "F-ORDER-WIRE-POSITIVE",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-SIZING-CONFORMANCE"
       ],
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
       "nextAction": "Carry exact tick/lot metadata through final wire serialization, then prove order-cap and minimum-size composition without changing live limits.",
@@ -4594,9 +4785,14 @@
         "F-RL-PPO-V2-BOUNDS",
         "F-RL-PPO-V2-FINITE",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-PPO-V2-CONFORMANCE"
+        "F-RL-PPO-V2-CONFORMANCE",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-SIZING-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Extend the composed PPO successor admission/publication to bounded replay/accounting, Q/CQL and OPE arithmetic; distinguish detected failure from numerical accuracy and silent BLAS underflow.",
@@ -4932,9 +5128,14 @@
         "F-ORDER-NUMBER-SELECTION",
         "F-ORDER-NUMBER-FLOW",
         "F-ORDER-NUMBER-CONFORMANCE",
-        "F-ORDER-WIRE-POSITIVE"
+        "F-ORDER-WIRE-POSITIVE",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-SIZING-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. The Binance numeric boundary now rejects invalid selected numbers before credentials, under A-ORDER-NUMBER; full policy-to-order/caller retry composition remains unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. The Binance numeric boundary now rejects invalid selected numbers before credentials, under A-ORDER-NUMBER; full policy-to-order/caller retry composition remains unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
       "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
