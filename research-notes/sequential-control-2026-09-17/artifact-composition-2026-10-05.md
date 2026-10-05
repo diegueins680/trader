@@ -88,3 +88,28 @@ The new targeted conformance and solver/model mutation tests pass locally. Canon
 formal/full results and final-head CI are recorded below after execution. No live
 flags, authenticated trading endpoints, orders, exploration, deployment, model
 promotion, fleet/risk settings or financial experiments are changed.
+
+Pinned reproduction [run37376815890/job111987880859](https://github.com/diegueins680/trader/actions/runs/37376815890/job/111987880859)
+on exact head0d9ee36a86f736adf765fbaafc2d84a2890868e7 passed:
+
+- Receipt generation21:39:00–21:40:05UTC;72 named SMT groups.
+- `bash scripts/verify.sh formal`,21:40:05–21:41:59UTC;216 tests in49.345s.
+- `bash scripts/verify.sh full`,21:41:59–21:49:40UTC;216 formal tests in52.029s,
+  Haskell trader-tests,241 web tests and185 automation tests passed.
+- Receipt SHA256`b8dc0f322a1cf16cca2e32d2ba641d1e41a382e63c7b439c42dff92fdf2016eb`.
+  Imported byte-for-byte from the completed job log. Only artifactComposition,
+  obligationClosure,promotionBoundary,smt,sourceHashes differ from the old receipt.
+  All existing SMT results remain unchanged; every locked source hash matches disk.
+
+Local `TRADER_FORMAL_PYTHON=/Users/diegosaa/.cache/trader-proof-20261003/bin/python
+PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:$PATH bash scripts/verify.sh formal`
+initially failed a stale closure-list assertion and the PPO successor's stale helper
+hash. Both were corrected after confirming every other learning-module statement
+unchanged from09d3bdda. The local retry ran216 tests in315.645s and failed the
+existing process fixture with `ValueError: PPO process bridge: no actual inference
+for trained policy`. That path permits deadline-driven absence; the precise local
+cause was not established. This is not a local pass. The pinned runner independently
+passed the unchanged assertion/deadline in both wrappers. No check was skipped,
+weakened or replaced. Ordinary pre-receipt CI ran216 tests successfully, then rejected
+the stale committed receipt as intended; final CI must verify the imported receipt.
+The temporary reproduction workflow is removed before final-head CI and merge.
