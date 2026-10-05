@@ -1,5 +1,14 @@
 # Trader Firm — Risk Register
 
+PPO artifact v4 adds a bounded pure byte codec and integrity/provenance comparison
+under A-ARTIFACT-V4. Caller trust anchors, hash/JSON primitives and source-to-model
+correspondence are explicit assumptions. Exact byte round trips do not establish
+training truth, freshness, causal normalization application or Haskell-side
+artifact admission. No path selection, activation or order capability is added.
+RL-OFFLINE-001 remains HIGH/OPEN; five scoped closures, 26 partial and seven open
+remain. See [the contract](../formal/research/ppo-artifact-v4-contract.md).
+
+
 PPO snapshot bridge v3: trained-policy requests now pass through checked integer
 bit decoding and the existing supervised Haskell inference guard. A-BRIDGE-V3
 names the parser, bit-cast, Show/Read, runtime and process assumptions. The first

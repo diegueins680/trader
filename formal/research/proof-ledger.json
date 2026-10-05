@@ -223,6 +223,12 @@
       "status": "assumption",
       "statement": "Pinned CPython3.13.3/NumPy2.3.5, GHC9.4.8/base4.17.2.1, IEEE754 binary64 layout, checked Integer-to-Word64 conversion, GHC bit casts, ordinary stable base input buffers and bindings are trusted. Haskell finite-Double Show/Read round trip, compiler/library semantics and the process primitive contracts remain assumptions; no hostile reflection, substituted packages or external child reaper. Supplied observation causality and metadata authenticity are not established. Cross-language BLAS/tanh near-tie parity is unproved.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ARTIFACT-V4",
+      "status": "assumption",
+      "statement": "Pinned Python/NumPy/GHC primitives, stable ordinary inputs, immutable bytes and trusted externally supplied expected metadata; hashlib/JSON/hex/dataclass semantics and reviewed source-to-model abstraction are trusted. No authenticity, freshness, whole-runtime refinement, filesystem transaction, Haskell hash admission or production activation theorem.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -308,7 +314,11 @@
     "haskell/research/SnapshotRequestV3.hs",
     "formal/research/ppo-process-bridge-v3-contract.md",
     "formal/research/ppo-process-bridge-source.json",
-    "scripts/formal/ppo_process_bridge.py"
+    "scripts/formal/ppo_process_bridge.py",
+    "scripts/formal/artifact_v4.py",
+    "scripts/research/ppo_artifact_v4.py",
+    "formal/research/ppo-artifact-v4-contract.md",
+    "formal/research/ppo-artifact-v4-source.json"
   ],
   "entries": [
     {
@@ -3650,6 +3660,122 @@
       "limitations": "Conditional restricted source/primitive abstraction, not a parser/compiler/runtime or whole-program refinement proof. Show/Read and cross-language neural arithmetic are tested, not proved; near ties can differ and Haskell rejects ties. Supplied observations have no availability witness. Metadata is not authenticated training provenance; no persistence, OPE, economic evidence, deployment or broad obligation closure. A 20 ms deadline remains fail-closed; OS timing and scheduling are not hard real-time guarantees.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-V4-GUARD",
+      "claim": "Accepted source-bound digest and metadata comparisons exclude mismatches, admitted raw byte size is 1..65536, and completed supported PPO budgets map to snapshot steps 4..64 divisible by four.",
+      "formalStatement": "Accepted source-bound digest and metadata comparisons exclude mismatches, admitted raw byte size is 1..65536, and completed supported PPO budgets map to snapshot steps 4..64 divisible by four.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-V4",
+        "A-BRIDGE-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Restricted source inspection, finite gate enumeration, Z3 and compiled Haskell bit conformance",
+      "toolVersion": "CPython 3.13.3; NumPy 2.3.5; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_v4.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ppo_artifact_v4.py",
+        "formal/research/ppo-artifact-v4-contract.md",
+        "formal/research/ppo-artifact-v4-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced by check_artifact_v4 and PPOArtifactV4Tests; no financial acceptance.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; one request, ten atomic gates, no retries; 65536-byte maximum; nine fits (seeds11/23/47, horizons1/3/6, steps17), 128 generated bit cases and deterministic malformed artifacts.",
+      "limitations": "Pinned Python/NumPy/GHC primitives, stable ordinary inputs, immutable bytes and trusted externally supplied expected metadata; hashlib/JSON/hex/dataclass semantics and reviewed source-to-model abstraction are trusted. No authenticity, freshness, whole-runtime refinement, filesystem transaction, Haskell hash admission or production activation theorem.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-V4-FLOW",
+      "claim": "In the one-shot artifact-to-request gate model, publication requires every enabled, integrity, metadata, restoration, canonical and v3 bridge gate; failure is terminal and no authorization transition exists.",
+      "formalStatement": "In the one-shot artifact-to-request gate model, publication requires every enabled, integrity, metadata, restoration, canonical and v3 bridge gate; failure is terminal and no authorization transition exists.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-V4",
+        "A-BRIDGE-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Restricted source inspection, finite gate enumeration, Z3 and compiled Haskell bit conformance",
+      "toolVersion": "CPython 3.13.3; NumPy 2.3.5; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_v4.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ppo_artifact_v4.py",
+        "formal/research/ppo-artifact-v4-contract.md",
+        "formal/research/ppo-artifact-v4-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced by check_artifact_v4 and PPOArtifactV4Tests; no financial acceptance.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; one request, ten atomic gates, no retries; 65536-byte maximum; nine fits (seeds11/23/47, horizons1/3/6, steps17), 128 generated bit cases and deterministic malformed artifacts.",
+      "limitations": "Pinned Python/NumPy/GHC primitives, stable ordinary inputs, immutable bytes and trusted externally supplied expected metadata; hashlib/JSON/hex/dataclass semantics and reviewed source-to-model abstraction are trusted. No authenticity, freshness, whole-runtime refinement, filesystem transaction, Haskell hash admission or production activation theorem.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-V4-BOUNDARY",
+      "claim": "The complete reviewed PPO artifact byte codec and helper inventory exposes only three default-disabled pure entries with no file, network, training, promotion or order effects.",
+      "formalStatement": "The complete reviewed PPO artifact byte codec and helper inventory exposes only three default-disabled pure entries with no file, network, training, promotion or order effects.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-V4",
+        "A-BRIDGE-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Restricted source inspection, finite gate enumeration, Z3 and compiled Haskell bit conformance",
+      "toolVersion": "CPython 3.13.3; NumPy 2.3.5; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_v4.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ppo_artifact_v4.py",
+        "formal/research/ppo-artifact-v4-contract.md",
+        "formal/research/ppo-artifact-v4-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced by check_artifact_v4 and PPOArtifactV4Tests; no financial acceptance.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; one request, ten atomic gates, no retries; 65536-byte maximum; nine fits (seeds11/23/47, horizons1/3/6, steps17), 128 generated bit cases and deterministic malformed artifacts.",
+      "limitations": "Pinned Python/NumPy/GHC primitives, stable ordinary inputs, immutable bytes and trusted externally supplied expected metadata; hashlib/JSON/hex/dataclass semantics and reviewed source-to-model abstraction are trusted. No authenticity, freshness, whole-runtime refinement, filesystem transaction, Haskell hash admission or production activation theorem.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-ARTIFACT-V4-CONFORMANCE",
+      "claim": "Nine synthetic PPO configurations preserve immutable training state, canonical artifact bytes and compiled Haskell request bit patterns; generated finite bit patterns round-trip and registered malformed artifacts reject.",
+      "formalStatement": "Nine synthetic PPO configurations preserve immutable training state, canonical artifact bytes and compiled Haskell request bit patterns; generated finite bit patterns round-trip and registered malformed artifacts reject.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ARTIFACT-V4",
+        "A-BRIDGE-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Restricted source inspection, finite gate enumeration, Z3 and compiled Haskell bit conformance",
+      "toolVersion": "CPython 3.13.3; NumPy 2.3.5; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/artifact_v4.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ppo_artifact_v4.py",
+        "formal/research/ppo-artifact-v4-contract.md",
+        "formal/research/ppo-artifact-v4-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Reproduced by check_artifact_v4 and PPOArtifactV4Tests; no financial acceptance.",
+      "bounds": "Four SAT-premise/UNSAT-violation pairs; one request, ten atomic gates, no retries; 65536-byte maximum; nine fits (seeds11/23/47, horizons1/3/6, steps17), 128 generated bit cases and deterministic malformed artifacts.",
+      "limitations": "Pinned Python/NumPy/GHC primitives, stable ordinary inputs, immutable bytes and trusted externally supplied expected metadata; hashlib/JSON/hex/dataclass semantics and reviewed source-to-model abstraction are trusted. No authenticity, freshness, whole-runtime refinement, filesystem transaction, Haskell hash admission or production activation theorem.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -3711,7 +3837,8 @@
         "F-RL-DATA-COMPOSITION",
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -3724,7 +3851,8 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -3732,7 +3860,8 @@
         "F-RL-FIT-PREFIX",
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ]
     },
     {
@@ -3762,7 +3891,8 @@
         "F-RL-DATA-COMPOSITION",
         "F-RL-DATA-KEYS",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -3775,7 +3905,8 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -3783,7 +3914,8 @@
         "F-RL-DATA-KEYS",
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ]
     },
     {
@@ -3822,9 +3954,13 @@
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-BRIDGE-V3-CONFORMANCE",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-V4-CONFORMANCE"
       ],
-      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
       "nextAction": "Extend the composed PPO successor through checked artifact/process inference and full numeric replay/accounting; separately repair Q/CQL/OPE paths without changing frozen v1.",
@@ -3832,7 +3968,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [
         "Unresolved CE-RL-010/011/012/014/019; safe v2 kernels are disconnected from the frozen learner."
@@ -3983,7 +4120,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -4001,7 +4139,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -4013,7 +4152,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ]
     },
     {
@@ -4279,9 +4419,13 @@
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-BRIDGE-V3-CONFORMANCE",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-V4-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
       "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",
@@ -4289,7 +4433,8 @@
         "scripts/research/sequential_learning.py",
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/research/InferenceProcessV2.hs",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [
         "Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner.",
@@ -4323,9 +4468,13 @@
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-BRIDGE-V3-CONFORMANCE",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-V4-CONFORMANCE"
       ],
-      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Pinned data, configuration, seed and artifact yield the same replay transitions and economic report.",
       "nextAction": "Specify deterministic evaluation without wall-clock-dependent selection; compare complete reproducible archives on pinned runtime.",
@@ -4334,7 +4483,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_evaluation.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [
         "Source pins and local traces do not certify the full runner, BLAS and timed inference path."
@@ -4376,7 +4526,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -4392,7 +4543,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -4404,7 +4556,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ]
     },
     {
@@ -4506,14 +4659,19 @@
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-BRIDGE-V3-CONFORMANCE",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-V4-CONFORMANCE"
       ],
-      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
       "nextAction": "Compose decoder, hash, schema, immutable parameter admission and activation with explicit version compatibility.",
       "implementationFiles": [
-        "scripts/research/sequential_learning.py"
+        "scripts/research/sequential_learning.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [
         "Gate abstraction trusts helper/provenance semantics and does not refine every decoder path."
@@ -4530,15 +4688,20 @@
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-BRIDGE-V3-CONFORMANCE",
+        "F-RL-ARTIFACT-V4-GUARD",
+        "F-RL-ARTIFACT-V4-FLOW",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-ARTIFACT-V4-CONFORMANCE"
       ],
-      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Hash/provenance mismatch prevents loading or activation.",
       "nextAction": "Verify hash-before-decode relation and immutable expected provenance inputs across all loaders.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "scripts/research/run_sequential_screen.py"
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [
         "Expected provenance trust and complete hash-to-decoded-object composition remain assumptions."
@@ -4556,7 +4719,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
@@ -4571,7 +4735,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -4581,7 +4746,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ]
     },
     {

@@ -1,5 +1,14 @@
 ## Unreleased
 
+## PPO artifact byte codec (2026-10-05)
+
+- Add a separate default-disabled v4 byte format for completed immutable PPO
+  results, exact finite numeric buffers, expected digest/provenance checks and
+  composition with the existing Haskell request. Preserve frozen v1 semantics.
+- Add source-bound SMT, finite gate-model and trained-policy conformance checks.
+  This is engineering infrastructure, with no artifact activation or new broad
+  closure; expected provenance is not authenticated.
+
 - Research: connect trained PPO snapshots to supervised Haskell inference through
   a versioned, default-disabled exact-bit encoder and checked pure decoder. Keep
   existing v2 flags and worker protocol; add an explicit v3 request mode, source-

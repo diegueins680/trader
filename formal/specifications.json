@@ -75,7 +75,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/formal/ppo_successor.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -475,6 +476,22 @@
         {
           "id": "F-RL-BRIDGE-V3-CONFORMANCE",
           "statement": "Nine actual synthetic PPO training configurations pass exact-bit request encoding, compiled Haskell decoding and supervised inference checks on 27 clear-margin observations; invalid, tied, late and cleanup-failed requests yield absence."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-GUARD",
+          "statement": "Accepted source-bound digest and metadata comparisons exclude mismatches, admitted raw byte size is 1..65536, and completed supported PPO budgets map to snapshot steps 4..64 divisible by four."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-FLOW",
+          "statement": "In the one-shot artifact-to-request gate model, publication requires every enabled, integrity, metadata, restoration, canonical and v3 bridge gate; failure is terminal and no authorization transition exists."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-BOUNDARY",
+          "statement": "The complete reviewed PPO artifact byte codec and helper inventory exposes only three default-disabled pure entries with no file, network, training, promotion or order effects."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-CONFORMANCE",
+          "statement": "Nine synthetic PPO configurations preserve immutable training state, canonical artifact bytes and compiled Haskell request bit patterns; generated finite bit patterns round-trip and registered malformed artifacts reject."
         }
       ],
       "invariants": [

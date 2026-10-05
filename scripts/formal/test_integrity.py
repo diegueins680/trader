@@ -3095,5 +3095,37 @@ class PPOProcessBridgeTests(unittest.TestCase):
         self.assertEqual(result['conformance']['syntheticFits'],9)
         self.assertEqual(result['conformance']['trainedObservationCases'],27)
 
+class PPOArtifactV4Tests(unittest.TestCase):
+    def test_source_and_mandatory_coverage(self):
+        import json
+        import artifact_v4 as proof
+        source = (proof.ROOT / proof.SOURCE).read_text()
+        proof.extract()
+        for before, after in [('enabled is not True', 'enabled is True'),
+                              ('hashlib.sha256(raw).hexdigest() != expected_sha256', 'False'),
+                              ('value["enabled"] is not False', 'False'),
+                              ('return restored', 'return None')]:
+            changed = source.replace(before, after, 1)
+            self.assertNotEqual(source, changed)
+            with self.assertRaises(ValueError): proof.extract(changed)
+        registry = json.loads((proof.ROOT / proof.REGISTRY).read_text())
+        registry['helperHashes'].pop(next(iter(registry['helperHashes'])))
+        with self.assertRaises(ValueError): proof.extract(registry=registry)
+
+    def test_gate_bypass_counterexample(self):
+        import artifact_v4 as proof
+        self.assertEqual(proof.check_model()['states'], 21)
+        with self.assertRaises(ValueError): proof.check_model(mutant=True)
+        self.assertEqual(proof.prove_guards(proof.extract()), {'F-RL-ARTIFACT-V4-GUARD':'unsat'})
+
+    def test_trained_artifact_conformance(self):
+        import artifact_v4 as proof
+        result = proof.conformance()
+        self.assertEqual(result['fits'], 9)
+        self.assertEqual(result['compiledBitRoundtrips'], 9)
+        self.assertEqual(result['generatedBitCases'], 128)
+        self.assertGreaterEqual(result['invalidArtifacts'], 30)
+
+
 if __name__ == '__main__':
     unittest.main()
