@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "d57968a66d8f85d08e6bfb430f1472781dcf2fa5",
+  "version": "closed-trade-recovery-v1",
+  "hypothesis": "Malformed closed-trade numerics cannot enter recovered memory and index reconstruction cannot wrap machine Int.",
+  "contract": "formal/research/closed-trade-recovery-contract.md",
+  "financialTrials": 0,
+  "seed": 20261005,
+  "budget": "2048 binary64 generated rows plus fixed boundaries; 1024 generated histories length <=8 plus Int boundary fixtures; finite histories length 0..4, durations 0..3, bound7.",
+  "acceptance": "SMT numeric/index obligations, finite recovery model, actual-helper compiled conformance, actual Aeson Haskell regressions, formal/full wrappers and final CI.",
+  "limitations": "Local pure recovery admission only; no complete parser/compiler, authenticity, freshness, durable crash-recovery or ownership proof. No broad closure."
+}
