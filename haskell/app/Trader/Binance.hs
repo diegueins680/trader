@@ -113,7 +113,6 @@ import Network.HTTP.Types.Header (hProxyAuthorization)
 import Network.HTTP.Types.Status (statusCode)
 import Network.HTTP.Types.URI (parseQuery, renderSimpleQuery)
 import Network.URI (URI (..), URIAuth (..), parseURI)
-import Numeric (showFFloat)
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
@@ -121,7 +120,7 @@ import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insert
 import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
-import Trader.OrderNumeric (validateMarketNumbers, validateOrderNumber)
+import Trader.OrderNumeric (renderOrderNumber, validateMarketNumbers, validateOrderNumber)
 import Trader.QuantityRounding (quantizeDownExact)
 import Trader.Text (normalizeKey)
 
@@ -2639,18 +2638,7 @@ cancelFuturesAlgoOrderByClientId env clientAlgoId = do
     pure (responseBody resp)
 
 renderDouble :: Double -> BS.ByteString
-renderDouble x =
-    -- Avoid scientific notation; Binance expects decimal strings.
-    BS.pack (trimTrailingZeros (showFFloat (Just 8) x ""))
-
-trimTrailingZeros :: String -> String
-trimTrailingZeros s =
-    case break (== '.') s of
-        (a, "") -> a
-        (a, '.' : b) ->
-            let b' = reverse (dropWhile (== '0') (reverse b))
-             in if null b' then a else a ++ "." ++ b'
-        _ -> s
+renderDouble = BS.pack . renderOrderNumber
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =

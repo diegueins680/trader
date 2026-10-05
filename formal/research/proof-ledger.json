@@ -247,6 +247,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ORDER-WIRE",
+      "status": "assumption",
+      "statement": "Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -355,7 +361,10 @@
     "formal/research/order-number-contract.md",
     "formal/research/order-number-source.json",
     "formal/research/order-number-counterexamples.json",
-    "research-notes/registrations/order-number-engineering.json"
+    "research-notes/registrations/order-number-engineering.json",
+    "formal/research/order-wire-contract.md",
+    "formal/research/order-wire-counterexamples.json",
+    "research-notes/registrations/order-wire-engineering.json"
   ],
   "entries": [
     {
@@ -4052,7 +4061,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ORDER-NUMBER",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -4065,7 +4075,10 @@
         "formal/research/order-number-contract.md",
         "formal/research/order-number-source.json",
         "formal/research/order-number-counterexamples.json",
-        "research-notes/registrations/order-number-engineering.json"
+        "research-notes/registrations/order-number-engineering.json",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json",
+        "research-notes/registrations/order-wire-engineering.json"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
@@ -4073,10 +4086,10 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh full",
-      "result": "Reproduced by check_order_numbers and OrderNumberTests; production pure validator properties run in the Haskell suite.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs over binary64 and presence/market Booleans; five-constructor finite model: 40 states, 20 initial, 20 terminal, 20 transitions, depth one. 5344 rows (1248 boundary, 4096 seeded) produce 26720 current and 26720 legacy prefix checks; 1000 additional generated Haskell words.",
-      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002",
+      "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
       "status": "smt_verified"
     },
     {
@@ -4086,7 +4099,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ORDER-NUMBER",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -4099,7 +4113,10 @@
         "formal/research/order-number-contract.md",
         "formal/research/order-number-source.json",
         "formal/research/order-number-counterexamples.json",
-        "research-notes/registrations/order-number-engineering.json"
+        "research-notes/registrations/order-number-engineering.json",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json",
+        "research-notes/registrations/order-wire-engineering.json"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
@@ -4107,20 +4124,21 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh full",
-      "result": "Reproduced by check_order_numbers and OrderNumberTests; production pure validator properties run in the Haskell suite.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs over binary64 and presence/market Booleans; five-constructor finite model: 40 states, 20 initial, 20 terminal, 20 transitions, depth one. 5344 rows (1248 boundary, 4096 seeded) produce 26720 current and 26720 legacy prefix checks; 1000 additional generated Haskell words.",
-      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002",
+      "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
       "status": "smt_verified"
     },
     {
       "requirementId": "F-ORDER-NUMBER-FLOW",
-      "claim": "In the five-constructor local guard model, the credential boundary is reachable only after numeric and context prefix guards pass; rejected guards are terminal. This is not complete order authorization.",
-      "formalStatement": "In the five-constructor local guard model, the credential boundary is reachable only after numeric and context prefix guards pass; rejected guards are terminal. This is not complete order authorization.",
+      "claim": "In the five-constructor local guard model, the credential boundary is reachable only after numeric, parsed-wire and context prefix guards pass; rejected guards are terminal. This is not complete order authorization.",
+      "formalStatement": "In the five-constructor local guard model, the credential boundary is reachable only after numeric, parsed-wire and context prefix guards pass; rejected guards are terminal. This is not complete order authorization.",
       "criticality": "critical",
       "assumptions": [
         "A-ORDER-NUMBER",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -4133,7 +4151,10 @@
         "formal/research/order-number-contract.md",
         "formal/research/order-number-source.json",
         "formal/research/order-number-counterexamples.json",
-        "research-notes/registrations/order-number-engineering.json"
+        "research-notes/registrations/order-number-engineering.json",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json",
+        "research-notes/registrations/order-wire-engineering.json"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
@@ -4141,20 +4162,21 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh full",
-      "result": "Reproduced by check_order_numbers and OrderNumberTests; production pure validator properties run in the Haskell suite.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs over binary64 and presence/market Booleans; five-constructor finite model: 40 states, 20 initial, 20 terminal, 20 transitions, depth one. 5344 rows (1248 boundary, 4096 seeded) produce 26720 current and 26720 legacy prefix checks; 1000 additional generated Haskell words.",
-      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002",
+      "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
       "status": "model_checked"
     },
     {
       "requirementId": "F-ORDER-NUMBER-CONFORMANCE",
-      "claim": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/selection/context oracle on 1248 boundary combinations and 4096 generated rows; invalid selected numbers stop before the inert credential marker.",
-      "formalStatement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/selection/context oracle on 1248 boundary combinations and 4096 generated rows; invalid selected numbers stop before the inert credential marker.",
+      "claim": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter and zero-wire values stop before the inert credential marker.",
+      "formalStatement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter and zero-wire values stop before the inert credential marker.",
       "criticality": "critical",
       "assumptions": [
         "A-ORDER-NUMBER",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -4167,7 +4189,10 @@
         "formal/research/order-number-contract.md",
         "formal/research/order-number-source.json",
         "formal/research/order-number-counterexamples.json",
-        "research-notes/registrations/order-number-engineering.json"
+        "research-notes/registrations/order-number-engineering.json",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json",
+        "research-notes/registrations/order-wire-engineering.json"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
@@ -4175,11 +4200,49 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh full",
-      "result": "Reproduced by check_order_numbers and OrderNumberTests; production pure validator properties run in the Haskell suite.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs over binary64 and presence/market Booleans; five-constructor finite model: 40 states, 20 initial, 20 terminal, 20 transitions, depth one. 5344 rows (1248 boundary, 4096 seeded) produce 26720 current and 26720 legacy prefix checks; 1000 additional generated Haskell words.",
-      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002",
+      "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-ORDER-WIRE-POSITIVE",
+      "claim": "Under the pinned deterministic formatter and Fixed E12 parser assumptions, source-bound selected-value admission requires a successful parse and strictly positive unbounded Integer wire units; failed parsing or nonpositive wire units rejects before credentials.",
+      "formalStatement": "Under the pinned deterministic formatter and Fixed E12 parser assumptions, source-bound selected-value admission requires a successful parse and strictly positive unbounded Integer wire units; failed parsing or nonpositive wire units rejects before credentials.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ORDER-NUMBER",
+        "A-SOLVER",
+        "A-ORDER-WIRE"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/order_numbers.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/OrderNumeric.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/trader.cabal",
+        "formal/research/order-number-contract.md",
+        "formal/research/order-number-source.json",
+        "formal/research/order-number-counterexamples.json",
+        "research-notes/registrations/order-number-engineering.json",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json",
+        "research-notes/registrations/order-wire-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/OrderNumeric.hs",
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -4451,9 +4514,10 @@
         "F-ROUND-UP-INTEGER",
         "F-ROUND-UP-FINITE",
         "F-ROUND-UP-FLOW",
-        "F-ROUND-UP-CONFORMANCE"
+        "F-ROUND-UP-CONFORMANCE",
+        "F-ORDER-WIRE-POSITIVE"
       ],
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
       "nextAction": "Carry exact tick/lot metadata through final wire serialization, then prove order-cap and minimum-size composition without changing live limits.",
@@ -4840,9 +4904,10 @@
         "F-ORDER-NUMBER-FINITE",
         "F-ORDER-NUMBER-SELECTION",
         "F-ORDER-NUMBER-FLOW",
-        "F-ORDER-NUMBER-CONFORMANCE"
+        "F-ORDER-NUMBER-CONFORMANCE",
+        "F-ORDER-WIRE-POSITIVE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. The Binance numeric boundary now rejects invalid selected numbers before credentials, under A-ORDER-NUMBER; full policy-to-order/caller retry composition remains unresolved.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. The Binance numeric boundary now rejects invalid selected numbers before credentials, under A-ORDER-NUMBER; full policy-to-order/caller retry composition remains unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid, stale, unsupported or timed-out outputs produce absent/rejected actions within the specified completion bound.",
       "nextAction": "Compose the checked process boundary and immutable numeric kernels into a separately preregistered offline successor, with artifact/availability admission; extract and verify inherited shutdown transitions separately. Keep v1 evidence frozen.",

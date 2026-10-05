@@ -726,3 +726,14 @@ CE-ORDER-NUM-001/002 preserve non-finite guard bypasses. Runtime and source-mapp
 assumptions remain explicit. No full IO, caller retry, venue acceptance, wire-grid,
 cap or authorization proof. Counts remain 5 scoped closures, 27 partial, 6 open;
 RL-OFFLINE-001 remains HIGH/OPEN and no research candidate is promoted.
+
+
+The [wire-admission extension](../formal/research/order-wire-contract.md) adds
+F-ORDER-WIRE-POSITIVE and A-ORDER-WIRE to the existing numeric boundary. The
+formatter is unchanged and shared by validation and wire generation; exact
+Fixed E12 parsing rejects zero-wire values before credentials. Seven conditional
+SMT queries, an 80-state local model, 5728 compiled rows across three prefix
+versions and 11456 wire-byte comparisons are checked by the formal wrapper.
+Parsing/formatting remain explicit pinned-library assumptions. No wire cap/grid,
+whole-caller or complete IO theorem; 5 scoped closures, 27 partial, 6 open remain.
+CE-ORDER-WIRE-001 is preserved; RL-OFFLINE-001 remains HIGH/OPEN.

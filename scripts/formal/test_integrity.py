@@ -3178,11 +3178,12 @@ class OrderNumberTests(unittest.TestCase):
         import order_numbers as n
         core=(n.ROOT/n.CORE).read_text();adapter=(n.ROOT/n.ADAPTER).read_text()
         n.extract()
-        for before,after in [('isNaN value || ',''),('value <= 0','value < 0'),('case quantity of','case quoteOrderQty of')]:
+        for before,after in [('isNaN value || ',''),('value <= 0','value < 0'),('case quantity of','case quoteOrderQty of'),('units > 0','units >= 0'),('renderOrderNumber value','show value')]:
             with self.assertRaises(ValueError): n.extract(core=core.replace(before,after,1))
         for line in adapter.splitlines(keepends=True):
             if 'either (throwIO . userError) pure (validate' in line and ('validateOrderNumber ' in line or 'validateMarketNumbers ' in line):
                 with self.assertRaises(ValueError): n.extract(adapter=adapter.replace(line,'',1))
+        with self.assertRaises(ValueError): n.extract(adapter=adapter.replace('renderDouble = BS.pack . renderOrderNumber','renderDouble = BS.pack . show'))
         registry=json.loads((n.ROOT/n.REGISTRY).read_text())
         del registry['prefixes'][n.ROSTER[-1]]
         with self.assertRaises(ValueError): n.extract(registry=registry)
@@ -3190,10 +3191,10 @@ class OrderNumberTests(unittest.TestCase):
     def test_smt_model_and_actual_prefixes(self):
         import order_numbers as n
         result=n.check_order_numbers()
-        self.assertEqual(len(result['smt']),2)
-        self.assertEqual(result['model']['states'],40)
-        self.assertEqual(result['conformance']['rows'],5344)
-        self.assertEqual(result['conformance']['currentPrefixCases'],26720)
+        self.assertEqual(len(result['smt']),3)
+        self.assertEqual(result['model']['states'],80)
+        self.assertEqual(result['conformance']['rows'],5728)
+        self.assertEqual(result['conformance']['currentPrefixCases'],28640)
 
 
 if __name__ == '__main__':

@@ -483,3 +483,5 @@ the Haskell inference protocol remain unchanged.
 Upward-rounding verification: `upward_rounding.py` runs four SAT-premise/UNSAT-violation pairs, an eight-state local dispatch model, two compiled Main delegates and current/legacy maker branches on 4226 synthetic cases. See [contract](upward-rounding-contract.md); the canonical formal/full wrappers include it. No new dependency or financial trial.
 
 Order-number verification: `order_numbers.py` checks the shared base-only validator, all five source-bound Binance prefixes, five SMT queries and a 40-state local guard model. Both canonical formal/full wrappers include it. No credential, request or HTTP code is linked into the compiled prefix driver. See [scope and assumptions](order-number-contract.md).
+
+The [wire extension](order-wire-contract.md) updates the same verifier to seven SMT queries, an 80-state local model, 5728 conformance rows and unchanged wire-byte checks. It relies explicitly on pinned base parsing/formatting. No financial trial or broader closure.

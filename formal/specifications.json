@@ -534,11 +534,15 @@
         },
         {
           "id": "F-ORDER-NUMBER-FLOW",
-          "statement": "In the five-constructor local guard model, the credential boundary is reachable only after numeric and context prefix guards pass; rejected guards are terminal. This is not complete order authorization."
+          "statement": "In the five-constructor local guard model, the credential boundary is reachable only after numeric, parsed-wire and context prefix guards pass; rejected guards are terminal. This is not complete order authorization."
         },
         {
           "id": "F-ORDER-NUMBER-CONFORMANCE",
-          "statement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/selection/context oracle on 1248 boundary combinations and 4096 generated rows; invalid selected numbers stop before the inert credential marker."
+          "statement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter and zero-wire values stop before the inert credential marker."
+        },
+        {
+          "id": "F-ORDER-WIRE-POSITIVE",
+          "statement": "Under the pinned deterministic formatter and Fixed E12 parser assumptions, source-bound selected-value admission requires a successful parse and strictly positive unbounded Integer wire units; failed parsing or nonpositive wire units rejects before credentials."
         }
       ],
       "invariants": [

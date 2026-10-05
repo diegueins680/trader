@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Reject selected Binance quantities/prices whose unchanged eight-decimal wire representation parses as zero or fails parsing, before credential access. Share the legacy formatter between validation and request construction; add exact Integer guard obligations, compiled prefix regressions and wire-byte compatibility checks. No new configuration or live authorization.
+
 - Reject NaN, infinity and nonpositive selected quantities/prices at all five Binance order constructors before credentials or request work. Preserve base-before-quote selection and valid request formats; report missing amounts before missing credentials. Add source-bound SMT, finite guard-model and compiled-prefix regressions.
 
 - Replace both upward-rounding epsilon helpers with exact rational ceiling and finite non-decrease checks. Reject invalid maker prices without market fallback; preserve other fallback reasons and existing configuration. Add scoped SMT, finite dispatch and compiled caller regressions.
