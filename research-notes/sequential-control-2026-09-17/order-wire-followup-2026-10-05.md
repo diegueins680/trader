@@ -114,6 +114,38 @@ trained policy`. No receipt was written and no timing limits were widened.
 
 ## Canonical verification
 
-Targeted source/model/SMT/conformance and compiled Haskell properties passed.
-Pinned formal/full reproduction and final CI results will be recorded after
-completion. This draft is not ready for review until those checks pass.
+Frozen implementation/proof source:
+`48f054406d3c40748e1f8dfd1c9fff55231524a1`.
+[Pinned run 37321662549](https://github.com/diegueins680/trader/actions/runs/37321662549),
+job 111801985815, passed:
+
+- `python3 scripts/formal/verify.py --record`: 14:06:04–14:07:14 UTC.
+- `bash scripts/verify.sh formal`: 14:07:14–14:09:16 UTC. All 63 SMT
+  requirement groups checked; 198 integrity tests passed in 52.591 seconds.
+- `bash scripts/verify.sh full`: 14:09:16–14:17:37 UTC. Formal repeated
+  (198 tests, 52.644 seconds), Haskell formatting/lint/build/smoke/test passed,
+  all 241 web tests and 185 automation tests passed.
+- Six targeted numeric/rounding/model/conformance tests passed locally in
+  40.794 seconds; targeted HLint reported no hints. Compiled Haskell numeric
+  properties also passed in the benchmark driver.
+
+The raw generated receipt was imported unchanged, SHA256
+`f95789f2008e701eded970fc82b162fee02fdf5f4ff372eddd498da8b11d8bdf`.
+Every source hash was checked against both the lock and actual files. Changed
+receipt sections are only orderNumbers, smt, sourceHashes and capabilityIsolation.
+The capability graph adds one pure QuantityRounding → OrderNumeric edge:
+294→295 local edges, 256→257 trader-hs reachable edges. Existing research
+isolation conclusions are unchanged. The temporary reproduction workflow is
+removed in the final receipt/report commit; implementation and proof sources
+remain frozen. No proof placeholders were accepted by the formal gate.
+
+Ordinary formal runs 37320697654 and 37321662700 passed 198 integrity tests
+(49.649 and 48.217 seconds) but correctly failed the old-receipt comparison.
+The actual pinned reproduction above supplies its replacement. Final-head CI
+and deployment-safe merge evidence are recorded in
+[PR #300](https://github.com/diegueins680/trader/pull/300).
+
+These are scoped engineering checks, not completion of the 38-obligation mission,
+a library/compiler proof, economic evidence or production authorization. No
+orders, live exploration, authenticated trading experiments, live flag changes,
+deployment, champion change or holdout opening occurred.
