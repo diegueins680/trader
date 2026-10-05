@@ -1,6 +1,7 @@
 -- Transient request decoder; no persisted artifact or authorization capability.
 module SnapshotRequestV3 (decodeSnapshot, snapshotBits) where
 
+import Data.Char (isDigit)
 import Data.List (foldl', stripPrefix)
 import Data.Word (Word64)
 import GHC.Float (castDoubleToWord64, castWord64ToDouble)
@@ -23,7 +24,7 @@ literal token = stripPrefix token . spaces
 
 natural :: String -> Maybe (Integer, String)
 natural raw =
-    let (digits, rest) = span (\c -> c >= '0' && c <= '9') (spaces raw)
+    let (digits, rest) = span isDigit (spaces raw)
      in if null digits || length digits > 20
             then Nothing
             else Just (foldl' (\n c -> n * 10 + toInteger (fromEnum c - fromEnum '0')) 0 digits, rest)

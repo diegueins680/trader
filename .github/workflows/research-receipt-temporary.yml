@@ -40,8 +40,10 @@ jobs:
           python3 -m pip install -r scripts/research/sequential-requirements.txt
           npm --workspaces=false --prefix haskell/web ci
           cabal update
-          cabal install hlint-3.8 --install-method=copy --installdir="$HOME/.local/bin"
-          mkdir -p "$HOME/.local/bin"
+          mkdir -p "$HOME/.local/bin" "$RUNNER_TEMP/hlint-pinned"
+          curl --fail --silent --show-error --location https://github.com/ndmitchell/hlint/releases/download/v3.8/hlint-3.8-x86_64-linux.tar.gz --output "$RUNNER_TEMP/hlint-pinned.tar.gz"
+          tar -xzf "$RUNNER_TEMP/hlint-pinned.tar.gz" -C "$RUNNER_TEMP/hlint-pinned" --strip-components=1
+          cp "$RUNNER_TEMP/hlint-pinned/hlint" "$HOME/.local/bin/hlint"
           curl --fail --silent --show-error --location https://github.com/fourmolu/fourmolu/releases/download/v0.15.0.0/fourmolu-0.15.0.0-linux-x86_64 --output "$HOME/.local/bin/fourmolu"
           chmod +x "$HOME/.local/bin/fourmolu"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"

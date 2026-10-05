@@ -42,7 +42,7 @@ def extract(source=None, decoder=None, registry=None):
         require(ast.dump(node, include_attributes=False) == registry['definitions'][name], 'body drift')
     require(decoder == registry['decoderSource'], 'unreviewed Haskell decoder')
     require(re.findall(r'^import (.+)$', decoder, re.M) ==
-            ["Data.List (foldl', stripPrefix)", 'Data.Word (Word64)', 'GHC.Float (castDoubleToWord64, castWord64ToDouble)', 'Text.Read (readMaybe)'], 'effectful decoder import')
+            ["Data.Char (isDigit)", "Data.List (foldl', stripPrefix)", 'Data.Word (Word64)', 'GHC.Float (castDoubleToWord64, castWord64ToDouble)', 'Text.Read (readMaybe)'], 'effectful decoder import')
     for path, expected in registry['helperHashes'].items():
         require(hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected, 'helper drift')
     entry = nodes['encode_request_v3']
@@ -55,7 +55,7 @@ def extract(source=None, decoder=None, registry=None):
     value = re.search(r'if isNaN value \|\| isInfinite value \|\| abs value > (\d+) then Nothing else Just value', decoder)
     require(word and tag and metadata and value, 'unsupported guard grammar')
     require('castWord64ToDouble (fromInteger word :: Word64)' in decoder, 'bit conversion drift')
-    require("length digits > 20" in decoder and
+    require("span isDigit" in decoder and "length digits > 20" in decoder and
             "n * 10 + toInteger (fromEnum c - fromEnum '0')" in decoder and
             "go (remaining - 1) next" in decoder and "remaining <= 0" in decoder, 'bounded parser skeleton drift')
     require('actor.step != 4 * ((result.steps + 255) // 256)' in source, 'completed step relation drift')
@@ -196,6 +196,8 @@ def conformance():
                      0x7ff8000000000000, 0x408f480000000000):
             bad.append(f'("PPO-SNAPSHOT-V3",4,{[word]+ow[1:]},{pw})\n')
         bad += ['malformed\n', 'x'*32768+'\n',
+                f'("PPO-SNAPSHOT-V3",٤,{ow},{pw})\n',
+                f'("PPO-SNAPSHOT-V3",４,{ow},{pw})\n',
                 f'("PPO-SNAPSHOT-V3",4,{ow},{pw})junk\n',
                 f'("PPO-SNAPSHOT-V3",+4,{ow},{pw})\n',
                 f'("PPO-SNAPSHOT-V3",4,{ow},[0,])\n',

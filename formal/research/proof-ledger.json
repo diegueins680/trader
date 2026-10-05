@@ -3646,7 +3646,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Reproduced by the canonical formal gate; scoped receipts in results.json and PPOProcessBridgeTests. No empirical acceptance.",
-      "bounds": "Seeds 11/23/47, horizons 1/3/6, steps17; 27 observations; 16 bit-edge frames; 18 invalid frames; 128 generated Python round trips; three real-process fault fixtures. GHC9.4.8 -O2 for bridge; old v2 conformance remains -O0.",
+      "bounds": "Seeds 11/23/47, horizons 1/3/6, steps17; 27 observations; 16 bit-edge frames; 20 invalid frames; 128 generated Python round trips; three real-process fault fixtures. GHC9.4.8 -O2 for bridge; old v2 conformance remains -O0.",
       "limitations": "Conditional restricted source/primitive abstraction, not a parser/compiler/runtime or whole-program refinement proof. Show/Read and cross-language neural arithmetic are tested, not proved; near ties can differ and Haskell rejects ties. Supplied observations have no availability witness. Metadata is not authenticated training provenance; no persistence, OPE, economic evidence, deployment or broad obligation closure. A 20 ms deadline remains fail-closed; OS timing and scheduling are not hard real-time guarantees.",
       "counterexample": null,
       "status": "property_tested"

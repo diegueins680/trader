@@ -2,8 +2,8 @@
 
 Specified before implementation against f0903713fee9f6f60664cd1ca29e3594c0ba7694.
 This engineering bridge composes trained PPO successor snapshots with the existing
-Haskell process supervisor. No financial trial, artifact persistence, deployment,
-production integration or additional broad obligation closure is authorized.
+Haskell process supervisor. It introduces no financial trial, artifact persistence, deployment or
+production integration and establishes no additional broad obligation closure.
 
 `encode_request_v3` is a pure, default-disabled Python entry. Only the exact
 `ppo-successor-v2` TrainingResult representation, the supported optimizer version,

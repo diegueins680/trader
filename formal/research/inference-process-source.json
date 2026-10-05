@@ -27,6 +27,6 @@
   },
   "refinementLimit": "Exact reviewed source/control bodies plus compiled conformance; not a theorem about IO primitives, scheduler or compiler.",
   "helperHashes": {
-    "haskell/research/SnapshotRequestV3.hs": "e1fa275696bbdd4db217a2151a703887dc2f31764e3cf2e8b0553d58827aaf88"
+    "haskell/research/SnapshotRequestV3.hs": "75894ae701096cda051269c3f86162a1527b688ebaf8749c3fd2fc077991fc85"
   }
 }
