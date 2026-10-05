@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 29)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 28)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -3494,6 +3494,17 @@ class ChampionArchiveTests(unittest.TestCase):
         prior_graph = read_json(ROOT/'formal/research/results.json')['capabilityIsolation']
         result = p.check_archive(promotion_boundary.check_promotion(prior_graph))
         self.assertEqual(result, json.loads(json.dumps(result, allow_nan=False)))
+
+    def test_champion_closure_requires_every_reproduced_constituent(self):
+        from verify import validate_obligations
+        ledger = read_json(ROOT/'formal/research/proof-ledger.json')
+        target = next(o for o in ledger['missionObligations'] if o['number'] == 28)
+        reproduced = {e['requirementId']:e['status'] for e in ledger['entries']}
+        # Validator mutation fixture, not substituted proof evidence.
+        for certificate in target['requiredCertificates']:
+            changed = dict(reproduced); del changed[certificate]
+            with self.subTest(certificate=certificate), self.assertRaisesRegex(ValueError, 'not reproduced'):
+                validate_obligations(ledger['missionObligations'], ledger['entries'], changed)
 
     def test_generated_existing_files_are_never_replaced(self):
         import champion_archive as p

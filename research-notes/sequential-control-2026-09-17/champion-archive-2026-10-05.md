@@ -106,3 +106,12 @@ Targeted proof/conformance and exporter tests pass locally. Canonical formal/ful
 and final-head CI results will be recorded after execution. No completed check is
 inferred from the presence of a model or a successful fixture alone. Merge only the
 tested tree, suppress deployment triggers, and audit the merge SHA afterward.
+
+Local `bash scripts/verify.sh automation` passed all 185 tests (51.106 seconds).
+The initial local formal wrapper ran 224 tests in 161.027 seconds and failed the
+old explicit closure roster (`28 != 29` unresolved); all other tests passed.
+The roster now names the original nine closures plus 28. An added validator
+mutation test removes each required constituent in turn and requires rejection;
+the new archive/closure subset passes 11 tests in 2.315 seconds. No proof or
+economic threshold was weakened. The superseded CI runs are cancelled before
+reproduction; a fresh run must produce the final receipt and full-wrapper result.
