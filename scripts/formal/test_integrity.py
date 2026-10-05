@@ -3425,5 +3425,35 @@ class ArtifactCompositionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):c.identity(altered,predicates)
 
 
+class BotWorkerPublicationTests(unittest.TestCase):
+    def test_worker_publication_predicates_and_finite_protocol(self):
+        import bot_worker_publication as b
+        self.assertEqual(b.extract()['productionCallSites'],1)
+        self.assertEqual(b.gates(),{'F-BOT-PUBLICATION-GATES':'unsat'})
+        self.assertEqual((b.model()['states'],b.model()['transitions']),(158,308))
+        self.assertIsNotNone(b.model(True)['legacyCounterexample'])
+
+    def test_worker_publication_compiled_regressions(self):
+        import bot_worker_publication as b
+        result=b.conformance()
+        self.assertEqual(result['compiledCases'],6)
+        self.assertEqual(result['publicationFailureCuts'],3)
+
+    def test_worker_publication_mutations_reject(self):
+        import bot_worker_publication as b
+        source=(ROOT/b.SOURCE).read_text();main=(ROOT/b.MAIN).read_text()
+        for old,new in [('when accepted (unmask action)','unmask action'),
+                        ('tryPutMVar gate False','tryPutMVar gate True'),
+                        ('modifyMVarMasked','modifyMVar'),
+                        ('nextOutcome <- evaluate outcome','let nextOutcome = outcome')]:
+            self.assertIn(old,source)
+            with self.subTest(mutation=new),self.assertRaises(ValueError):b.extract(core=source.replace(old,new))
+        with self.assertRaises(ValueError):b.extract(main=main.replace('publishWorker (bcRuntime ctrl)','modifyMVar (bcRuntime ctrl)'))
+        with self.assertRaises(ValueError):b.gates(mutant=True)
+        with self.assertRaises(ValueError):b.model(next_states=lambda s,_:b.successors(s,True))
+        with self.assertRaises(ValueError):b.prove(z3.BoolVal(False),z3.BoolVal(True))
+        with self.assertRaises(ValueError):b.prove(z3.BoolVal(True),z3.BoolVal(False))
+
+
 if __name__ == '__main__':
     unittest.main()

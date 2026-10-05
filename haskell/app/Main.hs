@@ -176,6 +176,7 @@ import Trader.App.Runtime (
     tenantKeyFromBinanceKeys,
     tenantKeyFromCoinbaseKeys,
  )
+import Trader.App.WorkerPublication (WorkerPlan (..), publishWorker)
 import Trader.Binance (
     BinanceEnv (..),
     BinanceLog (..),
@@ -10422,35 +10423,35 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                         case comboGuard of
                                             Left err -> pure (Left err)
                                             Right () ->
-                                                modifyMVar (bcRuntime ctrl) $ \mrt ->
+                                                publishWorker (bcRuntime ctrl) $ \mrt ->
                                                     let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                                      in case HM.lookup sym tenantMap of
                                                             Just st ->
                                                                 if allowExisting
-                                                                    then pure (mrt, Right (BotStartOutcome sym st False))
+                                                                    then pure (Retain (Right (BotStartOutcome sym st False)))
                                                                     else case st of
-                                                                        BotRunning _ -> pure (mrt, Left "Bot is already running")
-                                                                        BotStarting _ -> pure (mrt, Left "Bot is starting")
+                                                                        BotRunning _ -> pure (Retain (Left "Bot is already running"))
+                                                                        BotStarting _ -> pure (Retain (Left "Bot is starting"))
                                                             Nothing -> do
                                                                 stopSig <- newEmptyMVar
-                                                                tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig)
                                                                 now <- getTimestampMs
-                                                                let rt =
-                                                                        BotStartRuntime
-                                                                            { bsrThreadId = tid
-                                                                            , bsrStopSignal = stopSig
-                                                                            , bsrArgs = sanitizeArgsKeys argsSym
-                                                                            , bsrSettings = settings
-                                                                            , bsrSymbol = sym
-                                                                            , bsrTenantKey = tenantKey
-                                                                            , bsrRequestedAtMs = now
-                                                                            , bsrStartReason = startReason
-                                                                            , bsrAdoptingExisting = arActive adoptReq
-                                                                            }
-                                                                    st = BotStarting rt
-                                                                    tenantMap' = HM.insert sym st tenantMap
-                                                                    mrt' = HM.insert tenantKey tenantMap' mrt
-                                                                pure (mrt', Right (BotStartOutcome sym st True))
+                                                                pure $ Launch (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig) $ \tid ->
+                                                                    let rt =
+                                                                            BotStartRuntime
+                                                                                { bsrThreadId = tid
+                                                                                , bsrStopSignal = stopSig
+                                                                                , bsrArgs = sanitizeArgsKeys argsSym
+                                                                                , bsrSettings = settings
+                                                                                , bsrSymbol = sym
+                                                                                , bsrTenantKey = tenantKey
+                                                                                , bsrRequestedAtMs = now
+                                                                                , bsrStartReason = startReason
+                                                                                , bsrAdoptingExisting = arActive adoptReq
+                                                                                }
+                                                                        st = BotStarting rt
+                                                                        tenantMap' = HM.insert sym st tenantMap
+                                                                        mrt' = HM.insert tenantKey tenantMap' mrt
+                                                                     in (mrt', Right (BotStartOutcome sym st True))
 
 botStartWorker ::
     Maybe OpsStore ->

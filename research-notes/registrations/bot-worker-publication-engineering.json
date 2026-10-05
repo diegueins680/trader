@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "bot-worker-publication-v1",
+  "kind": "engineering_only",
+  "registeredAt": "2026-10-05",
+  "baseline": "287b888af3da2b477c81bdc7c214ff640190aee9",
+  "contract": "formal/research/bot-worker-publication-contract.md",
+  "hypothesis": "A private post-commit gate prevents initialization by an unpublished worker while preserving duplicate-start semantics.",
+  "affectedObligations": [15, 33, 34, 36, 38],
+  "candidateClosures": [],
+  "financialTrials": 0,
+  "holdoutAccess": false,
+  "productionStateChanges": false,
+  "requiredCommands": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "failureRule": "Keep blockers and reject the repair if execution can precede successful map publication or an existing critical certificate fails."
+}

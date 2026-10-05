@@ -833,3 +833,12 @@ v1 artifact semantics. The [composition report](research-notes/sequential-contro
 records conditional scoped closures29/30: **9 scoped closures,24 partial,5 open**.
 These counts do not certify production readiness or economic performance. Old
 financial archives retain their recorded code identities and sealed holdouts.
+
+Bot startup now [publishes its runtime entry before executing the worker](formal/research/bot-worker-publication-contract.md).
+A failed publication rejects the private worker gate and preserves the prior map;
+duplicate-start behavior is unchanged. This repairs an unpublished-worker race,
+without changing trading authorization, risk limits or persistent position ownership.
+The [evidence report](research-notes/sequential-control-2026-09-17/bot-worker-publication-2026-10-05.md)
+records **9 scoped closures,25 partial,4 open**: obligation15 now has partial startup
+publication evidence, not a proof of complete live-owner uniqueness. Overall research
+and production acceptance remain false.

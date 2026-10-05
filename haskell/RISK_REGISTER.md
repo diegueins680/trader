@@ -286,3 +286,16 @@ proof. Expected identity authenticity, historical data availability, crash recov
 ownership and inherited production correctness remain separate unresolved claims.
 Scoped29/30 close without changing their criteria: **9 scoped closures,24 partial,
 5 open**. RL-OFFLINE-001 remains open; no new economic or production authorization.
+
+Bot worker publication follow-up (2026-10-05):
+[A-BOT-PUBLICATION](../formal/research/bot-worker-publication-contract.md) assumes
+pinned MVar/masking/fork semantics, finite admitted values and total trusted
+publication operations. A private gate now prevents a forked bot from initializing
+before its runtime entry commits. WHNF forcing is not deep evaluation; post-commit
+caller cancellation does not roll back a committed worker. Source-bound nested-map
+and gate SMT,158 model states/308 edges and compiled scheduled regressions cover
+this publication boundary. They do not certify persistent owner uniqueness,
+stop/replacement races, global drain linearization, callback termination or durable
+recovery. SHUTDOWN-DEADLINE-001 stays open. Obligation15 moves open to partial;
+current totals are **9 scoped closures,25 partial,4 open**. No broad closure or
+financial evidence change is claimed.

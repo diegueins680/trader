@@ -451,6 +451,7 @@ import Trader.Test.ResearchPolicy (runResearchPolicyTests)
 import Trader.Test.Revenue (revenueSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.Test.TradeLogRiskState (tradeLogRiskStateSuite)
+import Trader.Test.WorkerPublication (workerPublicationSuite)
 import Trader.ThresholdCalibration (
     CalibrationMethod (..),
     EdgeDistribution (..),
@@ -879,6 +880,7 @@ main = do
     runSuite "orderNumeric" orderNumericSuite
     runSuite "drainPool" drainPoolSuite
     runSuite "asyncJobAdmission" asyncJobAdmissionSuite
+    runSuite "workerPublication" workerPublicationSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite
