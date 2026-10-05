@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Trader.Test.WorkerPublication (workerPublicationSuite) where
 
@@ -6,6 +7,7 @@ import Control.Concurrent (ThreadId, forkIO, myThreadId, threadDelay)
 import Control.Concurrent.MVar (modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Control.Exception (AsyncException (ThreadKilled), Exception, MaskingState (Unmasked), SomeException, getMaskingState, throw, throwIO, throwTo, try)
 import Control.Monad (forM, forM_)
+import Data.Either (rights)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Typeable (Typeable)
 import GHC.Conc (ThreadStatus (..), threadStatus)
@@ -39,7 +41,7 @@ awaitFinished tid = await loop
             ThreadDied -> pure ()
             _ -> threadDelay 1000 >> loop
 
-data PublicationFailure = PublicationFailure ThreadId
+newtype PublicationFailure = PublicationFailure ThreadId
     deriving (Show, Typeable)
 
 instance Exception PublicationFailure
@@ -128,17 +130,16 @@ concurrentStarts = do
         _ <- forkIO $ do
             putMVar ready ()
             readMVar go
-            result <- try $ publishWorker cell $ \state ->
-                case state of
-                    Just _ -> pure (Retain False)
-                    Nothing -> pure (Launch (myThreadId >>= putMVar observed) (\tid -> (Just tid, True)))
+            result <- try $ publishWorker cell $ \case
+                Just _ -> pure (Retain False)
+                Nothing -> pure (Launch (myThreadId >>= putMVar observed) (\tid -> (Just tid, True)))
             putMVar completed (result :: Either SomeException Bool)
         pure completed
     await (takeMVar ready)
     await (takeMVar ready)
     putMVar go ()
     outcomes <- mapM (await . takeMVar) results
-    let accepted = [value | Right value <- outcomes]
+    let accepted = rights outcomes
     expect "both callers completed" 2 (length accepted)
     expect "one launch" 1 (length (filter id accepted))
     tid <- await (takeMVar observed)

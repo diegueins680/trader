@@ -425,8 +425,8 @@
     "research-notes/registrations/artifact-admission-engineering.json": "4f213bd86f2ffcda662f1c2f2a4a1f6e11bc25ef8fe92202dfed5389b79cc258",
     "scripts/formal/bot_worker_publication.py": "353c3548ce505523d76fbe4ab6f2caab4d9277d9e48d573d6e641e7ca74e2113",
     "haskell/app/Trader/App/WorkerPublication.hs": "bd7c41c91fc7ab3cbf8acca4105ee17a6ad1de5a8594d11a29d4e8e2dfcf485b",
-    "haskell/test/Trader/Test/WorkerPublication.hs": "670ce604f1136b999d28736ad42bc53c480b78a408685d18f94a8fdadc3f6a3f",
-    "formal/research/bot-worker-publication-source.json": "03072fcb821b9bdd109c29ff9a33caed83a19bc01d5a4a55a2332e22254c675a",
+    "haskell/test/Trader/Test/WorkerPublication.hs": "27a9f405c1569354bfb380fcdc1e7aae0d3f42d718491d15d64176fb06a1d908",
+    "formal/research/bot-worker-publication-source.json": "2ee6ac35af0cca6bbe68429dcb53bb2bd3d29667ec2cda9c70c5f6f68f399d24",
     "formal/research/bot-worker-publication-legacy.json": "9958775abab9f15de1b58201771232467644404839e0799ae153f1fd1e5b5f46",
     "formal/research/bot-worker-publication-contract.md": "af42fbb7b0edd88bda0a610d37313c43e8cad801abca2b6dedf264aa5d5e9cf4",
     "research-notes/registrations/bot-worker-publication-engineering.json": "77846ffc265249da2354459fc23eebebd9da357e2e92c0b5d0ed7df7330a1bf5"

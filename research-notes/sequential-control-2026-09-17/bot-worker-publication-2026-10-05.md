@@ -94,3 +94,23 @@ General recommendation: no candidate passed. RL: continue offline research only.
 The six targeted compiled cases and the new solver/model/source mutation tests pass
 locally. Required canonical formal/full and final-head CI receipts follow after
 execution. The merge must preserve the tested tree and suppress deployment triggers.
+
+Local canonical results are not reported as passing: the first formal attempt
+rejected a Haskell test source incorrectly listed in production implementation
+coverage; its mapping was corrected. The next `bash scripts/verify.sh formal`
+ran 219 tests in 304.566 seconds and failed one existing PPO process-bridge
+fixture with `ValueError: PPO process bridge: no actual inference for trained
+policy`. The host had concurrent compiler workloads; the deadline was unchanged.
+This is an observed local failure, not a proof of an environmental cause.
+
+Ordinary initial CI job112014455403 ran all 219 tests successfully (48.345 seconds),
+then rejected the stale committed receipt with `certificate differs from reviewed
+receipt; investigate before recording`. The replacement receipt must come verbatim
+from successful pinned reproduction, with its changed sections reviewed and all
+source hashes checked. Neither failure is hidden by editing a recorded result.
+
+Initial pinned full wrapper job112014454763 failed HLint on three new fixture
+style issues (newtype, lambda-case and rights), after formal had passed. These
+were corrected in the test module without changing the production helper or
+model. The test source lock was refreshed; a fresh receipt and complete pinned
+wrapper run are required after this correction.
