@@ -4615,7 +4615,8 @@
         "research-notes/registrations/inventory-readiness-engineering.json"
       ],
       "testFiles": [
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "test/autoloop.test.mjs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_readiness and InventoryReadinessTests; actual caller compiles in the full Haskell suite.",
@@ -4645,7 +4646,8 @@
         "research-notes/registrations/inventory-readiness-engineering.json"
       ],
       "testFiles": [
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "test/autoloop.test.mjs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_readiness and InventoryReadinessTests; actual caller compiles in the full Haskell suite.",
@@ -4675,7 +4677,8 @@
         "research-notes/registrations/inventory-readiness-engineering.json"
       ],
       "testFiles": [
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "test/autoloop.test.mjs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_readiness and InventoryReadinessTests; actual caller compiles in the full Haskell suite.",
