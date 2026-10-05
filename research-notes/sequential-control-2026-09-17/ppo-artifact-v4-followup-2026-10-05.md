@@ -134,3 +134,35 @@ format, policy, threshold, seed, model or input changed. This corrects receipt
 content instead of silently claiming cross-backend training determinism. The
 first full result is historical evidence; verification must rerun on the corrected
 proof/reporting source before merge.
+
+After the reporting correction, the pinned local command
+`python scripts/formal/test_integrity.py PPOArtifactV4Tests` passed all three tests
+in 40.951 seconds, including the nine actual trained round trips, all 34 malformed
+artifacts, seven reference mismatches and 128 generated bit cases. The earlier
+local full-wrapper failures remain failures; this targeted success does not
+replace the required isolated full reproduction.
+
+## Corrected pinned verification
+
+[Run 37265252581](https://github.com/diegueins680/trader/actions/runs/37265252581)
+reproduced corrected source commit `503f913e13cc356b820b3aea42f7adfa0d2ba207`
+with CPython3.13.3, NumPy2.3.5, Z34.15.4, GHC9.4.8, Cabal3.12.1.0,
+Node20.19.0, fourmolu0.15.0.0 and HLint3.8:
+
+- `python3 scripts/formal/verify.py --record`: PASS, 04:53:00–04:53:48 UTC.
+- `bash scripts/verify.sh formal`: PASS, 04:53:48–04:55:08 UTC.
+- `bash scripts/verify.sh full`: PASS, 04:55:08–04:59:22 UTC; formal checks,
+  Haskell build/format/lint/smoke/tests, 241 web tests and 185 automation tests.
+
+The receipt was imported byte-for-byte from the runner after comparing every
+recorded source hash with the toolchain lock and actual local files. Its SHA256 is
+`3ab528d44dd410cddbd7239a1a7697b0b905b55a4a463507befef285f804aa35`.
+It records 21 states, 20 transitions and maximum shortest depth10 for the new
+model; four conditional SMT pairs; all nine compiled trained-policy round trips;
+34 malformed artifacts; seven reference mismatches; 128 generated bit cases.
+No proof placeholders are permitted by the successful canonical gate.
+
+The delivery commit changes only the generated receipt, these verification notes
+and removal of the temporary read-only CI workflow relative to that corrected
+source. Implementation and proof sources are unchanged. Final-head ordinary CI
+is required before the authorized merge; no deployment is authorized.
