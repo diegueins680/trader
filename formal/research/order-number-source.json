@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "coreSha256": "008d00deb4f972ea98c73e3f3abeb3b88bef29d3d073d66a7ca8c27b8fef32d0",
+  "adapterSha256": "acf49663ef5f9cb3e374eec0138d9477d1972615a2f036a1450044854dbd1f70",
+  "prefixes": {
+    "placeFuturesPostOnlyLimitOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesPostOnlyLimitOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite quantity > 0\" quantity)\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite price > 0\" price)\n",
+    "placeMarketOrder": "    either (throwIO . userError) pure (validateMarketNumbers (beMarket env == MarketFutures) quantity quoteOrderQty)\n",
+    "placeFuturesMarketOrderWithPositionSide": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesMarketOrderWithPositionSide requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures MARKET orders require finite quantity > 0\" quantity)\n",
+    "placeFuturesTriggerMarketOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesTriggerMarketOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"stopPrice must be finite and > 0\" stopPrice)\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n",
+    "placeFuturesAlgoTriggerMarketOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesAlgoTriggerMarketOrder requires MarketFutures\")\n    Control.Monad.when (mode == OrderTest) $ throwIO (userError \"Algo orders are not supported in test mode\")\n    either (throwIO . userError) pure (validateOrderNumber \"triggerPrice must be finite and > 0\" triggerPrice)\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n"
+  }
+}

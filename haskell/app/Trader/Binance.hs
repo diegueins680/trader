@@ -121,6 +121,7 @@ import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insert
 import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
+import Trader.OrderNumeric (validateMarketNumbers, validateOrderNumber)
 import Trader.QuantityRounding (quantizeDownExact)
 import Trader.Text (normalizeKey)
 
@@ -1220,8 +1221,8 @@ placeFuturesPostOnlyLimitOrder ::
     IO BL.ByteString
 placeFuturesPostOnlyLimitOrder env mode symbol side quantity price mReduceOnly mClientOrderId = do
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesPostOnlyLimitOrder requires MarketFutures")
-    Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures LIMIT orders require quantity > 0")
-    Control.Monad.when (price <= 0) $ throwIO (userError "Futures LIMIT orders require price > 0")
+    either (throwIO . userError) pure (validateOrderNumber "Futures LIMIT orders require finite quantity > 0" quantity)
+    either (throwIO . userError) pure (validateOrderNumber "Futures LIMIT orders require finite price > 0" price)
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
@@ -1728,6 +1729,7 @@ placeMarketOrder ::
     Maybe String -> -- newClientOrderId (optional; idempotency)
     IO BL.ByteString
 placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientOrderId = do
+    either (throwIO . userError) pure (validateMarketNumbers (beMarket env == MarketFutures) quantity quoteOrderQty)
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
@@ -1823,7 +1825,7 @@ placeFuturesMarketOrderWithPositionSide ::
     IO BL.ByteString
 placeFuturesMarketOrderWithPositionSide env mode symbol side quantity reduceOnly mClientOrderId mPositionSide = do
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesMarketOrderWithPositionSide requires MarketFutures")
-    Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures MARKET orders require quantity > 0")
+    either (throwIO . userError) pure (validateOrderNumber "Futures MARKET orders require finite quantity > 0" quantity)
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
@@ -1885,7 +1887,7 @@ placeFuturesTriggerMarketOrder ::
     IO BL.ByteString
 placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientOrderId = do
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesTriggerMarketOrder requires MarketFutures")
-    Control.Monad.when (stopPrice <= 0) $ throwIO (userError "stopPrice must be > 0")
+    either (throwIO . userError) pure (validateOrderNumber "stopPrice must be finite and > 0" stopPrice)
     let orderType' = trim orderType
     Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
@@ -1943,7 +1945,7 @@ placeFuturesAlgoTriggerMarketOrder ::
 placeFuturesAlgoTriggerMarketOrder env mode symbol side orderType triggerPrice mClientAlgoId mPositionSide = do
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesAlgoTriggerMarketOrder requires MarketFutures")
     Control.Monad.when (mode == OrderTest) $ throwIO (userError "Algo orders are not supported in test mode")
-    Control.Monad.when (triggerPrice <= 0) $ throwIO (userError "triggerPrice must be > 0")
+    either (throwIO . userError) pure (validateOrderNumber "triggerPrice must be finite and > 0" triggerPrice)
     let orderType' = trim orderType
     Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "baseline": "a772ca0ffcde120134bda927e38387258bd94435",
+  "entries": [
+    {
+      "id": "CE-ORDER-NUM-001",
+      "requirement": "F-ORDER-NUMBER-FINITE",
+      "inputWord64": 9221120237041090560,
+      "claim": "NaN passes a <=0 rejection guard.",
+      "resolution": "Explicit non-finite rejection before credentials.",
+      "regression": "scripts/formal/order_numbers.py"
+    },
+    {
+      "id": "CE-ORDER-NUM-002",
+      "requirement": "F-ORDER-NUMBER-FLOW",
+      "inputWord64": 9218868437227405312,
+      "claim": "Market prefix reaches credential boundary with infinite selected quantity.",
+      "resolution": "Shared pure selection/numeric gate before credential read.",
+      "regression": "scripts/formal/order_numbers.py",
+      "limitations": "Inert prefixes only; no authenticated endpoint invocation."
+    }
+  ],
+  "legacyPrefixes": {
+    "placeFuturesPostOnlyLimitOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesPostOnlyLimitOrder requires MarketFutures\")\n    Control.Monad.when (quantity <= 0) $ throwIO (userError \"Futures LIMIT orders require quantity > 0\")\n    Control.Monad.when (price <= 0) $ throwIO (userError \"Futures LIMIT orders require price > 0\")\n",
+    "placeMarketOrder": "",
+    "placeFuturesMarketOrderWithPositionSide": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesMarketOrderWithPositionSide requires MarketFutures\")\n    Control.Monad.when (quantity <= 0) $ throwIO (userError \"Futures MARKET orders require quantity > 0\")\n",
+    "placeFuturesTriggerMarketOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesTriggerMarketOrder requires MarketFutures\")\n    Control.Monad.when (stopPrice <= 0) $ throwIO (userError \"stopPrice must be > 0\")\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n",
+    "placeFuturesAlgoTriggerMarketOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesAlgoTriggerMarketOrder requires MarketFutures\")\n    Control.Monad.when (mode == OrderTest) $ throwIO (userError \"Algo orders are not supported in test mode\")\n    Control.Monad.when (triggerPrice <= 0) $ throwIO (userError \"triggerPrice must be > 0\")\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n"
+  }
+}

@@ -10,6 +10,7 @@ executable trader-hs
   main-is:             Main.hs
   other-modules:       Trader.Binance
                      , Trader.QuantityRounding
+                     , Trader.OrderNumeric
                      , Trader.BinanceTradeAnalysis
                      , Trader.Api.Routes
                      , Trader.App.AutoStartBackoff
@@ -282,6 +283,7 @@ test-suite trader-tests
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
                      , Trader.QuantityRounding
+                     , Trader.OrderNumeric
                      , Trader.BinanceTradeAnalysis
                      , Trader.Api.Routes
                      , Trader.App.AutoStartBackoff
@@ -382,6 +384,7 @@ test-suite trader-tests
                      , Trader.Test.Cors
                      , Trader.Test.FormalVerification
                      , Trader.Test.QuantityRounding
+                     , Trader.Test.OrderNumeric
                      , Trader.Test.DrainPool
                      , Trader.Test.BacktestGate
                      , Trader.Test.AsyncJobAdmission
@@ -445,6 +448,7 @@ benchmark trader-bench
   main-is:             BenchMain.hs
   other-modules:       Trader.Binance
                      , Trader.QuantityRounding
+                     , Trader.OrderNumeric
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.Dex

@@ -716,3 +716,13 @@ Invalid maker prices now return an unsent result. Other configured fallback
 reasons remain unchanged. Runtime/compiler primitives and source-to-model
 mapping remain assumptions; no whole-Main, final-wire or complete order-cap
 proof. Five scoped closures, 27 partial, six open; RL-OFFLINE-001 stays HIGH/OPEN.
+
+
+The [order-number contract](../formal/research/order-number-contract.md) adds
+F-ORDER-NUMBER-FINITE/SELECTION/FLOW/CONFORMANCE under A-ORDER-NUMBER. Five
+binary64/selection SMT queries and a 40-state local guard model supplement
+compiled actual current/legacy prefixes for all five Binance constructors.
+CE-ORDER-NUM-001/002 preserve non-finite guard bypasses. Runtime and source-mapping
+assumptions remain explicit. No full IO, caller retry, venue acceptance, wire-grid,
+cap or authorization proof. Counts remain 5 scoped closures, 27 partial, 6 open;
+RL-OFFLINE-001 remains HIGH/OPEN and no research candidate is promoted.
