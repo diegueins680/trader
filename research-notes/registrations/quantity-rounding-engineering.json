@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "1911aca834df47849d394913e8660d35a892e054",
+  "version": "quantity-rounding-v1",
+  "hypothesis": "Exact rational grid flooring plus binary64 publication guards eliminates upward epsilon rounding and partial invalid-input arithmetic.",
+  "financialTrials": 0,
+  "data": "Synthetic numeric values only; no holdout or market data.",
+  "budget": "Deterministic boundary cases and 4096 seeded binary64/Integer generated cases; Haskell QuickCheck 1000 cases; no model fitting.",
+  "seed": 20261005,
+  "contract": "formal/research/quantity-rounding-contract.md",
+  "acceptance": "Source-bound SMT obligations, exact Fraction oracle and Haskell adapter conformance, formal and full wrappers pass; no broad closure inferred.",
+  "limitations": "Wire serialization, quantizeUp, minimum-size promotion and other adapters remain unresolved."
+}
