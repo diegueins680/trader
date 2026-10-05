@@ -3141,6 +3141,8 @@ class QuantityRoundingTests(unittest.TestCase):
             self.assertNotEqual(changed,source)
             with self.assertRaises(ValueError): q.extract(source=changed)
         with self.assertRaises(ValueError): q.extract(adapter=adapter.replace('(stepScale st) (stepInt st)', '(stepInt st) (stepScale st)',1))
+        main = (q.ROOT/'haskell/app/Main.hs').read_text()
+        with self.assertRaises(ValueError): q.extract(main=main.replace('validateQuantityInput (fmap', 'pure () -- (fmap',1))
 
     def test_rounding_smt_and_compiled_conformance(self):
         import quantity_rounding as q

@@ -1,4 +1,5 @@
 """Source-bound downward rounding lemmas and compiled binary64 conformance."""
+import ast
 import hashlib
 import json
 import math
@@ -22,9 +23,10 @@ def require(ok, message):
         raise ValueError('quantity rounding: ' + message)
 
 
-def extract(source=None, adapter=None):
+def extract(source=None, adapter=None, main=None):
     source = (ROOT/SOURCE).read_text() if source is None else source
     adapter = (ROOT/ADAPTER).read_text() if adapter is None else adapter
+    main = (ROOT/'haskell/app/Main.hs').read_text() if main is None else main
     registry = json.loads((ROOT/REGISTRY).read_text())
     require(hashlib.sha256(source.encode()).hexdigest() == registry['coreSha256'], 'core drift')
     declaration = adapter[adapter.index('quantizeDown ::'):adapter.index('\ndata SymbolFilters')]
@@ -33,6 +35,14 @@ def extract(source=None, adapter=None):
     require('units = (numerator value * scale) `div` (denominator value * increment)' in source, 'quotient mismatch')
     require('| isNaN x || isInfinite x || x <= 0 || scale <= 0 || increment <= 0 = 0' in source, 'input guard')
     require('if isNaN rounded || isInfinite rounded || rounded < 0 || rounded > x' in source, 'output guard')
+    require([(a,b) for a,b,_ in registry['mainFragments']] == [('    normalizeProbeQty mSf mPrice qtyRaw =','\ncomputeCoinbaseKeysStatusFromArgs'),('    isTooSmallQtyError ::','    sendMarketOrderWithMaker ::')], 'caller coverage omitted')
+    require('import Trader.QuantityRounding (validateQuantityInput)' in main, 'missing preflight import')
+    for start, end, expected in registry['mainFragments']:
+        require(main[main.index(start):main.index(end,main.index(start))] == expected, 'caller control-flow drift')
+    for name, grid in [('normalizeQty sf price qtyRaw', '(effectiveStep sf)'),
+                       ('normalizeProbeQty mSf mPrice qtyRaw', '(mSf >>= effectiveStep)')]:
+        prefix = '    '+name+' = do\n        validateQuantityInput (fmap (\\st -> (stepScale st, stepInt st)) '+grid+') qtyRaw\n'
+        require(prefix in main, 'preflight not first')
     return registry
 
 
@@ -58,7 +68,10 @@ def prove():
     invalid = z.Or(scale <= 0, step <= 0)
     result = z.If(invalid,zero,out)
     certify(invalid,z.fpEQ(result,zero))
-    return {'F-ROUND-DOWN-INTEGER':'unsat','F-ROUND-DOWN-FINITE':'unsat'}
+    has_grid = z.Bool('round_has_grid')
+    error = z.Or(z.Not(finite(x)),z.And(has_grid,z.Or(scale <= 0,step <= 0)))
+    certify(z.Not(error),z.And(finite(x),z.Implies(has_grid,z.And(scale > 0,step > 0))))
+    return {'F-ROUND-DOWN-INTEGER':'unsat' ,'F-ROUND-DOWN-FINITE':'unsat'}
 
 
 def word(x):
@@ -96,11 +109,16 @@ def conformance():
     code = '''module Main (main) where
 import GHC.Float (castWord64ToDouble, castDoubleToWord64)
 import Data.Word (Word64)
-import Trader.QuantityRounding (quantizeDownExact)
+import Trader.QuantityRounding (quantizeDownExact, validateQuantityInput)
 main :: IO ()
 main = interact (unlines . map (show . run . read) . lines)
-run :: (Integer,Integer,Word64) -> Word64
-run (s,k,w) = castDoubleToWord64 (quantizeDownExact s k (castWord64ToDouble w))
+run :: (Integer,Integer,Word64) -> (Word64,Bool,Bool)
+run (s,k,w) =
+    let x = castWord64ToDouble w
+        ok = either (const False) (const True)
+    in (castDoubleToWord64 (quantizeDownExact s k x),
+        ok (validateQuantityInput (Just (s,k)) x),
+        ok (validateQuantityInput Nothing x))
 '''
     with tempfile.TemporaryDirectory(prefix='trader-rounding-') as tmp:
         p = Path(tmp); (p/'Main.hs').write_text(code); exe=p/'rounding'
@@ -108,16 +126,18 @@ run (s,k,w) = castDoubleToWord64 (quantizeDownExact s k (castWord64ToDouble w))
                        cwd=ROOT,check=True,timeout=120,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         rows = ''.join(f'({s},{k},{w})\n' for s,k,w in samples)
         output = subprocess.check_output([str(exe)],input=rows,text=True,timeout=60)
-    actual = [int(w) for w in output.splitlines()]
-    expected = [oracle(*sample) for sample in samples]
+    actual = [ast.literal_eval(w) for w in output.splitlines()]
+    expected = [(oracle(s,k,w),math.isfinite(value(w)) and s > 0 and k > 0,math.isfinite(value(w))) for s,k,w in samples]
     require(actual == expected,'compiled core differs from Fraction oracle')
     counter = json.loads((ROOT/'formal/research/quantity-rounding-counterexamples.json').read_text())
     fixture = counter['entries'][0]
     x = value(fixture['inputWord64'])
     require(math.floor(x+1e-9) == fixture['oldOutput'] > x,'old counterexample lost')
     require(oracle(1,1,fixture['inputWord64']) == fixture['newOutputWord64'],'new regression')
+    require(max(1.,value(oracle(1,1,counter['entries'][1]['inputWord64']))) == 1., 'intermediate fallback counterexample lost')
     return {'cases':len(samples),'generatedCases':4096,'boundaryCases':130,
-            'seed':20261005,'counterexample':'CE-ROUND-001',
+            'seed':20261005,'counterexamples':['CE-ROUND-001','CE-ROUND-002'],
+            'preflightCases':2*len(samples),
             'compilerOptimization':'-O2','status':'property_tested'}
 
 

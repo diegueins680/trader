@@ -23,7 +23,7 @@ requirement-to-code/test/CI traceability. The adapter delegates to the actual
 compiled base-only core. No new dependency or state machine is introduced.
 Existing capability/lifecycle checks remain mandatory.
 
-Four SAT-premise/UNSAT-violation pairs cover mathematical Euclidean division,
+Five SAT-premise/UNSAT-violation pairs cover mathematical Euclidean division,
 rational reconstruction, binary64 publication guards and invalid-grid rejection.
 These are source-bound SMT lemmas under named GHC/base/runtime assumptions;
 source review and differential tests do not prove the compiler. Compiled oracle
@@ -43,3 +43,14 @@ both Main quantizeUp implementations, quantity/notional minimum increases,
 the relation between every serialized order and its authorized exposure cap.
 No out-of-sample return, drawdown, tail-risk or RL efficacy result changes.
 Recommendation remains no candidate adoption; continue scoped verification.
+
+The preflight refinement was committed at 820c2de2 before Main edits. During
+review, CE-ROUND-002 showed that an intermediate zero-only repair could reach
+minimum-size promotion for infinity. Both quantity-normalization callers now
+perform shared finite/grid validation first; its errors are not eligible for
+minimum-size retry. Two optional-grid variants are checked in all 4226 compiled
+cases (8452 preflight checks); source-bound caller/classifier fragments and
+Either-composition properties back the correspondence. Full Main correctness is
+not proved. The initial local receipt attempt failed in the unchanged PPO-v3
+snapshot probe after its 3-second timeout; source 6cf47360 CI reproduction was
+superseded by this refinement. No timeout was relaxed.

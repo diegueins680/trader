@@ -3808,7 +3808,8 @@
         "haskell/app/Trader/Binance.hs",
         "formal/research/quantity-rounding-contract.md",
         "formal/research/quantity-rounding-source.json",
-        "formal/research/quantity-rounding-counterexamples.json"
+        "formal/research/quantity-rounding-counterexamples.json",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -3817,15 +3818,15 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_rounding and QuantityRoundingTests; production adapter properties also run in Haskell wrapper.",
-      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure.",
-      "counterexample": "CE-ROUND-001",
+      "bounds": "Five SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
+      "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "smt_verified"
     },
     {
       "requirementId": "F-ROUND-DOWN-FINITE",
-      "claim": "The source-bound binary64 publication guard returns finite nonnegative output no greater than a valid positive finite input, independently of intermediate conversion output; invalid input or nonpositive scale/increment returns zero before division.",
-      "formalStatement": "The source-bound binary64 publication guard returns finite nonnegative output no greater than a valid positive finite input, independently of intermediate conversion output; invalid input or nonpositive scale/increment returns zero before division.",
+      "claim": "The source-bound binary64 publication guard returns finite nonnegative output no greater than a valid positive finite input, independently of intermediate conversion output; invalid input or nonpositive scale/increment returns zero before division. The shared preflight accepts only finite quantities and positive present grid fields; source-bound Either ordering rejects these invalid inputs before minimum-size fallback.",
+      "formalStatement": "The source-bound binary64 publication guard returns finite nonnegative output no greater than a valid positive finite input, independently of intermediate conversion output; invalid input or nonpositive scale/increment returns zero before division. The shared preflight accepts only finite quantities and positive present grid fields; source-bound Either ordering rejects these invalid inputs before minimum-size fallback.",
       "criticality": "critical",
       "assumptions": [
         "A-ROUND-DOWN",
@@ -3840,7 +3841,8 @@
         "haskell/app/Trader/Binance.hs",
         "formal/research/quantity-rounding-contract.md",
         "formal/research/quantity-rounding-source.json",
-        "formal/research/quantity-rounding-counterexamples.json"
+        "formal/research/quantity-rounding-counterexamples.json",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -3849,9 +3851,9 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_rounding and QuantityRoundingTests; production adapter properties also run in Haskell wrapper.",
-      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure.",
-      "counterexample": "CE-ROUND-001",
+      "bounds": "Five SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
+      "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "smt_verified"
     },
     {
@@ -3872,7 +3874,8 @@
         "haskell/app/Trader/Binance.hs",
         "formal/research/quantity-rounding-contract.md",
         "formal/research/quantity-rounding-source.json",
-        "formal/research/quantity-rounding-counterexamples.json"
+        "formal/research/quantity-rounding-counterexamples.json",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -3881,9 +3884,9 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_rounding and QuantityRoundingTests; production adapter properties also run in Haskell wrapper.",
-      "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure.",
-      "counterexample": "CE-ROUND-001",
+      "bounds": "Five SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
+      "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "property_tested"
     }
   ],

@@ -535,6 +535,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToList,
  )
+import Trader.QuantityRounding (validateQuantityInput)
 import Trader.Revenue (RevenueLedger, buildRevenueLedger)
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig, sanitizeRoiScoreConfig)
 import Trader.S3 (
@@ -26073,7 +26074,8 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                 Just mn | qq < mn -> Right mn
                 _ -> Right qq
 
-    normalizeProbeQty mSf mPrice qtyRaw =
+    normalizeProbeQty mSf mPrice qtyRaw = do
+        validateQuantityInput (fmap (\st -> (stepScale st, stepInt st)) (mSf >>= effectiveStep)) qtyRaw
         case mSf of
             Nothing ->
                 if qtyRaw > 0
@@ -28677,7 +28679,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             || "Notional below minNotional" `isPrefixOf` msg
 
     normalizeQty :: SymbolFilters -> Double -> Double -> Either String Double
-    normalizeQty sf price qtyRaw =
+    normalizeQty sf price qtyRaw = do
+        validateQuantityInput (fmap (\st -> (stepScale st, stepInt st)) (effectiveStep sf)) qtyRaw
         let qty0 = max 0 qtyRaw
             qty1 = maybe qty0 (`quantizeDown` qty0) (effectiveStep sf)
          in if qty1 <= 0
