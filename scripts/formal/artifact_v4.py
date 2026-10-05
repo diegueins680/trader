@@ -112,7 +112,7 @@ def conformance():
     prices = {'ALPHA':100*np.exp(.0002*x+.002*np.sin(x/9)),
               'BETA':200*np.exp(-.0001*x+.003*np.sin(x/11))}
     funding = {s: np.zeros(len(p)) for s,p in prices.items()}
-    prov = provenance(); cases = 0; sizes = []
+    prov = provenance(); cases = 0
     with tempfile.TemporaryDirectory(prefix='trader-artifact-v4-') as directory:
         exe = process.compile_source((ROOT/process.SOURCE).read_text(), Path(directory), optimization='-O2')
         for seed in (11,23,47):
@@ -120,7 +120,7 @@ def conformance():
                 result = train_ppo_v2(prices,funding,horizon,seed,17,enabled=True)
                 require(result is not None, 'training failed')
                 raw = codec.encode_artifact_v4(result, prov, enabled=True)
-                require(raw is not None, 'encoding failed'); sizes.append(len(raw))
+                require(raw is not None and 0 < len(raw) <= 65536, 'encoding or byte bound failed')
                 digest = hashlib.sha256(raw).hexdigest()
                 restored = codec.decode_artifact_v4(raw,digest,prov,enabled=True)
                 require(restored == result and codec.encode_artifact_v4(restored,prov,enabled=True) == raw, 'state or bytes drift')
@@ -181,7 +181,8 @@ def conformance():
         require(encoded is not None and codec.decode_artifact_v4(encoded,hashlib.sha256(encoded).hexdigest(),prov,enabled=True) == changed, 'generated bit loss')
         generated += 1
     return {'fits':cases,'seeds':[11,23,47],'horizons':[1,3,6],'steps':17,'compiledBitRoundtrips':cases,
-            'invalidArtifacts':len(invalid),'referenceMismatches':reference_failures,'generatedBitCases':generated,'artifactBytes':sizes,
+            'invalidArtifacts':len(invalid),'referenceMismatches':reference_failures,'generatedBitCases':generated,
+            'artifactSizeChecks':cases,'maximumArtifactBytes':65536,
             'scope':'synthetic engineering state/frame equality; no market or provenance-authenticity evidence'}
 
 

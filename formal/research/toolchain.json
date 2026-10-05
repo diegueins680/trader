@@ -67,7 +67,7 @@
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
     "scripts/formal/verify.py": "a9e42d6f18171b58552f55a5a4ac9b89e6e1ee982bf494fcf504814cce237f52",
-    "scripts/formal/test_integrity.py": "a76bcc232394404861e604ea9b2ac7b3147b7d886f829e1f014b94bb1ad416ac",
+    "scripts/formal/test_integrity.py": "5b70389380e76a9c762f35972cecf759e72e9b22946553556f90a59f1ad3cad6",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
@@ -365,7 +365,7 @@
     "scripts/research/ppo_artifact_v4.py": "062e2e0583fc3420758610b5c511e74365b260db72448d635180305741e061f5",
     "formal/research/ppo-artifact-v4-contract.md": "b1cb9ee7f0b60bc27d46f3c5c5e75741ef2bd89b760a8a04b2f12132507eceb6",
     "formal/research/ppo-artifact-v4-source.json": "9f8134e1005ebf2325645da7c5dac1e724741ae4f19221bbbcdbc1b74b3f2c2a",
-    "scripts/formal/artifact_v4.py": "619fd014f84fe7103bfba3f8ad16d366b04d1de6e725b7c6693f82e63fd152f9",
+    "scripts/formal/artifact_v4.py": "c763874bcd83869f3ebaac11f019a1119b268121d1498cb1ce15811e76294e8b",
     "research-notes/registrations/ppo-artifact-v4-engineering.json": "06cf7d683de9c2e648e4fcd292a41bb42e1068d1ca01952e7b79c9324fb9508f"
   },
   "numpy": "2.3.5",

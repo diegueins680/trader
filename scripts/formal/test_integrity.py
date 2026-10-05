@@ -3123,6 +3123,9 @@ class PPOArtifactV4Tests(unittest.TestCase):
         result = proof.conformance()
         self.assertEqual(result['fits'], 9)
         self.assertEqual(result['compiledBitRoundtrips'], 9)
+        self.assertEqual(result['artifactSizeChecks'], 9)
+        self.assertEqual(result['maximumArtifactBytes'], 65536)
+        self.assertNotIn('artifactBytes', result)
         self.assertEqual(result['generatedBitCases'], 128)
         self.assertGreaterEqual(result['invalidArtifacts'], 30)
 
