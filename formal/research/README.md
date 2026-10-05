@@ -489,3 +489,5 @@ The [wire extension](order-wire-contract.md) updates the same verifier to seven 
 The wire-aware maker-price preflight also rejects zero-wire prices before constructor exceptions can enter configured market fallback (CE-ORDER-WIRE-002). Other maker fallback reasons and the fallback flag are unchanged; this is a source-bound local guard with compiled conformance, not a whole-caller proof.
 
 Sizing admission: `sizing_inputs.py` verifies the [registered contract](sizing-input-contract.md) with 14 SMT queries, a 56-state retry model and actual pure Main fragments on 6214 rows. Both formal/full wrappers include it; no exchange module or authenticated effect is linked. Existing downward/upward source bindings are refreshed for the reviewed guards without changing their rounding algorithms.
+
+Closed-trade recovery: `closed_trade_recovery.py` checks the [registered contract](closed-trade-recovery-contract.md), seven SMT queries, 22-state local model, 341 finite histories and actual pure helpers; JSON recovery regressions run in the Haskell suite. No whole-recovery or broad-obligation closure.

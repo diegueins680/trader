@@ -80,7 +80,8 @@
         "haskell/app/Trader/QuantityRounding.hs",
         "haskell/app/Trader/Binance.hs",
         "haskell/app/Trader/OrderNumeric.hs",
-        "haskell/app/Main.hs"
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/BotSnapshotRecovery.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -564,6 +565,22 @@
         {
           "id": "F-SIZING-CONFORMANCE",
           "statement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker."
+        },
+        {
+          "id": "F-RECOVERY-NUMERIC",
+          "statement": "Source-bound closed-trade admission publishes only finite returns from finite equities with positive entry equity, rejects explicitly non-finite returns, and requires nonnegative holding periods and absent or finite unit-interval probability."
+        },
+        {
+          "id": "F-RECOVERY-INDEX",
+          "statement": "The exact Integer index recurrence checks nonnegative entry and strictly greater exit within the machine bound before narrowing; accepted indices fit signed 32-bit and 64-bit Int under their respective bounds."
+        },
+        {
+          "id": "F-RECOVERY-FLOW",
+          "statement": "In the local record-eligibility and selected-history publication model, identity, numeric or index rejection prevents that record from publication; repeated terminal operations are stable."
+        },
+        {
+          "id": "F-RECOVERY-CONFORMANCE",
+          "statement": "Compiled actual recovery helpers agree with independent numeric/index oracles on 2675 numeric rows and 1031 histories, preserve admitted legacy returns and indices, repeat deterministically and reproduce four preserved counterexamples."
         }
       ],
       "invariants": [
@@ -761,6 +778,11 @@
           "level": "property",
           "path": "haskell/test/Trader/Test/QuantityRounding.hs",
           "contains": "testSizing"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_closed_trade_recovery_conformance"
         }
       ]
     },
@@ -1762,7 +1784,7 @@
       "ensures": [{ "id": "H-EXECUTION-E1", "statement": "closeQty + openQty = sanitized executedQty; applied exposure fraction <= intended fraction; reduce-only never increases or flips exposure; every applied live OPEN/CLOSE event preserves the legacy trade-log fields and adds versioned canonical close-cause aliases plus a snapshot of the exact pre-execution risk inputs." }],
       "invariants": [
         { "id": "H-EXECUTION-I1", "statement": "Canceled/failed status with no executed quantity applies nothing; explicit partial fill evidence dominates terminal status text." },
-        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory from status; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." },
+        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory with admitted finite numerics and checked synthetic indices from status; malformed records are omitted and an unrepresentable selected history returns no memory; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." },
         { "id": "H-EXECUTION-I3", "statement": "A schema-1.2 live trade-event risk snapshot keeps market event time distinct from processing time, preserves missing expectancy as absent, represents every non-finite numeric risk input as null with finite=false, and marks out-of-domain or unavailable-required evidence with valid=false." }
       ],
       "failures": [{ "id": "H-EXECUTION-F1", "statement": "Unsent, ambiguous, non-positive, non-finite, or unitless live evidence applies no quantity; invalid or unavailable risk snapshot evidence cannot be serialized as an actionable numeric value." }],

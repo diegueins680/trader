@@ -6,11 +6,11 @@ module Trader.BotSnapshotRecovery (
     snapshotMatchesTradeMemoryContext,
 ) where
 
+import Control.Monad (unless)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import Data.Char (toLower)
-import Data.List (mapAccumL)
 import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -78,14 +78,9 @@ tradeFromSnapshotValue =
             entryIp <- o Aeson..:? "entryIp"
             exitIp <- o Aeson..:? "exitIp"
             let entrySource = fromMaybe TradeEntrySignal (entrySourceRaw >>= parseTradeEntrySourceCode)
-                tradeReturn =
-                    case mReturn of
-                        Just r | finite r -> r
-                        _ ->
-                            if finite entryEquity && finite exitEquity && entryEquity > 0
-                                then exitEquity / entryEquity - 1
-                                else 0
                 exitReason = exitReasonRaw >>= exitReasonFromCode
+            unless (validTradeMetadata holdingPeriods entryHighVolProb) (fail "Invalid closed-trade metadata.")
+            tradeReturn <- maybe (fail "Invalid closed-trade equity or return.") pure (checkedTradeReturn entryEquity exitEquity mReturn)
             pure
                 Trade
                     { trEntryIndex = 0
@@ -101,18 +96,34 @@ tradeFromSnapshotValue =
                     , trExitIp = exitIp
                     , trFeeCost = 0
                     }
-  where
-    finite x = not (isNaN x || isInfinite x)
+
+-- | Missing return may be derived; explicitly invalid evidence never becomes zero.
+checkedTradeReturn :: Double -> Double -> Maybe Double -> Maybe Double
+checkedTradeReturn entryEquity exitEquity supplied
+    | not (finite entryEquity && entryEquity > 0 && finite exitEquity) = Nothing
+    | otherwise =
+        let value = fromMaybe (exitEquity / entryEquity - 1) supplied
+         in if finite value then Just value else Nothing
+
+validTradeMetadata :: Int -> Maybe Double -> Bool
+validTradeMetadata holdingPeriods probability =
+    holdingPeriods >= 0 && maybe True (\p -> finite p && p >= 0 && p <= 1) probability
+
+finite :: Double -> Bool
+finite x = not (isNaN x || isInfinite x)
 
 reindexRestoredTrades :: [Trade] -> [Trade]
-reindexRestoredTrades trades =
-    snd (mapAccumL reindex 0 trades)
+reindexRestoredTrades = fromMaybe [] . go 0
   where
-    reindex idx tr =
-        let hold = max 1 (trHoldingPeriods tr)
-            entryIdx = idx
-            exitIdx = idx + hold
-         in (exitIdx + 1, tr{trEntryIndex = entryIdx, trExitIndex = exitIdx})
+    go :: Integer -> [Trade] -> Maybe [Trade]
+    go _ [] = Just []
+    go idx (tr : rest) =
+        let exitIdx = idx + max 1 (toInteger (trHoldingPeriods tr))
+         in if idx < 0 || exitIdx > toInteger (maxBound :: Int)
+                then Nothing
+                else
+                    (tr{trEntryIndex = fromInteger idx, trExitIndex = fromInteger exitIdx} :)
+                        <$> go (exitIdx + 1) rest
 
 takeLast :: Int -> [a] -> [a]
 takeLast n xs

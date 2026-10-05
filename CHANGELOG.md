@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Reject malformed closed-trade snapshot equities, returns, durations and optional probabilities. Derive only missing returns with finite results; reconstruct indices with checked Integer arithmetic and reject unrepresentable selected histories. Preserve valid memory and venue-authoritative exposure; add SMT, local state-model, compiled-helper and JSON regressions.
+
 - Validate effective quantity/notional metadata and sizing prices before quantity normalization or minimum-size retry. Reject negative raw quantities before zero-clamping/minimum expansion, missing prices needed by positive minimum notional, non-finite probe expansion and non-finite quote amounts. Preserve valid-input results and configured limits; add scoped SMT, retry-model and compiled Main regressions.
 
 - Reject selected Binance quantities/prices whose unchanged eight-decimal wire representation parses as zero or fails parsing, before credential access. Share the legacy formatter between validation and request construction; add exact Integer guard obligations, compiled prefix regressions and wire-byte compatibility checks. Zero-wire maker prices reject before market fallback. No new configuration or live authorization.

@@ -9565,6 +9565,47 @@ testSnapshotRestartRestoresMemoryWithoutExposureScenario = do
         "a venue-flat restart has no phantom halt order even when its historical snapshot claimed exposure"
         (lrhaExitReason flatHalt == Just ExitMaxDrawdown && lrhaDesiredPosition flatHalt == 0 && isNothing (lrhaOrderDirection flatHalt))
 
+    let statusWithTrades values =
+            Aeson.object
+                [ "symbol" .= ("BTCUSDT" :: String)
+                , "interval" .= ("5m" :: String)
+                , "market" .= ("futures" :: String)
+                , "method" .= ("both" :: String)
+                , "trades" .= (values :: [Aeson.Value])
+                ]
+        recover values = restoreTradeMemoryFromStatus context (statusWithTrades values)
+        rawTrade entry exit ret hold prob =
+            Aeson.object
+                ( ["entryEquity" .= entry, "exitEquity" .= exit, "holdingPeriods" .= (hold :: Int)]
+                    ++ maybe [] (\r -> ["return" .= (r :: Aeson.Value)]) ret
+                    ++ maybe [] (\p -> ["entryHighVolProb" .= (p :: Aeson.Value)]) prob
+                )
+        num x = Aeson.toJSON (x :: Double)
+        huge = Aeson.Number (10 ^ (400 :: Int))
+        good hold = rawTrade (num 1) (num 1.1) (Just (num 0.1)) hold Nothing
+    forM_
+        [ rawTrade (num 1e-300) (num 1e300) Nothing 1 Nothing
+        , rawTrade (num 1) (num 1.1) (Just huge) 1 Nothing
+        , rawTrade huge (num 1.1) (Just (num 0.1)) 1 Nothing
+        , rawTrade (num 0) (num 1) (Just (num 0)) 1 Nothing
+        , rawTrade (num 1) (num 1) Nothing (-1) Nothing
+        , rawTrade (num 1) (num 1) Nothing 1 (Just huge)
+        , rawTrade (num 1) (num 1) Nothing 1 (Just (num 1.1))
+        ]
+        $ \bad -> do
+            assert "malformed closed-trade numerics reject" (null (recover [bad]))
+            assert "malformed record does not block independent valid history" (length (recover [bad, good 3]) == 1)
+    assert "CE-RECOVERY-003 index overflow rejects the selected history" (null (recover [good maxBound, good 1]))
+    assert
+        "last-N selection precedes bounded indexing"
+        (length (restoreTradeMemoryFromStatus context{tmscTradeLimit = 1} (statusWithTrades [good maxBound, good 1])) == 1)
+    assert
+        "zero duration and maximum representable exit retain semantics"
+        ( case (recover [good 0], recover [good maxBound]) of
+            ([a], [b]) -> trEntryIndex a == 0 && trExitIndex a == 1 && trHoldingPeriods a == 0 && trExitIndex b == maxBound
+            _ -> False
+        )
+
 maxDrawdownHaltForPosition :: Int -> Double -> LiveRiskHaltAction
 maxDrawdownHaltForPosition position positionSize =
     liveRiskHaltAction

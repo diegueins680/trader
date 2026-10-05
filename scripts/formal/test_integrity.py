@@ -3226,5 +3226,27 @@ class SizingInputTests(unittest.TestCase):
         self.assertEqual(result['conformance']['currentFunctionCases'],24856)
 
 
+class ClosedTradeRecoveryTests(unittest.TestCase):
+    def test_closed_trade_recovery_source_mutations(self):
+        import closed_trade_recovery as r
+        s=(r.ROOT/r.CORE).read_text();r.extract()
+        for before,after in [('entryEquity > 0','entryEquity >= 0'),('if finite value','if True'),
+                             ('holdingPeriods >= 0','holdingPeriods < 0'),('exitIdx > toInteger','exitIdx < toInteger'),
+                             ('go (exitIdx + 1) rest','go exitIdx rest'),
+                             ('unless (validTradeMetadata holdingPeriods entryHighVolProb)','unless True')]:
+            changed=s.replace(before,after,1)
+            self.assertNotEqual(s,changed)
+            with self.assertRaises(ValueError):r.extract(changed)
+
+    def test_closed_trade_recovery_conformance(self):
+        import closed_trade_recovery as r
+        x=r.check_recovery()
+        self.assertEqual(len(x['smt']),2)
+        self.assertEqual((x['model']['states'],x['model']['transitions']),(22,22))
+        self.assertEqual(x['model']['finiteHistories'],341)
+        self.assertEqual(x['conformance']['numericRows'],2675)
+        self.assertEqual(x['conformance']['indexHistories'],1031)
+
+
 if __name__ == '__main__':
     unittest.main()
