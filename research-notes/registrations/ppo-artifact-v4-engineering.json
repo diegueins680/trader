@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "a8f3dcd166ec853037cf168eb2bf1993fd99b43c",
+  "version": "ppo-artifact-v4",
+  "hypothesis": "Completed immutable PPO results can traverse a bounded integrity/provenance-checked byte boundary without changing their v3 inference request.",
+  "financialTrials": 0,
+  "seeds": [11, 23, 47],
+  "horizons": [1, 3, 6],
+  "steps": 17,
+  "data": "Synthetic 180-row ALPHA/BETA prefixes and zero funding; no historical data or final holdout.",
+  "budget": "Nine synthetic fits; deterministic round trips, rejection cases, source/model mutants and generated bit-pattern checks. Repeated verification is engineering reproduction, not independent financial evidence.",
+  "contract": "formal/research/ppo-artifact-v4-contract.md",
+  "acceptance": "Exact restored immutable state and v3 frame parity; rejection of every registered malformed case; source-bound SMT/model/conformance reproduced in formal and full wrappers. No broad closure inferred.",
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "limitations": "Caller trust anchors are not authenticated; no Haskell artifact admission, filesystem transaction, normalization application or production activation. No new dependencies."
+}
