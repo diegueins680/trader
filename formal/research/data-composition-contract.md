@@ -71,3 +71,13 @@ purge/embargo labels do not allocate two separate gaps. This work therefore
 **does not close obligations 1, 2, 4 or 17**. It does not close numeric safety,
 accounting, promotion, shutdown, ownership, recovery or statistical acceptance.
 The frozen v1 counterexamples and rejected policy evidence remain unchanged.
+
+## Checker counterexample
+
+CE-DATA-COMPOSITION-001 preserves an admitted coverage mutant at 12bec119:
+removing the reviewed skeleton roster still returned a certificate. The fixed
+checker requires all eleven skeletons and all four source hashes, supported
+schema and explicit shared inputs before any semantic check. Tests reject an
+empty or partially omitted roster. This was a verifier admission defect, not
+observed cross-symbol market leakage. Key claims additionally require each
+paired key to equal the declared symbol; equal foreign keys alone are insufficient.

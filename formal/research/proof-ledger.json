@@ -3303,7 +3303,7 @@
       "result": "28 source-use sites checked; six source-derived key claims UNSAT with satisfiable premises. Runtime loader/fit/replay/OPE conformance is separate test evidence.",
       "bounds": "Four complete source files; 28 scale references, two owner bindings (four source references), four immutable fields; six key checks over arbitrary strings; existing universal integer prefix bounds.",
       "limitations": "Trusted primitive/source-grammar semantics; no universal interpreter/library/deployed-image refinement. Shared training parameters are intentional global inputs. Publication and revision timing, whole-panel admission causality, complete split isolation and full state/accounting/lifecycle correctness remain unresolved.",
-      "counterexample": null,
+      "counterexample": "formal/research/data-composition-counterexamples.json",
       "status": "exhaustively_checked"
     },
     {

@@ -49,3 +49,17 @@ contaminated development with invalid OPE and no matched-champion confirmation.
 Recommendation remains no adoption. This verification change is independently
 useful because it replaces two assumption-only composition gaps with replayable,
 source-bound evidence and rejects future dataflow drift in CI.
+
+Review counterexample CE-DATA-COMPOSITION-001: the first checker revision at
+12bec119 accepted a registry with its reviewed skeleton roster deleted. The
+canonical roster itself was complete. The repaired checker now requires the
+entire eleven-block/four-file roster and rejects partial omissions. The fixture
+preserves the observed pre-fix acceptance, and deterministic regressions cover
+missing schema/shared-input declarations as well. An additional SMT regression
+rejects paired keys that agree with each other but name a foreign symbol.
+All final checks are rerun against the hardened checker; earlier successful
+checks do not substitute for verification of the final head.
+
+The superseded pre-hardening full verification was intentionally stopped during
+its own confirmed hlint process after its formal phase passed. It is not reported
+as a completed full check. No unrelated process was stopped.

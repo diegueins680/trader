@@ -2796,6 +2796,31 @@ class DataCompositionTests(unittest.TestCase):
                     dc.check_composition(sources)
                 self.assertNotIn('unreviewed helper/source drift', str(caught.exception))
 
+    def test_missing_reviewed_coverage_cannot_certify(self):
+        import data_composition as dc
+        original = read_json(ROOT / dc.REGISTRY)
+        for mutate in (lambda r: r.update(blocks={}),
+                       lambda r: r['blocks']['sequential_env.py'].pop('Scale.__post_init__'),
+                       lambda r: r.update(sourceHashes={}),
+                       lambda r: r.update(sharedInputs=[]),
+                       lambda r: r.update(schemaVersion=2)):
+            registry = copy.deepcopy(original)
+            mutate(registry)
+            with self.assertRaises(ValueError):
+                dc.check_composition(registry=registry)
+        fixture = read_json(ROOT / 'formal/research/data-composition-counterexamples.json')
+        self.assertEqual(fixture['entries'][0]['id'], 'CE-DATA-COMPOSITION-001')
+        self.assertEqual(fixture['entries'][0]['mutation'], {'blocks': {}})
+
+    def test_equal_foreign_keys_are_not_declared_symbol(self):
+        import data_composition as dc
+        sources = self.sources()
+        sources['sequential_env.py'] = sources['sequential_env.py'].replace(
+            'p = prices[symbol]', 'p = prices["FOREIGN"]').replace(
+            'Replay(p, funding[symbol]', 'Replay(p, funding["FOREIGN"]')
+        with self.assertRaisesRegex(RuntimeError, 'violating source bound'):
+            dc.check_keys({file: ast.parse(source) for file, source in sources.items()})
+
     def test_wrong_key_yields_smt_counterexample(self):
         import data_composition as dc
         sources = self.sources()

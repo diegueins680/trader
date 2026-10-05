@@ -162,3 +162,8 @@ mutation). The shared training transform/policy is explicitly global. Historical
 publication/revision witnesses, online admission causality, full split isolation,
 numeric/accounting refinement and inherited production correctness remain open.
 Risk remains HIGH/OPEN; current broad count is 5 closed, 26 partial, 7 open.
+
+CE-DATA-COMPOSITION-001 records and fixes a verifier coverage omission: the first
+source-composition checker did not require its full skeleton roster. The corrected
+checker requires every reviewed block and rejects omitted coverage. No historical
+market leakage or trading behavior change is inferred from this injected mutant.

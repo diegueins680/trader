@@ -18,6 +18,17 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = 'formal/research/data-composition-source.json'
 FILES = ('sequential_env.py', 'sequential_learning.py',
          'sequential_evaluation.py', 'run_sequential_screen.py')
+BLOCK_ROSTER = {
+    'run_sequential_screen.py': {'load_development'},
+    'sequential_env.py': {'Scale.__post_init__', 'Scale.transform', 'Scale.supported', 'Replay.__init__', 'collect'},
+    'sequential_evaluation.py': {'short_ope', 'replay_policy', 'Baselines.__init__'},
+    'sequential_learning.py': {'train_ppo', 'train_q'},
+}
+SHARED_INPUTS = [
+    'Scale fitted over registered training prefixes of all declared symbols',
+    'Shared policy and baseline parameters fitted over those training prefixes',
+]
+
 
 
 def require(condition, message):
@@ -136,15 +147,16 @@ def check_keys(trees):
     selected_price = dictionary_key(one_assignment(collect, 'p'), 'prices', symbols)
     calls = [n for n in ast.walk(collect) if isinstance(n, ast.Call) and ast.unparse(n.func) == 'Replay']
     require(len(calls) == 1 and ast.unparse(calls[0].args[0]) == 'p', 'collector price binding')
-    checks.append(('collection_pair', selected_price == dictionary_key(calls[0].args[1], 'funding', symbols)))
+    checks.append(('collection_pair', z.And(selected_price == name,
+                  dictionary_key(calls[0].args[1], 'funding', symbols) == name)))
     for owner, callee, count in (('short_ope', 'Replay', 2), ('run', 'replay_policy', 1)):
         file = 'run_sequential_screen.py' if owner == 'run' else 'sequential_evaluation.py'
         calls = [n for n in ast.walk(definition(trees[file], owner))
                  if isinstance(n, ast.Call) and ast.unparse(n.func) == callee]
         require(len(calls) == count, 'market consumer call roster drift')
         for index, call in enumerate(calls):
-            checks.append((owner + str(index), dictionary_key(call.args[0], 'prices', symbols) ==
-                           dictionary_key(call.args[1], 'funding', symbols)))
+            checks.append((owner + str(index), z.And(dictionary_key(call.args[0], 'prices', symbols) == name,
+                           dictionary_key(call.args[1], 'funding', symbols) == name)))
     # Forwarding single arrays does not introduce a second symbol-local market source.
     forward = definition(trees['sequential_evaluation.py'], 'replay_policy')
     constructor = one_assignment(forward, 'env')
@@ -179,6 +191,12 @@ def check_snapshot(tree):
 
 def check_composition(sources=None, registry=None):
     registry = json.loads((ROOT / REGISTRY).read_text()) if registry is None else registry
+    require(type(registry.get('schemaVersion')) is int and registry['schemaVersion'] == 1, 'unsupported source contract version')
+    require({file: set(blocks) for file, blocks in registry.get('blocks', {}).items()} == BLOCK_ROSTER,
+            'mandatory source skeleton coverage missing or changed')
+    require(set(registry.get('sourceHashes', {})) == {'scripts/research/' + f for f in FILES},
+            'mandatory source hash inventory missing or changed')
+    require(registry.get('sharedInputs') == SHARED_INPUTS, 'explicit shared input contract drift')
     sources = ({f: (ROOT / 'scripts/research' / f).read_text() for f in FILES}
                if sources is None else sources)
     require(set(sources) == set(FILES), 'incomplete source inventory')
