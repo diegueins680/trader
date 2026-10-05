@@ -2314,5 +2314,84 @@ class SequentialContracts(unittest.TestCase):
                 self.assertNotIn("import Trader.Research.PolicyProposalV1",p.read_text(),str(p))
 
 
+class DataCompositionConformance(unittest.TestCase):
+    def test_loader_fit_replay_symbol_conformance(self):
+        import sys
+        import ast
+        ROOT = Path(__file__).resolve().parents[1]
+        import pandas as pd
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import run_sequential_screen as runner
+        import sequential_env as env
+        import sequential_evaluation as evaluation
+        n, stop = 280, 160
+        names = ['ALPHA', 'BETA']
+        rows, events = [], []
+        for index, name in enumerate(names):
+            for i in range(n):
+                rows.append([name, i * 100, i * 100 + 99, (index + 1) * 100 + i / 100])
+            events.append([name, 199, 0.0001 * (index + 1), 100.0 * (index + 1)])
+        panel = pd.DataFrame(rows, columns=['symbol', 'openTime', 'closeTime', 'close']).to_csv(index=False).encode()
+        settlements = pd.DataFrame(events, columns=['symbol', 'fundingTime', 'fundingRate', 'resolvedMarkPrice']).to_csv(index=False).encode()
+        spec = {'data': {'panelSha256': hashlib.sha256(panel).hexdigest(),
+            'settlementsSha256': hashlib.sha256(settlements).hexdigest(), 'symbols': names,
+            'startOpenTime': 0, 'endOpenTime': (n-1)*100, 'intervalMilliseconds': 100, 'rowsPerSymbol': n}}
+        tree = ast.parse((ROOT / 'scripts/research/run_sequential_screen.py').read_text())
+        fold = next(n for n in ast.walk(tree) if isinstance(n,ast.For) and ast.unparse(n.target) == '(fi, split)')
+        statements = fold.body[:3]
+        with tempfile.TemporaryDirectory() as directory:
+            price_path, fund_path = Path(directory)/'panel.csv', Path(directory)/'funding.csv'
+            price_path.write_bytes(panel); fund_path.write_bytes(settlements)
+            prices, funding, _ = runner.load_development(price_path, fund_path, spec)
+            for index, name in enumerate(names):
+                self.assertEqual(prices[name][0], (index+1)*100)
+                self.assertAlmostEqual(funding[name][1], 0.01 * (index+1)**2)
+            space = {'prices': prices, 'funding': funding, 'split': {'trainStop': stop}, 'Scale': env.Scale}
+            exec(compile(ast.Module(body=statements, type_ignores=[]), '<actual-fold-setup>', 'exec'), space)
+            scale = space['scale']
+            before = {field: getattr(scale, field).tobytes() for field in ('mean','std','low','high')}
+            altered = {name: p.copy() for name,p in prices.items()}
+            for p in altered.values(): p[stop:] = np.nan
+            changed = dict(space, prices=altered)
+            exec(compile(ast.Module(body=statements, type_ignores=[]), '<actual-fold-setup>', 'exec'), changed)
+            self.assertEqual(before, {field: getattr(changed['scale'],field).tobytes() for field in before})
+            for field in before:
+                with self.assertRaises(ValueError): getattr(scale,field).setflags(write=True)
+                with self.assertRaises(ValueError): getattr(scale,field)[0] = 99
+            # Foreign-symbol market changes do not alter a local observation
+            # with the explicitly shared training transform held fixed.
+            local = env.Replay(prices['ALPHA'],funding['ALPHA'],190,197,1,scale,enabled=True)
+            local_before = local.observation().copy()
+            foreign = prices['BETA'].copy()
+            foreign[:] = np.nan
+            altered_panel = dict(prices, BETA=foreign)
+            other = env.Replay(altered_panel['ALPHA'],funding['ALPHA'],190,197,1,scale,enabled=True)
+            np.testing.assert_array_equal(local_before,other.observation())
+            pairs = []
+            original = env.Replay
+            def observed(p, f, *args, **kwargs):
+                matches = [name for name in names if np.array_equal(p,prices[name][:len(p)])]
+                self.assertEqual(len(matches),1)
+                self.assertTrue(np.array_equal(f, funding[matches[0]][:len(f)]))
+                pairs.append(matches[0])
+                return original(p,f,*args,**kwargs)
+            with patch.object(env, 'Replay', observed):
+                for seed in (11,23,47):
+                    env.collect(space['train'],space['funds'],scale,1,seed,4)
+            with patch.object(evaluation, 'Replay', observed):
+                for name in names:
+                    evaluation.replay_policy(prices[name],funding[name],190,197,1,scale,lambda obs:(0.0,0.0))
+                class ConstantPolicy:
+                    def forward(self, observation): return np.array([0.0,1.0,0.0])
+                evaluation.short_ope(prices,funding,scale,1,190,230,ConstantPolicy(),11,episodes=3)
+            self.assertGreaterEqual(len(pairs), 11)
+            self.assertEqual(set(pairs),set(names))
+            self.assertEqual(before,{field:getattr(scale,field).tobytes() for field in before})
+            # A changed pathname cannot replace the bytes already bound to the arrays.
+            price_path.write_bytes(b'corrupt')
+            self.assertEqual(prices['ALPHA'][0],100.0)
+            with self.assertRaisesRegex(ValueError,'registered development bytes'):
+                runner.load_development(price_path,fund_path,spec)
+
 if __name__ == "__main__":
     unittest.main()

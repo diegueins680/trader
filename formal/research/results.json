@@ -650,6 +650,71 @@
     "privateConstructorChecked": true,
     "seed": 20260920
   },
+  "dataComposition": {
+    "keys": {
+      "domain": "arbitrary mathematical symbol strings",
+      "keyChecks": [
+        "rows_selection",
+        "es_selection",
+        "collection_pair",
+        "short_ope0",
+        "short_ope1",
+        "run0"
+      ],
+      "premiseChecks": 6,
+      "requirement": "F-RL-DATA-KEYS",
+      "result": "unsat",
+      "violationChecks": 6
+    },
+    "prefixRequirements": [
+      "F-RL-FIT-PREFIX",
+      "F-RL-COLLECT-PREFIX"
+    ],
+    "publicationWitnessesVerified": false,
+    "requirement": "F-RL-DATA-COMPOSITION",
+    "scaleUseSites": 28,
+    "sharedInputs": [
+      "Scale fitted over registered training prefixes of all declared symbols",
+      "Shared policy and baseline parameters fitted over those training prefixes"
+    ],
+    "smt": {
+      "F-RL-DATA-KEYS": "unsat"
+    },
+    "snapshot": {
+      "backing": "immutable bytes",
+      "fields": [
+        "mean",
+        "std",
+        "low",
+        "high"
+      ],
+      "frozenOwner": true,
+      "librarySemantics": "A-DATA-COMPOSITION"
+    },
+    "sourceFiles": [
+      "sequential_env.py",
+      "sequential_learning.py",
+      "sequential_evaluation.py",
+      "run_sequential_screen.py"
+    ],
+    "status": "exhaustively_checked",
+    "universalInterpreterRefinement": false,
+    "useEffects": {
+      "annotation": 3,
+      "fit": 1,
+      "fit_binding": 1,
+      "forward:Baselines": 1,
+      "forward:Replay": 4,
+      "forward:collect": 4,
+      "forward:replay_policy": 1,
+      "forward:short_ope": 1,
+      "forward:train_ppo": 1,
+      "forward:train_q": 1,
+      "owner_binding": 4,
+      "read": 5,
+      "serialize": 1
+    }
+  },
   "defaultPaths": {
     "artifact": {
       "savedEnabled": false
@@ -1072,10 +1137,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 3,
+    "closedMissionObligations": 5,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 35
+    "openMissionObligations": 33
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -1731,6 +1796,7 @@
     "F-RL-CAUSAL-SLICE": "unsat",
     "F-RL-COLLECT-PREFIX": "unsat",
     "F-RL-CQL-GRADIENT": "unsat",
+    "F-RL-DATA-KEYS": "unsat",
     "F-RL-DEFAULT": "unsat",
     "F-RL-DOUBLE-TARGET": "unsat",
     "F-RL-DRAWDOWN-COMPOSE": "unsat",
@@ -1874,6 +1940,8 @@
     "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
+    "formal/research/data-composition-contract.md": "3d3370096d7de63b2047146d472efd30efb0e0b39a970a0d97f3b5ec5f74e31d",
+    "formal/research/data-composition-source.json": "f236cc942635acd29c02113fee02b93776aaf65e613c53ae51e2786bd56f5b31",
     "formal/research/drain-pool-contract.md": "409f48af808731543eb59e2bc74204d9f17cd9cfef581d365420641bfdc3b051",
     "formal/research/drain-pool-counterexamples.json": "9046e06d60ef6be96080ef0935592c8972ee1fb5bacc60ad4092e8f4a8bf3b36",
     "formal/research/drain-pool-source.json": "6f534bf26d90fc04dc30dd23e5dfae47bb58f8f7cbfb379b0bcdbf5235ad395f",
@@ -1898,8 +1966,8 @@
     "formal/research/inference-counterexamples.json": "861bbecef8f56379e6590508820ed52597c0100bb302cb1f289fe39303a5f838",
     "formal/research/inference-process-source.json": "bcf864ea477b50625350018a733f5cd635201b8061fa45b03e1aa08c657d02a5",
     "formal/research/inference-process-v2-contract.md": "60c8a073850649db5389285265b01af3584bf4bc21eeda604a84446a30d3e8c3",
-    "formal/research/obligation-closure-audit.md": "0663962d328b30151217a376bae945a6c95c716325c5544faa6f46537619c522",
-    "formal/research/obligation-contracts.json": "fe66e17d979de184c609a187b61de05e15e2c3cdafea9621e40e46deaf1fab2f",
+    "formal/research/obligation-closure-audit.md": "c9fa1a506b18fd0259151725c71bb77cc3e237324b10b7111b04c2c6de16b72b",
+    "formal/research/obligation-contracts.json": "b4bf5e648239ea9c244ea43db43d43bc284e1e670598f41c72b8f352d3241b69",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
@@ -1907,7 +1975,7 @@
     "formal/research/optimizer-snapshot-v2-contract.md": "45954bbd01e22148f79ffb9d13fa3626fd84326874b76373af4b29f0462ce230",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
-    "formal/research/proof-ledger.json": "ab3dff443972b22ae847884e13642e0b17111e9c5f2fe0e36c52157fbc646b11",
+    "formal/research/proof-ledger.json": "383ec1fc595923e5ab735dfd22ad39f29127d8e8f7335d36824f0bf28b6c8d2c",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
@@ -2077,6 +2145,7 @@
     "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
     "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc",
     "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
+    "research-notes/registrations/research-data-composition-engineering.json": "b88cedd60593b144b6bc3786615e3846d028b3c1bd40f73a6774bdcf73317de9",
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "research-notes/registrations/shutdown-deadline-engineering.json": "fc3a495df2ee75b347600bdb30b342b90dde8ffab91470e249533f5cb52860f3",
@@ -2091,6 +2160,7 @@
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
+    "scripts/formal/data_composition.py": "b8ff9d3e64b84b927cf51c2a21ffc65a32ea8338d61080e20451c29a1cc9f72e",
     "scripts/formal/default_paths.py": "48959a79c17e0cd96e89929df5eefec819fd824349c525ed597f4011b463d85d",
     "scripts/formal/drain_pool.py": "37044b48187baf7a86d77db79a14cba73a5365d8ac33ec9cb162f986610aabc8",
     "scripts/formal/ess_v2.py": "bdaa6f53c38117b14f60fd291f8b5b93c224f3c5b9e0b0cb146c522d2d9b8661",
@@ -2112,11 +2182,11 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "ea812e25be6fbdee81154f63d55f8c19c0063de927e5aa49fa3179fc75f47264",
+    "scripts/formal/test_integrity.py": "f24fc68c97ed731ec5cd243804d35e00d9f085bd0c20d1e7f4df01eb486f883d",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "b72383ba4fb05d329b6f3897819a0416c75e79a7f3772b00707ee3ee20b85ff3",
+    "scripts/formal/verify.py": "a8cc76d98adc0c9f133eb2020afea478bfa12c79a96bf7856af0dd46e706a0e1",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
@@ -2128,7 +2198,7 @@
     "scripts/research/sequential_learning.py": "6b643a39d0ef1fae3ac3a66895b83b663e58b053aa12a4ed27e2c2ecd4209ed5",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
-    "test/sequential_screen_test.py": "c8d365e228ee4e7a5ec4b9bd06f725a671510b9806a2a5b93b7ca836f9cf5176"
+    "test/sequential_screen_test.py": "f64f6b0db30bef28fde5652a9a0fd1fe508337bc7c498d5d1876da7fc341e1e5"
   },
   "targetV2": {
     "model": {

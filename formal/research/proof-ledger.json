@@ -205,6 +205,12 @@
       "status": "assumption",
       "statement": "Pinned GHC 9.4.8/base 4.17.2.1/stm 2.5.1.0 provide serializable atomic transactions, rollback and masking. Drain latch and counters are private; reservation STM contains finite pure computation, no retry, IO or callback. Contention/scheduler service and callback cooperation remain assumptions, not hard deadlines. Pre-drain owners may execute after drain; no whole-server bot/order authorization, durable recovery or complete IO refinement.",
       "risk": "SHUTDOWN-DEADLINE-001"
+    },
+    {
+      "id": "A-DATA-COMPOSITION",
+      "status": "assumption",
+      "statement": "Pinned Python AST/control flow/argument binding, pandas equality filtering and conversion, NumPy immutable bytes views and argument-only numeric primitives, SHA-256 collision resistance and the reviewed source checker are trusted. Ordinary registered files/base arrays, stable bindings, no hostile subclasses, runtime patching, arbitrary injected callbacks or concurrent writers. Full interpreter/library refinement, publication witnesses and online admission causality are not proved. Shared training transforms/policies are explicitly permitted global inputs.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -282,7 +288,8 @@
     "formal/research/fixtures/drain-pool-before-async.hs",
     "formal/research/fixtures/drain-pool-before-backtest.hs",
     "formal/research/fixtures/drain-pool-before-drain.hs",
-    "scripts/formal/drain_pool.py"
+    "scripts/formal/drain_pool.py",
+    "scripts/formal/data_composition.py"
   ],
   "entries": [
     {
@@ -3264,6 +3271,74 @@
       "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
       "counterexample": "formal/research/drain-pool-counterexamples.json",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-DATA-COMPOSITION",
+      "claim": "Every admitted scale reference in the four-source offline runner is a checked training fit, immutable owner binding, read, serialization or parameter-preserving forwarding edge; reviewed loader and caller composition preserves local market provenance. The 28 source-use sites are exhaustively checked under A-DATA-COMPOSITION, not a verified Python interpreter.",
+      "formalStatement": "Every admitted scale reference in the four-source offline runner is a checked training fit, immutable owner binding, read, serialization or parameter-preserving forwarding edge; reviewed loader and caller composition preserves local market provenance. The 28 source-use sites are exhaustively checked under A-DATA-COMPOSITION, not a verified Python interpreter.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DATA-COMPOSITION",
+        "A-TRAIN-PREFIX",
+        "A-SOURCE-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "Restricted Python AST source-use checker and Z3 string solver",
+      "toolVersion": "CPython 3.13.3; NumPy 2.3.5; Z3 4.15.4",
+      "sourceModel": "scripts/formal/data_composition.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "formal/research/data-composition-contract.md",
+        "formal/research/data-composition-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal && bash scripts/verify.sh automation",
+      "result": "28 source-use sites checked; six source-derived key claims UNSAT with satisfiable premises. Runtime loader/fit/replay/OPE conformance is separate test evidence.",
+      "bounds": "Four complete source files; 28 scale references, two owner bindings (four source references), four immutable fields; six key checks over arbitrary strings; existing universal integer prefix bounds.",
+      "limitations": "Trusted primitive/source-grammar semantics; no universal interpreter/library/deployed-image refinement. Shared training parameters are intentional global inputs. Publication and revision timing, whole-panel admission causality, complete split isolation and full state/accounting/lifecycle correctness remain unresolved.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-DATA-KEYS",
+      "claim": "Source-derived panel equality filters and collector, replay and OPE call arguments select the declared symbol and pair prices with funding for arbitrary mathematical symbol strings. Six satisfiable-premise/UNSAT-violation queries compose with the checked dataflow skeleton.",
+      "formalStatement": "Source-derived panel equality filters and collector, replay and OPE call arguments select the declared symbol and pair prices with funding for arbitrary mathematical symbol strings. Six satisfiable-premise/UNSAT-violation queries compose with the checked dataflow skeleton.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DATA-COMPOSITION",
+        "A-TRAIN-PREFIX",
+        "A-SOURCE-CAUSAL",
+        "A-SOLVER"
+      ],
+      "tool": "Restricted Python AST source-use checker and Z3 string solver",
+      "toolVersion": "CPython 3.13.3; NumPy 2.3.5; Z3 4.15.4",
+      "sourceModel": "scripts/formal/data_composition.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "formal/research/data-composition-contract.md",
+        "formal/research/data-composition-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "test/sequential_screen_test.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal && bash scripts/verify.sh automation",
+      "result": "28 source-use sites checked; six source-derived key claims UNSAT with satisfiable premises. Runtime loader/fit/replay/OPE conformance is separate test evidence.",
+      "bounds": "Four complete source files; 28 scale references, two owner bindings (four source references), four immutable fields; six key checks over arbitrary strings; existing universal integer prefix bounds.",
+      "limitations": "Trusted primitive/source-grammar semantics; no universal interpreter/library/deployed-image refinement. Shared training parameters are intentional global inputs. Publication and revision timing, whole-panel admission causality, complete split isolation and full state/accounting/lifecycle correctness remain unresolved.",
+      "counterexample": null,
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [
@@ -3318,23 +3393,29 @@
     {
       "number": 3,
       "claim": "Causal normalization",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-FIT-PREFIX",
-        "F-RL-COLLECT-PREFIX"
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FEATURE-FOOTPRINT"
       ],
-      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open.",
+      "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every fitted scale depends only on admitted training rows and evaluation cannot mutate it.",
-      "nextAction": "Compose Scale.fit prefix and immutable snapshot evidence with runner fold-selection proof.",
+      "nextAction": "Closed for the delivered offline screen under A-DATA-COMPOSITION; reopen on changed loader, symbol selection, scale construction/use, helper effects or production integration.",
       "implementationFiles": [
         "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py"
       ],
-      "blockers": [
-        "Fit-prefix evidence does not establish caller region provenance and all stored-transform use."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT"
+      ]
     },
     {
       "number": 4,
@@ -3357,22 +3438,28 @@
     {
       "number": 5,
       "claim": "Symbol isolation",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
-        "F-RL-FEATURE-FOOTPRINT"
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-DATA-KEYS"
       ],
-      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open.",
+      "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Each local observation reads only its declared symbol; global inputs must be explicitly tagged.",
-      "nextAction": "Verify symbol-keyed panel admission and caller-to-array binding; add cross-symbol mutation regressions.",
+      "nextAction": "Closed for the delivered offline screen under A-DATA-COMPOSITION; reopen on changed loader, symbol selection, scale construction/use, helper effects or production integration.",
       "implementationFiles": [
-        "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_env.py"
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py"
       ],
-      "blockers": [
-        "Single-array feature proof does not certify panel symbol selection."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-DATA-KEYS",
+        "F-RL-FEATURE-FOOTPRINT"
+      ]
     },
     {
       "number": 6,
