@@ -388,7 +388,8 @@
     "formal/research/order-number-contract.md": "2dae816e5dfa3011b1dde5f236eb28eb536e793a7bc57a5b1e88eda8b76cf511",
     "formal/research/order-number-source.json": "63e152bce642345d6f586a218b384eaa3caa60669ea5d3efcac51b204132de47",
     "formal/research/order-number-counterexamples.json": "23112a613e3871ce772a23e4d925d6d77bbaf6d37a8c94296aeb58092151bfca",
-    "research-notes/registrations/order-number-engineering.json": "8a1c614f140de183d5f41ed841e0b4a9a20251a7fe60de7b4d507bf33da810f5"
+    "research-notes/registrations/order-number-engineering.json": "8a1c614f140de183d5f41ed841e0b4a9a20251a7fe60de7b4d507bf33da810f5",
+    "formal/specifications.json": "1e3a7f526db9309865e2e36838338099b5317c4bf99f2141963fd33e25876b63"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

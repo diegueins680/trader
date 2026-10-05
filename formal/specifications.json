@@ -78,7 +78,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "haskell/app/Trader/QuantityRounding.hs",
-        "haskell/app/Trader/Binance.hs"
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/OrderNumeric.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -715,6 +716,16 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_loader_fit_replay_symbol_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_smt_model_and_actual_prefixes"
+        },
+        {
+          "level": "property",
+          "path": "haskell/test/Trader/Test/OrderNumeric.hs",
+          "contains": "orderNumericSuite"
         }
       ]
     },

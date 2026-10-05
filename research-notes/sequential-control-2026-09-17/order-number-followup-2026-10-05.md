@@ -48,3 +48,16 @@ boundary evidence but remains partial. The frozen financial trials, all seeds,
 costs, OPE failures, contamination status and sealed holdout remain unchanged.
 No candidate is adopted. Canonical wrapper and final CI evidence will be recorded
 after frozen-source reproduction.
+
+Local full receipt reproduction (`python scripts/formal/verify.py --record`)
+failed in the unchanged artifact v4 worker probe: `--snapshot-contract-v3`
+exceeded its existing three-second subprocess timeout. No new receipt was
+written and no timeout was widened. Pinned CI must reproduce the frozen sources;
+targeted numeric passes are not a substitute for the full verification gates.
+
+The first ordinary CI automation check rejected an uncovered implementation
+file: OrderNumeric was in the proof ledger but absent from the canonical
+specification's implementation roster. Added the exact module path and direct
+conformance/property evidence links; no coverage rule or proof was weakened.
+The superseded pinned run was canceled; the corrected source revision must
+repeat receipt reproduction and both canonical wrappers before merge.
