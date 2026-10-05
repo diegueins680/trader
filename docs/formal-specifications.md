@@ -783,3 +783,13 @@ Obligations23/26 now have conditional scoped closure, with their original criter
 and scope unchanged: **7 scoped closures,26 partial,5 open**. No inherited live
 control-plane, ownership, deployed-image, crash-atomicity, hash-authenticity or OS
 sandbox theorem is claimed. RL-OFFLINE-001 stays open. No financial evidence changes.
+
+Artifact admission follow-up (2026-10-05): [A-ARTIFACT-COMPOSITION](../formal/research/artifact-composition-contract.md)
+records immutable identity/byte semantics and the trusted JSON/hash/array/compiler
+primitives. The old v1 expected-provenance mutation race is reproduced and corrected;
+version/hash predicates and finite concurrent replacement behavior are checked.
+Source correspondence is reviewed and conformance-tested, not a whole-interpreter
+proof. Expected identity authenticity, historical data availability, crash recovery,
+ownership and inherited production correctness remain separate unresolved claims.
+Scoped29/30 close without changing their criteria: **9 scoped closures,24 partial,
+5 open**. RL-OFFLINE-001 remains open; no new economic or production authorization.

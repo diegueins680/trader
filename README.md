@@ -57,7 +57,7 @@ remain assumptions. It is not an artifact loader, runner integration or producti
 service; v1 CE-RL-017 remains valid. See the [runbook](formal/research/README.md#offline-inference-process-v2).
 
 
-The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: causal normalization, symbol isolation, default-disabled, capability separation and no production learning are closed for the delivered offline boundary under the [source-isolation contract](formal/research/capability-isolation-contract.md); 26 partial and 7 open obligations, plus separate economic-evidence gates, remain unresolved. The [data-composition contract](formal/research/data-composition-contract.md) records the 28 checked scale-use sites and six symbol-key proofs, including explicit shared training inputs. This does not certify inherited production authorization or deployed images.
+The [obligation closure audit](formal/research/obligation-closure-audit.md) gives all 38 formal obligations explicit closure criteria and next actions. The verifier now admits evidence-backed closure: causal normalization, symbol isolation, default-disabled, capability separation and no production learning are closed for the delivered offline boundary under the [source-isolation contract](formal/research/capability-isolation-contract.md); At that source-isolation milestone, 26 partial and 7 open obligations remained unresolved. The [data-composition contract](formal/research/data-composition-contract.md) records the 28 checked scale-use sites and six symbol-key proofs, including explicit shared training inputs. This does not certify inherited production authorization or deployed images.
 
 The default-disabled [optimizer snapshot v2](formal/research/optimizer-snapshot-v2-contract.md) repairs partial state publication for its own offline update/forward path using immutable snapshots and conditional single-reference publication. Concurrent stale updates reject; the frozen learner remains reproducible. This does not close whole-system atomicity, prove hard inference cancellation, or change any trading policy.
 
@@ -825,4 +825,11 @@ into an unlimited timeout. Waiting admission retains its one-second retry; the
 execution timeout starts after admission and does not bound queue wait. Callbacks
 must remain interruptible for timeout delivery. See the [backtest gate contract](formal/research/backtest-gate-contract.md).
 
-Research verification now composes the [candidate promotion boundary](formal/research/promotion-boundary-contract.md) with the existing build, type and process certificates. Obligations23/26 close only for the delivered research candidates under the recorded assumptions; seven scoped closures,26 partial and five open remain. No candidate is approved for adoption or production. See the [evidence report](research-notes/sequential-control-2026-09-17/promotion-boundary-2026-10-05.md).
+Research verification now composes the [candidate promotion boundary](formal/research/promotion-boundary-contract.md) with the existing build, type and process certificates. Obligations23/26 close only for the delivered research candidates under the recorded assumptions; at that milestone seven scoped closures,26 partial and five open remained. No candidate is approved for adoption or production. See the [evidence report](research-notes/sequential-control-2026-09-17/promotion-boundary-2026-10-05.md).
+
+Artifact admission now captures and validates private expected provenance before
+file I/O, closing a deterministic caller-mutation race without changing stable-input
+v1 artifact semantics. The [composition report](research-notes/sequential-control-2026-09-17/artifact-composition-2026-10-05.md)
+records conditional scoped closures29/30: **9 scoped closures,24 partial,5 open**.
+These counts do not certify production readiness or economic performance. Old
+financial archives retain their recorded code identities and sealed holdouts.
