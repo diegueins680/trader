@@ -10,5 +10,11 @@
   "seed": 20261005,
   "contract": "formal/research/order-wire-contract.md",
   "acceptance": "SMT guard/selection obligations, finite local model, compiled actual-prefix and preserved wire-byte parity checks, Haskell properties, formal/full wrappers and final CI.",
-  "limitations": "Fixed parser and formatter are pinned base assumptions with conformance tests. No complete wire-cap/grid, caller-retry, whole IO refinement or economic evidence. No additional broad obligation closure."
+  "limitations": "Fixed parser and formatter are pinned base assumptions with conformance tests. No complete wire-cap/grid, caller-retry, whole IO refinement or economic evidence. No additional broad obligation closure.",
+  "callerAmendment": {
+    "baseline": "80174cdb",
+    "reason": "Maker constructor exceptions enter configured market fallback; reject zero-wire prices at the existing earlier preflight.",
+    "implementation": "validOrderPrice delegates to the same wire-aware validator; no flag change.",
+    "regression": "CE-ORDER-WIRE-002; actual source-derived admission/exception fragments with inert stubs and both fallback flags."
+  }
 }

@@ -51,3 +51,17 @@ authorization, accounting, resource-bound or exchange implementation theorem.
 Ordinary positive decimal rounding can still increase a quantity. Other venues
 are outside this repair. Broader obligations 9/10/21 remain unresolved; no new
 broad closure or economic evidence follows from this repair.
+
+## Caller amendment (registered before caller implementation)
+
+Audit of sendPostOnlyEntry found its `Left ex -> fallback` branch can turn a
+zero-wire price exception into a market order when maker fallback is enabled.
+The existing validOrderPrice preflight must therefore delegate to the same
+wire-aware validator. This preserves its signature and the existing no-order
+result and does not change fallback configuration or unrelated fallback cases.
+Preserve CE-ORDER-WIRE-002: compile the actual maker admission and exception
+branches against inert failure/eligibility markers, with the previous finite-only
+predicate versus the wire-aware predicate, for both fallback flags. An invalid
+wire price must reach neither constructor eligibility nor fallback. Extend the
+upward-rounding source binding, SMT predicate, conformance oracle and Haskell
+properties; keep exact rounding unchanged. Library assumptions are A-ORDER-WIRE.
