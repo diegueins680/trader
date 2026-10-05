@@ -21,7 +21,7 @@ quantizeDownExact scale increment x
 -- | Errors deliberately do not match the minimum-size retry classifier.
 validateQuantityInput :: Maybe (Integer, Integer) -> Double -> Either String ()
 validateQuantityInput grid x
-    | isNaN x || isInfinite x = Left "Invalid quantity input."
+    | isNaN x || isInfinite x || x < 0 = Left "Invalid quantity input."
     | Just (scale, increment) <- grid, scale <= 0 || increment <= 0 = Left "Invalid quantity step."
     | otherwise = Right ()
 

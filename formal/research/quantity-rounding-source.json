@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "coreSha256": "5f6647d985dbcab06e6cbc75e7eb5cb5c43f475ed9a5e79219807106bbb880ac",
+  "coreSha256": "356686acf2f87ff5b55cd95aa9e2ac7cfe6c154a10a939b08b5ac292eea5c3b5",
   "adapterDeclaration": "quantizeDown :: Step -> Double -> Double\nquantizeDown st = quantizeDownExact (stepScale st) (stepInt st)\n",
   "mainFragments": [
     [

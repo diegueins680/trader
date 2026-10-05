@@ -51,6 +51,7 @@ def extract(core=None,main=None,registry=None):
         'validateMinimumNotional (mSf >>= sfMinNotional)',
         'validateQuantityInput Nothing qty2']:
         require(main.count(line)==1,'missing/duplicate sizing boundary '+line)
+    require('| isNaN x || isInfinite x || x < 0 = Left "Invalid quantity input."' in core,'nonnegative raw input guard')
     require(core.count('finiteNonnegative x = not (isNaN x || isInfinite x) && x >= 0')==1,'finite metadata guard')
     require('Just p\n                    | isNaN p || isInfinite p || p <= 0 -> Left "Invalid sizing price."' in core,'price guard')
     require('(Just lo, Just hi) | lo > hi -> Left "Invalid quantity bounds."' in core,'bounds ordering')
@@ -146,9 +147,9 @@ def fixture_rows(fixture):
 
 def conformance(current):
     fixture=json.loads((ROOT/FIXTURE).read_text())
-    require([e['id'] for e in fixture['entries']]==[f'CE-SIZING-00{i}' for i in range(1,6)],'witness roster')
-    old='\n'.join(textwrap.dedent(fixture[k]) for k in ['probe','sizing'])
-    pattern=r'\b('+'|'.join(FUNCTIONS)+r')\b'
+    require([e['id'] for e in fixture['entries']]==[f'CE-SIZING-00{i}' for i in range(1,7)],'witness roster')
+    old='\n'.join(textwrap.dedent(fixture[k]) for k in ['probe','sizing','quantityValidator'])
+    pattern=r'\b('+'|'.join(FUNCTIONS+['validateQuantityInput'])+r')\b'
     old=re.sub(pattern,lambda m:'old_'+m.group(),old)
     new='\n'.join(textwrap.dedent(current[k]) for k in ['probe','sizing'])
     entry=new[new.index('normalizeEntryQty ::'):]
@@ -190,7 +191,7 @@ run (qw,pw,lw,hw,nw,hp,hl,hh,hn,hf,hg) = do
      normalGate=validateSizingInputs (effectiveMinQty sf) (effectiveMaxQty sf) (sfMinNotional sf) (Just p)
      probeGate=validateSizingInputs (effectiveMinQty sf) (effectiveMaxQty sf) (sfMinNotional sf) mp
      quoteGate=validateQuantityInput Nothing q >> validateMinimumNotional (sfMinNotional sf)
-     noRetry=if not (ok normalGate) || isNaN q || isInfinite q
+     noRetry=if not (ok normalGate) || isNaN q || isInfinite q || q < 0
              then either (not . isTooSmallQtyError) (const False) (noRetryEntry sf p q) else True
  print ([encode (normalizeQty sf p q),encodeEntry (normalizeEntryQty sf p q),encode (normalizeProbeQty mSf mp q),encode (validateProbeQuote mSf q),
          encode (old_normalizeQty sf p q),encodeEntry (old_normalizeEntryQty sf p q),encode (old_normalizeProbeQty mSf mp q),encode (old_validateProbeQuote mSf q)],
@@ -209,10 +210,10 @@ run (qw,pw,lw,hw,nw,hp,hl,hh,hn,hf,hg) = do
     for row,(results,gates,no_retry) in zip(rows,actual):
         q,p,lo,hi,n,mp=fields(row)
         normal=admission(lo,hi,n,p);probe=admission(lo,hi,n,mp)
-        quote=math.isfinite(q) and (n is None or math.isfinite(n) and n>=0)
+        quote=math.isfinite(q) and q>=0 and (n is None or math.isfinite(n) and n>=0)
         require(gates==[normal,probe,quote],'independent admission mismatch')
         require(no_retry,'compiled invalid-input retry marker')
-        permits=[math.isfinite(q) and normal,math.isfinite(q) and normal,math.isfinite(q) and probe,quote]
+        permits=[math.isfinite(q) and q>=0 and normal,math.isfinite(q) and q>=0 and normal,math.isfinite(q) and q>=0 and probe,quote]
         for i,permit in enumerate(permits):
             new,old=results[i],results[i+4]
             if not permit:require(not new[0],'invalid input published')
@@ -225,11 +226,11 @@ run (qw,pw,lw,hw,nw,hp,hl,hh,hn,hf,hg) = do
             if permit and old[0] and math.isfinite(value(old[1])):
                 require(new==old,'valid legacy result lost');compatibility[i]+=1
     require(all(n>0 for n in successes),'empty success coverage')
-    witnesses=actual[-5:]
-    for index,paths in enumerate([[0,1,2],[0,1,2],[2],[2],[3]]):
+    witnesses=actual[-6:]
+    for index,paths in enumerate([[0,1,2],[0,1,2],[2],[2],[3],[1]]):
         results=witnesses[index][0]
         for path in paths:require(not results[path][0] and results[path+4][0],'counterexample not reproduced')
-    return {'status':'property_tested','rows':len(rows),'boundaryRows':4160,'generatedRows':2048,'witnessRows':5,'seed':20261005,
+    return {'status':'property_tested','rows':len(rows),'boundaryRows':4160,'generatedRows':2048,'witnessRows':6,'seed':20261005,
             'currentFunctionCases':len(rows)*4,'legacyFunctionCases':len(rows)*4,'admittedResultsByFunction':successes,
             'compatibleResultsByFunction':compatibility,'functions':['normalizeQty','normalizeEntryQty','normalizeProbeQty','validateProbeQuote'],
             'counterexamples':[e['id'] for e in fixture['entries']],

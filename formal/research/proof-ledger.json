@@ -4310,9 +4310,9 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
-      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6213 rows (4160 boundary, 2048 generated, five witnesses; seed 20261005) across four current and four legacy functions, 24852 function cases per version. No market data or order effects.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
-      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
       "status": "smt_verified"
     },
     {
@@ -4343,15 +4343,15 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
-      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6213 rows (4160 boundary, 2048 generated, five witnesses; seed 20261005) across four current and four legacy functions, 24852 function cases per version. No market data or order effects.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
-      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
       "status": "smt_verified"
     },
     {
       "requirementId": "F-SIZING-RETRY",
-      "claim": "The five new sizing-validation errors and existing non-finite/grid errors cannot match the actual Main minimum-size retry classifier string predicate.",
-      "formalStatement": "The five new sizing-validation errors and existing non-finite/grid errors cannot match the actual Main minimum-size retry classifier string predicate.",
+      "claim": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate.",
+      "formalStatement": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate.",
       "criticality": "critical",
       "assumptions": [
         "A-SIZING-INPUT",
@@ -4376,9 +4376,9 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
-      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6213 rows (4160 boundary, 2048 generated, five witnesses; seed 20261005) across four current and four legacy functions, 24852 function cases per version. No market data or order effects.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
-      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
       "status": "smt_verified"
     },
     {
@@ -4409,15 +4409,15 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
-      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6213 rows (4160 boundary, 2048 generated, five witnesses; seed 20261005) across four current and four legacy functions, 24852 function cases per version. No market data or order effects.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
-      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
       "status": "model_checked"
     },
     {
       "requirementId": "F-SIZING-CONFORMANCE",
-      "claim": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6213 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker.",
-      "formalStatement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6213 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker.",
+      "claim": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker.",
+      "formalStatement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker.",
       "criticality": "critical",
       "assumptions": [
         "A-SIZING-INPUT",
@@ -4442,9 +4442,9 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_sizing and SizingInputTests; compiled actual functions and forbidden-retry marker; Haskell sizing properties run in the canonical full suite.",
-      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6213 rows (4160 boundary, 2048 generated, five witnesses; seed 20261005) across four current and four legacy functions, 24852 function cases per version. No market data or order effects.",
+      "bounds": "Fourteen SAT-premise/UNSAT-violation queries over binary64, Maybe-presence Booleans and constant error strings. Local retry model: 56 states, 24 initial/terminal, 32 transitions, depth three. 6214 rows (4160 boundary, 2048 generated, six witnesses; seed 20261005) across four current and four legacy functions, 24856 function cases per version. No market data or order effects.",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
-      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005",
+      "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
       "status": "property_tested"
     }
   ],

@@ -745,8 +745,9 @@ The [sizing admission contract](../formal/research/sizing-input-contract.md)
 adds F-SIZING-INPUT/PUBLISH/RETRY/FLOW/CONFORMANCE under A-SIZING-INPUT.
 Fourteen conditional SMT queries cover binary64 predicates, publication bounds
 and non-retryable errors. A 56-state/32-transition/depth-three local model and
-6213 compiled input rows connect metadata/price admission to actual Main
-normalizers and the minimum retry classifier. CE-SIZING-001–005 preserve five
+6214 compiled input rows connect metadata/price admission to actual Main
+normalizers and the minimum retry classifier. Negative raw quantities also
+reject before clamping; zero semantics remain. CE-SIZING-001–006 preserve six
 synthetic failures; no historical incident is inferred. Parsing/freshness,
 missing optional filters, direct minimum consumers, exact notional arithmetic,
 wire caps/grid and complete caller/lifecycle refinement remain unresolved.

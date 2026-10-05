@@ -3203,7 +3203,7 @@ class SizingInputTests(unittest.TestCase):
         import sizing_inputs as s
         core=(s.ROOT/s.CORE).read_text(); main=(s.ROOT/s.MAIN).read_text()
         s.extract()
-        for before,after in [('x >= 0','x > 0'),('lo > hi','lo < hi'),('p <= 0','p < 0'),
+        for before,after in [('x < 0 = Left','x <= 0 = Left'),('x >= 0','x > 0'),('lo > hi','lo < hi'),('p <= 0','p < 0'),
                              ('Invalid sizing price.','Quantity below minQty invalid price')]:
             changed=core.replace(before,after,1)
             self.assertNotEqual(core,changed)
@@ -3222,8 +3222,8 @@ class SizingInputTests(unittest.TestCase):
         self.assertEqual(len(result['smt']),3)
         self.assertEqual(result['model']['states'],56)
         self.assertEqual(result['model']['transitions'],32)
-        self.assertEqual(result['conformance']['rows'],6213)
-        self.assertEqual(result['conformance']['currentFunctionCases'],24852)
+        self.assertEqual(result['conformance']['rows'],6214)
+        self.assertEqual(result['conformance']['currentFunctionCases'],24856)
 
 
 if __name__ == '__main__':

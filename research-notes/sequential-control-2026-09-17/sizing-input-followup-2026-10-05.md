@@ -27,10 +27,16 @@ minimum-size policy on valid input, wire formatting, optional-filter meaning,
 zero-filter comparison semantics, signatures, configurations and limits remain.
 The error text/order changes only for newly rejected invalid inputs.
 
+Amendment `8ecbe344` registered negative raw input rejection before changing
+code. The historical raw-input validator is preserved with the old Main
+functions. Negative quantities now fail before zero-clamping and minimum-size
+retry; zero and negative-zero retain their prior semantics. The existing
+rounding SMT preflight lemma also establishes nonnegative admitted inputs.
+
 No new module, dependency, model, policy, service, live setting, deployment,
 position owner or fleet change is introduced. The champion is preserved.
 
-## Five synthetic regression witnesses
+## Six synthetic regression witnesses
 
 | Fixture | Previous pure behavior | New behavior |
 |---|---|---|
@@ -39,6 +45,7 @@ position owner or fleet change is introduced. The champion is preserved.
 | CE-SIZING-003 | Missing price skips a required probe notional check | Reject missing required price |
 | CE-SIZING-004 | `1e300 / 1e-300` expansion publishes infinity without a grid | Reject the non-finite result |
 | CE-SIZING-005 | Positive infinite quote amount is returned | Reject the input |
+| CE-SIZING-006 | Negative raw quantity is clamped to zero and promoted by entry retry | Reject before clamping or retry |
 
 These are synthetic code-domain failures, not evidence of historical exchange
 responses, filled orders, financial losses or market prevalence. Captured old
@@ -53,17 +60,18 @@ and production numeric kernels; no exchange module or effect is linked.
 - Local minimum-retry model: 56 states, 24 initial, 24 terminal, 32 transitions,
   maximum depth three. Invalid admission cannot reach normalization or retry;
   only the existing too-small outcome permits minimum expansion.
-- 6213 compiled rows: 4160 boundary combinations, 2048 generated rows (seed
-  20261005), five witnesses. Four actual current and four preserved functions
-  yield 24852 function cases per version.
+- 6214 compiled rows: 4160 boundary combinations, 2048 generated rows (seed
+  20261005), six witnesses. Four actual current and four preserved functions
+  yield 24856 function cases per version.
 - An independent Python oracle checks admission. Successful valid results retain
-  exact quantity bits and entry-promotion flags: 3148 normalizeQty, 3482
-  normalizeEntryQty, 3304 normalizeProbeQty and 4599 validateProbeQuote results.
+  exact quantity bits and entry-promotion flags: 3148 normalizeQty, 3385
+  normalizeEntryQty, 3291 normalizeProbeQty and 4599 validateProbeQuote results.
 - The actual normalizeEntryQty fragment is additionally compiled with a forbidden
   minimum-expansion marker. Invalid input must reject before that marker.
 - Haskell generated properties and source/caller mutations check the pure guards.
   Existing rounding, wire and maker-fallback certificates remain in the suite.
-- All eight targeted suites passed locally in 33.357 seconds. Targeted HLint
+- All eight targeted tests passed locally after the negative-input amendment
+  in 36.934 seconds. Targeted HLint
   reported no hints. Source hashes match the reviewed lock.
 
 A-SIZING-INPUT names pinned GHC/base binary64, Maybe/Either, Integer/Rational,

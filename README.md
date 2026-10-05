@@ -1,6 +1,6 @@
 # Trader
 
-Binance quantity sizing now rejects non-finite, negative or contradictory effective filter bounds and invalid supplied prices before minimum-size retry. A positive minimum-notional filter requires an available price for base-quantity sizing; quote-only sizing needs no manufactured price. Probe minimum expansion also rejects non-finite results. Valid-input sizing and configured limits are preserved. See the [sizing admission contract](formal/research/sizing-input-contract.md).
+Binance quantity sizing now rejects negative raw quantities, non-finite, negative or contradictory effective filter bounds and invalid supplied prices before minimum-size retry. A positive minimum-notional filter requires an available price for base-quantity sizing; quote-only sizing needs no manufactured price. Probe minimum expansion also rejects non-finite results. Valid-input sizing and configured limits are preserved. See the [sizing admission contract](formal/research/sizing-input-contract.md).
 
 Binance order admission also rejects positive values that serialize to zero at the existing eight-decimal wire precision (for example, `1e-9` and `5e-9`). It checks the unchanged rendered decimal using exact fixed-point parsing before credentials. Nonzero accepted wire bytes and base-before-quote selection are preserved. See the [wire-admission contract](formal/research/order-wire-contract.md); tick/lot membership and complete exposure-cap proofs remain open. Zero-wire maker prices also return “No order” before any market fallback.
 

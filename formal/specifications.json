@@ -555,7 +555,7 @@
         },
         {
           "id": "F-SIZING-RETRY",
-          "statement": "The five new sizing-validation errors and existing non-finite/grid errors cannot match the actual Main minimum-size retry classifier string predicate."
+          "statement": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate."
         },
         {
           "id": "F-SIZING-FLOW",
@@ -563,7 +563,7 @@
         },
         {
           "id": "F-SIZING-CONFORMANCE",
-          "statement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6213 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker."
+          "statement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker."
         }
       ],
       "invariants": [

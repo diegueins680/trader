@@ -53,6 +53,17 @@
       "maximum": null,
       "notional": null,
       "grid": false
+    },
+    {
+      "id": "CE-SIZING-006",
+      "claim": "Negative raw quantity is clamped to zero and then promoted by minimum-size retry.",
+      "quantity": -1,
+      "price": 100,
+      "minimum": 0.1,
+      "maximum": 10,
+      "notional": 0,
+      "grid": false
     }
-  ]
+  ],
+  "quantityValidator": "validateQuantityInput :: Maybe (Integer, Integer) -> Double -> Either String ()\nvalidateQuantityInput grid x\n    | isNaN x || isInfinite x = Left \"Invalid quantity input.\"\n    | Just (scale, increment) <- grid, scale <= 0 || increment <= 0 = Left \"Invalid quantity step.\"\n    | otherwise = Right ()\n\n"
 }

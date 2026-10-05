@@ -30,7 +30,7 @@ testRounding = do
             let y = quantizeDown (Step scale increment "fixture") x
                 invalid = isNaN x || isInfinite x || x <= 0 || scale <= 0 || increment <= 0
             let checked = validateQuantityInput (Just (scale, increment)) x
-                invalidMetadata = isNaN x || isInfinite x || scale <= 0 || increment <= 0
+                invalidMetadata = isNaN x || isInfinite x || x < 0 || scale <= 0 || increment <= 0
             check "preflight classification" (either (const True) (const False) checked == invalidMetadata)
             check "preflight blocks minimum fallback" (not invalidMetadata || either (const True) (const False) (checked >> Right (1 :: Double)))
             let up = quantizeUpExact scale increment x
@@ -45,6 +45,8 @@ testRounding = do
 
 testSizing :: IO ()
 testSizing = do
+    check "CE-SIZING-006 negative input" (validateQuantityInput Nothing (-1) == Left "Invalid quantity input.")
+    check "zero input compatibility" (ok (validateQuantityInput Nothing 0) && ok (validateQuantityInput Nothing (-0)))
     check "missing required price" (not (ok (validateSizingInputs Nothing Nothing (Just 1) Nothing)))
     check "zero notional needs no price" (ok (validateSizingInputs Nothing Nothing (Just 0) Nothing))
     check "inverted bounds" (not (ok (validateSizingInputs (Just 2) (Just 1) Nothing (Just 1))))
