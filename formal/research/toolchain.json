@@ -359,7 +359,7 @@
     "formal/research/data-composition-source.json": "c31a4f86f01e8853235f1891d37be8c7d65af1916f48b76add3cca7ba142e1b6",
     "research-notes/registrations/research-data-composition-engineering.json": "b88cedd60593b144b6bc3786615e3846d028b3c1bd40f73a6774bdcf73317de9",
     "formal/research/data-composition-counterexamples.json": "f6cf00b5d33bc7305f6334581e2707feec118f4cb913ad3b4518538b56f66a2d",
-    "formal/research/ppo-successor-source.json": "af5e4ea735c591efa2b27f0f9c6a8a3d1cba53148f0512eda8d9be9b258e036d",
+    "formal/research/ppo-successor-source.json": "b58e97c2ab60b48fe812e8c7b92ff1de9d40cb5c7399a0f60eb786d22956c08c",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "scripts/research/ppo_successor_v2.py": "89d66f4f096e378ee476a630f670975f6c175b118f8821765207ac562b2ac049",
