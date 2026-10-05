@@ -93,3 +93,37 @@ SAT-premise/UNSAT-violation pairs total). These lemmas and actual codec tests do
 not prove the whole parser or internal child Show/Read implementation. The first
 bounded-parser test also safely timed out under host load; that failure remains
 recorded, and no deadline or successful-policy gate was relaxed.
+
+
+## Executed verification
+
+[Isolated pinned-toolchain run 37259696383](https://github.com/diegueins680/trader/actions/runs/37259696383)
+checked source commit `cc7f64b8ff56454e6d3f70bf4f17e106d69d8b35`.
+`verify.py --record` reproduced the receipt in 51.004 seconds; the downloaded
+receipt was imported byte-for-byte after checking every source hash against the
+local files. Its SHA256 is
+`6304a30b2fc39c964eee2201fc4d994bf5b3dddddfd24eaca1852e5b71dfd3d5`.
+The temporary reproduction workflow is removed from the delivered tree.
+
+- `bash scripts/verify.sh formal`: PASS; 189 tests in 32.840 seconds, followed by
+  full scoped certificate reproduction/comparison in 49.944 seconds.
+- `bash scripts/verify.sh full`: PASS; 189 formal tests in 32.443 seconds,
+  certificate reproduction/comparison in 49.051 seconds, Haskell build/format/
+  HLint 3.8/smoke/tests, 241 web tests and 185 automation tests. The full command
+  ran from 03:34:40 to 03:49:37 UTC on 2026-10-05. The Haskell lint phase accounts
+  for most of this time; no test, assertion or timing gate was disabled.
+- Local `bash scripts/verify.sh haskell`: PASS, including the complete test suite.
+- Local `bash scripts/verify.sh formal`: FAIL under extreme concurrent host load;
+  189 tests ran in 294.042 seconds, with one error: the compiled
+  `--snapshot-contract-v3` probe exceeded its three-second subprocess timeout.
+  A later local `verify.py --record` also refused a policy with no accepted action
+  within the strict 20 ms guard. These failures are not relabeled as passes.
+- Initial ordinary GitHub CI also caught `Use isDigit` in the handwritten parser.
+  The fix uses the pinned ASCII predicate and rejects Arabic/fullwidth lookalikes;
+  the corrected Haskell check passed. Receipt mismatches on pre-recording commits
+  remained failures until an independently reproduced receipt was available.
+
+The complete proof ledger and source locks remain authoritative. Passing these
+scoped checks does not establish operational timing on the loaded local machine,
+close the remaining 33 broad obligations, or justify trading-policy adoption.
+The final PR head also requires its ordinary CI checks before the authorized merge.

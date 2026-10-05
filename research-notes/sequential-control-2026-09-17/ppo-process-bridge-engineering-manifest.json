@@ -76,5 +76,18 @@
   "initialConformanceFailure": "-O0: no actual inference for trained policy; 4 tests, 1 error, 8.477s",
   "subsequentTargetedCheck": "-O2: 4 tests passed in 24.131s; does not supersede loaded-host benchmark failures",
   "measuredDecoder": "initial generic Haskell Read tuple/list decoder, before bounded parser refinement",
-  "boundedParserInitialConformanceFailure": "-O2: no actual inference for trained policy; 4 tests, 1 error, 29.088s; observed host load188.54/113.07/65.67 after run"
+  "boundedParserInitialConformanceFailure": "-O2: no actual inference for trained policy; 4 tests, 1 error, 29.088s; observed host load188.54/113.07/65.67 after run",
+  "verification": {
+    "sourceCommit": "cc7f64b8ff56454e6d3f70bf4f17e106d69d8b35",
+    "run": "https://github.com/diegueins680/trader/actions/runs/37259696383",
+    "receiptSha256": "6304a30b2fc39c964eee2201fc4d994bf5b3dddddfd24eaca1852e5b71dfd3d5",
+    "receiptGenerationSeconds": 51.004,
+    "formal": "PASS: 189 tests 32.840s; certificate reproduction 49.944s",
+    "full": "PASS: 189 formal tests; Haskell build, format, HLint3.8, smoke, suite; 241 web tests; 185 automation tests",
+    "localHaskell": "PASS",
+    "localFormal": "FAIL: 189 tests 294.042s, one subprocess 3s timeout under host load",
+    "localRecordRetry": "FAIL: per-policy 20ms successful-inference guard; no thresholds changed",
+    "testsSkipped": 0,
+    "financialTrials": 0
+  }
 }
