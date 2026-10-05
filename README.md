@@ -1,5 +1,7 @@
 # Trader
 
+Upward quantity/tick rounding now uses an exact rational ceiling with finite output checks. Invalid maker prices return “No order” even when market fallback is enabled; other maker fallback reasons keep their existing behavior. See the [upward-rounding contract](formal/research/upward-rounding-contract.md). Exact decimal wire/grid and complete order-cap proofs remain open.
+
 Quantity-normalization callers reject non-finite values and invalid grid metadata before minimum-size fallback, preventing a zero rejection from becoming a positive minimum order.
 
 The Binance downward-rounding helper now uses exact rational grid flooring and rejects invalid numeric inputs. It cannot return a finite value above its input; values just below a grid boundary may conservatively lose one step (binary64 `0.3` on a `0.1` grid becomes `0.2`). See the [contract](formal/research/quantity-rounding-contract.md). Final decimal order serialization and minimum-size increases remain unverified. Current obligation status: five scoped closures, 27 partial, six open.

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Replace both upward-rounding epsilon helpers with exact rational ceiling and finite non-decrease checks. Reject invalid maker prices without market fallback; preserve other fallback reasons and existing configuration. Add scoped SMT, finite dispatch and compiled caller regressions.
+
 Quantity-normalization callers reject non-finite values and invalid grid metadata before minimum-size fallback, preventing a zero rejection from becoming a positive minimum order.
 
 - Fix Binance downward rounding: remove epsilon overshoot, use exact rational grid flooring, and reject non-finite inputs or invalid steps before partial arithmetic. Preserve the API; boundary values may round one step lower. Add scoped SMT and compiled conformance evidence; wire serialization and complete order-cap proofs remain open.
