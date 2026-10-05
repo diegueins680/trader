@@ -33,8 +33,8 @@ values and Integer grid fields up to 10^400. Production tests independently chec
 Binance delegation and finite/non-increasing output across 1000 generated words
 plus fixed edge cases and eight grids. Property tests are not formal proofs.
 
-Initial targeted tests passed (2 tests, 18.861s locally). Canonical full/formal
-results will be recorded before merge; no readiness claim is made while pending.
+Initial targeted tests passed (2 tests, 18.861s locally). Canonical formal/full results are recorded below; this is scoped engineering
+verification, not completion of the broader mission.
 
 Broader status: five scoped closures, 27 partial and six open. Obligation 9 moves
 from open to partial; closure criteria are unchanged. Its remaining blockers are
@@ -93,3 +93,30 @@ lemmas exclude both preflight error messages from all three retry conditions.
 This refines the registered CE-ROUND-002 test, with no production source change.
 
 Final strengthened targeted suite passed: 2 tests, 13.879s locally.
+
+## Final pinned verification
+
+Source b04115da7530d6ec67efbebb6219a482cef69675; [reproduction run
+37269520856](https://github.com/diegueins680/trader/actions/runs/37269520856),
+job 111633344904. GHC 9.4.8, Cabal 3.12.1.0, Python 3.13.3, NumPy 2.3.5,
+Z3 4.15.4, Node 20.19.0, fourmolu 0.15.0.0 and HLint 3.8.
+
+- Receipt reproduction passed (05:52:25–05:53:27 UTC).
+- `bash scripts/verify.sh formal`: passed (05:53:27–05:55:15 UTC), including
+  194 integrity/conformance tests and all 58 scoped SMT requirement groups.
+- `bash scripts/verify.sh full`: passed (05:55:15–06:02:02 UTC), including
+  formal reproduction, Haskell build/format/lint/smoke/test, 241 web tests,
+  web typecheck/build, formal-spec coverage and 185 automation tests.
+- New scoped evidence: seven SAT-premise/UNSAT-violation pairs grouped in two
+  requirements; 4226 compiled exact-oracle cases; 8452 preflight and 8452
+  compiled actual-Main retry-classifier checks. Existing state models reran;
+  this pure repair introduces no new lifecycle or authorization transition.
+- The exact generated receipt was imported after every source hash matched
+  the checked-out files and lock. SHA256:
+  `6e4893e9298d4da620950ab886236c780c99b93c9e0a75edf1dbbbe6b2369201`.
+  Only capability/source inventory, source hashes, the two new SMT groups and
+  quantity conformance differ from the prior receipt. No result was hand-edited.
+- Temporary read-only reproduction workflow removed before final PR CI.
+  Five scoped obligations remain closed; 27 partial and six open remain.
+  Economic-evidence and reproducible-delivery gates remain blocked. No adoption,
+  new out-of-sample/holdout claims, orders, live exploration or deployment.
