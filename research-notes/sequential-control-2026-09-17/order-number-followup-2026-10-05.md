@@ -46,8 +46,8 @@ or financial acceptance claim follows from numeric admission.
 Status remains 5 scoped closures, 27 partial, 6 open. Obligation 21 gains narrow
 boundary evidence but remains partial. The frozen financial trials, all seeds,
 costs, OPE failures, contamination status and sealed holdout remain unchanged.
-No candidate is adopted. Canonical wrapper and final CI evidence will be recorded
-after frozen-source reproduction.
+No candidate is adopted. Frozen-source verification is recorded below; final PR checks must also pass
+before merge.
 
 Local full receipt reproduction (`python scripts/formal/verify.py --record`)
 failed in the unchanged artifact v4 worker probe: `--snapshot-contract-v3`
@@ -61,3 +61,71 @@ specification's implementation roster. Added the exact module path and direct
 conformance/property evidence links; no coverage rule or proof was weakened.
 The superseded pinned run was canceled; the corrected source revision must
 repeat receipt reproduction and both canonical wrappers before merge.
+
+The corrected local automation wrapper passed canonical coverage (40 specs,
+552 implementation files, 245 evidence links). Its existing scheduled-collector
+regression later failed when `verify_derivatives_receipt.py` exceeded its
+unchanged ten-second subprocess timeout. Two other unchanged subprocess tests also hit their configured deadlines:
+the edge campaign at 60 seconds and sequential contracts at 120 seconds. The
+local wrapper finished with 182 passes and 3 failures; it is not a successful
+run. The corrected ordinary CI automation job passed all 185 tests.
+
+Numeric microbenchmark: GHC 9.4.8 `-O2`, one million base-selected validation
+calls from deterministic binary64 words (seed 20261005), including generator and
+fold overhead: 500228 accepted, 0.045356 process CPU seconds. This single sample
+is not a wall-clock, worst-case or execution-latency guarantee. It excludes
+credential, request, signing, network, venue filtering and fill work. Reproduce
+with `ghc -O2 -ihaskell/app` and temporary build output outside Git:
+
+```haskell
+module Main (main) where
+import Control.Exception (evaluate)
+import Data.List (foldl')
+import Data.Word (Word64)
+import GHC.Float (castWord64ToDouble)
+import System.CPUTime (getCPUTime)
+import Trader.OrderNumeric (validateMarketNumbers)
+main :: IO ()
+main = do
+ start <- getCPUTime
+ let words64 = take 1000000 (iterate (\w -> w * 6364136223846793005 + 1442695040888963407) (20261005 :: Word64))
+ total <- evaluate (foldl' (\acc w -> acc + either (const 0) (const 1) (validateMarketNumbers False (Just (castWord64ToDouble w)) (Just 1))) (0 :: Int) words64)
+ stop <- getCPUTime
+ print (total,fromIntegral (stop-start) / 1e12 :: Double)
+```
+
+
+## Frozen-source verification
+
+Pinned [run 37315518229](https://github.com/diegueins680/trader/actions/runs/37315518229),
+job 111781143189, checked exact source commit
+`5fed08df1a88fd3b8108de1e91dc7d4d5cbdc5bc`:
+
+- `python3 scripts/formal/verify.py --record`: PASS, 13:19:01–13:19:53 UTC.
+- `bash scripts/verify.sh formal`: PASS, 13:19:53–13:21:18 UTC;
+  198 integrity tests, all 62 SMT requirement groups, state models and compiled
+  conformance. The new gate contributes five queries and the 40-state model.
+- `bash scripts/verify.sh full`: PASS, 13:21:18–13:27:00 UTC;
+  formal repeated successfully (198 tests, 33.455 seconds), Haskell format/lint/
+  build/smoke/test, 241 web tests and 185 automation tests.
+
+Raw reproduced receipt SHA256:
+`47263304c2fbf16a6fa42a5ebef7440e0db07c29bc1b172f63637f329ccc2d62`.
+It was decoded unchanged from the runner log, and every locked source hash
+matched the frozen local bytes. Changed receipt sections are source hashes,
+capability graph/hash evidence, the two new SMT groups and order-number results.
+The capability graph adds only OrderNumeric: 120 source modules and 294 local
+edges; trader-hs reaches 97 files instead of 96. Existing research isolation
+and all prior proof conclusions remain checked; no new authorization appears.
+
+The corrected ordinary formal job passed all 198 tests, then failed only on
+comparison against the prior committed receipt. The final evidence commit
+imports the reproduced receipt, updates this report and removes the temporary
+read-only reproduction workflow. No proof or implementation source changes
+after the passing full run. Final CI must pass with this receipt before merge.
+Merge must use the exact tested head, suppress deployment workflows, and verify
+merged-tree identity and GitHub Actions/deployment records afterward.
+
+Mission completion remains false: 33 broad obligations and both research
+acceptance gates remain unresolved. These scoped engineering checks do not
+constitute economic acceptance or full production safety verification.
