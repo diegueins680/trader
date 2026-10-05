@@ -81,7 +81,8 @@
         "haskell/app/Trader/Binance.hs",
         "haskell/app/Trader/OrderNumeric.hs",
         "haskell/app/Main.hs",
-        "haskell/app/Trader/BotSnapshotRecovery.hs"
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -629,6 +630,22 @@
         {
           "id": "F-RL-ARTIFACT-COMPOSITION-CONFORMANCE",
           "statement": "The preserved old loader reproduces the provenance race; the repaired loader and v4 reject the scheduled mismatch, preserve single-read bytes and stable-input compatibility, and reject incompatible versions and malformed parameters."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-GATES",
+          "statement": "Under the reviewed MVar transaction and private-gate correspondence, an executable child has a completed nonfailed publication; nested map insertion preserves every other key and duplicate admission preserves the map."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-FLOW",
+          "statement": "The finite two-start single-key publication protocol never executes an unpublished worker, preserves committed registration and one-shot gate decisions, and has a decreasing publication rank under returning primitives and fair scheduling."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-SOURCE",
+          "statement": "The complete gated helper and actual botStartSymbolWithSettings binding retain both duplicate checks, prepare metadata before forking, publish the actual child identity and release execution only after the masked map transaction returns."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-CONFORMANCE",
+          "statement": "Compiled Haskell regressions reproduce the legacy unpublished-worker interleaving and check committed identity, unmasked execution, retained state, three publication failure cuts, preparation cancellation and two concurrent starts."
         }
       ],
       "invariants": [
@@ -846,6 +863,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_snapshot_race_and_compatibility"
+        },
+        {
+          "level": "regression",
+          "path": "haskell/test/Trader/Test/WorkerPublication.hs",
+          "contains": "legacyCounterexample"
         }
       ]
     },

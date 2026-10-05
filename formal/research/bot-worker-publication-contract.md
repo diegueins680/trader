@@ -1,6 +1,6 @@
 # Bot worker publication contract v1
 
-Engineering registration, 2026-10-05; baseline287b888af3da2b477c81bdc7c214ff640190aee9.
+Engineering registration, 2026-10-05; baseline 287b888af3da2b477c81bdc7c214ff640190aee9.
 No market experiment, holdout access, deployment, authenticated exchange call or
 change to production ownership, trading permissions, fleet, leverage or risk limits.
 
@@ -52,7 +52,7 @@ model transitions. Source correspondence is reviewed and tested; no whole-GHC IO
 refinement is claimed. Pure publication is forced to WHNF, not deep-normal-form;
 production constructors/HashMap operations are assumed total on admitted values.
 
-A-BOT-PUBLICATION: pinned GHC9.4.8/base4.17.2.1 MVar, masking and fork semantics;
+A-BOT-PUBLICATION: pinned GHC 9.4.8/base 4.17.2.1 MVar, masking and fork semantics;
 normal allocation and fixed trusted pure publication, no unsafe mutation of the
 private gate or runtime state. Fork either returns one thread or fails without one;
 nonblocking private-cell tryPutMVar and uncontended final putMVar complete under
@@ -63,8 +63,8 @@ cancellation are not bounded-time completion guarantees. External stop/removal,
 post-start finalizers, persistent ownership, cross-instance uniqueness, inventory
 freshness, drain linearization and durable crash recovery remain unresolved.
 
-Original38 closure criteria/scopes remain unchanged. This targets evidence for
-15/33/34/36/38, not blanket closure of any of them. Move15 open to partial only if
+Original 38 closure criteria/scopes remain unchanged. This targets evidence for
+15/33/34/36/38, not blanket closure of any of them. Move 15 open to partial only if
 actual startup-publication evidence passes; full live-owner uniqueness remains a
 blocker. Preserve all prior scoped closures with fresh source/build evidence.
 

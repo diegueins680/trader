@@ -32,6 +32,20 @@
       "resolution": "Private canonical expected identity captured and validated before I/O; old loader preserved in formal/research/artifact-legacy-loader.json",
       "regression": "scripts/formal/test_integrity.py",
       "requirement": "F-RL-ARTIFACT-SNAPSHOT-FLOW"
+    },
+    {
+      "id": "CE-BOT-UNPUBLISHED-WORKER",
+      "status": "refuted",
+      "claim": "The legacy bot-start fork cannot initialize before its runtime-map entry is committed.",
+      "trace": [
+        "0:lock",
+        "0:prepared",
+        "0:fork",
+        "0:execute"
+      ],
+      "resolution": "Private child gate rejects on failed publication and accepts only after masked runtime-map commit. Legacy ordering adapter deterministically reproduces the failure without trading.",
+      "regression": "haskell/test/Trader/Test/WorkerPublication.hs",
+      "requirement": "F-BOT-PUBLICATION-FLOW"
     }
   ]
 }

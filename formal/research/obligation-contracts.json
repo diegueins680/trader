@@ -232,7 +232,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "haskell/app/Main.hs",
-        "haskell/app/Trader/BotStartSemantics.hs"
+        "haskell/app/Trader/BotStartSemantics.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "closureClass": null
     },
@@ -605,7 +606,9 @@
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "scripts/research/optimizer_snapshot_v2.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Main.hs"
       ],
       "closureClass": null
     },
@@ -620,7 +623,8 @@
         "haskell/app/Main.hs",
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/optimizer_snapshot_v2.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "closureClass": null
     },
@@ -647,7 +651,8 @@
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs",
-        "haskell/research/InferenceProcessV2.hs"
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "closureClass": null
     },
@@ -672,7 +677,8 @@
       "implementationFiles": [
         "haskell/app/Main.hs",
         "scripts/research/run_sequential_screen.py",
-        "haskell/app/Trader/App/GracefulShutdown.hs"
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "closureClass": null
     }

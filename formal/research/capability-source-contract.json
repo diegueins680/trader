@@ -23,6 +23,7 @@
     "haskell/app/Trader/App/GracefulShutdown.hs",
     "haskell/app/Trader/App/Observability.hs",
     "haskell/app/Trader/App/Runtime.hs",
+    "haskell/app/Trader/App/WorkerPublication.hs",
     "haskell/app/Trader/Binance.hs",
     "haskell/app/Trader/BinanceIntervals.hs",
     "haskell/app/Trader/BinanceTradeAnalysis.hs",
@@ -162,10 +163,10 @@
     "ab0034d9f6953afd4749059ce65d521a7e8ac911146727222403d00218c438af"
   ],
   "supportSourceHashes": {
-    "haskell/trader.cabal": "19d3e18cefef2224cfabf54ee126e51571371d3f7fca40736cd5e03fe26d4a05",
+    "haskell/trader.cabal": "ede9cc5be4289f35a522e9a5db68406e60c35fd910126de5c079c6f2bedab3f9",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
-    "haskell/app/Main.hs": "4a6fe23d0c4279f8571c74f44a917aa0d202ec9bb0d20d55f24a9965c4a65573",
+    "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
     "haskell/app/Trader/Optimizer/Optimize.hs": "366de00ef8aa38a35435656a994d89e9a8c2a4ac6c3f7881e41f65bc3a88abb4",
     "haskell/app/Trader/Dex.hs": "c046e597672e112d88b2cb3eac0eb7994c411502637b5192c9e3e539e76de33f",
     "haskell/app/Trader/App/Env.hs": "ba0aa10931c35f211003ebf4ffe55efebe973feed72b1125d0149111b0654fac",

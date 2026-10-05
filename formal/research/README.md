@@ -502,3 +502,10 @@ race, plus actual codec/interleaving and compatibility tests. See the
 [contract](artifact-composition-contract.md). Required current-run certificates close
 scoped29/30. `--require-complete` still rejects29 unresolved broader obligations and
 separate economic gates. No new dependencies or financial trials.
+
+Bot worker publication: `bot_worker_publication.py` checks the complete helper and
+actual Main handoff, six SMT queries,158 states/308 edges, and six compiled cases.
+The [contract](bot-worker-publication-contract.md) distinguishes gate publication
+from ongoing worker ownership and termination. The preserved legacy ordering
+counterexample is not a claim of a real exchange incident. Obligation15 now has
+partial evidence;29 broader obligations and economic gates remain unresolved.

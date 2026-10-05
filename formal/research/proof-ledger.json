@@ -283,6 +283,12 @@
       "status": "assumption",
       "statement": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-BOT-PUBLICATION",
+      "status": "assumption",
+      "statement": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
+      "risk": "SHUTDOWN-DEADLINE-001"
     }
   ],
   "criticalFiles": [
@@ -419,7 +425,14 @@
     "formal/research/artifact-composition-source.json",
     "formal/research/artifact-legacy-loader.json",
     "formal/research/artifact-composition-contract.md",
-    "research-notes/registrations/artifact-admission-engineering.json"
+    "research-notes/registrations/artifact-admission-engineering.json",
+    "scripts/formal/bot_worker_publication.py",
+    "haskell/app/Trader/App/WorkerPublication.hs",
+    "haskell/test/Trader/Test/WorkerPublication.hs",
+    "formal/research/bot-worker-publication-source.json",
+    "formal/research/bot-worker-publication-legacy.json",
+    "formal/research/bot-worker-publication-contract.md",
+    "research-notes/registrations/bot-worker-publication-engineering.json"
   ],
   "entries": [
     {
@@ -5082,6 +5095,142 @@
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "counterexample": "formal/research/artifact-legacy-loader.json",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-BOT-PUBLICATION-GATES",
+      "claim": "Under the reviewed MVar transaction and private-gate correspondence, an executable child has a completed nonfailed publication; nested map insertion preserves every other key and duplicate admission preserves the map.",
+      "formalStatement": "Under the reviewed MVar transaction and private-gate correspondence, an executable child has a completed nonfailed publication; nested map insertion preserves every other key and duplicate admission preserves the map.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BOT-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 nested-map and gate obligations; finite publication model; compiled actual helper and source-bound application conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/bot_worker_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/test/TestMain.hs",
+        "formal/research/bot-worker-publication-source.json",
+        "formal/research/bot-worker-publication-legacy.json",
+        "formal/research/bot-worker-publication-contract.md",
+        "research-notes/registrations/bot-worker-publication-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/WorkerPublication.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_publication and BotWorkerPublicationTests. Partial evidence only for inherited ownership/lifecycle; no broad closure.",
+      "bounds": "Two callers,one protected map key,empty or preexisting registration;158 states308 edges,max shortest depth12,rank18;legacy225 states450 edges. Six SAT-premise/UNSAT queries over Boolean gates and unbounded SMT nested arrays. Six compiled cases,three publication failure cuts;two concurrent real starts.",
+      "limitations": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
+      "counterexample": "formal/research/bot-worker-publication-legacy.json",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-BOT-PUBLICATION-FLOW",
+      "claim": "The finite two-start single-key publication protocol never executes an unpublished worker, preserves committed registration and one-shot gate decisions, and has a decreasing publication rank under returning primitives and fair scheduling.",
+      "formalStatement": "The finite two-start single-key publication protocol never executes an unpublished worker, preserves committed registration and one-shot gate decisions, and has a decreasing publication rank under returning primitives and fair scheduling.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BOT-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 nested-map and gate obligations; finite publication model; compiled actual helper and source-bound application conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/bot_worker_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/test/TestMain.hs",
+        "formal/research/bot-worker-publication-source.json",
+        "formal/research/bot-worker-publication-legacy.json",
+        "formal/research/bot-worker-publication-contract.md",
+        "research-notes/registrations/bot-worker-publication-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/WorkerPublication.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_publication and BotWorkerPublicationTests. Partial evidence only for inherited ownership/lifecycle; no broad closure.",
+      "bounds": "Two callers,one protected map key,empty or preexisting registration;158 states308 edges,max shortest depth12,rank18;legacy225 states450 edges. Six SAT-premise/UNSAT queries over Boolean gates and unbounded SMT nested arrays. Six compiled cases,three publication failure cuts;two concurrent real starts.",
+      "limitations": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
+      "counterexample": "formal/research/bot-worker-publication-legacy.json",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-BOT-PUBLICATION-SOURCE",
+      "claim": "The complete gated helper and actual botStartSymbolWithSettings binding retain both duplicate checks, prepare metadata before forking, publish the actual child identity and release execution only after the masked map transaction returns.",
+      "formalStatement": "The complete gated helper and actual botStartSymbolWithSettings binding retain both duplicate checks, prepare metadata before forking, publish the actual child identity and release execution only after the masked map transaction returns.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BOT-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 nested-map and gate obligations; finite publication model; compiled actual helper and source-bound application conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/bot_worker_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/test/TestMain.hs",
+        "formal/research/bot-worker-publication-source.json",
+        "formal/research/bot-worker-publication-legacy.json",
+        "formal/research/bot-worker-publication-contract.md",
+        "research-notes/registrations/bot-worker-publication-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/WorkerPublication.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_publication and BotWorkerPublicationTests. Partial evidence only for inherited ownership/lifecycle; no broad closure.",
+      "bounds": "Two callers,one protected map key,empty or preexisting registration;158 states308 edges,max shortest depth12,rank18;legacy225 states450 edges. Six SAT-premise/UNSAT queries over Boolean gates and unbounded SMT nested arrays. Six compiled cases,three publication failure cuts;two concurrent real starts.",
+      "limitations": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
+      "counterexample": "formal/research/bot-worker-publication-legacy.json",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-BOT-PUBLICATION-CONFORMANCE",
+      "claim": "Compiled Haskell regressions reproduce the legacy unpublished-worker interleaving and check committed identity, unmasked execution, retained state, three publication failure cuts, preparation cancellation and two concurrent starts.",
+      "formalStatement": "Compiled Haskell regressions reproduce the legacy unpublished-worker interleaving and check committed identity, unmasked execution, retained state, three publication failure cuts, preparation cancellation and two concurrent starts.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-BOT-PUBLICATION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 nested-map and gate obligations; finite publication model; compiled actual helper and source-bound application conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/bot_worker_publication.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/test/TestMain.hs",
+        "formal/research/bot-worker-publication-source.json",
+        "formal/research/bot-worker-publication-legacy.json",
+        "formal/research/bot-worker-publication-contract.md",
+        "research-notes/registrations/bot-worker-publication-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/Trader/Test/WorkerPublication.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_publication and BotWorkerPublicationTests. Partial evidence only for inherited ownership/lifecycle; no broad closure.",
+      "bounds": "Two callers,one protected map key,empty or preexisting registration;158 states308 edges,max shortest depth12,rank18;legacy225 states450 edges. Six SAT-premise/UNSAT queries over Boolean gates and unbounded SMT nested arrays. Six compiled cases,three publication failure cuts;two concurrent real starts.",
+      "limitations": "A-BOT-PUBLICATION: GHC9.4.8/base4.17.2.1 MVar/masking/fork semantics, ordinary finite admitted values and total trusted publication/HashMap operations. Fork returns a thread or fails without one; private gate release and uncontended final cell replacement complete under masking. WHNF is not deep evaluation. Returning primitives and weakly fair lock/thread scheduling support protocol progress, not a wall-clock bound. Reviewed source/model correspondence is not whole-GHC IO refinement. External stop/removal, already-started action failures, persistent/cross-instance ownership, inventory freshness, drain linearization, resource exhaustion and durable recovery remain unresolved.",
+      "counterexample": "formal/research/bot-worker-publication-legacy.json",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -5581,18 +5730,24 @@
     {
       "number": 15,
       "claim": "Position ownership",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-BOT-PUBLICATION-GATES",
+        "F-BOT-PUBLICATION-FLOW",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-CONFORMANCE"
+      ],
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "At most one live owner exists per protected position identity.",
-      "nextAction": "Inventory actual owner-key transactions and certify uniqueness before any integration; do not alter production ownership.",
+      "nextAction": "Trace actual running-worker retirement, stop/replacement and persistent owner-key transactions; establish their shared identity and linearization boundary without changing production ownership.",
       "implementationFiles": [
         "haskell/app/Main.hs",
-        "haskell/app/Trader/BotStartSemantics.hs"
+        "haskell/app/Trader/BotStartSemantics.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "blockers": [
-        "Research introduces no owner; inherited ownership atomicity has no certificate in this ledger."
+        "Startup map publication is checked, but persistent owner transactions, post-start/stop/replacement races, account identity and cross-instance uniqueness remain uncertified."
       ],
       "requiredCertificates": []
     },
@@ -6306,16 +6461,22 @@
         "F-RL-PPO-V2-BOUNDS",
         "F-RL-PPO-V2-FINITE",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-PPO-V2-CONFORMANCE"
+        "F-RL-PPO-V2-CONFORMANCE",
+        "F-BOT-PUBLICATION-GATES",
+        "F-BOT-PUBLICATION-FLOW",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Critical state publication exposes either complete old state or complete new state at the specified observation boundary.",
       "nextAction": "PPO now consumes private immutable snapshots. Compose artifact/process/publication recovery next and certify actual inherited ownership/lifecycle/persistence boundaries independently.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "scripts/research/optimizer_snapshot_v2.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Main.hs"
       ],
       "blockers": [
         "Versioned v2 snapshot publication is checked under named runtime assumptions; frozen v1 CE-RL-016 and inherited ownership, lifecycle, artifact and promotion synchronization remain unrefined."
@@ -6353,9 +6514,13 @@
         "F-RL-PPO-V2-BOUNDS",
         "F-RL-PPO-V2-FINITE",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-PPO-V2-CONFORMANCE"
+        "F-RL-PPO-V2-CONFORMANCE",
+        "F-BOT-PUBLICATION-GATES",
+        "F-BOT-PUBLICATION-FLOW",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "PPO now consumes private immutable snapshots. Certify inherited ownership/lifecycle races and composed artifact/process boundaries; do not infer whole-system race freedom.",
@@ -6364,7 +6529,8 @@
         "haskell/app/Main.hs",
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/optimizer_snapshot_v2.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "blockers": [
         "Versioned v2 snapshot publication is checked under named runtime assumptions; frozen v1 CE-RL-016 and inherited ownership, lifecycle, artifact and promotion synchronization remain unrefined."
@@ -6441,9 +6607,13 @@
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-BRIDGE-V3-CONFORMANCE",
+        "F-BOT-PUBLICATION-GATES",
+        "F-BOT-PUBLICATION-FLOW",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
       "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",
@@ -6451,7 +6621,8 @@
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "scripts/research/sequential_learning.py",
         "haskell/app/Main.hs",
-        "haskell/research/InferenceProcessV2.hs"
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "blockers": [
         "Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner.",
@@ -6507,16 +6678,21 @@
         "F-BACKTEST-GATE-CONFORMANCE",
         "F-DRAIN-POOL-ORDER",
         "F-DRAIN-POOL-LIFECYCLE",
-        "F-DRAIN-POOL-CONFORMANCE"
+        "F-DRAIN-POOL-CONFORMANCE",
+        "F-BOT-PUBLICATION-GATES",
+        "F-BOT-PUBLICATION-FLOW",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
       "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",
       "implementationFiles": [
         "haskell/app/Main.hs",
         "scripts/research/run_sequential_screen.py",
-        "haskell/app/Trader/App/GracefulShutdown.hs"
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs"
       ],
       "blockers": [
         "No isolation/fair scheduling model connects candidate failures to continued server progress."
