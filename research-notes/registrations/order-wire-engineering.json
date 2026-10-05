@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "5cff8eb6379a46a50db6c37ac247212341d35738",
+  "version": "order-wire-v1",
+  "hypothesis": "Selected Binance order values whose unchanged eight-decimal wire representation is nonpositive or unparseable reject before credentials.",
+  "financialTrials": 0,
+  "data": "Synthetic binary64 and inert actual constructor prefixes only; no endpoint, credential, market dataset or holdout access.",
+  "budget": "17 boundary words; all presence/market/mode/type combinations; 4096 generated rows; seed 20261005; no training.",
+  "seed": 20261005,
+  "contract": "formal/research/order-wire-contract.md",
+  "acceptance": "SMT guard/selection obligations, finite local model, compiled actual-prefix and preserved wire-byte parity checks, Haskell properties, formal/full wrappers and final CI.",
+  "limitations": "Fixed parser and formatter are pinned base assumptions with conformance tests. No complete wire-cap/grid, caller-retry, whole IO refinement or economic evidence. No additional broad obligation closure."
+}
