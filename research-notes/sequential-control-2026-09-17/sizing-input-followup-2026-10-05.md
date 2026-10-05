@@ -115,5 +115,32 @@ offline research and remaining specification/refinement work separately.
 The local `python scripts/formal/verify.py --record` attempt stopped in the
 unchanged PPO process bridge at `PPO process bridge: no actual inference for
 trained policy`. No receipt was written, no timing limit was widened, and no
-user process was stopped. Pinned full/formal reproduction and final CI remain
-required; this draft is not ready until those checks pass.
+user process was stopped. Ordinary CI on the pre-receipt source later passed
+all 200 integrity tests but correctly failed with `certificate differs from
+reviewed receipt; investigate before recording`; its Haskell, web and automation
+jobs passed. This stale-receipt failure was resolved by importing the generated
+receipt, not by weakening comparison or hand-editing results.
+
+Pinned reproduction [run 37330001658](https://github.com/diegueins680/trader/actions/runs/37330001658),
+job 111830400641, checked out source
+`5586fb2619f4c651f7a866e8c3fba339f4618c9f` and passed:
+
+- Receipt generation: 2026-10-05 15:08:24–15:09:37 UTC.
+- `bash scripts/verify.sh formal`: 15:09:37–15:11:42 UTC; 200 integrity
+  tests in 50.954 seconds, then SMT/model/compiled conformance verification.
+- `bash scripts/verify.sh full`: 15:11:42–15:20:03 UTC; 200 integrity
+  tests in 51.411 seconds, all 66 SMT groups, Haskell suite, 241 web tests
+  and 185 automation tests passed. Formal verification is included in full.
+
+Receipt SHA256:
+`15d082a6882382a884b8dec3d81e8a579cf6e4dd3f91240a3fd6bc48f17879ab`.
+It was imported byte-for-byte from that job; receipt hashes equal the reviewed
+lock and actual source bytes. Changed sections are sizingInputs, smt,
+sourceHashes and capabilityIsolation's sourceHashes only. Other certificates
+are unchanged. Preserved Main fragments and the historical raw validator were
+also compared directly with baseline Git source and matched exactly.
+
+The temporary reproduction workflow is removed from the final tree. This final
+commit changes only the receipt, this report and workflow removal, preserving
+all implementation/proof source hashes. Final-head CI and merge/deployment
+audits are recorded in PR #301; no whole-mission completion is asserted.
