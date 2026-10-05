@@ -27,7 +27,7 @@ starting worker, flat/wrong-side worker, or unsupported hedge blocks readiness.
 The universal row predicate includes ALL returned rows, never the filtered
 adoptable orphan list. No mutation of the existing adoption decision is permitted.
 
-At each enabled scan cycle: clear ready; obtain scan; publish its reconciled bit
+At each enabled scan cycle: clear ready; obtain scan; publish its reconciled bit AND no pending adoption-start workers
 (or false on error); never promote ready from start acknowledgments. A later
 successful scan can restore ready. An interrupted scan leaves ready false.
 HTTP health/readiness additionally require not draining, as before.
@@ -63,3 +63,7 @@ Pinned verification: existing Python3.13.3/Z3 4.15.4/GHC9.4.8 toolchain; solver1
 finite model bounds and exhaustive row counts measured in the receipt. Mutations
 must reject weakened guards, filtered inventory coverage, optimistic writes and
 removed pre-scan clearing. Run formal and full wrappers before merge.
+
+Pre-integration amendment: retain the existing no-pending-adoption-start guard,
+even on a flat inventory snapshot. This strengthens admission and avoids making
+any previously blocked pending adoption ready through this repair.

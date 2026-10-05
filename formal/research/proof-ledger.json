@@ -265,6 +265,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-INVENTORY-READINESS",
+      "status": "assumption",
+      "statement": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -387,7 +393,12 @@
     "formal/research/closed-trade-recovery-source.json",
     "formal/research/closed-trade-recovery-counterexamples.json",
     "research-notes/registrations/closed-trade-recovery-engineering.json",
-    "haskell/app/Trader/BotSnapshotRecovery.hs"
+    "haskell/app/Trader/BotSnapshotRecovery.hs",
+    "scripts/formal/inventory_readiness.py",
+    "formal/research/inventory-readiness-contract.md",
+    "formal/research/inventory-readiness-source.json",
+    "formal/research/inventory-readiness-legacy.json",
+    "research-notes/registrations/inventory-readiness-engineering.json"
   ],
   "entries": [
     {
@@ -4582,6 +4593,96 @@
       "limitations": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
       "counterexample": "CE-RECOVERY-001; CE-RECOVERY-002; CE-RECOVERY-003; CE-RECOVERY-004",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-INVENTORY-READINESS-PREDICATE",
+      "claim": "The source-bound inventory row predicate admits only finite amounts and requires every admitted nonzero row to have a nonempty symbol and an existing running, non-starting, trade-enabled runtime with matching signed side; opposite sides cannot both match one runtime.",
+      "formalStatement": "The source-bound inventory row predicate admits only finite amounts and requires every admitted nonzero row to have a nonempty symbol and an existing running, non-starting, trade-enabled runtime with matching signed side; opposite sides cannot both match one runtime.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-INVENTORY-READINESS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/inventory_readiness.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "formal/research/inventory-readiness-contract.md",
+        "formal/research/inventory-readiness-source.json",
+        "formal/research/inventory-readiness-legacy.json",
+        "research-notes/registrations/inventory-readiness-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_readiness and InventoryReadinessTests; actual caller compiles in the full Haskell suite.",
+      "bounds": "Four SAT-premise/UNSAT-violation queries over binary64, Booleans and unbounded side integers plus two accepting SAT witnesses; 25 states, 33 transitions, depth7, two scan cycles and three scan outcomes. Compiled 6468 rows, 1188 accepted, two repeats; four synthetic counterexamples and source/model mutations.",
+      "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
+      "counterexample": "CE-READINESS-001; CE-READINESS-002; CE-READINESS-003; CE-READINESS-004",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-INVENTORY-READINESS-FLOW",
+      "claim": "The two-cycle inventory readiness publication model clears prior readiness before scanning, rejects failed or interrupted scans, never promotes from start acknowledgment, and can recover only through a successful reconciled scan.",
+      "formalStatement": "The two-cycle inventory readiness publication model clears prior readiness before scanning, rejects failed or interrupted scans, never promotes from start acknowledgment, and can recover only through a successful reconciled scan.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-INVENTORY-READINESS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/inventory_readiness.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "formal/research/inventory-readiness-contract.md",
+        "formal/research/inventory-readiness-source.json",
+        "formal/research/inventory-readiness-legacy.json",
+        "research-notes/registrations/inventory-readiness-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_readiness and InventoryReadinessTests; actual caller compiles in the full Haskell suite.",
+      "bounds": "Four SAT-premise/UNSAT-violation queries over binary64, Booleans and unbounded side integers plus two accepting SAT witnesses; 25 states, 33 transitions, depth7, two scan cycles and three scan outcomes. Compiled 6468 rows, 1188 accepted, two repeats; four synthetic counterexamples and source/model mutations.",
+      "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
+      "counterexample": "CE-READINESS-001; CE-READINESS-002; CE-READINESS-003; CE-READINESS-004",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-INVENTORY-READINESS-CONFORMANCE",
+      "claim": "The compiled actual Haskell inventory readiness predicate agrees with the independent oracle on 6468 finite metadata/numeric partition cases in two repeated runs; source-bound scan/caller checks preserve four counterexample regressions.",
+      "formalStatement": "The compiled actual Haskell inventory readiness predicate agrees with the independent oracle on 6468 finite metadata/numeric partition cases in two repeated runs; source-bound scan/caller checks preserve four counterexample regressions.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-INVENTORY-READINESS",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/inventory_readiness.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "formal/research/inventory-readiness-contract.md",
+        "formal/research/inventory-readiness-source.json",
+        "formal/research/inventory-readiness-legacy.json",
+        "research-notes/registrations/inventory-readiness-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_readiness and InventoryReadinessTests; actual caller compiles in the full Haskell suite.",
+      "bounds": "Four SAT-premise/UNSAT-violation queries over binary64, Booleans and unbounded side integers plus two accepting SAT witnesses; 25 states, 33 transitions, depth7, two scan cycles and three scan outcomes. Compiled 6468 rows, 1188 accepted, two repeats; four synthetic counterexamples and source/model mutations.",
+      "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
+      "counterexample": "CE-READINESS-001; CE-READINESS-002; CE-READINESS-003; CE-READINESS-004",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -5099,18 +5200,22 @@
     {
       "number": 16,
       "claim": "Reconciliation",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-INVENTORY-READINESS-PREDICATE",
+        "F-INVENTORY-READINESS-FLOW",
+        "F-INVENTORY-READINESS-CONFORMANCE"
+      ],
+      "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Live readiness implies successful inventory and ownership reconciliation.",
-      "nextAction": "Extract readiness/reconciliation transition predicates and discharge the implication on actual server code.",
+      "nextAction": "Compose snapshot certification with actual persistent-owner reconciliation and runtime invalidation under concurrent stop/replacement; certify the readiness consumer without changing production ownership or risk limits.",
       "implementationFiles": [
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotSnapshotRecovery.hs"
       ],
       "blockers": [
-        "No research readiness adapter exists; server readiness implication is unverified here."
+        "Snapshot gate has source-bound predicate/model/conformance evidence, but runtime map/state reads, persistent ownership and venue inventory are not one atomic snapshot; ongoing freshness and HTTP/drain linearization remain unverified."
       ],
       "requiredCertificates": []
     },

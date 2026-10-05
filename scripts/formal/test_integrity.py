@@ -3248,5 +3248,48 @@ class ClosedTradeRecoveryTests(unittest.TestCase):
         self.assertEqual(x['conformance']['indexHistories'],1031)
 
 
+class InventoryReadinessTests(unittest.TestCase):
+    def test_inventory_readiness_source_mutations(self):
+        import inventory_readiness as r
+        import hashlib
+        import json
+        source=(r.ROOT/r.MAIN).read_text();registry=r.extract()
+        mutations=[('&& not (raiStarting info)', '&& raiStarting info'),
+                   ('amount == 0 = True','amount == 0 = False'),
+                   ('&& raiSide info == Just positionSide','&& True'),
+                   ('                                positions\n                    pure (Right (dedupeStable orphanSymbols', '                                openPositions\n                    pure (Right (dedupeStable orphanSymbols'),
+                   ('writeIORef recoveryReadyRef False','writeIORef recoveryReadyRef True'),
+                   ('orphanScanReady && inventoryReconciled','orphanScanReady && null orphanSymbols')]
+        for before,after in mutations:
+            changed=source.replace(before,after,1);self.assertNotEqual(source,changed)
+            updated=copy.deepcopy(registry);updated['sha256']=hashlib.sha256(changed.encode()).hexdigest()
+            # Even a refreshed whole-file hash cannot excuse changed fragments.
+            with patch.object(r.json,'loads',return_value=updated):
+                with self.assertRaises(ValueError):r.extract(changed)
+        for key in registry['fragments']:
+            updated=copy.deepcopy(registry);del updated['fragments'][key]
+            with patch.object(r.json,'loads',return_value=updated):
+                with self.assertRaises(ValueError):r.extract(source)
+
+    def test_inventory_readiness_model_mutations(self):
+        import inventory_readiness as r
+        def optimistic(state):
+            out=r.successors(state)
+            return [(label, (t[0],t[1],True,t[3],t[4]) if label=='start-ack' else t) for label,t in out]
+        def retain(state):
+            out=r.successors(state)
+            return [(label, (t[0],t[1],state[2],state[3],t[4]) if label=='clear' else t) for label,t in out]
+        for mutation in (optimistic,retain):
+            with self.assertRaises(ValueError):r.model(mutation)
+
+    def test_inventory_readiness_conformance(self):
+        import inventory_readiness as r
+        result=r.check_readiness()
+        self.assertEqual((result['model']['states'],result['model']['transitions']),(25,33))
+        self.assertEqual(result['conformance']['rows'],6468)
+        self.assertEqual(result['conformance']['accepted'],1188)
+        self.assertEqual(result['referenceCount'],12)
+
+
 if __name__ == '__main__':
     unittest.main()
