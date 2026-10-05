@@ -97,3 +97,10 @@ https://docs.python.org/3.13/library/threading.html#lock-objects and
 https://docs.python.org/3.13/library/stdtypes.html#bytes ; NumPy buffer views,
 https://numpy.org/doc/2.3/reference/generated/numpy.frombuffer.html . Current web
 manuals describe the 3.13 series; actual verification runtime remains 3.13.3.
+
+
+2026-10-04 composition: the separately registered PPO successor now calls create,
+forward and update directly for its private actor and critic. The snapshot module,
+frozen financial runner and production boundary are unchanged. The statement
+above excluding runner integration applies to the original/frozen financial path;
+the new engineering caller has its own source-bound verification contract.

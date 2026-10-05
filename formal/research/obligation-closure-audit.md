@@ -55,3 +55,14 @@ F-SHUTDOWN-STAGES and F-SHUTDOWN-CONFORMANCE add implementation-linked evidence 
 resource termination, logging bounds and successor-runner composition remain.
 Next work for 36 is actual worker registration/cancellation and resource-completion
 semantics; the old UTC deadline and misleading-summary defects are corrected.
+
+
+2026-10-04 PPO successor follow-up: the separate default-disabled
+`ppo-successor-v2` entry now runs the actual collector and PPO objective through
+v2 GAE and private immutable actor/critic snapshots. F-RL-PPO-V2-FLOW/BOUNDS/
+FINITE/BOUNDARY/CONFORMANCE add evidence to 6/10/21/22/33/34 and extend the five
+existing boundary closures to the new entry. No additional broad closure:
+accounting/admission, Q/CQL/OPE, artifact/process inference and inherited production
+correctness remain unfinished. The frozen screen stays unchanged. Earlier table
+references to disconnected kernels describe frozen v1; the successor is now an
+actual engineering training path. Next steps are recorded in obligation-contracts.

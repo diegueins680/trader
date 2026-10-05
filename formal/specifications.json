@@ -71,7 +71,9 @@
         "scripts/formal/requirements.txt",
         "formal/research/**",
         "scripts/research/optimizer_snapshot_v2.py",
-        "haskell/research/InferenceProcessV2.hs"
+        "haskell/research/InferenceProcessV2.hs",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/formal/ppo_successor.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -435,6 +437,26 @@
         {
           "id": "F-RL-DATA-KEYS",
           "statement": "Source-derived panel equality filters and collector, replay and OPE call arguments select the declared symbol and pair prices with funding for arbitrary mathematical symbol strings. Six satisfiable-premise/UNSAT-violation queries compose with the checked dataflow skeleton."
+        },
+        {
+          "id": "F-RL-PPO-V2-FLOW",
+          "statement": "In the source-bound one/two-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions."
+        },
+        {
+          "id": "F-RL-PPO-V2-BOUNDS",
+          "statement": "The source-derived PPO successor configuration and batch arithmetic accept only integer horizons 1/3/6, bounded seeds and 1..4096 steps; each collected batch has 1..256 rows and the final processed prefix equals the requested step count."
+        },
+        {
+          "id": "F-RL-PPO-V2-FINITE",
+          "statement": "Passing the actual successor objective guard requires a finite binary64 loss before actor update or result publication, under the NumPy finite-scan abstraction. Snapshot finiteness is supplied separately by F-RL-SNAPSHOT-FINITE."
+        },
+        {
+          "id": "F-RL-PPO-V2-BOUNDARY",
+          "statement": "The complete reviewed PPO successor source has one default-disabled version-guarded training entry, owned immutable-prefix copies, checked v2 target/optimizer consumers and one immutable final result publication; its enumerated helper effects introduce no file, network, order, promotion or production operation."
+        },
+        {
+          "id": "F-RL-PPO-V2-CONFORMANCE",
+          "statement": "Actual synthetic PPO successor training composes collection, training-only scale fitting, terminal-safe GAE and immutable actor/critic updates; all registered seed/horizon/budget cases replay identically and injected partial, invalid or non-finite failures publish no result."
         }
       ],
       "invariants": [
@@ -468,7 +490,7 @@
         },
         {
           "id": "F-RL-SNAPSHOT-ISOLATION",
-          "statement": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no registered runner or production integration is introduced."
+          "statement": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no frozen financial runner or production integration is introduced; the separately registered PPO successor is an offline engineering caller."
         },
         {
           "id": "F-RL-SNAPSHOT-CONFORMANCE",

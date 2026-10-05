@@ -34,6 +34,8 @@ Proof obligations:
   the source-derived integer budget lemma for all 1..4096 steps. No partial result.
 - F-RL-PPO-V2-BOUNDS: SMT on source-derived configuration predicates and integer
   batch arithmetic; every collected count is 1..256 and sums to exactly steps.
+- F-RL-PPO-V2-FINITE: source-derived binary64 loss guard requires finiteness
+  before the actor update; snapshot slot finiteness uses the existing certificate.
 - F-RL-PPO-V2-BOUNDARY: complete AST call/import inventory and default guard;
   public output contains only immutable snapshots/primitive metadata. No effects
   beyond owned optimizer state and private arrays under named helper assumptions.
