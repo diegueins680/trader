@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-ROUND-001",
+      "requirement": "F-ROUND-DOWN-FINITE",
+      "inputWord64": 4607182418800017407,
+      "scale": 1,
+      "increment": 1,
+      "oldOutput": 1,
+      "newOutputWord64": 0,
+      "resolution": "Remove epsilon; exact rational grid floor and checked binary64 publication.",
+      "implementation": "haskell/app/Trader/QuantityRounding.hs",
+      "regression": "scripts/formal/quantity_rounding.py",
+      "limitations": "Does not resolve final decimal serialization or minimum-size increases."
+    }
+  ]
+}

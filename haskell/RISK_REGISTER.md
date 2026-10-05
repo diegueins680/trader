@@ -1,5 +1,8 @@
 # Trader Firm — Risk Register
 
+A-ROUND-DOWN / CE-ROUND-001: downward epsilon rounding could increase quantity; the exact pure core and final binary64 guard repair this defect. Source-bound SMT and compiled properties do not certify wire rendering, upward rounding, minimum-size increases or all venue adapters. GHC primitives and sufficient resources remain assumptions. RL-OFFLINE-001 remains HIGH/OPEN; five scoped closures, 27 partial, six open. See [contract](../formal/research/quantity-rounding-contract.md).
+
+
 PPO artifact v4 adds a bounded pure byte codec and integrity/provenance comparison
 under A-ARTIFACT-V4. Caller trust anchors, hash/JSON primitives and source-to-model
 correspondence are explicit assumptions. Exact byte round trips do not establish

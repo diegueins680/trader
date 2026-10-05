@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "coreSha256": "480cb373e53e7822c6d44a92a64701f1eea040a96932848e887125095d017709",
+  "adapterDeclaration": "quantizeDown :: Step -> Double -> Double\nquantizeDown st = quantizeDownExact (stepScale st) (stepInt st)\n"
+}

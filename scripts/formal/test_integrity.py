@@ -3130,5 +3130,24 @@ class PPOArtifactV4Tests(unittest.TestCase):
         self.assertGreaterEqual(result['invalidArtifacts'], 30)
 
 
+class QuantityRoundingTests(unittest.TestCase):
+    def test_source_guard_and_adapter_mutations(self):
+        import quantity_rounding as q
+        source = (q.ROOT/q.SOURCE).read_text(); adapter = (q.ROOT/q.ADAPTER).read_text()
+        q.extract()
+        for before, after in [('isNaN x || ', ''), ('scale <= 0', 'scale < 0'),
+                              ('rounded > x', 'rounded > x + 1e-9'), ('`div`', '`quot`')]:
+            changed = source.replace(before,after,1)
+            self.assertNotEqual(changed,source)
+            with self.assertRaises(ValueError): q.extract(source=changed)
+        with self.assertRaises(ValueError): q.extract(adapter=adapter.replace('(stepScale st) (stepInt st)', '(stepInt st) (stepScale st)',1))
+
+    def test_rounding_smt_and_compiled_conformance(self):
+        import quantity_rounding as q
+        result = q.check_rounding()
+        self.assertEqual(len(result['smt']),2)
+        self.assertEqual(result['conformance']['cases'],4226)
+
+
 if __name__ == '__main__':
     unittest.main()

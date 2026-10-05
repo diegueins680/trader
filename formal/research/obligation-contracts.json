@@ -135,7 +135,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "haskell/app/Trader/Binance.hs",
-        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/QuantityRounding.hs"
       ],
       "closureClass": null
     },

@@ -60,7 +60,7 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-RL-ARTIFACT-V4-FLOW": "model_checked", "F-RL-ARTIFACT-V4-BOUNDARY": "exhaustively_checked", "F-RL-ARTIFACT-V4-CONFORMANCE": "property_tested", "F-RL-BRIDGE-V3-FLOW": "model_checked", "F-RL-BRIDGE-V3-BOUNDARY": "exhaustively_checked", "F-RL-BRIDGE-V3-CONFORMANCE": "property_tested", "F-RL-PPO-V2-FLOW": "model_checked", "F-RL-PPO-V2-BOUNDARY": "exhaustively_checked", "F-RL-PPO-V2-CONFORMANCE": "property_tested", "F-RL-DATA-COMPOSITION": "exhaustively_checked", "F-DRAIN-POOL-LIFECYCLE": "model_checked", "F-DRAIN-POOL-CONFORMANCE": "property_tested", "F-BACKTEST-GATE-LIFECYCLE": "model_checked", "F-BACKTEST-GATE-CONFORMANCE": "property_tested", "F-ASYNC-SEAL-LIFECYCLE": "model_checked", "F-ASYNC-SEAL-CONFORMANCE": "property_tested", "F-ASYNC-ADMISSION-LIFECYCLE": "model_checked", "F-ASYNC-ADMISSION-CONFORMANCE": "property_tested", "F-WORKER-REGISTRY-LIFECYCLE": "model_checked", "F-WORKER-REGISTRY-CONFORMANCE": "property_tested", "F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
+    supported = {"F-ROUND-DOWN-CONFORMANCE": "property_tested", "F-RL-ARTIFACT-V4-FLOW": "model_checked", "F-RL-ARTIFACT-V4-BOUNDARY": "exhaustively_checked", "F-RL-ARTIFACT-V4-CONFORMANCE": "property_tested", "F-RL-BRIDGE-V3-FLOW": "model_checked", "F-RL-BRIDGE-V3-BOUNDARY": "exhaustively_checked", "F-RL-BRIDGE-V3-CONFORMANCE": "property_tested", "F-RL-PPO-V2-FLOW": "model_checked", "F-RL-PPO-V2-BOUNDARY": "exhaustively_checked", "F-RL-PPO-V2-CONFORMANCE": "property_tested", "F-RL-DATA-COMPOSITION": "exhaustively_checked", "F-DRAIN-POOL-LIFECYCLE": "model_checked", "F-DRAIN-POOL-CONFORMANCE": "property_tested", "F-BACKTEST-GATE-LIFECYCLE": "model_checked", "F-BACKTEST-GATE-CONFORMANCE": "property_tested", "F-ASYNC-SEAL-LIFECYCLE": "model_checked", "F-ASYNC-SEAL-CONFORMANCE": "property_tested", "F-ASYNC-ADMISSION-LIFECYCLE": "model_checked", "F-ASYNC-ADMISSION-CONFORMANCE": "property_tested", "F-WORKER-REGISTRY-LIFECYCLE": "model_checked", "F-WORKER-REGISTRY-CONFORMANCE": "property_tested", "F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
                  "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
@@ -174,6 +174,7 @@ def run(record=False, require_complete=False):
     from replay_order import check_replay_order
     from replay_cutoff import check_replay_cutoff
     from reward_accounting import check_reward_accounting
+    from quantity_rounding import check_rounding
     from artifact_v4 import check_artifact_v4
     from ppo_process_bridge import check_bridge
     from ppo_successor import check_successor
@@ -239,6 +240,8 @@ def run(record=False, require_complete=False):
     result['smt'].update(result['replayOrder']['smt'])
     result['replayCutoff'] = check_replay_cutoff()
     result['smt'].update(result['replayCutoff']['smt'])
+    result['quantityRounding'] = check_rounding()
+    result['smt'].update(result['quantityRounding']['smt'])
     result['artifactV4'] = check_artifact_v4()
     result['smt'].update(result['artifactV4']['smt'])
     result['ppoProcessBridge'] = check_bridge()

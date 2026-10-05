@@ -121,6 +121,7 @@ import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insert
 import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
+import Trader.QuantityRounding (quantizeDownExact)
 import Trader.Text (normalizeKey)
 
 data BinanceEnv = BinanceEnv
@@ -835,14 +836,7 @@ mkStep raw =
     readMaybeInteger xs = readMaybe xs
 
 quantizeDown :: Step -> Double -> Double
-quantizeDown st x
-    | x <= 0 = 0
-    | otherwise =
-        let scaleD = fromIntegral (stepScale st) :: Double
-            scaled = floor (x * scaleD + 1e-9) :: Integer
-            stepI = stepInt st
-            q = (scaled `div` stepI) * stepI
-         in fromIntegral q / scaleD
+quantizeDown st = quantizeDownExact (stepScale st) (stepInt st)
 
 data SymbolFilters = SymbolFilters
     { sfLotMinQty :: !(Maybe Double)

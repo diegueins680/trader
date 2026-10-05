@@ -1,5 +1,8 @@
 # Canonical Formal Specifications
 
+Downward rounding now has F-ROUND-DOWN-INTEGER (exact quotient/reconstruction SMT), F-ROUND-DOWN-FINITE (binary64 guard SMT) and F-ROUND-DOWN-CONFORMANCE (compiled properties). [The contract](../formal/research/quantity-rounding-contract.md) traces the pure core, Binance adapter, tests, CI and CE-ROUND-001. Source binding plus differential tests is not whole-compiler refinement. Obligation 9 is partial; final wire/order-cap correctness remains open.
+
+
 The [inference process v2 contract](../formal/research/inference-process-v2-contract.md)
 adds F-RL-PROCESS-LIFECYCLE (conditional finite model), F-RL-PROCESS-ADMISSION
 (integer SMT), F-RL-PROCESS-ISOLATION (reviewed finite source boundary) and
