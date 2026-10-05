@@ -6,7 +6,7 @@
   "hypothesis": "Exact rational grid flooring plus binary64 publication guards eliminates upward epsilon rounding and partial invalid-input arithmetic.",
   "financialTrials": 0,
   "data": "Synthetic numeric values only; no holdout or market data.",
-  "budget": "Deterministic boundary cases and 4096 seeded binary64/Integer generated cases; Haskell QuickCheck 1000 cases; no model fitting.",
+  "budget": "Deterministic boundary cases and 4096 seeded binary64/Integer generated cases; Haskell deterministic generated properties 1000 cases (base-only; no new QuickCheck dependency); no model fitting.",
   "seed": 20261005,
   "contract": "formal/research/quantity-rounding-contract.md",
   "acceptance": "Source-bound SMT obligations, exact Fraction oracle and Haskell adapter conformance, formal and full wrappers pass; no broad closure inferred.",
