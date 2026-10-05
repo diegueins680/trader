@@ -62,3 +62,15 @@ whole-Main refinement proofs. Filter parsing, provider freshness/completeness,
 missing optional filters, direct minTradeQty consumers, notional rounding,
 wire caps/tick membership and other venue adapters remain outside this repair.
 No new broad closure: obligations 6/7/9/10/21 remain at their existing status.
+
+## Preregistered negative-input amendment
+
+Before material implementation, extend raw-quantity admission to reject finite
+negative quantities using the existing non-retryable Invalid quantity input
+error. Clamping a negative value to zero previously allowed minimum-size retry
+to create a positive quantity. Zero and negative zero retain their existing
+minimum-size semantics. Preserve the historical validator alongside Main
+fragments; add CE-SIZING-006 and check the real retry path. Accepted raw inputs
+are finite and nonnegative; update the binary64 SMT premise and independent
+conformance oracle. Budget becomes 6208 registered rows plus six witnesses.
+This remains a local engineering repair with no broad-obligation closure.
