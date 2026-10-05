@@ -10,6 +10,7 @@ import re
 import struct
 import subprocess
 import tempfile
+import textwrap
 import z3 as z
 from ppo_successor import certify
 
@@ -126,7 +127,7 @@ def oracle(row):
     legacy=[f and oldb and oldq,True,f and oldb,f and oldb and typ,f and not test and oldb and typ]
     nb,nq=math.isfinite(b) and b>0,math.isfinite(q) and q>0
     previous=[f and nb and nq,nb if hb else not f and hq and nq,f and nb,f and nb and typ,f and not test and nb and typ]
-    return (vb,selected,current,legacy,previous,True,vb)
+    return (vb,selected,current,legacy,previous,True,vb,[vb,vb,vb,nb])
 
 
 def conformance(current):
@@ -134,7 +135,7 @@ def conformance(current):
     require([e['id'] for e in fixture['entries']]==['CE-ORDER-NUM-001','CE-ORDER-NUM-002'],'regression roster')
     legacy=fixture['legacyPrefixes'];require(list(legacy)==ROSTER,'legacy coverage')
     wire=json.loads((ROOT/'formal/research/order-wire-counterexamples.json').read_text())
-    require([e['id'] for e in wire['entries']]==['CE-ORDER-WIRE-001'],'wire regression roster')
+    require([e['id'] for e in wire['entries']]==['CE-ORDER-WIRE-001','CE-ORDER-WIRE-002'],'wire regression roster')
     require(list(wire['prefixes'])==ROSTER,'previous prefix coverage')
     rename=lambda text: text.replace('validateMarketNumbers','previousMarketNumbers').replace('validateOrderNumber','previousOrderNumber')
     signatures=[('env quantity price','Env -> Double -> Double'),('env quantity quoteOrderQty','Env -> Maybe Double -> Maybe Double'),
@@ -151,6 +152,7 @@ import qualified Control.Monad
 import Data.Word (Word64)
 import GHC.Float (castWord64ToDouble)
 import Trader.OrderNumeric
+import Trader.QuantityRounding (validOrderPrice)
 import Data.Char (isSpace)
 import Data.Fixed (E12, Fixed (MkFixed))
 import Text.Read (readMaybe)
@@ -178,12 +180,27 @@ run (wb,wq,hb,hq,m,test,typ) = do
      positive = case readMaybe (BS.unpack (renderDouble b)) :: Maybe (Fixed E12) of
                  Just (MkFixed units) -> units > 0
                  Nothing -> False
- print (ok (validateOrderNumber "invalid" b),ok (validateMarketNumbers (market==MarketFutures) qty quote),current,legacy,previous,parity,positive)
+ makerResults <- mapM (fmap aorSent) [maker b False,maker b True,oldMaker b False,oldMaker b True]
+ print (ok (validateOrderNumber "invalid" b),ok (validateMarketNumbers (market==MarketFutures) qty quote),current,legacy,previous,parity,positive,makerResults)
 '''+ '\n'.join(defs)+'trim :: String -> String\n'+(ROOT/ADAPTER).read_text().split('trim :: String -> String\n',1)[1]
     adapter=(ROOT/ADAPTER).read_text()
     code += '\n'+adapter[adapter.index('renderDouble ::'):adapter.index('\ntoUpperAscii ::',adapter.index('renderDouble ::'))]
     code += '\n'+wire['legacyFormatter'].replace('renderDouble','legacyRenderDouble').replace('trimTrailingZeros','legacyTrimTrailingZeros')
     code += '\n'+rename(wire['legacyCore'].split('\n',1)[1])
+    main=(ROOT/'haskell/app/Main.hs').read_text()
+    a=main.index('                if not (validOrderPrice px)'); b=main.index('                        ts <- getTimestampMs',a)
+    c=main.index('                        case r of',b); d=main.index('                                let mInfo0',c)
+    require(main[a:b]==wire['makerAdmission'] and main[c:d]==wire['makerException'],'maker control drift')
+    branch=textwrap.dedent(main[a:b])
+    catch=textwrap.dedent(main[c:d]).replace('Right body -> do','Right _ -> pure baseOut{aorSent = True}')
+    code += '\ndata Out = Out {aorSent :: Bool,aorMessage :: String}\nshortErr :: SomeException -> String\nshortErr _ = "fixture"\n'
+    code += wire['previousPricePredicate'].replace('validOrderPrice','previousPricePredicate')
+    for name,guard in [('maker',branch),('oldMaker',branch.replace('validOrderPrice','previousPricePredicate'))]:
+        code += name+' :: Double -> Bool -> IO Out\n'+name+' px flag = do\n'
+        code += ' let baseOut=Out False "initial"; fallback _ = pure (Out flag "fallback")\n'
+        code += textwrap.indent(guard,' ')
+        code += '         r <- try (either (throwIO . userError) pure (validateOrderNumber "invalid" px)) :: IO (Either SomeException ())\n'
+        code += textwrap.indent(catch,'         ')+'\n'
     rows=samples()
 
     with tempfile.TemporaryDirectory(prefix='trader-order-number-') as tmp:
@@ -202,9 +219,10 @@ run (wb,wq,hb,hq,m,test,typ) = do
         witness=(item['inputWord64'],0x3ff0000000000000,True,True,2,False,True)
         index=rows.index(witness)
         require(actual[index][2]==[False]*5 and actual[index][4]==[True]*5,'compiled zero-wire witness')
+        require(actual[index][7]==[False,False,False,True],'compiled maker fallback witness')
     return {'status':'property_tested','rows' :len(rows),'boundaryRows':len(rows)-4096,'generatedRows':4096,
             'boundaryWords':17,'seed':20261005,'constructors':5,'currentPrefixCases':len(rows)*5,
-            'legacyPrefixCases':len(rows)*5,'previousPrefixCases':len(rows)*5,'wireParityComparisons':len(rows)*2,'compilerOptimization':'-O2','counterexamples':['CE-ORDER-NUM-001','CE-ORDER-NUM-002','CE-ORDER-WIRE-001'],
+            'legacyPrefixCases':len(rows)*5,'previousPrefixCases':len(rows)*5,'wireParityComparisons':len(rows)*2,'makerDispatchComparisons':len(rows)*4,'compilerOptimization':'-O2','counterexamples':['CE-ORDER-NUM-001','CE-ORDER-NUM-002','CE-ORDER-WIRE-001','CE-ORDER-WIRE-002'],
             'network':'No Binance module or credential/request/HTTP code linked into the prefix driver.'}
 
 

@@ -538,7 +538,7 @@
         },
         {
           "id": "F-ORDER-NUMBER-CONFORMANCE",
-          "statement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter and zero-wire values stop before the inert credential marker."
+          "statement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter, zero-wire values stop before credentials, and maker zero-wire rejection cannot enter the source-derived market-fallback branch."
         },
         {
           "id": "F-ORDER-WIRE-POSITIVE",

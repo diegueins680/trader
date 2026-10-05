@@ -43,7 +43,8 @@ def extract(core=None, main=None):
     require('            { aorSent = False' in registry['mainFragments'][-1][2], 'unsent base result')
     require('units = (numerator value * scale + divisor - 1) `div` divisor' in core, 'ceiling mismatch')
     require('if isNaN rounded || isInfinite rounded || rounded < x' in core, 'publication guard')
-    require('validOrderPrice price = not (isNaN price || isInfinite price) && price > 0' in core, 'price guard')
+    require('validOrderPrice price = either (const False) (const True) (validateOrderNumber "Invalid maker price." price)' in core, 'price guard')
+    require('import Trader.OrderNumeric (validateOrderNumber)' in core, 'wire-aware guard import')
     branch = main[main.index(START):main.index(END,main.index(START))]
     require(branch == START+'\n                    then pure baseOut{aorMessage = "No order: invalid maker price."}\n                    else do\n', 'invalid price must return without effects')
     return branch
@@ -63,7 +64,7 @@ def prove():
     out=z.If(z.And(valid,accepted),y,zero)
     certify(z.BoolVal(True),z.And(finite(out),z.Or(z.fpEQ(out,zero),z.fpGEQ(out,x)),
             z.Implies(z.Not(valid),z.fpEQ(out,zero))))
-    price_ok=z.And(finite(x),z.fpGT(x,zero))
+    price_ok=z.And(finite(x),z.fpGT(x,zero),z.Bool('up_wire_parsed'),z.Int('up_wire_units')>0)
     certify(z.Not(price_ok),z.Not(z.And(price_ok,z.Bool('up_market_fallback'))))
     return {'F-ROUND-UP-INTEGER':'unsat','F-ROUND-UP-FINITE':'unsat'}
 
@@ -151,8 +152,9 @@ legacyDispatch px flag =
     actual=[ast.literal_eval(line) for line in out.splitlines()]
     expected=[]
     for s,k,w in samples:
-        valid=math.isfinite(value(w)) and value(w)>0
-        expected.append((oracle(s,k,w),oracle(s,k,w),valid,valid,valid,valid,True))
+        old_valid=math.isfinite(value(w)) and value(w)>0
+        valid=old_valid and value(w)>5e-9
+        expected.append((oracle(s,k,w),oracle(s,k,w),valid,valid,valid,old_valid,True))
     require(actual == expected,'compiled caller/oracle mismatch')
     counter=json.loads((ROOT/'formal/research/upward-rounding-counterexamples.json').read_text())
     require([c['id'] for c in counter['entries']]==['CE-ROUND-003','CE-ROUND-004'],'counterexample roster')

@@ -737,3 +737,5 @@ versions and 11456 wire-byte comparisons are checked by the formal wrapper.
 Parsing/formatting remain explicit pinned-library assumptions. No wire cap/grid,
 whole-caller or complete IO theorem; 5 scoped closures, 27 partial, 6 open remain.
 CE-ORDER-WIRE-001 is preserved; RL-OFFLINE-001 remains HIGH/OPEN.
+
+The wire-aware maker-price preflight also rejects zero-wire prices before constructor exceptions can enter configured market fallback (CE-ORDER-WIRE-002). Other maker fallback reasons and the fallback flag are unchanged; this is a source-bound local guard with compiled conformance, not a whole-caller proof.

@@ -1,6 +1,6 @@
 # Trader
 
-Binance order admission also rejects positive values that serialize to zero at the existing eight-decimal wire precision (for example, `1e-9` and `5e-9`). It checks the unchanged rendered decimal using exact fixed-point parsing before credentials. Nonzero accepted wire bytes and base-before-quote selection are preserved. See the [wire-admission contract](formal/research/order-wire-contract.md); tick/lot membership and complete exposure-cap proofs remain open.
+Binance order admission also rejects positive values that serialize to zero at the existing eight-decimal wire precision (for example, `1e-9` and `5e-9`). It checks the unchanged rendered decimal using exact fixed-point parsing before credentials. Nonzero accepted wire bytes and base-before-quote selection are preserved. See the [wire-admission contract](formal/research/order-wire-contract.md); tick/lot membership and complete exposure-cap proofs remain open. Zero-wire maker prices also return “No order” before any market fallback.
 
 Binance order constructors now reject non-finite or nonpositive selected quantities and prices before credential access or request construction. Market orders retain base-quantity priority; ignored quote values do not override a present base. Missing-amount errors retain their message but occur before missing-credential errors. See the [numeric admission contract](formal/research/order-number-contract.md). Wire precision, venue filters and complete order-cap proofs remain separate.
 

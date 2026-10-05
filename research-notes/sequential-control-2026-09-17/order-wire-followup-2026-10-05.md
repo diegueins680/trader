@@ -86,6 +86,32 @@ sealed. No new OOS, cost, drawdown, tail-risk, RL seed, champion or holdout
 result. Recommendation: retain the champion, adopt no research candidate,
 continue offline research and close remaining system obligations separately.
 
+## Maker fallback amendment
+
+Caller review found `sendPostOnlyEntry` catches every constructor exception and
+can enter configured market fallback. A zero-wire price must be rejected before
+that catch. The amendment was committed as `ddf62cc1` before its implementation.
+`validOrderPrice` now delegates to the same wire-aware validator. The existing
+Main no-order branch, all rounding arithmetic, fallback flag and unrelated
+fallback reasons are unchanged.
+
+CE-ORDER-WIRE-002 preserves the actual Main admission/exception branches and
+previous finite-only predicate. Inert compiled continuations use the real price
+validator without exchange code. Every one of 5728 rows checks current/previous
+maker dispatch under both fallback flags (22912 comparisons). With price `1e-9`
+and fallback enabled, the previous guard enters fallback while the new guard
+returns unsent before constructor eligibility. The existing eight-state maker
+model and source-bound SMT/conformance checks include wire validity explicitly.
+This is a local caller repair, not complete Main refinement.
+
+Initial pinned run 37320697846 was canceled after this additional gap was found;
+its old-head results are not final evidence. The initial ordinary formal check
+also predates the updated receipt. Final evidence must use the amended source.
+
+The local `verify.py --record` attempt on the initial source stopped at the
+unchanged process-bridge check: `PPO process bridge: no actual inference for
+trained policy`. No receipt was written and no timing limits were widened.
+
 ## Canonical verification
 
 Targeted source/model/SMT/conformance and compiled Haskell properties passed.

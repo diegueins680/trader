@@ -3962,7 +3962,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ROUND-UP",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -3974,7 +3975,10 @@
         "formal/research/upward-rounding-contract.md",
         "formal/research/upward-rounding-source.json",
         "formal/research/upward-rounding-counterexamples.json",
-        "research-notes/registrations/upward-rounding-engineering.json"
+        "research-notes/registrations/upward-rounding-engineering.json",
+        "haskell/app/Trader/OrderNumeric.hs",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -3984,7 +3988,7 @@
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
       "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
-      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee. Maker validity now also requires positive parsed wire units under A-ORDER-WIRE; the exact rounding algorithm is unchanged.",
       "counterexample": "CE-ROUND-003; CE-ROUND-004",
       "status": "smt_verified"
     },
@@ -3995,7 +3999,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ROUND-UP",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -4007,7 +4012,10 @@
         "formal/research/upward-rounding-contract.md",
         "formal/research/upward-rounding-source.json",
         "formal/research/upward-rounding-counterexamples.json",
-        "research-notes/registrations/upward-rounding-engineering.json"
+        "research-notes/registrations/upward-rounding-engineering.json",
+        "haskell/app/Trader/OrderNumeric.hs",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -4017,7 +4025,7 @@
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
       "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
-      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee. Maker validity now also requires positive parsed wire units under A-ORDER-WIRE; the exact rounding algorithm is unchanged.",
       "counterexample": "CE-ROUND-003; CE-ROUND-004",
       "status": "model_checked"
     },
@@ -4028,7 +4036,8 @@
       "criticality": "critical",
       "assumptions": [
         "A-ROUND-UP",
-        "A-SOLVER"
+        "A-SOLVER",
+        "A-ORDER-WIRE"
       ],
       "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
       "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
@@ -4040,7 +4049,10 @@
         "formal/research/upward-rounding-contract.md",
         "formal/research/upward-rounding-source.json",
         "formal/research/upward-rounding-counterexamples.json",
-        "research-notes/registrations/upward-rounding-engineering.json"
+        "research-notes/registrations/upward-rounding-engineering.json",
+        "haskell/app/Trader/OrderNumeric.hs",
+        "formal/research/order-wire-contract.md",
+        "formal/research/order-wire-counterexamples.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -4050,7 +4062,7 @@
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_upward and UpwardRoundingTests; actual Main fragments compiled against effect-recording stubs.",
       "bounds": "Four SAT-premise/UNSAT-violation pairs; unbounded Integer/Real and all binary64 guard values. One-call finite dispatch model: eight states, four initial, four terminal, four edges, depth one. 4226 cases across both Main delegates, 8452 new and 8452 legacy dispatch cases.",
-      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee.",
+      "limitations": "Pinned GHC/base exact Integer/Rational and IEEE comparisons, ordinary IO/pure/record-update semantics, reviewed source-to-model mapping and sufficient resources; no compiler proof, complete Main refinement or wire-grid theorem. No tick acceptance, final wire cap, complete minimum-size increase, position classification or global lifecycle guarantee. Maker validity now also requires positive parsed wire units under A-ORDER-WIRE; the exact rounding algorithm is unchanged.",
       "counterexample": "CE-ROUND-003; CE-ROUND-004",
       "status": "property_tested"
     },
@@ -4078,18 +4090,21 @@
         "research-notes/registrations/order-number-engineering.json",
         "formal/research/order-wire-contract.md",
         "formal/research/order-wire-counterexamples.json",
-        "research-notes/registrations/order-wire-engineering.json"
+        "research-notes/registrations/order-wire-engineering.json",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
         "haskell/test/TestMain.hs",
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
-      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals. Each row checks current/previous maker admission for both fallback settings (22912 dispatch comparisons).",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001; CE-ORDER-WIRE-002",
       "status": "smt_verified"
     },
     {
@@ -4116,18 +4131,21 @@
         "research-notes/registrations/order-number-engineering.json",
         "formal/research/order-wire-contract.md",
         "formal/research/order-wire-counterexamples.json",
-        "research-notes/registrations/order-wire-engineering.json"
+        "research-notes/registrations/order-wire-engineering.json",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
         "haskell/test/TestMain.hs",
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
-      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals. Each row checks current/previous maker admission for both fallback settings (22912 dispatch comparisons).",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001; CE-ORDER-WIRE-002",
       "status": "smt_verified"
     },
     {
@@ -4154,24 +4172,27 @@
         "research-notes/registrations/order-number-engineering.json",
         "formal/research/order-wire-contract.md",
         "formal/research/order-wire-counterexamples.json",
-        "research-notes/registrations/order-wire-engineering.json"
+        "research-notes/registrations/order-wire-engineering.json",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
         "haskell/test/TestMain.hs",
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
-      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals. Each row checks current/previous maker admission for both fallback settings (22912 dispatch comparisons).",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001; CE-ORDER-WIRE-002",
       "status": "model_checked"
     },
     {
       "requirementId": "F-ORDER-NUMBER-CONFORMANCE",
-      "claim": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter and zero-wire values stop before the inert credential marker.",
-      "formalStatement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter and zero-wire values stop before the inert credential marker.",
+      "claim": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter, zero-wire values stop before credentials, and maker zero-wire rejection cannot enter the source-derived market-fallback branch.",
+      "formalStatement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter, zero-wire values stop before credentials, and maker zero-wire rejection cannot enter the source-derived market-fallback branch.",
       "criticality": "critical",
       "assumptions": [
         "A-ORDER-NUMBER",
@@ -4192,18 +4213,21 @@
         "research-notes/registrations/order-number-engineering.json",
         "formal/research/order-wire-contract.md",
         "formal/research/order-wire-counterexamples.json",
-        "research-notes/registrations/order-wire-engineering.json"
+        "research-notes/registrations/order-wire-engineering.json",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
         "haskell/test/TestMain.hs",
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
-      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals. Each row checks current/previous maker admission for both fallback settings (22912 dispatch comparisons).",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001; CE-ORDER-WIRE-002",
       "status": "property_tested"
     },
     {
@@ -4230,18 +4254,21 @@
         "research-notes/registrations/order-number-engineering.json",
         "formal/research/order-wire-contract.md",
         "formal/research/order-wire-counterexamples.json",
-        "research-notes/registrations/order-wire-engineering.json"
+        "research-notes/registrations/order-wire-engineering.json",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Main.hs"
       ],
       "testFiles": [
         "haskell/test/Trader/Test/OrderNumeric.hs",
         "haskell/test/TestMain.hs",
-        "scripts/formal/test_integrity.py"
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/QuantityRounding.hs"
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_order_numbers and OrderNumberTests, including pre-wire prefix and unchanged wire-byte fixtures; Haskell generated properties run in the full suite.",
-      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer parser results; 80-state local model, 40 initial/terminal states, 40 transitions, depth one. 5728 rows (1632 boundary, 4096 generated, seed 20261005), each checking five current, five pre-finite and five pre-wire prefixes; 11456 old/current wire comparisons. Fixed E12 units represent 1e-12; unchanged wire precision is eight decimals. Each row checks current/previous maker admission for both fallback settings (22912 dispatch comparisons).",
       "limitations": "Pinned GHC/base binary64, Maybe/Either, ordinary IO exception/sequence semantics, non-bottom immutable inputs, reviewed source extraction and local model mapping; sufficient resources. No compiler, complete IO, caller-retry, wire-grid/cap, fill or authorization refinement theorem. Pinned GHC/base deterministic showFFloat, Fixed E12 Read with exact Integer units for eight-decimal strings, ByteString ASCII packing, immutable non-bottom inputs, reviewed source/model extraction and sufficient resources. No compiler/formatter/parser theorem; conformance tests supplement these assumptions. No full IO, caller-retry, final wire cap/grid, resource deadline or venue-acceptance guarantee.",
-      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001",
+      "counterexample": "CE-ORDER-NUM-001; CE-ORDER-NUM-002; CE-ORDER-WIRE-001; CE-ORDER-WIRE-002",
       "status": "smt_verified"
     }
   ],

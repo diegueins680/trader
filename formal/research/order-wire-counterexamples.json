@@ -17,6 +17,15 @@
       "wire": "0",
       "claim": "Positive finite input passes the v1 guard but serializes to zero.",
       "regression": "scripts/formal/order_numbers.py"
+    },
+    {
+      "id": "CE-ORDER-WIRE-002",
+      "inputWord64": 4472406533629990549,
+      "claim": "A finite-only maker preflight allows a zero-wire constructor rejection to enter configured market fallback.",
+      "regression": "scripts/formal/order_numbers.py"
     }
-  ]
+  ],
+  "makerAdmission": "                if not (validOrderPrice px)\n                    then pure baseOut{aorMessage = \"No order: invalid maker price.\"}\n                    else do\n",
+  "makerException": "                        case r of\n                            Left ex -> fallback (\"rejected: \" ++ shortErr ex)\n                            Right body -> do\n",
+  "previousPricePredicate": "validOrderPrice :: Double -> Bool\nvalidOrderPrice price = not (isNaN price || isInfinite price) && price > 0\n"
 }

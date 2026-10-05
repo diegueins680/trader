@@ -16,6 +16,7 @@ testRounding :: IO ()
 testRounding = do
     let belowOne = castWord64ToDouble 0x3fefffffffffffff
     check "CE-ROUND-003" (quantizeUpExact 1 1 (castWord64ToDouble 0x3ff0000000000001) == 2)
+    check "CE-ORDER-WIRE-002" (not (validOrderPrice 1e-9) && not (validOrderPrice 5e-9))
     check "CE-ROUND-004" (not (validOrderPrice (0 / 0)))
     check "upward overflow rejection" (quantizeUpExact 1 (10 ^ (400 :: Int)) 1 == 0)
     check "CE-ROUND-002" ((validateQuantityInput (Just (1, 1)) (1 / 0) >> Right (1 :: Double)) == Left "Invalid quantity input.")
@@ -35,7 +36,7 @@ testRounding = do
             let up = quantizeUpExact scale increment x
             check "upward finite bound" (not (isNaN up || isInfinite up) && (up == 0 || up >= x))
             check "upward invalid fallback" (not invalid || up == 0)
-            check "maker price validity" (validOrderPrice x == (not (isNaN x || isInfinite x) && x > 0))
+            check "maker price validity" (validOrderPrice x == (not (isNaN x || isInfinite x) && x > 5e-9))
             check "adapter parity" (y == quantizeDownExact scale increment x)
             check "finite nonnegative" (not (isNaN y || isInfinite y) && y >= 0)
             check "invalid fallback / non-increase" (if invalid then y == 0 else y <= x)
