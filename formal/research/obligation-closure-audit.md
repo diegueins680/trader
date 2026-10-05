@@ -80,3 +80,5 @@ completed immutable PPO bytes through digest/provenance/structural validation to
 the existing v3 request. Five prior scoped closures additionally require the new
 boundary certificate. No closure criterion is weakened and no broad status changes;
 29/30 still require Haskell-side admission, provenance trust and loader lifecycle.
+
+Order-number follow-up (2026-10-05): invalid selected Binance numbers now fail at the constructor before credential access. Four scoped requirements add evidence to obligation 21; its full policy/caller-retry composition remains partial. No broad status or closure criterion changed.

@@ -73,6 +73,7 @@
     "haskell/app/Trader/Optimizer/OverfitAudit.hs",
     "haskell/app/Trader/Optimizer/Random.hs",
     "haskell/app/Trader/OrderExecution.hs",
+    "haskell/app/Trader/OrderNumeric.hs",
     "haskell/app/Trader/Platform.hs",
     "haskell/app/Trader/PointInTimeUniverse.hs",
     "haskell/app/Trader/PointInTimeUniverseV2.hs",
@@ -161,7 +162,7 @@
     "ab0034d9f6953afd4749059ce65d521a7e8ac911146727222403d00218c438af"
   ],
   "supportSourceHashes": {
-    "haskell/trader.cabal": "291940c7cd03a1d999abdaadfb8397a42881ab10a25ebe730c7ccd97d3dc3322",
+    "haskell/trader.cabal": "19d3e18cefef2224cfabf54ee126e51571371d3f7fca40736cd5e03fe26d4a05",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
     "haskell/app/Main.hs": "09cae4fc0cd50567caff7f52cd18220f1bfb8dbe7911b4c6ecfe36371bacea9c",

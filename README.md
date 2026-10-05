@@ -1,5 +1,7 @@
 # Trader
 
+Binance order constructors now reject non-finite or nonpositive selected quantities and prices before credential access or request construction. Market orders retain base-quantity priority; ignored quote values do not override a present base. Missing-amount errors retain their message but occur before missing-credential errors. See the [numeric admission contract](formal/research/order-number-contract.md). Wire precision, venue filters and complete order-cap proofs remain separate.
+
 Upward quantity/tick rounding now uses an exact rational ceiling with finite output checks. Invalid maker prices return “No order” even when market fallback is enabled; other maker fallback reasons keep their existing behavior. See the [upward-rounding contract](formal/research/upward-rounding-contract.md). Exact decimal wire/grid and complete order-cap proofs remain open.
 
 Quantity-normalization callers reject non-finite values and invalid grid metadata before minimum-size fallback, preventing a zero rejection from becoming a positive minimum order.

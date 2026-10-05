@@ -78,7 +78,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "haskell/app/Trader/QuantityRounding.hs",
-        "haskell/app/Trader/Binance.hs"
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/OrderNumeric.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -522,6 +523,22 @@
         {
           "id": "F-ROUND-UP-CONFORMANCE",
           "statement": "Both actual Main upward delegates match the exact Fraction oracle on 130 boundary and 4096 seeded cases; compiled actual maker-price dispatch rejects invalid prices for both fallback settings and reproduces the old numeric-error market fallback."
+        },
+        {
+          "id": "F-ORDER-NUMBER-FINITE",
+          "statement": "The source-bound binary64 number validator accepts only finite positive selected quantities or prices; NaN, infinity, nonpositive values reject without numeric conversion."
+        },
+        {
+          "id": "F-ORDER-NUMBER-SELECTION",
+          "statement": "Market numeric admission follows base-first selection; an invalid present base cannot fall back to quote, futures requires base, and accepted quote-only input is finite positive and non-futures."
+        },
+        {
+          "id": "F-ORDER-NUMBER-FLOW",
+          "statement": "In the five-constructor local guard model, the credential boundary is reachable only after numeric and context prefix guards pass; rejected guards are terminal. This is not complete order authorization."
+        },
+        {
+          "id": "F-ORDER-NUMBER-CONFORMANCE",
+          "statement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/selection/context oracle on 1248 boundary combinations and 4096 generated rows; invalid selected numbers stop before the inert credential marker."
         }
       ],
       "invariants": [
@@ -699,6 +716,16 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_loader_fit_replay_symbol_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_smt_model_and_actual_prefixes"
+        },
+        {
+          "level": "property",
+          "path": "haskell/test/Trader/Test/OrderNumeric.hs",
+          "contains": "orderNumericSuite"
         }
       ]
     },
