@@ -271,6 +271,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-PROMOTION-BOUNDARY",
+      "status": "assumption",
+      "statement": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -398,7 +404,11 @@
     "formal/research/inventory-readiness-contract.md",
     "formal/research/inventory-readiness-source.json",
     "formal/research/inventory-readiness-legacy.json",
-    "research-notes/registrations/inventory-readiness-engineering.json"
+    "research-notes/registrations/inventory-readiness-engineering.json",
+    "scripts/formal/promotion_boundary.py",
+    "formal/research/promotion-boundary-contract.md",
+    "formal/research/promotion-boundary-source.json",
+    "research-notes/registrations/promotion-boundary-engineering.json"
   ],
   "entries": [
     {
@@ -4686,6 +4696,241 @@
       "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
       "counterexample": "CE-READINESS-001; CE-READINESS-002; CE-READINESS-003; CE-READINESS-004",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-PROMOTION-SURFACE",
+      "claim": "The complete reviewed twelve-module research source closure has six fixed callback bindings, literal research output destinations and no unreviewed call/import/control-field site under the named primitive-effect assumptions.",
+      "formalStatement": "The complete reviewed twelve-module research source closure has six fixed callback bindings, literal research output destinations and no unreviewed call/import/control-field site under the named primitive-effect assumptions.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 metadata/schema SMT; finite source and lifecycle enumeration; actual codec/writer conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/promotion_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "formal/research/promotion-boundary-contract.md",
+        "formal/research/promotion-boundary-source.json",
+        "research-notes/registrations/promotion-boundary-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
+      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-PROMOTION-METADATA",
+      "claim": "Extracted v1/v4 artifact writers retain fixed research promotion and exact false enabled metadata; accepted decoder metadata cannot change those fields, and runner authorization/promotion flags are literal false.",
+      "formalStatement": "Extracted v1/v4 artifact writers retain fixed research promotion and exact false enabled metadata; accepted decoder metadata cannot change those fields, and runner authorization/promotion flags are literal false.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 metadata/schema SMT; finite source and lifecycle enumeration; actual codec/writer conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/promotion_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "formal/research/promotion-boundary-contract.md",
+        "formal/research/promotion-boundary-source.json",
+        "research-notes/registrations/promotion-boundary-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
+      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PROMOTION-SCHEMA",
+      "claim": "Neither emitted v1 nor v4 policy key set satisfies the required keys extracted from the unchanged native persisted-LSTM decoder.",
+      "formalStatement": "Neither emitted v1 nor v4 policy key set satisfies the required keys extracted from the unchanged native persisted-LSTM decoder.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 metadata/schema SMT; finite source and lifecycle enumeration; actual codec/writer conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/promotion_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "formal/research/promotion-boundary-contract.md",
+        "formal/research/promotion-boundary-source.json",
+        "research-notes/registrations/promotion-boundary-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
+      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PROMOTION-FLOW",
+      "claim": "The source-derived finite create/save/load/infer/failure/disable/retry/successor abstraction never reaches promoted persisted metadata or live authority, under the separately required capability and component-isolation certificates.",
+      "formalStatement": "The source-derived finite create/save/load/infer/failure/disable/retry/successor abstraction never reaches promoted persisted metadata or live authority, under the separately required capability and component-isolation certificates.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 metadata/schema SMT; finite source and lifecycle enumeration; actual codec/writer conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/promotion_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "formal/research/promotion-boundary-contract.md",
+        "formal/research/promotion-boundary-source.json",
+        "research-notes/registrations/promotion-boundary-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
+      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-PROMOTION-CONFORMANCE",
+      "claim": "Actual v1/v4 codecs accept only the two correct research-only metadata tuples among 72 cases; both exclusive-create writers preserve an existing file, and source/model mutations reject boundary weakening.",
+      "formalStatement": "Actual v1/v4 codecs accept only the two correct research-only metadata tuples among 72 cases; both exclusive-create writers preserve an existing file, and source/model mutations reject boundary weakening.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 metadata/schema SMT; finite source and lifecycle enumeration; actual codec/writer conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/promotion_boundary.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "formal/research/promotion-boundary-contract.md",
+        "formal/research/promotion-boundary-source.json",
+        "research-notes/registrations/promotion-boundary-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
+      "bounds": "12 modules, 15 local imports, 1733 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -5071,7 +5316,7 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
-      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
+      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
       "closureCriteria": "The delivered research proposal/inference surface cannot issue an order; no production executable reaches its module; emitted policy JSON cannot be admitted as a native persisted LSTM.",
       "nextAction": "Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates.",
@@ -5456,23 +5701,65 @@
     {
       "number": 23,
       "claim": "No self-promotion",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-PROMOTION-CONFORMANCE",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "A candidate cannot mutate its promotion state or authorize successor artifacts.",
-      "nextAction": "Audit actual write destinations and promotion consumers; verify an immutable artifact/promotion boundary.",
+      "nextAction": "Reopen before any new candidate consumer, callback, write destination, executable/import/helper, artifact/control schema or production integration change. Keep inherited authorization/ownership and empirical obligations unresolved.",
       "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
         "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
         "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/formal/promotion_boundary.py"
       ],
-      "blockers": [
-        "Abstract lifecycle has no promotion operation, but actual filesystem write capabilities are not constrained by it."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
+      ]
     },
     {
       "number": 24,
@@ -5491,7 +5778,7 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
-      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/23/26/28 stay open. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
+      "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
       "closureCriteria": "The pinned executable/deployment source boundary excludes delivered research training; admitted offline inference never writes policy parameters, and emitted policies cannot enter native LSTM persistence unchanged.",
       "nextAction": "Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates.",
@@ -5545,23 +5832,65 @@
     {
       "number": 26,
       "claim": "No automatic live transition",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
-        "F-RL-LIFECYCLE"
+        "F-RL-LIFECYCLE",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-PROMOTION-CONFORMANCE",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "No delivered transition can grant live authorization to a new candidate.",
-      "nextAction": "Certify separation between candidate artifacts and live-order construction across repository entry points.",
+      "nextAction": "Reopen before any new candidate consumer, callback, write destination, executable/import/helper, artifact/control schema or production integration change. Keep inherited authorization/ownership and empirical obligations unresolved.",
       "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
         "haskell/app/Main.hs",
-        "haskell/app/Trader/LiveOrderIntent.hs"
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/formal/promotion_boundary.py"
       ],
-      "blockers": [
-        "Non-authorizing proposals are checked; full production reachability is not certified."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
+      ]
     },
     {
       "number": 27,

@@ -331,13 +331,43 @@
       "claim": "No self-promotion",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "A candidate cannot mutate its promotion state or authorize successor artifacts.",
-      "requiredCertificates": [],
-      "implementationFiles": [
-        "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_learning.py",
-        "haskell/app/Main.hs"
+      "requiredCertificates": [
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
-      "closureClass": null
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/formal/promotion_boundary.py"
+      ],
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 24,
@@ -388,13 +418,43 @@
       "claim": "No automatic live transition",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "No delivered transition can grant live authorization to a new candidate.",
-      "requiredCertificates": [],
-      "implementationFiles": [
-        "haskell/app/Trader/Research/PolicyProposalV1.hs",
-        "haskell/app/Main.hs",
-        "haskell/app/Trader/LiveOrderIntent.hs"
+      "requiredCertificates": [
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-METADATA",
+        "F-RL-PROMOTION-SCHEMA",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
-      "closureClass": null
+      "implementationFiles": [
+        "scripts/research/ess_rational_v2.py",
+        "scripts/research/gae_targets_v2.py",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/ppo_inference_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_registry.py",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "haskell/research/InferenceProcessV2.hs",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/formal/promotion_boundary.py"
+      ],
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 27,

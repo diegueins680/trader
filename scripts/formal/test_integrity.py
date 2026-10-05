@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 33)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,24,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 31)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -3289,6 +3289,86 @@ class InventoryReadinessTests(unittest.TestCase):
         self.assertEqual(result['conformance']['rows'],6468)
         self.assertEqual(result['conformance']['accepted'],1188)
         self.assertEqual(result['referenceCount'],12)
+
+
+class PromotionBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        import promotion_boundary as p
+        self.p = p
+        self.sources = {name:(p.ROOT/p.source_path(name)).read_text() for name in p.MODULES}
+        self.registry = read_json(p.ROOT/p.REGISTRY)
+
+    def refreshed(self, name, source):
+        import json
+        sources = dict(self.sources); sources[name] = source
+        registry = copy.deepcopy(self.registry)
+        registry['modules'][name] = json.loads(json.dumps(self.p.inventory(source)))
+        return sources, registry
+
+    def test_promotion_roster_mutations(self):
+        for name in self.p.MODULES:
+            registry = copy.deepcopy(self.registry);del registry['modules'][name]
+            with self.assertRaises(ValueError):self.p.extract(self.sources,registry)
+        for field in ('callSites','imports','controlFields'):
+            registry = copy.deepcopy(self.registry)
+            registry['modules']['run_sequential_screen'][field].pop()
+            with self.assertRaises(ValueError):self.p.extract(self.sources,registry)
+
+    def test_promotion_effect_mutations_even_with_refreshed_inventory(self):
+        mutations=[('run_sequential_screen','import argparse','import socket'),
+                   ('run_sequential_screen','ledger.flush()', 'ledger.close()'),
+                   ('run_sequential_screen','scale, choose, cfg','scale, arbitrary_policy, cfg')]
+        for name,before,after in mutations:
+            source=self.sources[name].replace(before,after,1);self.assertNotEqual(source,self.sources[name])
+            args=self.refreshed(name,source)
+            with self.assertRaises(ValueError):self.p.extract(*args)
+        source=self.sources['run_sequential_screen']+'\nexec("pass")\n'
+        with self.assertRaises(ValueError):self.p.extract(*self.refreshed('run_sequential_screen',source))
+
+    def test_promotion_destination_mutations_even_with_refreshed_inventory(self):
+        mutations=[('run_sequential_screen','output / "training.json"','output.parent / "training.json"'),
+                   ('run_sequential_screen','save_policy(artifact, net, provenance)','save_policy(panel, net, provenance)'),
+                   ('run_sequential_screen','output / "policies" / (trial','panel / "policies" / (trial'),
+                   ('summarize_sequential_screen',"csvfile('experiment-registry.csv'",'csvfile(manifest["name"]'),
+                   ('summarize_sequential_screen','summary.update(trainingSecondsSum=', 'summary.update(promotionAllowed=True, trainingSecondsSum=')]
+        for name,before,after in mutations:
+            source=self.sources[name].replace(before,after,1);self.assertNotEqual(source,self.sources[name])
+            with self.assertRaises(ValueError):self.p.extract(*self.refreshed(name,source))
+
+    def test_promotion_writer_and_decoder_mutations(self):
+        trees={name:ast.parse(source) for name,source in self.sources.items()}
+        for name,function in [('sequential_learning','save_policy'),('ppo_artifact_v4','encode_artifact_v4')]:
+            for key,bad in [('promotion','live'),('enabled',True)]:
+                changed=copy.deepcopy(trees)
+                function_node=self.p.definition(changed[name],function)
+                record=self.p.one_assignment(function_node,'value')
+                i=next(i for i,k in enumerate(record.keys) if k.value==key)
+                record.values[i]=ast.Constant(bad)
+                with self.assertRaises(ValueError):self.p.metadata(changed)
+        for name,function in [('sequential_learning','load_policy'),('ppo_artifact_v4','decode_artifact_v4')]:
+            for fragment in ("['promotion']", "['enabled']"):
+                changed=copy.deepcopy(trees)
+                function_node=self.p.definition(changed[name],function)
+                class Weaken(ast.NodeTransformer):
+                    def visit_Compare(self,node):
+                        return ast.Constant(False) if fragment in ast.unparse(node) else self.generic_visit(node)
+                Weaken().visit(function_node)
+                with self.assertRaises((ValueError,RuntimeError)):self.p.metadata(changed)
+
+    def test_promotion_native_overlap_and_live_edge(self):
+        trees,_=self.p.extract();facts,_=self.p.metadata(trees)
+        changed=copy.deepcopy(facts);changed['v4']['keys']+=['hiddenSize','params','trainBars','version']
+        with self.assertRaises((ValueError,AssertionError)):
+            self.p.schema(changed,['hiddenSize','params','trainBars','version'])
+        with self.assertRaisesRegex(ValueError,'promotion/authority reached'):self.p.lifecycle(facts,mutant=True)
+
+    def test_promotion_conformance(self):
+        trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
+        result=self.p.conformance(facts);model=self.p.lifecycle(facts)
+        self.assertEqual((surface['moduleCount'],meta['queries']),(12,7))
+        self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
+        self.assertGreater(model['rejectedMetadataEdges'],0)
+        self.assertGreater(model['states'],0)
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 
 Preregistered 2026-10-05 against 56980e3ffd1506d5b8da7305c50c721b13acda0d.
 No predictor, policy, production behavior, data experiment or tool dependency is
-introduced. Candidate closures are23 and26, with their existing scope strings and
+introduced. Candidate closures are 23 and 26, with their existing scope strings and
 closure criteria unchanged. This is a composition audit, not a count-based relabel.
 
 ## Meaning and required composition

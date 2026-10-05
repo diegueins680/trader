@@ -593,6 +593,26 @@
         {
           "id": "F-INVENTORY-READINESS-CONFORMANCE",
           "statement": "The compiled actual Haskell inventory readiness predicate agrees with the independent oracle on 6468 finite metadata/numeric partition cases in two repeated runs; source-bound scan/caller checks preserve four counterexample regressions."
+        },
+        {
+          "id": "F-RL-PROMOTION-SURFACE",
+          "statement": "The complete reviewed twelve-module research source closure has six fixed callback bindings, literal research output destinations and no unreviewed call/import/control-field site under the named primitive-effect assumptions."
+        },
+        {
+          "id": "F-RL-PROMOTION-METADATA",
+          "statement": "Extracted v1/v4 artifact writers retain fixed research promotion and exact false enabled metadata; accepted decoder metadata cannot change those fields, and runner authorization/promotion flags are literal false."
+        },
+        {
+          "id": "F-RL-PROMOTION-SCHEMA",
+          "statement": "Neither emitted v1 nor v4 policy key set satisfies the required keys extracted from the unchanged native persisted-LSTM decoder."
+        },
+        {
+          "id": "F-RL-PROMOTION-FLOW",
+          "statement": "The source-derived finite create/save/load/infer/failure/disable/retry/successor abstraction never reaches promoted persisted metadata or live authority, under the separately required capability and component-isolation certificates."
+        },
+        {
+          "id": "F-RL-PROMOTION-CONFORMANCE",
+          "statement": "Actual v1/v4 codecs accept only the two correct research-only metadata tuples among 72 cases; both exclusive-create writers preserve an existing file, and source/model mutations reject boundary weakening."
         }
       ],
       "invariants": [
@@ -800,6 +820,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_inventory_readiness_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_promotion_conformance"
         }
       ]
     },

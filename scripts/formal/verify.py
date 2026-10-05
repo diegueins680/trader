@@ -60,7 +60,7 @@ def validate_ledger(ledger, root):
         mapped.update(related)
         require(scoped_clauses.get(entry['requirementId']) == entry['formalStatement'], 'canonical formal statement drift')
     require(mapped == scoped_clauses.keys(), 'unmapped scoped formal requirement')
-    supported = {"F-INVENTORY-READINESS-FLOW": "model_checked", "F-INVENTORY-READINESS-CONFORMANCE": "property_tested", "F-RECOVERY-FLOW": "model_checked", "F-RECOVERY-CONFORMANCE": "property_tested", "F-SIZING-FLOW": "model_checked", "F-SIZING-CONFORMANCE": "property_tested", "F-ORDER-NUMBER-FLOW": "model_checked", "F-ORDER-NUMBER-CONFORMANCE": "property_tested", "F-ROUND-UP-FLOW": "model_checked", "F-ROUND-UP-CONFORMANCE": "property_tested", "F-ROUND-DOWN-CONFORMANCE": "property_tested", "F-RL-ARTIFACT-V4-FLOW": "model_checked", "F-RL-ARTIFACT-V4-BOUNDARY": "exhaustively_checked", "F-RL-ARTIFACT-V4-CONFORMANCE": "property_tested", "F-RL-BRIDGE-V3-FLOW": "model_checked", "F-RL-BRIDGE-V3-BOUNDARY": "exhaustively_checked", "F-RL-BRIDGE-V3-CONFORMANCE": "property_tested", "F-RL-PPO-V2-FLOW": "model_checked", "F-RL-PPO-V2-BOUNDARY": "exhaustively_checked", "F-RL-PPO-V2-CONFORMANCE": "property_tested", "F-RL-DATA-COMPOSITION": "exhaustively_checked", "F-DRAIN-POOL-LIFECYCLE": "model_checked", "F-DRAIN-POOL-CONFORMANCE": "property_tested", "F-BACKTEST-GATE-LIFECYCLE": "model_checked", "F-BACKTEST-GATE-CONFORMANCE": "property_tested", "F-ASYNC-SEAL-LIFECYCLE": "model_checked", "F-ASYNC-SEAL-CONFORMANCE": "property_tested", "F-ASYNC-ADMISSION-LIFECYCLE": "model_checked", "F-ASYNC-ADMISSION-CONFORMANCE": "property_tested", "F-WORKER-REGISTRY-LIFECYCLE": "model_checked", "F-WORKER-REGISTRY-CONFORMANCE": "property_tested", "F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
+    supported = {"F-RL-PROMOTION-SURFACE": "exhaustively_checked", "F-RL-PROMOTION-FLOW": "model_checked", "F-RL-PROMOTION-CONFORMANCE": "property_tested", "F-INVENTORY-READINESS-FLOW": "model_checked", "F-INVENTORY-READINESS-CONFORMANCE": "property_tested", "F-RECOVERY-FLOW": "model_checked", "F-RECOVERY-CONFORMANCE": "property_tested", "F-SIZING-FLOW": "model_checked", "F-SIZING-CONFORMANCE": "property_tested", "F-ORDER-NUMBER-FLOW": "model_checked", "F-ORDER-NUMBER-CONFORMANCE": "property_tested", "F-ROUND-UP-FLOW": "model_checked", "F-ROUND-UP-CONFORMANCE": "property_tested", "F-ROUND-DOWN-CONFORMANCE": "property_tested", "F-RL-ARTIFACT-V4-FLOW": "model_checked", "F-RL-ARTIFACT-V4-BOUNDARY": "exhaustively_checked", "F-RL-ARTIFACT-V4-CONFORMANCE": "property_tested", "F-RL-BRIDGE-V3-FLOW": "model_checked", "F-RL-BRIDGE-V3-BOUNDARY": "exhaustively_checked", "F-RL-BRIDGE-V3-CONFORMANCE": "property_tested", "F-RL-PPO-V2-FLOW": "model_checked", "F-RL-PPO-V2-BOUNDARY": "exhaustively_checked", "F-RL-PPO-V2-CONFORMANCE": "property_tested", "F-RL-DATA-COMPOSITION": "exhaustively_checked", "F-DRAIN-POOL-LIFECYCLE": "model_checked", "F-DRAIN-POOL-CONFORMANCE": "property_tested", "F-BACKTEST-GATE-LIFECYCLE": "model_checked", "F-BACKTEST-GATE-CONFORMANCE": "property_tested", "F-ASYNC-SEAL-LIFECYCLE": "model_checked", "F-ASYNC-SEAL-CONFORMANCE": "property_tested", "F-ASYNC-ADMISSION-LIFECYCLE": "model_checked", "F-ASYNC-ADMISSION-CONFORMANCE": "property_tested", "F-WORKER-REGISTRY-LIFECYCLE": "model_checked", "F-WORKER-REGISTRY-CONFORMANCE": "property_tested", "F-SHUTDOWN-STAGES": "model_checked", "F-SHUTDOWN-CONFORMANCE": "property_tested", "F-RL-PROCESS-LIFECYCLE": "model_checked", "F-RL-PROCESS-CONFORMANCE": "property_tested", "F-RL-PROCESS-ISOLATION": "exhaustively_checked", "F-RL-LIFECYCLE": "model_checked", "F-RL-SNAPSHOT-PUBLISH": "model_checked", "F-RL-SNAPSHOT-CONFORMANCE": "property_tested", "F-RL-SNAPSHOT-ISOLATION": "exhaustively_checked", "F-RL-COMPONENT-ISOLATION": "exhaustively_checked", "F-RL-POLICY-EFFECTS": "exhaustively_checked", "F-RL-CONFORMANCE": "property_tested",
                  "F-RL-INTEGRITY": "property_tested", "F-RL-CLOSURE": "property_tested", "F-RL-DEFAULT-PATH": "exhaustively_checked", "F-RL-REFINEMENT": "open",
                  "F-RL-ARTIFACT-PATH": "model_checked", "F-RL-TARGET-V2-PUBLISH": "model_checked",
                  "F-RL-ESS-V2-PUBLISH": "model_checked", "F-RL-FUNDING-FINITE": "refuted", "F-RL-REPLAY-ORDER": "model_checked", "F-RL-REPLAY-QUOTIENT": "model_checked", "F-RL-REWARD-ADDITIVE": "refuted", "F-RL-OPE-FP-SUPPORT": "refuted", "F-RL-INFER-PATH": "model_checked", "F-RL-INFER-DEADLINE": "refuted",
@@ -185,6 +185,7 @@ def run(record=False, require_complete=False):
     from ppo_successor import check_successor
     from data_composition import check_composition
     from default_paths import check_defaults
+    from promotion_boundary import check_promotion
     from capability_isolation import check_isolation
     from snapshot_v2 import check_snapshot
     from inference_process import check_process
@@ -284,6 +285,8 @@ def run(record=False, require_complete=False):
     result['smt'].update(result['snapshotV2']['smt'])
     result['capabilityIsolation'] = check_isolation()
     result['smt'].update(result['capabilityIsolation']['smt'])
+    result['promotionBoundary'] = check_promotion(result['capabilityIsolation'])
+    result['smt'].update(result['promotionBoundary']['smt'])
     result['rewardAccounting'] = check_reward_accounting()
     result['smt'].update(result['rewardAccounting']['smt'])
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
@@ -291,6 +294,7 @@ def run(record=False, require_complete=False):
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
     reproduced = {key: 'smt_verified' for key, value in result['smt'].items() if value == 'unsat'}
     for requirement, path in {
+        'F-RL-PROMOTION-FLOW': ('promotionBoundary', 'model'),
         'F-INVENTORY-READINESS-FLOW': ('inventoryReadiness', 'model'),
         'F-RECOVERY-FLOW': ('closedTradeRecovery', 'model'),
         'F-SIZING-FLOW': ('sizingInputs', 'model'),
@@ -327,6 +331,7 @@ def run(record=False, require_complete=False):
     reproduced['F-RL-BRIDGE-V3-BOUNDARY'] = result['ppoProcessBridge']['boundary']['status']
     reproduced['F-RL-PPO-V2-BOUNDARY'] = result['ppoSuccessor']['boundary']['status']
     reproduced['F-RL-DATA-COMPOSITION'] = result['dataComposition']['status']
+    reproduced['F-RL-PROMOTION-SURFACE'] = result['promotionBoundary']['surface']['status']
     reproduced['F-RL-DEFAULT-PATH'] = result['defaultPaths']['status']
     for part in ('graph', 'effects'):
         reproduced[result['capabilityIsolation'][part]['requirement']] = 'exhaustively_checked'
