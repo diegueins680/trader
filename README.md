@@ -842,3 +842,11 @@ The [evidence report](research-notes/sequential-control-2026-09-17/bot-worker-pu
 records **9 scoped closures,25 partial,4 open**: obligation15 now has partial startup
 publication evidence, not a proof of complete live-owner uniqueness. Overall research
 and production acceptance remain false.
+
+Research report export now refuses file, symlink and hardlink collisions even
+when they appear after the output directory is created. Successful report formats
+and bytes are unchanged; a failed export may leave a new partial directory, which
+must not be treated as completed evidence. Retries do not replace existing output.
+The [champion preservation report](research-notes/sequential-control-2026-09-17/champion-archive-2026-10-05.md)
+records the composed, conditional closure of obligation 28: **10 scoped closures,
+24 partial, 4 open**. This is no candidate adoption or production authorization.

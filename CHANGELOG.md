@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Refuse report-file collisions with exclusive binary creation, preserving existing files and linked champion data. Retain byte-compatible reports and deterministic collision/failure fixtures; compose source, SMT, state-model and capability evidence for scoped champion-preservation obligation 28. No model, live configuration, risk limit or frozen financial evidence changes.
+
 - Gate bot initialization until its runtime-map entry commits. Preserve duplicate-start checks and reject unpublished children on failure; add compiled rollback/cancellation regressions and source-bound model/SMT evidence. Persistent ownership, live settings and risk rules are unchanged; full ownership/lifecycle obligations remain incomplete.
 
 - Fix offline v1 policy loading to snapshot expected provenance before file I/O. Preserve the old race as a regression; compose version, hash, helper, byte-snapshot and non-authorizing consumer checks for scoped obligations29/30. Stable v1 artifacts and numerical policy behavior remain compatible; no live configuration or financial evidence changes.
