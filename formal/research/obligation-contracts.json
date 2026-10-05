@@ -36,7 +36,8 @@
         "F-RL-FIT-PREFIX",
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -45,7 +46,8 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -71,7 +73,8 @@
         "F-RL-DATA-KEYS",
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -80,7 +83,8 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -94,7 +98,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": null
     },
@@ -162,7 +167,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -176,7 +182,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -297,7 +304,8 @@
         "scripts/research/sequential_learning.py",
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/research/InferenceProcessV2.hs",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": null
     },
@@ -312,7 +320,8 @@
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_env.py",
         "scripts/research/sequential_evaluation.py",
-        "scripts/research/ppo_successor_v2.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": null
     },
@@ -343,7 +352,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -355,7 +365,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -417,7 +428,8 @@
       "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
       "requiredCertificates": [],
       "implementationFiles": [
-        "scripts/research/sequential_learning.py"
+        "scripts/research/sequential_learning.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": null
     },
@@ -429,7 +441,8 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
-        "scripts/research/run_sequential_screen.py"
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": null
     },
@@ -445,7 +458,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
-        "F-RL-BRIDGE-V3-BOUNDARY"
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -456,7 +470,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
       "closureClass": "exhaustively_checked"
     },

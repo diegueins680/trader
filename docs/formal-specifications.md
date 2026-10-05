@@ -696,3 +696,9 @@ A transient exact-bit request does not authenticate provenance, prove observatio
 causality or establish neural numerical parity near ties. Existing v2 interfaces,
 source-level capability separation and disabled defaults remain checked. Counts
 remain five scoped closures, 26 partial and seven open; no candidate promotion.
+
+The [PPO artifact v4 contract](../formal/research/ppo-artifact-v4-contract.md)
+adds F-RL-ARTIFACT-V4-GUARD/FLOW/BOUNDARY/CONFORMANCE under A-ARTIFACT-V4.
+Four conditional SMT checks, a ten-gate finite lifecycle and complete reviewed
+source inventory supplement exact trained-state and compiled bit conformance.
+Byte identity is distinct from provenance authenticity. Broad 29/30 remain partial.

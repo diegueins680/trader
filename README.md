@@ -1,5 +1,12 @@
 # Trader
 
+The default-disabled [PPO artifact byte codec v4](formal/research/ppo-artifact-v4-contract.md)
+now checks caller-supplied SHA256/provenance references and preserves completed
+immutable PPO training state before producing the existing Haskell v3 request.
+It performs no file I/O or activation. Trust-anchor authentication, Haskell-side
+artifact admission and production loader integration remain unresolved; no candidate
+is adopted and no additional broad obligation is closed.
+
 The explicit [PPO snapshot bridge v3](formal/research/ppo-process-bridge-v3-contract.md)
 now connects trained offline PPO snapshots to the existing supervised Haskell
 inference process. Its Python encoder defaults to disabled; use `enabled=True`

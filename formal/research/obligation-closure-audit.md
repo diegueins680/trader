@@ -74,3 +74,9 @@ The existing five scoped closures now also require F-RL-BRIDGE-V3-BOUNDARY for
 this added entry; their criteria are unchanged. No additional closure is claimed:
 26 partial and seven open remain. Provenance/persistence, historical availability,
 accounting, OPE and production lifecycle still require separate work.
+
+Artifact v4 (2026-10-05): [contract](ppo-artifact-v4-contract.md) connects
+completed immutable PPO bytes through digest/provenance/structural validation to
+the existing v3 request. Five prior scoped closures additionally require the new
+boundary certificate. No closure criterion is weakened and no broad status changes;
+29/30 still require Haskell-side admission, provenance trust and loader lifecycle.

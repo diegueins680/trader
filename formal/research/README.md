@@ -457,3 +457,22 @@ timeout or failed cleanup. `--snapshot-contract-v3` is a pure bit-roundtrip prob
 The existing `--offline-inference-v2` contract is preserved. These commands do not
 persist or authenticate models, select datasets, construct observations, authorize
 orders or register production components. No new configuration/environment flag.
+
+## PPO artifact byte codec v4
+
+The [contract](ppo-artifact-v4-contract.md) and
+[registration](../../research-notes/registrations/ppo-artifact-v4-engineering.json)
+cover a pure, offline byte boundary. In `scripts/research/ppo_artifact_v4.py`,
+`encode_artifact_v4(result, provenance, enabled=True)` yields canonical bytes;
+`decode_artifact_v4(raw, expected_sha256, expected_provenance, enabled=True)`
+returns immutable state or None. `request_from_artifact_v4` additionally takes an
+already normalized observation and returns the existing v3 request or None.
+All three return None by default. Supply independently selected expected metadata;
+computing an expected digest from an untrusted file is not provenance authentication.
+There is no filesystem, optimizer restore, production activation or order API.
+
+Both canonical formal/full wrappers reproduce source checks, four SMT pairs,
+the finite gate model and all nine synthetic trained-policy round trips without
+network access. Malformed artifacts and source/model bypass mutants are included.
+The frozen financial registry and sealed holdout are untouched. Dependencies and
+the Haskell inference protocol remain unchanged.
