@@ -54,3 +54,11 @@ Either-composition properties back the correspondence. Full Main correctness is
 not proved. The initial local receipt attempt failed in the unchanged PPO-v3
 snapshot probe after its 3-second timeout; source 6cf47360 CI reproduction was
 superseded by this refinement. No timeout was relaxed.
+
+Refined targeted suite: 2 tests passed in 13.752s. During fixture development,
+a checker import expectation and generated Haskell layout error were corrected;
+neither was suppressed. Initial CI 37268381702 ran 194 tests successfully, then
+failed the existing drain-pool source hash for changed trader.cabal. Reviewed
+Main/Cabal/TestMain changes were rebound in six inherited source registries;
+all affected extractor checks passed unchanged. Certificate recording and full
+verification must reproduce these inherited obligations before merging.
