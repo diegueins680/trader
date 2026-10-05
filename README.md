@@ -824,3 +824,5 @@ mapping. Seconds-to-microseconds conversion saturates safely instead of wrapping
 into an unlimited timeout. Waiting admission retains its one-second retry; the
 execution timeout starts after admission and does not bound queue wait. Callbacks
 must remain interruptible for timeout delivery. See the [backtest gate contract](formal/research/backtest-gate-contract.md).
+
+Research verification now composes the [candidate promotion boundary](formal/research/promotion-boundary-contract.md) with the existing build, type and process certificates. Obligations23/26 close only for the delivered research candidates under the recorded assumptions; seven scoped closures,26 partial and five open remain. No candidate is approved for adoption or production. See the [evidence report](research-notes/sequential-control-2026-09-17/promotion-boundary-2026-10-05.md).

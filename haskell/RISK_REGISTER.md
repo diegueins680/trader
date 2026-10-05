@@ -265,3 +265,14 @@ concurrent snapshot consistency, continuous freshness and HTTP/drain linearizati
 are not proved. Obligation16 advances from open to partial; totals are five scoped
 closures, 28 partial, five open. No closure criterion is weakened; RL-OFFLINE-001
 remains open. This health repair does not modify adoption or production ownership.
+
+Promotion boundary follow-up (2026-10-05): [A-PROMOTION-BOUNDARY](../formal/research/promotion-boundary-contract.md)
+records ordinary runtime/numeric objects, trusted fixed code and primitive effects,
+registered scalar identifiers, fresh exclusive directories and a stable filesystem
+namespace. Source inventory equality is drift detection, not whole-language proof.
+The actual field predicates/native key sets are SMT checked; the finite lifecycle
+and existing build/type/process certificates compose the affected boundary.
+Obligations23/26 now have conditional scoped closure, with their original criteria
+and scope unchanged: **7 scoped closures,26 partial,5 open**. No inherited live
+control-plane, ownership, deployed-image, crash-atomicity, hash-authenticity or OS
+sandbox theorem is claimed. RL-OFFLINE-001 stays open. No financial evidence changes.

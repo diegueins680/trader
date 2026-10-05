@@ -1290,10 +1290,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 5,
+    "closedMissionObligations": 7,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 33
+    "openMissionObligations": 31
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -1728,6 +1728,262 @@
       "F-RL-PPO-V2-FINITE": "unsat"
     },
     "sourceSha256": "89d66f4f096e378ee476a630f670975f6c175b118f8821765207ac562b2ac049"
+  },
+  "promotionBoundary": {
+    "composition": {
+      "deployedImageVerified": false,
+      "productionAuthorizationVerified": false,
+      "productionRoots": [
+        "analyze-close-timing",
+        "lstm-bench",
+        "merge-top-combos",
+        "optimize-equity",
+        "outbox-publisher",
+        "trader-hs"
+      ]
+    },
+    "conformance": {
+      "accepted": 2,
+      "exclusiveCreateCases": 2,
+      "fixture": "hand-constructed structural codec fixture; not evidence of training or provenance truth",
+      "metadataCases": 72,
+      "rejected": 70,
+      "trainingRuns": 0
+    },
+    "metadata": {
+      "queries": 7,
+      "runnerFalseFields": [
+        [
+          "output / 'manifest.json'",
+          "liveAuthorization"
+        ],
+        [
+          "output / 'manifest.json'",
+          "promotionAllowed"
+        ],
+        [
+          "output / 'summary.json'",
+          "promotionAllowed"
+        ]
+      ],
+      "smt": {
+        "F-RL-PROMOTION-METADATA": "unsat"
+      }
+    },
+    "model": {
+      "enabledClasses": 3,
+      "formats": 2,
+      "maxShortestDepth": 3,
+      "promotionInputs": 6,
+      "rejectedMetadataEdges": 34,
+      "scope": "source-derived metadata/capability abstraction; existing component/process certificates required",
+      "search": "reachable fixed point including retries and successors; no bounded retry cutoff",
+      "states": 18,
+      "terminalStuttering": false,
+      "transitions": 88
+    },
+    "schema": {
+      "formats": {
+        "v1": {
+          "emittedKeys": [
+            "actions",
+            "enabled",
+            "environment",
+            "observation",
+            "parameters",
+            "promotion",
+            "provenance",
+            "schema"
+          ],
+          "membershipBits": 12,
+          "premiseChecks": 1,
+          "requiredNativeKeys": [
+            "hiddenSize",
+            "params",
+            "trainBars",
+            "version"
+          ],
+          "requirement": "F-RL-PROMOTION-SCHEMA",
+          "result": "unsat",
+          "scope": "emitted offline JSON versus unchanged native LSTM decoder; trusted Aeson semantics",
+          "violationChecks": 1
+        },
+        "v4": {
+          "emittedKeys": [
+            "contracts",
+            "enabled",
+            "promotion",
+            "provenance",
+            "result",
+            "schema"
+          ],
+          "membershipBits": 10,
+          "premiseChecks": 1,
+          "requiredNativeKeys": [
+            "hiddenSize",
+            "params",
+            "trainBars",
+            "version"
+          ],
+          "requirement": "F-RL-PROMOTION-SCHEMA",
+          "result": "unsat",
+          "scope": "emitted offline JSON versus unchanged native LSTM decoder; trusted Aeson semantics",
+          "violationChecks": 1
+        }
+      },
+      "smt": {
+        "F-RL-PROMOTION-SCHEMA": "unsat"
+      }
+    },
+    "smt": {
+      "F-RL-PROMOTION-METADATA": "unsat",
+      "F-RL-PROMOTION-SCHEMA": "unsat"
+    },
+    "surface": {
+      "callSites": 1733,
+      "callbacks": [
+        [
+          "ppo_successor_v2",
+          "behavior"
+        ],
+        [
+          "run_sequential_screen",
+          "choose"
+        ],
+        [
+          "sequential_evaluation",
+          "None"
+        ],
+        [
+          "sequential_learning",
+          "None"
+        ],
+        [
+          "sequential_learning",
+          "explore"
+        ],
+        [
+          "sequential_learning",
+          "lambda s: softmax(net.forward(s))"
+        ]
+      ],
+      "controlFieldOccurrences": 19,
+      "destinations": {
+        "namespaceAssumption": "ordinary Paths and registered scalar trial identifiers; fresh stable directories; no hostile filesystem mutation",
+        "policyPath": "output / 'policies' / (trial.replace('/', '_') + '.json')",
+        "reportNames": [
+          "all-seed-results.csv",
+          "evaluation-summary.json",
+          "experiment-manifest.json",
+          "experiment-registry.csv",
+          "multi-seed-training.json",
+          "ope-report.json",
+          "symbol-fold-base-results.csv"
+        ],
+        "runnerJson": [
+          "output / 'evaluation.json'",
+          "output / 'evidence-index.json'",
+          "output / 'manifest.json'",
+          "output / 'ope.json'",
+          "output / 'planned-registry.json'",
+          "output / 'summary.json'",
+          "output / 'training.json'"
+        ]
+      },
+      "directoryCreates": [
+        [
+          "run_sequential_screen",
+          "(output / 'policies').mkdir"
+        ],
+        [
+          "run_sequential_screen",
+          "output.mkdir"
+        ],
+        [
+          "summarize_sequential_screen",
+          "output.mkdir"
+        ]
+      ],
+      "fileOpens": [
+        [
+          "run_sequential_screen",
+          "(output / 'events.jsonl').open",
+          "x"
+        ],
+        [
+          "run_sequential_screen",
+          "(output / 'returns.csv').open",
+          "x"
+        ],
+        [
+          "run_sequential_screen",
+          "path.open",
+          "x"
+        ],
+        [
+          "sequential_learning",
+          "path.open",
+          "rb"
+        ],
+        [
+          "sequential_learning",
+          "path.open",
+          "xb"
+        ],
+        [
+          "summarize_sequential_screen",
+          "path.open",
+          "rb"
+        ]
+      ],
+      "localImportEdges": 15,
+      "moduleCount": 12,
+      "processes": [
+        "subprocess.check_output(['git', 'show', f'{commit}:{path.relative_to(ROOT)}'], cwd=ROOT)",
+        "subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True)"
+      ],
+      "requirement": "F-RL-PROMOTION-SURFACE",
+      "scope": "all finite reviewed source sites; primitive effect/type contracts, not whole-language or OS refinement",
+      "status": "exhaustively_checked",
+      "writeSites": [
+        [
+          "run_sequential_screen",
+          "ledger.flush"
+        ],
+        [
+          "run_sequential_screen",
+          "ledger.write"
+        ],
+        [
+          "run_sequential_screen",
+          "stream.write"
+        ],
+        [
+          "run_sequential_screen",
+          "writer.writerow"
+        ],
+        [
+          "run_sequential_screen",
+          "writer.writerow"
+        ],
+        [
+          "sequential_learning",
+          "stream.write"
+        ],
+        [
+          "summarize_sequential_screen",
+          "(output / name).write_bytes"
+        ],
+        [
+          "summarize_sequential_screen",
+          "writer.writeheader"
+        ],
+        [
+          "summarize_sequential_screen",
+          "writer.writerows"
+        ]
+      ]
+    }
   },
   "quantityRounding": {
     "conformance": {
@@ -2342,6 +2598,8 @@
     "F-RL-PPO-V2-BOUNDS": "unsat",
     "F-RL-PPO-V2-FINITE": "unsat",
     "F-RL-PROCESS-ADMISSION": "unsat",
+    "F-RL-PROMOTION-METADATA": "unsat",
+    "F-RL-PROMOTION-SCHEMA": "unsat",
     "F-RL-REPLAY-CUTOFF": "unsat",
     "F-RL-REPLAY-DUE": "unsat",
     "F-RL-REWARD-RECONCILE": "unsat",
@@ -2505,8 +2763,8 @@
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "82f2f2cb4184b06b8c4c347a6e2a4addd0a115eb33dc892aaecb5d56824c7d13",
-    "formal/research/obligation-closure-audit.md": "4fb32c612bda8411adcd095bf3717dde9c5d3714c0c53dd9744199078ebb759f",
-    "formal/research/obligation-contracts.json": "5ddd0dd12c8d53da5f05a32865b7137079effbdd89dbe3c61464103e57102126",
+    "formal/research/obligation-closure-audit.md": "9b5607d198e02b91e786f7e442e7532cf37167cc7761374a48865d46c947ff26",
+    "formal/research/obligation-contracts.json": "0d8025e912adbdab497fc0702b08c719464774be1579baa816ca949548ae805f",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
@@ -2525,7 +2783,9 @@
     "formal/research/ppo-process-bridge-v3-contract.md": "69a8a784ad4a4ab24b383436bf27474cb0c9f4d95e63f5b7d9610f46a4f88bf1",
     "formal/research/ppo-successor-source.json": "af5e4ea735c591efa2b27f0f9c6a8a3d1cba53148f0512eda8d9be9b258e036d",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
-    "formal/research/proof-ledger.json": "096c5f1969c17c6bba97afcbcb5927e9e1564701abf545e671b2916a4d49b87f",
+    "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
+    "formal/research/promotion-boundary-source.json": "3dc67c1e51fdfc8c9cd7cd53ad1187e4a7403607a360825d46fc9e9f3b2d3224",
+    "formal/research/proof-ledger.json": "44716d97a00042773d9af85da4f32ff14ecd72f60d11b7f8dccb055e8a368921",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -2560,7 +2820,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "afa53c18746c959cc0836e706cd99c07b0fdf08f7e9e72609df219dad8fd3147",
-    "formal/specifications.json": "d624557ed95deaeaa2f6fce89abb63924d203d3ea68c66ffcec10e2c71721928",
+    "formal/specifications.json": "aabf1ad07544da3557fb051d2d4d026ddbcd549af6e29dd0b64e0e2c5115cd8a",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "4a6fe23d0c4279f8571c74f44a917aa0d202ec9bb0d20d55f24a9965c4a65573",
@@ -2715,6 +2975,7 @@
     "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
     "research-notes/registrations/ppo-process-bridge-v3-engineering.json": "fff9e59d0b3ce5a3a3c72f6fd09cd585e6208ada1e09457dfe2d77abb6387fd9",
     "research-notes/registrations/ppo-successor-v2-engineering.json": "fa1b6bbbc43e669e3007d7e340eb0ef2244ea7e663a0d7fa502825373f21c09d",
+    "research-notes/registrations/promotion-boundary-engineering.json": "5a9659b44e6d77557307ad033444e12543de07807155b31ef9ab05c694f21b50",
     "research-notes/registrations/quantity-rounding-engineering.json": "ca6c5a19229813233bac33f41e5d81fddff33f4f0700268b92ab1c6630b62227",
     "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc",
     "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
@@ -2754,6 +3015,7 @@
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
+    "scripts/formal/promotion_boundary.py": "98cf3ce8d34ee3cb571543ee9368ce428818a720d81b72b0889d94bd51fda610",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/quantity_rounding.py": "d0188f00d69ea4c156c40b0e629a66d7db97f0e4a1072c5935c35e3b099075a0",
     "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
@@ -2765,12 +3027,12 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "3243ebeaae32f023a0da710cd18e4313ae3b4dbcd3ebe413bf3cca45a2e60cad",
+    "scripts/formal/test_integrity.py": "397f6738a7f54147b3fe586257c972355daaf85c52065dcb060083eacc7951a3",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "f00d322c7ead23bea5cccde373b852d4ac656cda4e05ed6c563d0d3cdfd56417",
+    "scripts/formal/verify.py": "043a6c145ab45f551906c52ebab022e51a68142f736c84f56c27ecdfa20fca64",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",

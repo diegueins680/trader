@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Add source-derived candidate promotion composition: audit research writers/callbacks, verify v1/v4 metadata and native-schema exclusion, model retries/successors, and test actual codecs. Close scoped obligations23/26 only through freshly reproduced certificates; no runtime, artifact semantics, configuration or trading changes.
+
 - Separate readiness certification from permissive position-adoption eligibility. Check all inventory rows, require matching running local ownership evidence, clear old readiness before scans, and remove optimistic post-start readiness. Preserve adoption and ownership behavior; add SMT, finite scan-model and actual-Haskell predicate regressions.
 
 - Reject malformed closed-trade snapshot equities, returns, durations and optional probabilities. Derive only missing returns with finite results; reconstruct indices with checked Integer arithmetic and reject unrepresentable selected histories. Preserve valid memory and venue-authoritative exposure; add SMT, local state-model, compiled-helper and JSON regressions.
