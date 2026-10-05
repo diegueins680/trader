@@ -105,7 +105,7 @@ def prove_bounds(extracted):
     batches = expression(batches_node, bindings)
     count = expression(count_node, bindings)
     certify(config, z.And(*types.values(), steps >= 1, steps <= 4096, seed >= 0,
-                          seed + 1000 + batches - 1 < 2**32, z.Or(horizon == 1, horizon == 3, horizon == 6)))
+                          seed + 1000 + batches - 1 < 2**32, batches >= 1, batches <= 16, z.Or(horizon == 1, horizon == 3, horizon == 6)))
     premise = z.And(config, batch >= 0, batch < batches)
     certify(premise, z.And(count >= 1, count <= 256, batch * 256 + count <= steps))
     certify(z.And(premise, batch < batches - 1), z.And(count == 256, (batch + 1) * 256 <= steps))
@@ -166,7 +166,7 @@ def rank(state, batches):
 
 def check_model(mutant=False):
     summaries = []
-    for batches in (1, 2):
+    for batches in range(1, 17):
         initial = ('start', 0, 0, 0, 0, 0)
         depth = {initial: 0}; queue = deque([initial]); edges = terminal = published = 0
         while queue:

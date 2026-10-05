@@ -31,7 +31,7 @@ No proof status is inferred from the number of related certificates:
 
 | Evidence | Scope and outcome |
 |---|---|
-| Model checking | 95 states, 110 transitions across one/two-batch models; four epochs per batch; maximum shortest depths 20/35. Only completed paired updates publish. Every modeled transition lowers a finite rank. |
+| Model checking | 3,784 states, 4,240 transitions across all one-through-sixteen-batch models; four epochs per batch; maximum shortest depths 20..245. Only completed paired updates publish. Every modeled transition lowers a finite rank. |
 | SMT | Four integer budget/partition/seed claims and one binary64 finite-loss guard; satisfiable premises and UNSAT violations. All admitted 1..4096-step configurations are covered by the arithmetic claims. |
 | Source boundary | Nine mandatory complete definitions, four helper files, one disabled/version-guarded entry and one final constructor. Unknown source or missing coverage refuses verification. |
 | Actual conformance | 27 combinations of seeds 11/23/47, horizons 1/3/6 and steps 1/17/257, each repeated; eight generated synthetic fits and 512 generated partition checks with generator seed 20261004. Immutable results repeat exactly on the pinned runtime. |
@@ -40,8 +40,9 @@ No proof status is inferred from the number of related certificates:
 The AST checker binds a reviewed helper/stage abstraction to exact source; it is
 not a Python interpreter proof. Trusted helper/runtime semantics are explicit in
 A-PPO-SUCCESSOR, A-SNAPSHOT-V2 and A-TARGET-V2. The model contains one private
-training call and one/two batches; integer budget lemmas do not turn that finite
-model into a universal library or process theorem. Tests supplement this model
+training call and every admitted batch count (1..16); the integer lemma proves
+that this covers the entire allowed source loop domain. This does not turn the
+finite control model into a universal library or process theorem. Tests supplement this model
 and do not establish all-runtime determinism. Concurrent mutation during input
 copy, malicious reflection, substituted packages and arbitrary callbacks are
 outside the admitted domain. BLAS numerical accuracy and silent underflow are not

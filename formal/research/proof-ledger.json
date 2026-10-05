@@ -3350,8 +3350,8 @@
     },
     {
       "requirementId": "F-RL-PPO-V2-FLOW",
-      "claim": "In the source-bound one/two-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions.",
-      "formalStatement": "In the source-bound one/two-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions.",
+      "claim": "In the source-bound one-through-sixteen-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions.",
+      "formalStatement": "In the source-bound one-through-sixteen-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions.",
       "criticality": "critical",
       "assumptions": [
         "A-PPO-SUCCESSOR",
@@ -3375,7 +3375,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Reproduced by the canonical formal gate; model/SMT receipts in results.json, conformance in PPOSuccessorTests. No economic acceptance.",
-      "bounds": "Finite stage model: one or two batches, four epochs, one private actor/critic pair per call. General budget bounds have a separate integer SMT certificate.",
+      "bounds": "Finite stage model: all one through sixteen batches, four epochs, one private actor/critic pair per call. The source-derived integer SMT certificate proves every admitted batch count is in this complete model domain.",
       "limitations": "Frozen v1 numerical counterexamples remain. No financial trial, artifact loader, OPE/ESS integration, hard inference cancellation, production integration, historical availability witness or accounting-error refinement. Conditional helper/model abstraction and source inventory are not a full Python/NumPy/BLAS proof, and no broad obligation is closed by these additions.",
       "counterexample": null,
       "status": "model_checked"

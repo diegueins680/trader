@@ -1335,12 +1335,138 @@
           "states": 61,
           "terminalStates": 26,
           "transitions": 70
+        },
+        {
+          "batches": 3,
+          "epochs": 4,
+          "maxDepth": 50,
+          "publishedStates": 1,
+          "states": 88,
+          "terminalStates": 38,
+          "transitions": 100
+        },
+        {
+          "batches": 4,
+          "epochs": 4,
+          "maxDepth": 65,
+          "publishedStates": 1,
+          "states": 115,
+          "terminalStates": 50,
+          "transitions": 130
+        },
+        {
+          "batches": 5,
+          "epochs": 4,
+          "maxDepth": 80,
+          "publishedStates": 1,
+          "states": 142,
+          "terminalStates": 62,
+          "transitions": 160
+        },
+        {
+          "batches": 6,
+          "epochs": 4,
+          "maxDepth": 95,
+          "publishedStates": 1,
+          "states": 169,
+          "terminalStates": 74,
+          "transitions": 190
+        },
+        {
+          "batches": 7,
+          "epochs": 4,
+          "maxDepth": 110,
+          "publishedStates": 1,
+          "states": 196,
+          "terminalStates": 86,
+          "transitions": 220
+        },
+        {
+          "batches": 8,
+          "epochs": 4,
+          "maxDepth": 125,
+          "publishedStates": 1,
+          "states": 223,
+          "terminalStates": 98,
+          "transitions": 250
+        },
+        {
+          "batches": 9,
+          "epochs": 4,
+          "maxDepth": 140,
+          "publishedStates": 1,
+          "states": 250,
+          "terminalStates": 110,
+          "transitions": 280
+        },
+        {
+          "batches": 10,
+          "epochs": 4,
+          "maxDepth": 155,
+          "publishedStates": 1,
+          "states": 277,
+          "terminalStates": 122,
+          "transitions": 310
+        },
+        {
+          "batches": 11,
+          "epochs": 4,
+          "maxDepth": 170,
+          "publishedStates": 1,
+          "states": 304,
+          "terminalStates": 134,
+          "transitions": 340
+        },
+        {
+          "batches": 12,
+          "epochs": 4,
+          "maxDepth": 185,
+          "publishedStates": 1,
+          "states": 331,
+          "terminalStates": 146,
+          "transitions": 370
+        },
+        {
+          "batches": 13,
+          "epochs": 4,
+          "maxDepth": 200,
+          "publishedStates": 1,
+          "states": 358,
+          "terminalStates": 158,
+          "transitions": 400
+        },
+        {
+          "batches": 14,
+          "epochs": 4,
+          "maxDepth": 215,
+          "publishedStates": 1,
+          "states": 385,
+          "terminalStates": 170,
+          "transitions": 430
+        },
+        {
+          "batches": 15,
+          "epochs": 4,
+          "maxDepth": 230,
+          "publishedStates": 1,
+          "states": 412,
+          "terminalStates": 182,
+          "transitions": 460
+        },
+        {
+          "batches": 16,
+          "epochs": 4,
+          "maxDepth": 245,
+          "publishedStates": 1,
+          "states": 439,
+          "terminalStates": 194,
+          "transitions": 490
         }
       ],
       "scope": "private-call publication; no OS, neural arithmetic, persistence or whole-runtime refinement",
       "sourceRelation": "complete reviewed stage skeleton with conditional helper summaries",
-      "states": 95,
-      "transitions": 110
+      "states": 3784,
+      "transitions": 4240
     },
     "smt": {
       "F-RL-PPO-V2-BOUNDS": "unsat",
@@ -2038,8 +2164,8 @@
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
     "formal/research/ppo-successor-source.json": "af5e4ea735c591efa2b27f0f9c6a8a3d1cba53148f0512eda8d9be9b258e036d",
-    "formal/research/ppo-successor-v2-contract.md": "adb7ca3c1298ab65c6bad9c91b2fab644dd83e903bb6bee8bfe79fd88bbfe107",
-    "formal/research/proof-ledger.json": "4d05667ef8a25acb7a5aab5ec0fa515af55b7cca2fb53ada5ceff3274d4f6fcf",
+    "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
+    "formal/research/proof-ledger.json": "4fdc7d49d9efd948e3fbee9cb8397440c323142a674cad1305c00949349e615d",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
@@ -2238,7 +2364,7 @@
     "scripts/formal/ope_algebra.py": "3e7eeae7e52732464e34d15210c0d479e1414eae05e945b69b7a18ef4483413e",
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
-    "scripts/formal/ppo_successor.py": "8edfabe712b30972afd6549b184a88823f65b34aca87843e2773d21a0686c2d6",
+    "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
     "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
@@ -2248,7 +2374,7 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "4c949ead90b245c2653e58bf072a25a4530ff25151cda762b3ea50d65cb98cad",
+    "scripts/formal/test_integrity.py": "49f4e94ec9eeac280cf8be2ee048e6fcdb955678d0267c631179a6d4fc8e0d40",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",

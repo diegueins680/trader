@@ -2994,6 +2994,7 @@ class PPOSuccessorTests(unittest.TestCase):
         import ppo_successor as proof
         result = proof.check_successor()
         self.assertEqual(result['smt'], {'F-RL-PPO-V2-BOUNDS': 'unsat', 'F-RL-PPO-V2-FINITE': 'unsat'})
+        self.assertEqual([c['batches'] for c in result['model']['configurations']], list(range(1, 17)))
         self.assertGreater(result['model']['states'], 0)
 
 

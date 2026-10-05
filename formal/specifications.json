@@ -440,7 +440,7 @@
         },
         {
           "id": "F-RL-PPO-V2-FLOW",
-          "statement": "In the source-bound one/two-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions."
+          "statement": "In the source-bound one-through-sixteen-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions."
         },
         {
           "id": "F-RL-PPO-V2-BOUNDS",

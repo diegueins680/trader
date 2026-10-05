@@ -30,7 +30,7 @@ A final result is a research training result, never a live-capable policy.
 Proof obligations:
 - F-RL-PPO-V2-FLOW: derive a finite publication transition model from a reviewed
   complete source skeleton. Each stage failure terminates absent; completion
-  requires all stages for every batch. Model two batches/four epochs and retain
+  requires all stages for every batch. Model all one through sixteen batches/four epochs and retain
   the source-derived integer budget lemma for all 1..4096 steps. No partial result.
 - F-RL-PPO-V2-BOUNDS: SMT on source-derived configuration predicates and integer
   batch arithmetic; every collected count is 1..256 and sums to exactly steps.
@@ -59,3 +59,8 @@ close any broad obligation solely from these certificates. Extend existing
 closed default/capability/no-production-learning requirements to cover this new
 surface explicitly. OPE/ESS, artifact decoding and Haskell process inference are
 subsequent composition work, not claimed here.
+
+Verification refinement before merge: expand the initially proposed two-batch
+bound to every admitted batch count (1..16); the arithmetic proof additionally
+checks that the source loop count lies in that complete model domain. No financial
+experiment, implementation behavior or statistical rule changes.
