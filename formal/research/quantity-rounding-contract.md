@@ -48,3 +48,15 @@ Validation: pinned SMT, source mutation rejection, compiled golden/generated
 conformance, existing Haskell tests, bash scripts/verify.sh formal and full.
 Counterexample CE-ROUND-001 must remain reproducible. No financial trials,
 market data, final holdout, network calls or policy artifacts are required.
+
+Preflight refinement (registered before Main edits): returning zero alone is not
+fail-closed at minimum-size fallback callers. Both normalizeQty and
+normalizeProbeQty must first invoke a shared pure Either validation for finite
+quantity and positive optional scale/increment, with errors distinct from the
+three minimum-size error strings. Either failure must precede any quantity
+rounding or minimum promotion; normalizeEntryQty retains the same Left through
+its existing isTooSmallQtyError guard. This is source-bound control-flow
+correspondence under ordinary Either semantics, backed by helper/composition
+properties, not complete Main or order authorization refinement. Preserve the
+intermediate-repair counterexample CE-ROUND-002 (infinity -> zero -> minimum)
+as a regression. Existing finite minimum-size behavior is unchanged.

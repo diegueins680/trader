@@ -10,5 +10,6 @@
   "seed": 20261005,
   "contract": "formal/research/quantity-rounding-contract.md",
   "acceptance": "Source-bound SMT obligations, exact Fraction oracle and Haskell adapter conformance, formal and full wrappers pass; no broad closure inferred.",
-  "limitations": "Wire serialization, quantizeUp, minimum-size promotion and other adapters remain unresolved."
+  "limitations": "Wire serialization, quantizeUp, minimum-size promotion and other adapters remain unresolved.",
+  "preflightRefinement": "Before Main edits, include shared finite/positive-grid Either validation in normalizeQty/normalizeProbeQty, so zero fallback cannot turn invalid input into minimum-size promotion; preserve CE-ROUND-002. No new financial trials."
 }
