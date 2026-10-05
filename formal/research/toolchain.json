@@ -369,12 +369,12 @@
     "scripts/formal/artifact_v4.py": "c763874bcd83869f3ebaac11f019a1119b268121d1498cb1ce15811e76294e8b",
     "research-notes/registrations/ppo-artifact-v4-engineering.json": "06cf7d683de9c2e648e4fcd292a41bb42e1068d1ca01952e7b79c9324fb9508f",
     "haskell/app/Trader/QuantityRounding.hs": "3f15e47aeda9cdc85278d3c9043b20f44d837739e03fd97ca26b0e336f0f9cd8",
-    "formal/research/quantity-rounding-contract.md": "92196d51ac9f20bd1740e35bf14ab140ed1e0ec5cca722f36158c3f06d11eeaf",
+    "formal/research/quantity-rounding-contract.md": "a6edf05aa3fdfcc89ab29e4e39aed1f9bfe4ef5e425808100084109682449bb1",
     "formal/research/quantity-rounding-source.json": "03a1c67c81ea233b0af1d6ca026ff6f450fd9b7bf378d41e976d36d6a253b804",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "haskell/test/Trader/Test/QuantityRounding.hs": "61f49285beee7f2b0088b4772f42714051463c80323722903f7405263181c8a0",
     "scripts/formal/quantity_rounding.py": "2bab5b0a65bbe51fff2b4809f687e879f4868e47acf9b7a382c595ed11220181",
-    "research-notes/registrations/quantity-rounding-engineering.json": "3e814b62cead5adffb64e739f34de8b4d270494346930e69d5f74e1b1fdd5a9d"
+    "research-notes/registrations/quantity-rounding-engineering.json": "ca6c5a19229813233bac33f41e5d81fddff33f4f0700268b92ab1c6630b62227"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

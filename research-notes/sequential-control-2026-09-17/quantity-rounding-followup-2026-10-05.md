@@ -62,3 +62,26 @@ failed the existing drain-pool source hash for changed trader.cabal. Reviewed
 Main/Cabal/TestMain changes were rebound in six inherited source registries;
 all affected extractor checks passed unchanged. Certificate recording and full
 verification must reproduce these inherited obligations before merging.
+
+Engineering benchmark (exploratory, additional to preregistered property cases):
+GHC 9.4.8/base 4.17.2.1, -O2, macOS x86-64, 100000 deterministic inputs,
+scale=100000000, increment=1, x=i/1000003 for i=1..100000. Force the sum with
+Control.Exception.evaluate and measure start/end with System.CPUTime.getCPUTime.
+Checksum 5000.034499900002; CPU time 0.181828 seconds (1.81828 microseconds/call).
+This excludes compilation, I/O, caller validation and order serialization; it is
+not a wall-clock deadline or worst-case huge-Integer bound. Reproduce the core:
+
+```haskell
+evaluate (sum [quantizeDownExact 100000000 1 (fromIntegral i / 1000003)
+              | i <- [1..100000 :: Int]])
+```
+
+The local haskell wrapper built the initial core successfully and passed format
+checks, then was explicitly stopped during its superseded Main HLint run after
+the preflight refinement. It is not reported as a passing final wrapper. Only
+that verification subprocess was stopped; user services were not touched.
+
+Pinned reproduction d0373398 failed before proof execution because the main
+lock still carried pre-refinement hashes for the already-committed contract
+and registration. Those two reviewed hashes were corrected and the entire
+locked source roster checked before rerunning; no proof result was edited.
