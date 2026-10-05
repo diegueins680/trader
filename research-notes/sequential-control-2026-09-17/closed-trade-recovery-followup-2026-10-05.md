@@ -80,5 +80,71 @@ Recommendation: adopt no research candidate; continue offline work separately.
 
 Targeted ClosedTradeRecoveryTests passed (two tests, 12.674 seconds). Targeted
 HLint reported no hints on the recovery module. The combined ledger/recovery
-targeted run passed 12 tests in 7.994 seconds; formal registry validation passed. Canonical formal/full reproduction and final-head CI
-must pass before this scoped repair is ready. No broad completion is asserted.
+targeted run passed 12 tests in 7.994 seconds; formal registry validation passed. No broad completion is asserted.
+
+Pinned [run 37335869801](https://github.com/diegueins680/trader/actions/runs/37335869801),
+job111850378016, checked out `076b9c8964b5dc7ff27d4ffd4797207fcd9c94b0`:
+
+- Receipt generation passed 2026-10-05 15:51:21–15:52:26 UTC.
+- `bash scripts/verify.sh formal` passed 15:52:26–15:54:25 UTC:
+  202 integrity tests in 51.315 seconds, then SMT/model/compiled conformance.
+- `bash scripts/verify.sh full` passed 15:54:25–16:02:22 UTC:
+  202 integrity tests in 50.939 seconds, all 68 SMT groups, Haskell suite
+  including actual Aeson recovery regressions, 241 web and 185 automation tests.
+
+Receipt SHA256:
+`a56d96b7ce1dd11fbc6372f3d35ec43cde0b9a4d3dafb7bb716d52d74b85629a`.
+Imported byte-for-byte from the pinned job. Its source hashes match both the
+reviewed lock and actual files. Changed sections are closedTradeRecovery, smt,
+sourceHashes and capabilityIsolation's sourceHashes only. Other certificates
+are unchanged. Ordinary pre-import CI passed 202 integrity tests, then correctly
+rejected the stale receipt with `certificate differs from reviewed receipt;
+investigate before recording`; its Haskell, web and automation jobs passed.
+No receipt comparison or verification limit was weakened.
+
+The temporary reproduction workflow is removed from the final tree. The final
+commit changes only this report, receipt and workflow removal; all implementation
+and proof sources remain identical to those tested. Final-head CI and merge/
+deployment audits are recorded in PR #302.
+
+## Illustrative reindex benchmark
+
+Main's reviewed trade-memory selection clamps its limit to 50..1000. A base-only
+GHC9.4.8 `-O2` benchmark processed 1000 histories of 1000 trades with varied
+positive durations: checksum5002000000, **0.166145 process CPU seconds**. This
+includes history generation and forcing the result, excludes JSON parsing, and
+is not a worst-case resource or production inference bound. Save the following
+as Main.hs, compile with `ghc -O2 Main.hs -o check`, then run `./check`. The
+reindex function is the frozen implementation; rerunning measures the current host.
+
+```haskell
+module Main (main) where
+import Control.Exception (evaluate)
+import Data.List (foldl')
+import Data.Maybe (fromMaybe)
+import System.CPUTime (getCPUTime)
+data Trade = Trade {trEntryIndex :: Int,trExitIndex :: Int,trHoldingPeriods :: Int}
+reindexRestoredTrades :: [Trade] -> [Trade]
+reindexRestoredTrades = fromMaybe [] . go 0
+  where
+    go :: Integer -> [Trade] -> Maybe [Trade]
+    go _ [] = Just []
+    go idx (tr : rest) =
+        let exitIdx = idx + max 1 (toInteger (trHoldingPeriods tr))
+         in if idx < 0 || exitIdx > toInteger (maxBound :: Int)
+                then Nothing
+                else
+                    (tr{trEntryIndex = fromInteger idx, trExitIndex = fromInteger exitIdx} :)
+                        <$> go (exitIdx + 1) rest
+
+
+main :: IO ()
+main = do
+ start <- getCPUTime
+ checksum <- evaluate (foldl' (\a i -> a + total i) (0 :: Integer) [1..1000])
+ end <- getCPUTime
+ print (checksum, fromIntegral (end-start)/1e12 :: Double)
+ where
+ total i = foldl' (\a tr -> a + toInteger (trEntryIndex tr) + toInteger (trExitIndex tr)) 0
+             (reindexRestoredTrades (replicate 1000 (Trade 0 0 (1+i `mod` 7))))
+```
