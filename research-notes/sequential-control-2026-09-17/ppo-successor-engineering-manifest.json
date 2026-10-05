@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "version": "ppo-successor-v2",
+  "registration": "research-notes/registrations/ppo-successor-v2-engineering.json",
+  "financialTrials": 0,
+  "data": "Synthetic ALPHA/BETA 180-row analytic exponential/sine paths, zero funding; generated in PPOSuccessorTests.fixture. No historical data.",
+  "license": "Original repository-generated fixtures under the repository license; no third-party data.",
+  "registeredGrid": [
+    {
+      "seed": 11,
+      "horizon": 1,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 1,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 1,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 3,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 3,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 3,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 6,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 6,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 11,
+      "horizon": 6,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 1,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 1,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 1,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 3,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 3,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 3,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 6,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 6,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 23,
+      "horizon": 6,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 1,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 1,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 1,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 3,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 3,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 3,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 6,
+      "steps": 1,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 6,
+      "steps": 17,
+      "repeatsPerVerification": 2
+    },
+    {
+      "seed": 47,
+      "horizon": 6,
+      "steps": 257,
+      "repeatsPerVerification": 2
+    }
+  ],
+  "generatedSeed": 20261004,
+  "generatedFits": [
+    {
+      "horizon": 6,
+      "seed": 9995,
+      "steps": 21
+    },
+    {
+      "horizon": 3,
+      "seed": 7695,
+      "steps": 1
+    },
+    {
+      "horizon": 1,
+      "seed": 5681,
+      "steps": 27
+    },
+    {
+      "horizon": 6,
+      "seed": 5541,
+      "steps": 25
+    },
+    {
+      "horizon": 6,
+      "seed": 5695,
+      "steps": 33
+    },
+    {
+      "horizon": 6,
+      "seed": 2119,
+      "steps": 19
+    },
+    {
+      "horizon": 3,
+      "seed": 8371,
+      "steps": 23
+    },
+    {
+      "horizon": 3,
+      "seed": 6233,
+      "steps": 12
+    }
+  ],
+  "initialSmokeCases": [
+    {
+      "seed": 11,
+      "horizon": 1,
+      "steps": 1
+    },
+    {
+      "seed": 23,
+      "horizon": 3,
+      "steps": 17
+    },
+    {
+      "seed": 47,
+      "horizon": 6,
+      "steps": 257
+    }
+  ],
+  "failureCases": "PPOSuccessorTests in scripts/formal/test_integrity.py names every injected/invalid/configuration fixture; no result or artifact is retained on failure.",
+  "repeatedVerification": "The same deterministic grid runs in targeted tests, formal, full and CI; these repetitions are engineering checks, not independent financial trials.",
+  "economicConclusion": "Not measured; no policy comparison, selection, holdout evaluation or promotion."
+}

@@ -1,5 +1,13 @@
 # Trader Firm — Risk Register
 
+PPO successor v2: actual offline training now uses checked GAE and private immutable
+actor/critic snapshots under A-PPO-SUCCESSOR. Numeric and partial-update failure
+publishes no TrainingResult. Runtime/helper semantics and training-prefix selection
+remain assumptions; this does not certify accounting error, funding provenance,
+artifact/process inference, OPE, production integration or economic superiority.
+Five scoped closures remain; 26 partial and seven open remain. RL-OFFLINE-001 is
+HIGH/OPEN. See the [contract](../formal/research/ppo-successor-v2-contract.md).
+
 See [shutdown contract](../formal/research/shutdown-deadline-contract.md) and CE-SHUTDOWN-001/002/003. The repair changes server cleanup code but is not deployed by this research task.
 
 Inference process v2 follow-up: A-INFERENCE-PROCESS assumes bounded OS creation,

@@ -675,3 +675,11 @@ observations remain symbol-scoped. Full loader/fit/replay/OPE conformance is an
 automation test, not an additional proof class. The Python/pandas/NumPy primitive
 contract remains in the assumptions ledger. Current count: 5 closed, 26 partial,
 7 open; no mission completion or new economic evidence.
+
+
+The [PPO successor contract](../formal/research/ppo-successor-v2-contract.md) adds
+F-RL-PPO-V2-FLOW/BOUNDS/FINITE/BOUNDARY/CONFORMANCE under A-PPO-SUCCESSOR. The
+finite control model, source-derived integer/IEEE guard SMT, enumerated source
+boundary and actual synthetic tests retain distinct proof statuses. The successor
+composes real training with existing checked kernels but does not close any
+additional broad obligation or establish economic acceptance.

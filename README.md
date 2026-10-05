@@ -1,5 +1,12 @@
 # Trader
 
+The default-disabled [PPO successor v2](formal/research/ppo-successor-v2-contract.md)
+now composes actual offline collection and training with checked GAE and immutable
+actor/critic snapshots. Numeric or partial-update failure returns no training
+result. It is an engineering entry with synthetic conformance evidence, not a
+replacement for the frozen screen or a production policy. No additional broad
+obligation is closed; see the [follow-up](research-notes/sequential-control-2026-09-17/ppo-successor-followup-2026-10-04.md).
+
 Async jobs and backtest capacity now share the server drain latch: a request with a
 stale readiness snapshot cannot reserve either pool after draining begins. Existing
 reservations retain cleanup ownership. A newly rejected synchronous backtest uses
@@ -40,7 +47,7 @@ The [optimizer publication audit](formal/research/optimizer-publication-contract
 The [value-objective audit](formal/research/value-objective-contract.md) checks Double DQN target selection and conditional CQL gradient algebra. Preserved finite-input loss failures block any numerical-safety claim; the frozen learner and champion are unchanged.
 
 
-The separate [GAE target v2 kernel](research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and disconnected from training. It preserves terminal reward bits and rejects non-finite batches; it does not repair or replace the frozen learner.
+The separate [GAE target v2 kernel](research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default; the separate PPO successor now uses it for engineering training. It preserves terminal reward bits and rejects non-finite batches; it does not repair or replace the frozen learner.
 
 
 Trader is a Haskell trading research and execution system with a React operations UI. It supports exchange-backed signals, cost-aware backtests, optimizer research, live-bot supervision, formal safety checks, and Fly/Hetzner deployment.

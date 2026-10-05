@@ -407,3 +407,16 @@ fixture runs in the existing automation suite, which already pins pandas 2.3.3.
 The formal-only environment remains NumPy/Z3-only. Causal normalization and
 symbol isolation close under A-DATA-COMPOSITION; publication timing, full split
 isolation, state/accounting and lifecycle remain separate obligations.
+
+
+## PPO successor v2
+
+`bash scripts/verify.sh formal` runs the source-bound publication model, five
+independent SAT-premise/UNSAT-violation queries and `PPOSuccessorTests` against the
+actual new offline training function. Reproduction uses pinned existing Python
+and NumPy; no new dependency or dataset is required. Synthetic seed/horizon/step
+coverage, generated cases and deliberate failure/source mutations are described
+in [the contract](ppo-successor-v2-contract.md). There is no CLI, artifact writer,
+production selector or promotion capability. No financial trial is run by CI.
+Use `verify.py --require-complete` to observe the still-blocked whole-mission gate;
+a scoped `formal` pass is not research completion.
