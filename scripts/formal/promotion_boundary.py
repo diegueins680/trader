@@ -333,7 +333,10 @@ def check_promotion(isolation=None):
         isolation=check_isolation()
     required=isolation['schema']['requiredNativeKeys']
     schemas=schema(facts,required)
-    return {'surface':surface,'metadata':meta,'schema':schemas,'model':lifecycle(facts),
+    result = {'surface':surface,'metadata':meta,'schema':schemas,'model':lifecycle(facts),
             'conformance':conformance(facts),'smt':{**meta['smt'],**schemas['smt']},
             'composition':{'productionRoots':sorted(isolation['graph']['roots']),
                            'productionAuthorizationVerified':False,'deployedImageVerified':False}}
+    # Receipts are JSON values: Python tuple/list inequality must not make a
+    # reproduced certificate disagree with its own serialized artifact.
+    return json.loads(json.dumps(result, allow_nan=False))

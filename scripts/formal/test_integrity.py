@@ -3362,6 +3362,14 @@ class PromotionBoundaryTests(unittest.TestCase):
             self.p.schema(changed,['hiddenSize','params','trainBars','version'])
         with self.assertRaisesRegex(ValueError,'promotion/authority reached'):self.p.lifecycle(facts,mutant=True)
 
+    def test_promotion_receipt_json_roundtrip(self):
+        import json
+        # The saved graph supplies schema inputs for a transport test only.
+        # verify.run separately reproduces the actual graph before composition.
+        isolation = read_json(ROOT/'formal/research/results.json')['capabilityIsolation']
+        result = self.p.check_promotion(isolation)
+        self.assertEqual(result, json.loads(json.dumps(result, allow_nan=False)))
+
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)

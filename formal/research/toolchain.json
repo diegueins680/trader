@@ -74,7 +74,7 @@
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
     "scripts/formal/verify.py": "043a6c145ab45f551906c52ebab022e51a68142f736c84f56c27ecdfa20fca64",
-    "scripts/formal/test_integrity.py": "b7f1996e62deeae494553d5b7d5b249363357c434beb29c85c6ad675fdab0663",
+    "scripts/formal/test_integrity.py": "397f6738a7f54147b3fe586257c972355daaf85c52065dcb060083eacc7951a3",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
@@ -412,7 +412,7 @@
     "formal/research/inventory-readiness-source.json": "82f2f2cb4184b06b8c4c347a6e2a4addd0a115eb33dc892aaecb5d56824c7d13",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "research-notes/registrations/inventory-readiness-engineering.json": "dfaba019721e90d83bf12813e38772b2aacfae62dde4f56a055e146b960fff5f",
-    "scripts/formal/promotion_boundary.py": "66b6214e27f3cd0564b76d86acedf7d7f948fc6e9f78f200700f444559681299",
+    "scripts/formal/promotion_boundary.py": "98cf3ce8d34ee3cb571543ee9368ce428818a720d81b72b0889d94bd51fda610",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "3dc67c1e51fdfc8c9cd7cd53ad1187e4a7403607a360825d46fc9e9f3b2d3224",
     "research-notes/registrations/promotion-boundary-engineering.json": "5a9659b44e6d77557307ad033444e12543de07807155b31ef9ab05c694f21b50"
