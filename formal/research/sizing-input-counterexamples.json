@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "baseline": "a3cfc824af48ab5799b728538ffcfe3df2c37e06",
+  "probe": "    validateProbeQuote mSf qq =\n        if qq <= 0\n            then Left \"Quote is 0.\"\n            else case mSf >>= sfMinNotional of\n                Just mn | qq < mn -> Right mn\n                _ -> Right qq\n\n    normalizeProbeQty mSf mPrice qtyRaw = do\n        validateQuantityInput (fmap (\\st -> (stepScale st, stepInt st)) (mSf >>= effectiveStep)) qtyRaw\n        case mSf of\n            Nothing ->\n                if qtyRaw > 0\n                    then Right qtyRaw\n                    else Left \"Quantity is 0.\"\n            Just sf ->\n                let qty0 = max 0 qtyRaw\n                    qty1 = maybe qty0 (`quantizeDown` qty0) (effectiveStep sf)\n                    qty2 =\n                        case (mPrice, sfMinNotional sf) of\n                            (Just price, Just mn)\n                                | price > 0 && qty1 * price < mn ->\n                                    let minQ = mn / price\n                                     in maybe minQ (`quantizeUp` minQ) (effectiveStep sf)\n                            _ -> qty1\n                 in if qty2 <= 0\n                        then Left \"Quantity rounds to 0.\"\n                        else case effectiveMinQty sf of\n                            Just minQ | qty2 < minQ -> Left (\"Quantity below minQty (\" ++ show minQ ++ \").\")\n                            _ ->\n                                case effectiveMaxQty sf of\n                                    Just maxQ | qty2 > maxQ -> Left (\"Quantity above maxQty (\" ++ show maxQ ++ \").\")\n                                    _ ->\n                                        case (mPrice, sfMinNotional sf) of\n                                            (Just price, Just mn) | price > 0 && qty2 * price < mn -> Left (\"Notional below minNotional (\" ++ show mn ++ \").\")\n                                            _ -> Right qty2\n",
+  "sizing": "    effectiveStep sf = sfMarketStepSize sf <|> sfLotStepSize sf\n    effectiveMinQty sf = sfMarketMinQty sf <|> sfLotMinQty sf\n    effectiveMaxQty sf = sfMarketMaxQty sf <|> sfLotMaxQty sf\n\n    stepValue :: Step -> Double\n    stepValue st = fromIntegral (stepInt st) / fromIntegral (stepScale st)\n\n    quantizeUp :: Step -> Double -> Double\n    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)\n\n    minTradeQty :: SymbolFilters -> Double -> Maybe Double\n    minTradeQty sf price =\n        let minQ = fromMaybe 0 (effectiveMinQty sf)\n            stepQ = maybe 0 stepValue (effectiveStep sf)\n            notionalQ =\n                case sfMinNotional sf of\n                    Just mn | price > 0 -> mn / price\n                    _ -> 0\n            minRaw = max minQ (max stepQ notionalQ)\n            minAdj =\n                case effectiveStep sf of\n                    Just st -> quantizeUp st minRaw\n                    Nothing -> minRaw\n         in if minAdj > 0 then Just minAdj else Nothing\n\n    minTradeQtyMaybe :: Maybe SymbolFilters -> Double -> Maybe Double\n    minTradeQtyMaybe mSf price = mSf >>= \\sf -> minTradeQty sf price\n\n    isLongSpot :: Maybe SymbolFilters -> Double -> Double -> Bool\n    isLongSpot mSf price baseBal =\n        case minTradeQtyMaybe mSf price of\n            Just minQ -> baseBal >= minQ\n            Nothing -> baseBal > 0\n\n    isTooSmallQtyError :: String -> Bool\n    isTooSmallQtyError msg =\n        msg == \"Quantity rounds to 0.\"\n            || \"Quantity below minQty\" `isPrefixOf` msg\n            || \"Notional below minNotional\" `isPrefixOf` msg\n\n    normalizeQty :: SymbolFilters -> Double -> Double -> Either String Double\n    normalizeQty sf price qtyRaw = do\n        validateQuantityInput (fmap (\\st -> (stepScale st, stepInt st)) (effectiveStep sf)) qtyRaw\n        let qty0 = max 0 qtyRaw\n            qty1 = maybe qty0 (`quantizeDown` qty0) (effectiveStep sf)\n         in if qty1 <= 0\n                then Left \"Quantity rounds to 0.\"\n                else case effectiveMinQty sf of\n                    Just minQ | qty1 < minQ -> Left (\"Quantity below minQty (\" ++ show minQ ++ \").\")\n                    _ ->\n                        case effectiveMaxQty sf of\n                            Just maxQ | qty1 > maxQ -> Left (\"Quantity above maxQty (\" ++ show maxQ ++ \").\")\n                            _ ->\n                                case sfMinNotional sf of\n                                    Just mn | price > 0 && qty1 * price < mn -> Left (\"Notional below minNotional (\" ++ show mn ++ \").\")\n                                    _ -> Right qty1\n\n    normalizeEntryQty :: SymbolFilters -> Double -> Double -> Either String (Double, Bool)\n    normalizeEntryQty sf price qtyRaw =\n        case normalizeQty sf price qtyRaw of\n            Right q -> Right (q, False)\n            Left err ->\n                if not (isTooSmallQtyError err)\n                    then Left err\n                    else case minTradeQty sf price of\n                        Nothing -> Left err\n                        Just minQ ->\n                            case normalizeQty sf price minQ of\n                                Right qMin -> Right (qMin, qMin > qtyRaw + 1e-9)\n                                Left _ -> Left err\n\n",
+  "entries": [
+    {
+      "id": "CE-SIZING-001",
+      "claim": "NaN price bypasses the minimum-notional comparison.",
+      "quantity": 1,
+      "price": "NaN",
+      "minimum": null,
+      "maximum": null,
+      "notional": 50,
+      "grid": false
+    },
+    {
+      "id": "CE-SIZING-002",
+      "claim": "NaN maximum quantity bypasses its upper-bound comparison.",
+      "quantity": 100,
+      "price": 1,
+      "minimum": null,
+      "maximum": "NaN",
+      "notional": null,
+      "grid": false
+    },
+    {
+      "id": "CE-SIZING-003",
+      "claim": "Missing required price bypasses the probe minimum-notional comparison.",
+      "quantity": 1,
+      "price": null,
+      "minimum": null,
+      "maximum": null,
+      "notional": 50,
+      "grid": false
+    },
+    {
+      "id": "CE-SIZING-004",
+      "claim": "Probe minimum expansion overflows and publishes infinity without a grid.",
+      "quantity": 1,
+      "price": 1e-300,
+      "minimum": null,
+      "maximum": null,
+      "notional": 1e+300,
+      "grid": false
+    },
+    {
+      "id": "CE-SIZING-005",
+      "claim": "Quote probe validation publishes a positive infinite amount.",
+      "quantity": "Infinity",
+      "price": 1,
+      "minimum": null,
+      "maximum": null,
+      "notional": null,
+      "grid": false
+    }
+  ]
+}

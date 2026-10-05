@@ -739,3 +739,15 @@ whole-caller or complete IO theorem; 5 scoped closures, 27 partial, 6 open remai
 CE-ORDER-WIRE-001 is preserved; RL-OFFLINE-001 remains HIGH/OPEN.
 
 The wire-aware maker-price preflight also rejects zero-wire prices before constructor exceptions can enter configured market fallback (CE-ORDER-WIRE-002). Other maker fallback reasons and the fallback flag are unchanged; this is a source-bound local guard with compiled conformance, not a whole-caller proof.
+
+
+The [sizing admission contract](../formal/research/sizing-input-contract.md)
+adds F-SIZING-INPUT/PUBLISH/RETRY/FLOW/CONFORMANCE under A-SIZING-INPUT.
+Fourteen conditional SMT queries cover binary64 predicates, publication bounds
+and non-retryable errors. A 56-state/32-transition/depth-three local model and
+6213 compiled input rows connect metadata/price admission to actual Main
+normalizers and the minimum retry classifier. CE-SIZING-001–005 preserve five
+synthetic failures; no historical incident is inferred. Parsing/freshness,
+missing optional filters, direct minimum consumers, exact notional arithmetic,
+wire caps/grid and complete caller/lifecycle refinement remain unresolved.
+Five scoped closures, 27 partial, six open; RL-OFFLINE-001 remains HIGH/OPEN.

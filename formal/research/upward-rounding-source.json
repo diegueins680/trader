@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "coreSha256": "8954a1aaac88a8c291cf77c6da25570c8a796536c5d113baa2fb173fb3e5c0df",
+  "coreSha256": "5f6647d985dbcab06e6cbc75e7eb5cb5c43f475ed9a5e79219807106bbb880ac",
   "mainFragments": [
     [
       "    quantizeUp ::",
       "    normalizeProbeQty mSf mPrice qtyRaw =",
-      "    quantizeUp :: Step -> Double -> Double\n    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)\n\n    validateProbeQuote mSf qq =\n        if qq <= 0\n            then Left \"Quote is 0.\"\n            else case mSf >>= sfMinNotional of\n                Just mn | qq < mn -> Right mn\n                _ -> Right qq\n\n"
+      "    quantizeUp :: Step -> Double -> Double\n    quantizeUp st = quantizeUpExact (stepScale st) (stepInt st)\n\n    validateProbeQuote mSf qq = do\n        validateQuantityInput Nothing qq\n        validateMinimumNotional (mSf >>= sfMinNotional)\n        if qq <= 0\n            then Left \"Quote is 0.\"\n            else case mSf >>= sfMinNotional of\n                Just mn | qq < mn -> Right mn\n                _ -> Right qq\n\n"
     ],
     [
       "    stepValue ::",
