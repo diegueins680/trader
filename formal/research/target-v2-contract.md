@@ -77,3 +77,9 @@ overflow, deterministic replay, all failure positions in a bounded batch and the
 using representable dyadic inputs; generated cases supplement, not replace, proofs.
 Mutate target assignment, finiteness guards, activation and publication order to
 check the verifier fails. Record all limitations and preserve v1 counterexamples.
+
+
+2026-10-04 composition: `ppo-successor-v2` now uses batch_v2 for actual synthetic
+engineering training. This does not modify the frozen learner or repair its
+historical counterexamples. The successor checks normalization separately and
+rejects non-finite results; it does not claim nonterminal arithmetic accuracy.

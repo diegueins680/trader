@@ -2830,5 +2830,174 @@ class DataCompositionTests(unittest.TestCase):
             dc.check_keys({file: ast.parse(source) for file, source in sources.items()})
 
 
+class PPOSuccessorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import ppo_successor_v2
+        cls.impl = ppo_successor_v2
+
+    def fixture(self):
+        x = np.arange(180, dtype=float)
+        prices = {'ALPHA': 100 * np.exp(.0002*x + .002*np.sin(x/9)),
+                  'BETA': 200 * np.exp(-.0001*x + .003*np.sin(x/11))}
+        return prices, {s: np.zeros(len(p)) for s, p in prices.items()}
+
+    def test_registered_seed_horizon_budget_matrix_and_determinism(self):
+        p, f = self.fixture()
+        before = {s: v.tobytes() for s, v in p.items()}
+        for seed in (11, 23, 47):
+            for horizon in (1, 3, 6):
+                for steps in (1, 17, 257):
+                    with self.subTest(seed=seed, horizon=horizon, steps=steps):
+                        first = self.impl.train_ppo_v2(p, f, horizon, seed, steps, enabled=True)
+                        self.assertIsNotNone(first)
+                        second = self.impl.train_ppo_v2(p, f, horizon, seed, steps, enabled=True)
+                        self.assertEqual(first, second)
+                        self.assertEqual(first.actor.step, 4*((steps+255)//256))
+                        self.assertEqual(first.actor.step, first.critic.step)
+                        self.assertEqual(len(first.losses), first.actor.step)
+                        self.assertTrue(all(np.isfinite(first.losses)))
+                        for snapshot in (first.actor, first.critic):
+                            for group in (snapshot.p, snapshot.m, snapshot.v):
+                                for raw in group:
+                                    self.assertIs(type(raw), bytes)
+                                    self.assertTrue(np.isfinite(np.frombuffer(raw, dtype='<f8')).all())
+                        self.assertEqual(first.symbols, ('ALPHA', 'BETA'))
+        self.assertEqual(before, {s: v.tobytes() for s, v in p.items()})
+
+    def test_disabled_version_and_config_reject_before_effects(self):
+        with patch.object(self.impl, '_prefixes', side_effect=RuntimeError('must not run')):
+            self.assertIsNone(self.impl.train_ppo_v2(object(), object(), object(), object()))
+            for flag in (False, None, 1, 'true', np.bool_(True)):
+                self.assertIsNone(self.impl.train_ppo_v2(None, None, 1, 11, enabled=flag))
+            self.assertIsNone(self.impl.train_ppo_v2(None, None, 1, 11, enabled=True, version='v1'))
+            for horizon, seed, steps in ((True, 11, 1), (2, 11, 1), (1, -1, 1),
+                                         (1, 2**32, 1), (1, True, 1), (1, 11, 0),
+                                         (1, 11, 4097), (1, 11, 1.0)):
+                self.assertIsNone(self.impl.train_ppo_v2(None, None, horizon, seed, steps, enabled=True))
+
+    def test_invalid_prefixes_funding_and_snapshot_aliases(self):
+        p, f = self.fixture()
+        cp, cf = self.impl._prefixes(p, f)
+        for symbol in p:
+            self.assertFalse(np.shares_memory(p[symbol], cp[symbol]))
+            with self.assertRaises(ValueError):
+                cp[symbol].setflags(write=True)
+        for bad in (float('nan'), float('inf'), -float('inf')):
+            for dest in (p, f):
+                mutated = {s: v.copy() for s, v in dest.items()}
+                mutated['ALPHA'][0] = bad
+                pp, ff = (mutated, f) if dest is p else (p, mutated)
+                with patch.object(self.impl, 'collect', side_effect=RuntimeError('must not collect')):
+                    self.assertIsNone(self.impl.train_ppo_v2(pp, ff, 1, 11, 1, enabled=True))
+        for invalid in ({}, {'ALPHA': p['ALPHA'][:120]}, {'ALPHA': np.zeros(5000)},
+                        {'ALPHA': np.zeros(180)}, {'ALPHA': p['ALPHA'].astype(np.float32)}):
+            self.assertIsNone(self.impl.train_ppo_v2(invalid, f, 1, 11, 1, enabled=True))
+
+    def test_partial_actor_update_cannot_publish_training_result(self):
+        p, f = self.fixture()
+        created = []
+        create, update = self.impl.create_v2, self.impl.update_v2
+        def recording(*a, **kw):
+            net = create(*a, **kw); created.append(net); return net
+        calls = []
+        def failed_critic(*a, **kw):
+            calls.append(a[0])
+            return None if len(calls) == 2 else update(*a, **kw)
+        with patch.object(self.impl, 'create_v2', recording), patch.object(self.impl, 'update_v2', failed_critic):
+            self.assertIsNone(self.impl.train_ppo_v2(p, f, 1, 11, 17, enabled=True))
+        self.assertEqual([n.snapshot().step for n in created], [1, 0])
+
+    def test_each_stage_failure_publishes_nothing(self):
+        p, f = self.fixture()
+        for name in ('_prefixes', '_rollout', '_targets', '_update', 'collect'):
+            with self.subTest(name=name), patch.object(self.impl, name, side_effect=ValueError('fixture failure')):
+                self.assertIsNone(self.impl.train_ppo_v2(p, f, 1, 11, 17, enabled=True))
+        for name in ('create_v2', 'forward_v2', 'batch_v2', 'update_v2'):
+            with self.subTest(name=name), patch.object(self.impl, name, return_value=None):
+                self.assertIsNone(self.impl.train_ppo_v2(p, f, 1, 11, 17, enabled=True))
+
+    def test_nonfinite_objective_and_gradient_are_rejected(self):
+        p, f = self.fixture()
+        for loss, gradient in ((float('nan'), np.zeros((17,3))),
+                               (0.0, np.full((17,3), np.nan)),
+                               (float('inf'), np.zeros((17,3))), (0.0, np.zeros((17,2)))):
+            with patch.object(self.impl, 'ppo_gradient', return_value=(loss, gradient)):
+                self.assertIsNone(self.impl.train_ppo_v2(p, f, 1, 11, 17, enabled=True))
+
+    def test_source_and_model_mutations_refuse_partial_publication(self):
+        import ppo_successor as proof
+        source = (ROOT / proof.SOURCE).read_text()
+        mutations = [source.replace('enabled: object = False', 'enabled: object = True'),
+                     source.replace('steps - batch * 256', 'steps'),
+                     source.replace('range(4)', 'range(0)'),
+                     source.replace('batch_v2(rows, gamma, enabled=True)', 'None'),
+                     source.replace('critic.snapshot()', 'actor.snapshot()'),
+                     source.replace('if pairs is None:', 'if False:'),
+                     source.replace('losses.append(loss)', 'losses.append(float("nan"))')]
+        for mutant in mutations:
+            self.assertNotEqual(source, mutant)
+            with self.assertRaises(ValueError):
+                proof.extract(mutant)
+        with self.assertRaisesRegex(ValueError, 'partial result published'):
+            proof.check_model(mutant=True)
+        registry = read_json(ROOT / proof.REGISTRY)
+        for key in ('definitions', 'helperHashes'):
+            missing = copy.deepcopy(registry); missing[key] = {}
+            with self.assertRaisesRegex(ValueError, 'coverage omitted'):
+                proof.extract(registry=missing)
+
+    def test_preserved_numeric_counterexamples_at_composed_boundary(self):
+        terminal = read_json(ROOT / 'formal/research/terminal-counterexamples.json')['entries']
+        one = terminal[0]
+        data = {'s': np.zeros((1,12)), 'next': np.zeros((1,12)),
+                'r': np.array([float.fromhex(one['rewardHex'][0])]), 'done': np.array([True])}
+        with patch.object(self.impl, '_forward', return_value=np.array([[float.fromhex(one['criticHex'])]])):
+            _, targets = self.impl._targets(data, object(), float.fromhex(one['gammaHex']))
+            self.assertEqual(targets[0].hex(), one['rewardHex'][0])
+        two = terminal[1]
+        data = {'s': np.zeros((2,12)), 'next': np.zeros((2,12)),
+                'r': np.array([float.fromhex(v) for v in two['rewardHex']]), 'done': np.array([True,True])}
+        with patch.object(self.impl, '_forward', return_value=np.full((2,1), float.fromhex(two['criticHex']))):
+            with self.assertRaisesRegex(ValueError, 'rejected GAE'):
+                self.impl._targets(data, object(), float.fromhex(two['gammaHex']))
+        ce = read_json(ROOT / 'formal/research/ppo-counterexamples.json')['entries'][0]
+        data = {'s': np.zeros((1,12)), 'a': np.array([ce['action']]),
+                'prob': np.array([float.fromhex(ce['oldProbabilityHex'])])}
+        for mode in ('ignore', 'raise'):
+            with np.errstate(all=mode), patch.object(self.impl, '_forward', return_value=np.zeros((1,3))), patch.object(self.impl, 'update_v2') as update:
+                with self.assertRaises((ValueError, ArithmeticError)):
+                    self.impl._update(object(), object(), data,
+                                      np.array([float.fromhex(ce['advantageHex'])]), np.zeros(1), 1)
+                update.assert_not_called()
+
+    def test_generated_budget_partition_properties(self):
+        import random
+        rng = random.Random(20261004)
+        for _ in range(512):
+            steps = rng.randint(1, 4096)
+            counts = [min(256, steps - b*256) for b in range((steps+255)//256)]
+            self.assertEqual(sum(counts), steps)
+            self.assertTrue(all(1 <= c <= 256 for c in counts))
+            self.assertTrue(self.impl._configuration(rng.choice((1, 3, 6)), rng.randrange(2**32-10000), steps))
+        p, f = self.fixture()
+        for _ in range(8):
+            h, seed, steps = rng.choice((1, 3, 6)), rng.randrange(10000), rng.randrange(1, 34)
+            result = self.impl.train_ppo_v2(p, f, h, seed, steps, enabled=True)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.actor.step, result.critic.step)
+            self.assertTrue(np.isfinite(result.losses).all())
+
+    def test_smt_and_model_receipts(self):
+        import ppo_successor as proof
+        result = proof.check_successor()
+        self.assertEqual(result['smt'], {'F-RL-PPO-V2-BOUNDS': 'unsat', 'F-RL-PPO-V2-FINITE': 'unsat'})
+        self.assertEqual([c['batches'] for c in result['model']['configurations']], list(range(1, 17)))
+        self.assertGreater(result['model']['states'], 0)
+
+
+
 if __name__ == '__main__':
     unittest.main()

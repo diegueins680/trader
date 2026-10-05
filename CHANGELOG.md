@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Add a default-disabled, versioned PPO engineering successor connecting actual
+  collection/training to checked GAE and immutable actor/critic snapshots. Reject
+  invalid funding, non-finite objectives and incomplete updates before final
+  result publication. Add source-bound model/SMT and synthetic conformance checks.
+  Preserve frozen financial trials and all unresolved broader gates.
+
 - Research verification: compose actual dataset loading, training-prefix fitting, immutable scale use, and symbol-paired replay/OPE calls. Close affected-scope obligations 3 and 5 under named Python/pandas/NumPy assumptions; 26 partial and 7 open remain. Add source mutation and real-loader conformance tests. No research algorithm, live setting, deployment, or holdout change.
 
 - Compose async/backtest capacity reservations with the server drain latch in STM.
