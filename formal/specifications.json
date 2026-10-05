@@ -613,6 +613,22 @@
         {
           "id": "F-RL-PROMOTION-CONFORMANCE",
           "statement": "Actual v1/v4 codecs accept only the two correct research-only metadata tuples among 72 cases; both exclusive-create writers preserve an existing file, and source/model mutations reject boundary weakening."
+        },
+        {
+          "id": "F-RL-ARTIFACT-COMPOSITION",
+          "statement": "Both delivered artifact readers bind validation to immutable expected identity and the exact hashed byte snapshot, construct parameters through reviewed helpers and retain the separately checked non-authorizing Haskell/native-decoder boundary."
+        },
+        {
+          "id": "F-RL-ARTIFACT-IDENTITY",
+          "statement": "Accepted source-derived v1/v4 digest and provenance predicates imply equality with the captured expected values; outer and nested snapshot version predicates imply the supported version literals."
+        },
+        {
+          "id": "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+          "statement": "In the finite equality-class concurrent replacement model, every published artifact matches the captured expected provenance, expected digest and supported versions regardless of later caller or path replacement."
+        },
+        {
+          "id": "F-RL-ARTIFACT-COMPOSITION-CONFORMANCE",
+          "statement": "The preserved old loader reproduces the provenance race; the repaired loader and v4 reject the scheduled mismatch, preserve single-read bytes and stable-input compatibility, and reject incompatible versions and malformed parameters."
         }
       ],
       "invariants": [
@@ -825,6 +841,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "test_promotion_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_snapshot_race_and_compatibility"
         }
       ]
     },

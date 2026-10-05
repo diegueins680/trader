@@ -5813,7 +5813,7 @@
       "controlFields": []
     },
     "sequential_learning": {
-      "moduleASTHash": "50db65c01ce54f354485f3ba9171473fbb7040afb3573f82c7155ab75418441e",
+      "moduleASTHash": "00806fcefb58cee18c7541ad093251f24c5aebc1f86faf9af6e84e7cdc085cfd",
       "imports": [
         "from __future__ import annotations",
         "from pathlib import Path",
@@ -6176,6 +6176,26 @@
           "7ce9db050d4d551da7be9783c9d2896a651b930a35fd7e52fc679aa669e634d5"
         ],
         [
+          "_provenance_identity",
+          "ValueError",
+          "31e4cb33ab0ecedf67f558e0a50772a1dd5717f9c071a7a0756e8cea3e0ef3ab"
+        ],
+        [
+          "_provenance_identity",
+          "json.dumps",
+          "fd8647a716fc86b5cd2a5fadad3d42239d3ca709ce3a06e3ebf22d50dec602ac"
+        ],
+        [
+          "_provenance_identity",
+          "json.loads",
+          "3597070c991c9874c3db3975b92f7982ba628b26a30efe4c39cfc353d15c100b"
+        ],
+        [
+          "_provenance_identity",
+          "validate_provenance",
+          "3a3b2d81f3a9a475db51923f723b5ea55f8ecb000f15426fb598f663f80ab083"
+        ],
+        [
           "_training_indices",
           "ValueError",
           "ec104c3f4bae8c6220381bdf7975ac2f738d7efe7577a70e2f6da7ec8952cdd3"
@@ -6432,6 +6452,11 @@
         ],
         [
           "load_policy",
+          "_provenance_identity",
+          "d28589de003338e17cf3c4707155332b9553740688f2b3eac4569e143ad9e7b0"
+        ],
+        [
+          "load_policy",
           "a['parameters'].items",
           "fe3932cd09ec828eeeabb0ab7afd34a1102d59ef7996310fa038784127273ca8"
         ],
@@ -6477,11 +6502,6 @@
         ],
         [
           "load_policy",
-          "json.dumps",
-          "be5d86d793d5a71b721cd019ba7cc8f2ca8037811b3830ebb211f473a95b2017"
-        ],
-        [
-          "load_policy",
           "json.loads",
           "a5009b2888b24a267dd58ce0ab709616ab011051e1ee3bc22c0f997b19302a8c"
         ],
@@ -6519,11 +6539,6 @@
           "load_policy",
           "type",
           "e048786d0fd27242ac9513214da043edf756617a572829e1cb9725342ed3dd2b"
-        ],
-        [
-          "load_policy",
-          "validate_provenance",
-          "80a6eca461c2571d835dd10ab5803618a3dfa7915d9afc8fef1c480dba6a9236"
         ],
         [
           "load_policy",

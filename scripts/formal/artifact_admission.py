@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = 'scripts/research/sequential_learning.py'
 TEMPLATE = r'''
 def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> Network:
-    validate_provenance(expected_provenance)
+    expected_identity = _provenance_identity(expected_provenance)
     with path.open('rb') as stream:
         raw = stream.read(65537)
     if len(raw) > 65536:
@@ -114,7 +114,7 @@ def check_predicates(predicates):
              "a['actions'] != ACTIONS.tolist()": z.Not(actions_match),
              "a['enabled'] is not False": z.Not(exact_false),
              "json.dumps(a['provenance'], sort_keys=True)": provenance,
-             'json.dumps(expected_provenance, sort_keys=True)': expected,
+             'expected_identity': expected,
              'hashlib.sha256(raw).hexdigest()': digest, 'expected_sha256': expected_digest}
     hash_reject, metadata_reject = [expression(n, atoms) for n in predicates]
     metadata_ok = z.And(schema == 'offline_policy_v1', environment == 'sequential_replay_v1',

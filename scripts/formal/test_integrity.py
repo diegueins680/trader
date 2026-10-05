@@ -375,7 +375,7 @@ class ArtifactAdmissionTests(unittest.TestCase):
 
     def test_source_bypasses_and_rebinding_rejected(self):
         mutants = [('return net', 'return Network(0)'),
-                   ('validate_provenance(expected_provenance)', 'pass'),
+                   ('expected_identity = _provenance_identity(expected_provenance)', 'expected_identity = None'),
                    ('snapshots = _parameter_snapshots(parameters)', 'snapshots = parameters'),
                    ('raw = stream.read(65537)', 'raw = stream.read()'),
                    ('net = Network(0)', 'return Network(0)'),
@@ -2074,7 +2074,7 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 31)
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 29)
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
@@ -3377,6 +3377,52 @@ class PromotionBoundaryTests(unittest.TestCase):
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
+
+
+
+
+class ArtifactCompositionTests(unittest.TestCase):
+    def test_snapshot_race_and_compatibility(self):
+        import artifact_composition as c
+        result=c.conformance()
+        self.assertTrue(result['legacyRaceReproduced'])
+        self.assertTrue(result['fixedRaceRejected'])
+        self.assertEqual(result['rejections'],29)
+
+    def test_source_derived_identity_and_snapshot_model(self):
+        import artifact_composition as c
+        trees,predicates=c.extract()
+        self.assertEqual(c.identity(trees,predicates)[1],6)
+        self.assertEqual(c.model()['states'],848)
+        self.assertIsNone(c.model()['counterexample'])
+        self.assertIsNotNone(c.model(True)['counterexample'])
+
+    def test_snapshot_and_publication_source_mutations_reject(self):
+        import artifact_composition as c
+        sources={p:(ROOT/p).read_text() for p in c.SOURCES}
+        mutations=[(c.SOURCES[0],'validate_provenance(json.loads(identity))','validate_provenance(provenance)'),
+                   (c.SOURCES[0],'!= expected_identity','!= json.dumps(expected_provenance, sort_keys=True)'),
+                   (c.SOURCES[0],'json.loads(raw,','json.loads(path.read_bytes(),'),
+                   (c.SOURCES[0],'net.p = snapshots','net.p = parameters'),
+                   (c.SOURCES[1],'return value.copy()','return value'),
+                   (c.SOURCES[1],'return restored','return value'),
+                   (c.SOURCES[1],'value["version"] == "optimizer-snapshot-v2"','True')]
+        for path,old,new in mutations:
+            self.assertIn(old,sources[path])
+            changed=dict(sources);changed[path]=sources[path].replace(old,new)
+            with self.subTest(mutation=new),self.assertRaises(ValueError):c.extract(changed)
+
+    def test_identity_predicate_mutations_find_counterexamples(self):
+        import artifact_composition as c
+        trees,predicates=c.extract()
+        # Bypass source locks deliberately to test the solver, not merely hashing.
+        changed=copy.deepcopy(predicates)
+        changed[0]=ast.parse('False',mode='eval').body
+        with self.assertRaises(RuntimeError):c.identity(trees,changed)
+        altered=copy.deepcopy(trees)
+        condition=altered[c.SOURCES[1]]['_snapshot'].body[1].value.args[0]
+        condition.values=[n for n in condition.values if ast.unparse(n)!="value['version'] == 'optimizer-snapshot-v2'"]
+        with self.assertRaises(RuntimeError):c.identity(altered,predicates)
 
 
 if __name__ == '__main__':

@@ -14,6 +14,24 @@
       "resolution": "Specification corrected: disable rejects subsequent admissions; retained proposals never carry order authority. No production revocation implementation is claimed.",
       "regression": "scripts/formal/test_integrity.py",
       "requirement": "F-RL-LIFECYCLE"
+    },
+    {
+      "id": "CE-RL-ARTIFACT-PROVENANCE-RACE",
+      "status": "refuted",
+      "claim": "The legacy loader always compares against the expected provenance captured before artifact I/O.",
+      "trace": [
+        "path=3",
+        "capture",
+        "caller=1",
+        "read",
+        "hash",
+        "decode",
+        "metadata",
+        "publish"
+      ],
+      "resolution": "Private canonical expected identity captured and validated before I/O; old loader preserved in formal/research/artifact-legacy-loader.json",
+      "regression": "scripts/formal/test_integrity.py",
+      "requirement": "F-RL-ARTIFACT-SNAPSHOT-FLOW"
     }
   ]
 }
