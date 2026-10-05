@@ -259,6 +259,12 @@
       "status": "assumption",
       "statement": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-RECOVERY-NUMERIC",
+      "status": "assumption",
+      "statement": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -375,7 +381,13 @@
     "formal/research/sizing-input-contract.md",
     "formal/research/sizing-input-source.json",
     "formal/research/sizing-input-counterexamples.json",
-    "research-notes/registrations/sizing-input-engineering.json"
+    "research-notes/registrations/sizing-input-engineering.json",
+    "scripts/formal/closed_trade_recovery.py",
+    "formal/research/closed-trade-recovery-contract.md",
+    "formal/research/closed-trade-recovery-source.json",
+    "formal/research/closed-trade-recovery-counterexamples.json",
+    "research-notes/registrations/closed-trade-recovery-engineering.json",
+    "haskell/app/Trader/BotSnapshotRecovery.hs"
   ],
   "entries": [
     {
@@ -4446,6 +4458,130 @@
       "limitations": "Pinned GHC/base binary64, Maybe/Either, exact Integer/Rational and record-field semantics; ordinary immutable non-bottom inputs, source extraction and predicate/refinement mapping, existing rounding certificates and adequate resources. Pure Step/SymbolFilters field projection is used in compiled conformance. No compiler or whole-Main proof, filter parser/freshness/completeness guarantee, exact-real notional/accounting theorem, wire-cap/grid or complete caller/authorization certificate.",
       "counterexample": "CE-SIZING-001; CE-SIZING-002; CE-SIZING-003; CE-SIZING-004; CE-SIZING-005; CE-SIZING-006",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RECOVERY-NUMERIC",
+      "claim": "Source-bound closed-trade admission publishes only finite returns from finite equities with positive entry equity, rejects explicitly non-finite returns, and requires nonnegative holding periods and absent or finite unit-interval probability.",
+      "formalStatement": "Source-bound closed-trade admission publishes only finite returns from finite equities with positive entry equity, rejects explicitly non-finite returns, and requires nonnegative holding periods and absent or finite unit-interval probability.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RECOVERY-NUMERIC",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/closed_trade_recovery.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "formal/research/closed-trade-recovery-contract.md",
+        "formal/research/closed-trade-recovery-source.json",
+        "formal/research/closed-trade-recovery-counterexamples.json",
+        "research-notes/registrations/closed-trade-recovery-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_recovery and ClosedTradeRecoveryTests; actual JSON regression runs in the Haskell suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer; signed 32/64-bit narrowing bounds. Local 22-state/22-transition model, eight initial states, depth three; 341 finite histories (length 0..4, durations 0..3, bound7). Compiled 2675 numeric rows (624 boundary, 2048 generated, three witnesses), 1031 index histories (1024 generated), seed20261005, two identical replay runs per mode; four counterexamples.",
+      "limitations": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
+      "counterexample": "CE-RECOVERY-001; CE-RECOVERY-002; CE-RECOVERY-003; CE-RECOVERY-004",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RECOVERY-INDEX",
+      "claim": "The exact Integer index recurrence checks nonnegative entry and strictly greater exit within the machine bound before narrowing; accepted indices fit signed 32-bit and 64-bit Int under their respective bounds.",
+      "formalStatement": "The exact Integer index recurrence checks nonnegative entry and strictly greater exit within the machine bound before narrowing; accepted indices fit signed 32-bit and 64-bit Int under their respective bounds.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RECOVERY-NUMERIC",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/closed_trade_recovery.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "formal/research/closed-trade-recovery-contract.md",
+        "formal/research/closed-trade-recovery-source.json",
+        "formal/research/closed-trade-recovery-counterexamples.json",
+        "research-notes/registrations/closed-trade-recovery-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_recovery and ClosedTradeRecoveryTests; actual JSON regression runs in the Haskell suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer; signed 32/64-bit narrowing bounds. Local 22-state/22-transition model, eight initial states, depth three; 341 finite histories (length 0..4, durations 0..3, bound7). Compiled 2675 numeric rows (624 boundary, 2048 generated, three witnesses), 1031 index histories (1024 generated), seed20261005, two identical replay runs per mode; four counterexamples.",
+      "limitations": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
+      "counterexample": "CE-RECOVERY-001; CE-RECOVERY-002; CE-RECOVERY-003; CE-RECOVERY-004",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RECOVERY-FLOW",
+      "claim": "In the local record-eligibility and selected-history publication model, identity, numeric or index rejection prevents that record from publication; repeated terminal operations are stable.",
+      "formalStatement": "In the local record-eligibility and selected-history publication model, identity, numeric or index rejection prevents that record from publication; repeated terminal operations are stable.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RECOVERY-NUMERIC",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/closed_trade_recovery.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "formal/research/closed-trade-recovery-contract.md",
+        "formal/research/closed-trade-recovery-source.json",
+        "formal/research/closed-trade-recovery-counterexamples.json",
+        "research-notes/registrations/closed-trade-recovery-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_recovery and ClosedTradeRecoveryTests; actual JSON regression runs in the Haskell suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer; signed 32/64-bit narrowing bounds. Local 22-state/22-transition model, eight initial states, depth three; 341 finite histories (length 0..4, durations 0..3, bound7). Compiled 2675 numeric rows (624 boundary, 2048 generated, three witnesses), 1031 index histories (1024 generated), seed20261005, two identical replay runs per mode; four counterexamples.",
+      "limitations": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
+      "counterexample": "CE-RECOVERY-001; CE-RECOVERY-002; CE-RECOVERY-003; CE-RECOVERY-004",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RECOVERY-CONFORMANCE",
+      "claim": "Compiled actual recovery helpers agree with independent numeric/index oracles on 2675 numeric rows and 1031 histories, preserve admitted legacy returns and indices, repeat deterministically and reproduce four preserved counterexamples.",
+      "formalStatement": "Compiled actual recovery helpers agree with independent numeric/index oracles on 2675 numeric rows and 1031 histories, preserve admitted legacy returns and indices, repeat deterministically and reproduce four preserved counterexamples.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RECOVERY-NUMERIC",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 integer/real/binary64 SMT; exhaustive finite transition checker; compiled GHC conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; base 4.17.2.1",
+      "sourceModel": "scripts/formal/closed_trade_recovery.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "formal/research/closed-trade-recovery-contract.md",
+        "formal/research/closed-trade-recovery-source.json",
+        "formal/research/closed-trade-recovery-counterexamples.json",
+        "research-notes/registrations/closed-trade-recovery-engineering.json"
+      ],
+      "testFiles": [
+        "haskell/test/TestMain.hs",
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_recovery and ClosedTradeRecoveryTests; actual JSON regression runs in the Haskell suite.",
+      "bounds": "Seven SAT-premise/UNSAT-violation queries over binary64 and unbounded Integer; signed 32/64-bit narrowing bounds. Local 22-state/22-transition model, eight initial states, depth three; 341 finite histories (length 0..4, durations 0..3, bound7). Compiled 2675 numeric rows (624 boundary, 2048 generated, three witnesses), 1031 index histories (1024 generated), seed20261005, two identical replay runs per mode; four counterexamples.",
+      "limitations": "Pinned GHC/base/Aeson parsing, immutable non-bottom inputs, binary64 operations, exact Integer arithmetic, checked narrowing and source/model correspondence. Compiled helpers use projected Trade fields; full Haskell tests cover actual JSON parsing. Division/subtraction are conservatively represented by an arbitrary binary64 intermediate for guard proofs, not a precision/error theorem. No compiler/full parser, authenticity, freshness, durable crash recovery, resource-bound, concurrent ownership or venue-reconciliation proof.",
+      "counterexample": "CE-RECOVERY-001; CE-RECOVERY-002; CE-RECOVERY-003; CE-RECOVERY-004",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -4633,9 +4769,13 @@
         "F-SIZING-PUBLISH",
         "F-SIZING-RETRY",
         "F-SIZING-FLOW",
-        "F-SIZING-CONFORMANCE"
+        "F-SIZING-CONFORMANCE",
+        "F-RECOVERY-NUMERIC",
+        "F-RECOVERY-INDEX",
+        "F-RECOVERY-FLOW",
+        "F-RECOVERY-CONFORMANCE"
       ],
-      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
       "nextAction": "Extend the composed PPO successor through checked artifact/process inference and full numeric replay/accounting; separately repair Q/CQL/OPE paths without changing frozen v1.",
@@ -4790,9 +4930,13 @@
         "F-SIZING-PUBLISH",
         "F-SIZING-RETRY",
         "F-SIZING-FLOW",
-        "F-SIZING-CONFORMANCE"
+        "F-SIZING-CONFORMANCE",
+        "F-RECOVERY-NUMERIC",
+        "F-RECOVERY-INDEX",
+        "F-RECOVERY-FLOW",
+        "F-RECOVERY-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Extend the composed PPO successor admission/publication to bounded replay/accounting, Q/CQL and OPE arithmetic; distinguish detected failure from numerical accuracy and silent BLAS underflow.",
@@ -5373,9 +5517,13 @@
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-ARTIFACT-V4-CONFORMANCE"
+        "F-RL-ARTIFACT-V4-CONFORMANCE",
+        "F-RECOVERY-NUMERIC",
+        "F-RECOVERY-INDEX",
+        "F-RECOVERY-FLOW",
+        "F-RECOVERY-CONFORMANCE"
       ],
-      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
+      "limitations": "Source-linked offline artifact gate model and metadata predicates add conditional evidence; helper semantics, trusted expected provenance and complete production artifact refinement remain open. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Only supported artifact/schema/feature/observation/action/reward versions can activate a candidate.",
       "nextAction": "Compose decoder, hash, schema, immutable parameter admission and activation with explicit version compatibility.",
@@ -5675,9 +5823,13 @@
         "F-ASYNC-ADMISSION-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-RECOVERY-NUMERIC",
+        "F-RECOVERY-INDEX",
+        "F-RECOVERY-FLOW",
+        "F-RECOVERY-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Interrupted recoverable work resumes without violating safety or duplicating irreversible effects.",
       "nextAction": "Specify durable checkpoints and idempotent recovery transitions; inject crashes at each publication boundary.",

@@ -245,3 +245,12 @@ synthetic failures; no historical incident is inferred. Parsing/freshness,
 missing optional filters, direct minimum consumers, exact notional arithmetic,
 wire caps/grid and complete caller/lifecycle refinement remain unresolved.
 Five scoped closures, 27 partial, six open; RL-OFFLINE-001 remains HIGH/OPEN.
+
+Closed-trade recovery now has [numeric/index admission](../formal/research/closed-trade-recovery-contract.md)
+under A-RECOVERY-NUMERIC: seven guard/Integer SMT queries, a 22-state local
+record-eligibility/publication model, 341 bounded histories, 2675 numeric cases
+and 1031 compiled index histories. CE-RECOVERY-001–004 preserve synthetic
+failures; actual Aeson integration is tested separately. No parser/compiler,
+authenticity, freshness, durable crash recovery, resource-bound or ownership
+certificate is inferred. Obligations 6/10/29/37 receive evidence without status
+changes: five scoped closures, 27 partial, six open. RL-OFFLINE-001 remains open.
