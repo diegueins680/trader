@@ -74,7 +74,7 @@
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/proof-ledger.json": "bf1e7fe3521979079efb943d1b6311570d015d467083b5d713ce2d4c97192884",
+    "formal/research/proof-ledger.json": "4eda61093a9f4c2eb4ce3b6fd5be86fd6ad8fca9b6574e2c80d49a20d4ce47be",
     "formal/research/counterexamples.json": "22a72da4050818aeb14744327f6cb09d661f0cd3a564bf661425af240c3dcaae",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
@@ -373,7 +373,7 @@
     "formal/research/quantity-rounding-source.json": "03a1c67c81ea233b0af1d6ca026ff6f450fd9b7bf378d41e976d36d6a253b804",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "haskell/test/Trader/Test/QuantityRounding.hs": "61f49285beee7f2b0088b4772f42714051463c80323722903f7405263181c8a0",
-    "scripts/formal/quantity_rounding.py": "2bab5b0a65bbe51fff2b4809f687e879f4868e47acf9b7a382c595ed11220181",
+    "scripts/formal/quantity_rounding.py": "dd75fc5f5b33899531f9d64709723684424769f64b3183ba1fe7170fc1b6451d",
     "research-notes/registrations/quantity-rounding-engineering.json": "ca6c5a19229813233bac33f41e5d81fddff33f4f0700268b92ab1c6630b62227"
   },
   "numpy": "2.3.5",

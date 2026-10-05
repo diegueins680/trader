@@ -3818,7 +3818,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_rounding and QuantityRoundingTests; production adapter properties also run in Haskell wrapper.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
+      "bounds": "Seven SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids. Both new error messages are SMT-excluded from the retry classifier and checked against its compiled Main source.",
       "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
       "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "smt_verified"
@@ -3851,7 +3851,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_rounding and QuantityRoundingTests; production adapter properties also run in Haskell wrapper.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
+      "bounds": "Seven SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids. Both new error messages are SMT-excluded from the retry classifier and checked against its compiled Main source.",
       "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
       "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "smt_verified"
@@ -3884,7 +3884,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_rounding and QuantityRoundingTests; production adapter properties also run in Haskell wrapper.",
-      "bounds": "Five SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids.",
+      "bounds": "Seven SAT-premise/UNSAT-violation pairs; unbounded mathematical integers/reals and all binary64 guard values; 4226 compiled cases plus 1000 generated Haskell words across eight grids. Both new error messages are SMT-excluded from the retry classifier and checked against its compiled Main source.",
       "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Shared preflight and Either short-circuit source correspondence does not certify complete Main/order behavior.",
       "counterexample": "CE-ROUND-001; CE-ROUND-002",
       "status": "property_tested"

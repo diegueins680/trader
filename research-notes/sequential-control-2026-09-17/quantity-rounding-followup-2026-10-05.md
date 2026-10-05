@@ -23,7 +23,7 @@ requirement-to-code/test/CI traceability. The adapter delegates to the actual
 compiled base-only core. No new dependency or state machine is introduced.
 Existing capability/lifecycle checks remain mandatory.
 
-Five SAT-premise/UNSAT-violation pairs cover mathematical Euclidean division,
+Seven SAT-premise/UNSAT-violation pairs cover mathematical Euclidean division,
 rational reconstruction, binary64 publication guards and invalid-grid rejection.
 These are source-bound SMT lemmas under named GHC/base/runtime assumptions;
 source review and differential tests do not prove the compiler. Compiled oracle
@@ -85,3 +85,11 @@ Pinned reproduction d0373398 failed before proof execution because the main
 lock still carried pre-refinement hashes for the already-committed contract
 and registration. Those two reviewed hashes were corrected and the entire
 locked source roster checked before rerunning; no proof result was edited.
+
+Final verification strengthening: compile the actual isTooSmallQtyError source
+from Main in the pure driver and check both optional-grid preflight variants
+against it (8452 retry-classification checks). Two additional SMT ground-string
+lemmas exclude both preflight error messages from all three retry conditions.
+This refines the registered CE-ROUND-002 test, with no production source change.
+
+Final strengthened targeted suite passed: 2 tests, 13.879s locally.
