@@ -103,14 +103,44 @@ fixture with `ValueError: PPO process bridge: no actual inference for trained
 policy`. The host had concurrent compiler workloads; the deadline was unchanged.
 This is an observed local failure, not a proof of an environmental cause.
 
-Ordinary initial CI job112014455403 ran all 219 tests successfully (48.345 seconds),
+Ordinary initial CI job 112014455403 ran all 219 tests successfully (48.345 seconds),
 then rejected the stale committed receipt with `certificate differs from reviewed
 receipt; investigate before recording`. The replacement receipt must come verbatim
 from successful pinned reproduction, with its changed sections reviewed and all
 source hashes checked. Neither failure is hidden by editing a recorded result.
 
-Initial pinned full wrapper job112014454763 failed HLint on three new fixture
+Initial pinned full wrapper job 112014454763 failed HLint on three new fixture
 style issues (newtype, lambda-case and rights), after formal had passed. These
 were corrected in the test module without changing the production helper or
 model. The test source lock was refreshed; a fresh receipt and complete pinned
 wrapper run are required after this correction.
+
+Local `bash scripts/verify.sh haskell` completed successfully after the fixture
+style correction: build, fourmolu, HLint, smoke checks and the full Haskell test
+suite passed. Focused `python scripts/formal/test_integrity.py
+BotWorkerPublicationTests` also passed all three tests in 10.720 seconds,
+including all six compiled scenarios. No new test timeout was relaxed.
+
+Pinned reproduction run [37385663732](https://github.com/diegueins680/trader/actions/runs/37385663732),
+job 112018186771, succeeded on 43a9bb6178360b07bd9090905aa6d19c8da3f94c:
+receipt 23:02:42–23:03:34 UTC; canonical formal 23:03:34–23:04:56;
+canonical full 23:04:56–23:10:18 on 2026-10-05. Formal ran 219 integrity tests
+(33.860 seconds separately; 34.484 seconds within full), all passing. Full also
+passed Haskell build/format/lint/smoke/test suite, 241 web tests and 185 automation
+tests. The 73 SMT obligation groups and existing 9 closure certificates reproduced.
+
+Receipt SHA256: `13965d8cbde6e043d7f3e55427154e0f5db37d140625dfff1abf9495d169ead2`.
+Imported bytes are the runner's emitted receipt, not locally edited output. Changes
+are confined to botWorkerPublication, sourceHashes, the added SMT group, the
+capability graph's one added module/edge (121 files/296 local edges), and the
+inventory-readiness source hash. Its readiness evidence is otherwise unchanged;
+the other five executable root closures are identical. All toolchain source
+hashes were checked against local bytes. The original 38 criteria and required
+certificates are unchanged; the receipt still reports 29 unresolved and 9 closed,
+with formalObligationsComplete=false and missionComplete=false.
+
+The temporary PR-only reproduction workflow is removed after success. Final-head
+ordinary CI and merge/deployment audits are recorded in
+[PR #306](https://github.com/diegueins680/trader/pull/306); the full wrapper above
+covers the same implementation, proof and test sources. There is no claim that
+these checks close the broader unresolved mission or authorize production use.
