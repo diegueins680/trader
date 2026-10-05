@@ -2075,7 +2075,7 @@ class ObligationClosureTests(unittest.TestCase):
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
         self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 29)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,31])
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
