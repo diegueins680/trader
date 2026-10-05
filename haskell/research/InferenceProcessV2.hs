@@ -7,6 +7,7 @@ import Control.Monad (join, void)
 import qualified Data.ByteString.Char8 as BS
 import Data.List (transpose)
 import GHC.Clock (getMonotonicTimeNSec)
+import SnapshotRequestV3 (decodeSnapshot, snapshotBits)
 import System.Environment (getArgs, getExecutablePath)
 import System.IO (BufferMode (NoBuffering), Handle, hClose, hFlush, hGetChar, hSetBuffering, stdin, stdout)
 import System.Posix.Signals (sigKILL, signalProcess)
@@ -137,8 +138,8 @@ cleanup (input, output, errors, child) = do
     c <- closePipe errors
     pure (stopped && a && b && c)
 
-exchange :: Integer -> Handle -> Handle -> IO (Maybe String)
-exchange started input output = do
+exchange :: (String -> Maybe Request) -> Integer -> Handle -> Handle -> IO (Maybe String)
+exchange decode started input output = do
     now <- clockNS
     let remaining = budgetNS - (now - started)
     if now < started || remaining <= 0
@@ -146,7 +147,7 @@ exchange started input output = do
         else do
             reply <- timeout (fromInteger ((remaining + 999) `div` 1000)) $ do
                 raw <- frameRead 32768 stdin
-                case raw >>= readMaybe of
+                case raw >>= decode of
                     Just request | validRequest request -> do
                         let payload = BS.pack (show (request :: Request))
                         if BS.length payload >= 32768
@@ -158,8 +159,8 @@ exchange started input output = do
                     _ -> pure Nothing
             pure (join reply)
 
-supervise :: IO (Decision, Bool)
-supervise = mask $ \restore -> do
+supervise :: (String -> Maybe Request) -> IO (Decision, Bool)
+supervise decode = mask $ \restore -> do
     executable <- getExecutablePath
     handles@(input, output, _, _) <- createProcess (proc executable ["--offline-inference-v2", "--worker"]){std_in = CreatePipe, std_out = CreatePipe, std_err = NoStream, env = Just [], close_fds = True, create_group = True}
     let session = case (input, output) of
@@ -167,7 +168,7 @@ supervise = mask $ \restore -> do
                 hSetBuffering requestPipe NoBuffering
                 ready <- safeIO Nothing (timeout 1000000 (frameRead 16 replyPipe))
                 started <- clockNS
-                reply <- if ready == Just (Just "IPV2 ready") then safeIO Nothing (exchange started requestPipe replyPipe) else pure Nothing
+                reply <- if ready == Just (Just "IPV2 ready") then safeIO Nothing (exchange decode started requestPipe replyPipe) else pure Nothing
                 pure (started, reply)
             _ -> do
                 now <- clockNS
@@ -177,9 +178,9 @@ supervise = mask $ \restore -> do
     ended <- clockNS
     pure (maybe Absent (admission (ended - started) clean) reply, clean)
 
-offline :: IO ()
-offline = do
-    result <- safeIO (Absent, False) supervise
+offline :: (String -> Maybe Request) -> IO ()
+offline decode = do
+    result <- safeIO (Absent, False) (supervise decode)
     print result
 
 -- The contract probe runs the same pure guard; it cannot start a child.
@@ -194,7 +195,9 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ["--offline-inference-v2"] -> offline
+        ["--offline-inference-v2"] -> offline readMaybe
+        ["--offline-snapshot-v3"] -> offline decodeSnapshot
+        ["--snapshot-contract-v3"] -> frameRead 32768 stdin >>= print . (>>= snapshotBits)
         ["--offline-inference-v2", "--worker"] -> worker
         ["--offline-inference-v2", "--contract"] -> contractProbe
         _ -> putStrLn "(Absent,True)"
