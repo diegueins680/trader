@@ -662,3 +662,16 @@ stale-ingress regressions. A-DRAIN-POOL trusts pinned STM primitive semantics.
 Pre-drain reservations retain ownership; callback start/quiescence and bot/order
 authorization are not certified. The 38-obligation ledger remains 3 closed /
 28 partial / 7 open. See `formal/research/drain-pool-contract.md`.
+
+### Source-composed normalization and symbol isolation (2026-10-04)
+
+[Data composition](../formal/research/data-composition-contract.md) closes
+obligations 3 and 5 against their existing criteria. F-RL-DATA-COMPOSITION checks
+28 actual Scale/scale source references, immutable bytes-backed fields and
+loader/caller composition. F-RL-DATA-KEYS discharges six arbitrary-string SMT
+queries extracted from panel filters and paired market arguments. Shared training
+transforms and policy parameters are explicitly global; local price/funding
+observations remain symbol-scoped. Full loader/fit/replay/OPE conformance is an
+automation test, not an additional proof class. The Python/pandas/NumPy primitive
+contract remains in the assumptions ledger. Current count: 5 closed, 26 partial,
+7 open; no mission completion or new economic evidence.
