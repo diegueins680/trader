@@ -389,6 +389,7 @@ test-suite trader-tests
                      , Trader.Test.OrderNumeric
                      , Trader.Test.DrainPool
                      , Trader.Test.BacktestGate
+                     , Trader.Test.AdmissionProgress
                      , Trader.Test.AsyncJobAdmission
                      , Trader.Test.WorkerPublication
                      , Trader.Test.GracefulShutdown

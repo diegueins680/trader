@@ -433,6 +433,7 @@ import Trader.SignalGates (
     signalTrendSmaConfirmedWithConfig,
  )
 
+import Trader.Test.AdmissionProgress (admissionProgressSuite)
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.AsyncJobAdmission (asyncJobAdmissionSuite)
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
@@ -876,6 +877,7 @@ main = do
     runSuite "gracefulShutdown" gracefulShutdownSuite
     runSuite "workerRegistry" workerRegistrySuite
     runSuite "backtestGate" backtestGateSuite
+    runSuite "admissionProgress" admissionProgressSuite
     runSuite "quantityRounding" quantityRoundingSuite
     runSuite "orderNumeric" orderNumericSuite
     runSuite "drainPool" drainPoolSuite
