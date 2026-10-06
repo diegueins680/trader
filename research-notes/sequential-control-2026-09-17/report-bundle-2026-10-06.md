@@ -127,7 +127,19 @@ leverage, risk limits, ownership and production deployment remain unchanged.
 Targeted local checks passed: 10 tests in 2.593 seconds. Complete local integrity checks passed: 265 tests in 237.263 seconds.
 The strengthened reconciliation fixture passed the subsequent 10-test recheck in
 4.024 seconds. Local proof reproduction passed in 177.784 seconds.
-Pinned formal/full reproduction remains pending.
+Pinned CI [run 37410060119](https://github.com/diegueins680/trader/actions/runs/37410060119)
+([job 112096262315](https://github.com/diegueins680/trader/actions/runs/37410060119/job/112096262315))
+passed: proof reproduction 71 s, `bash scripts/verify.sh formal` 146 s,
+`bash scripts/verify.sh full` 516 s. The formal integrity suite ran all 265 tests
+in 74.859 s, and the full-wrapper repetition in 75.575 s. Haskell `trader-tests`
+passed; web 241/241 and automation 185/185 passed. The receipt reproduced byte
+for byte with SHA256
+`4a51a5ff863603b48978a6148c2219527fccb669c2463db9f095ca1acaac2e65`.
+All 78 recorded SMT groups passed; the new bundle contributes one group with
+four premise/violation queries. Unrelated receipt sections were unchanged.
+The temporary reproduction workflow is removed before merge; permanent formal
+CI and the full wrapper retain all new checks. These are scoped engineering
+results; `missionComplete` and `formalObligationsComplete` remain false.
 
 
 Publication benchmark: seven synthetic 1 MiB ASCII reports (7,340,338 encoded
