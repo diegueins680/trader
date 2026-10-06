@@ -54,8 +54,13 @@ binding itself is what the source check provides.
 | `node scripts/verify-formal-specs.mjs` | valid |
 
 `verify.py --record` reproduces every certificate, including the load-sensitive
-PPO bridge, so it was deferred until host load dropped. The commit message and PR
-record the final outcome. Clean CI is the authoritative verdict.
+PPO bridge. On this host, 30 of 40 sampled compiled inference calls missed the
+20 ms deadline at load ~13, so local recording fails with probability ≈99%.
+The receipt was therefore reproduced on a clean GitHub runner with a temporary
+workflow ([run 37519937893](https://github.com/diegueins680/trader/actions/runs/37519937893)),
+retained byte-for-byte as `formal/research/results.json`, and the workflow was
+removed. The runner reproduced the same counts as local runs (157 runner rows,
+146 funding rows; 12 closed / 26 open).
 
 ## Limitations
 
