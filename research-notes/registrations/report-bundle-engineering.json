@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "report-bundle-v2",
+  "date": "2026-10-06",
+  "baseCommit": "d1fe16869b5b475e9d953e7ffdd7432ac0e4fbd3",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/report-bundle-contract.md",
+  "requirements": ["F-RL-BUNDLE-SOURCE", "F-RL-BUNDLE-ARITH", "F-RL-BUNDLE-FLOW", "F-RL-BUNDLE-CONFORMANCE"],
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "enabledByDefault": false,
+  "productionIntegration": false,
+  "maxReportBytes": 4194304,
+  "maxCombinedBytes": 16777216,
+  "maxBundleBytes": 33554432,
+  "modelWriters": 2,
+  "modelContents": ["first", "second"],
+  "modelCrashes": "unbounded transitions to a finite fixed point",
+  "tests": "faults and process deaths around open/write/file-fsync/link/directory-fsync/cleanup; matching and mismatching retry; exporter admission and legacy byte parity",
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Recovery37 may become partial after composed durable report evidence; training archives and inherited bot recovery block broad closure. No weakened criteria."
+}

@@ -8246,10 +8246,11 @@
       ]
     },
     "summarize_sequential_screen": {
-      "moduleASTHash": "b7e6efd542847098bd82f02b4c319a46bf91c076df015679e959d1f6a16c4c09",
+      "moduleASTHash": "aa1b26812338dbf3ba895ac37ed318ad32a52537545100c4d4678f1221678938",
       "imports": [
         "from collections import Counter",
         "from pathlib import Path",
+        "from report_bundle_v2 import publish_bundle_v2",
         "from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition",
         "import argparse",
         "import csv",
@@ -8267,7 +8268,7 @@
         [
           "",
           "export",
-          "b91142b567cf3e4daa30dace2a41e17c5431839af8a05005525fb838192568cc"
+          "fe8fc866b159de26a8da286b57a5f5f022651de650e119fbefc2184be4194284"
         ],
         [
           "",
@@ -8298,6 +8299,11 @@
           "",
           "parser.add_argument",
           "b7886aa7cac15a42f072d583c74c7a0f3c19328fb9b831dcccfcc417a84b38fb"
+        ],
+        [
+          "",
+          "parser.add_argument",
+          "f0c1b459d7807d143423da0f9c952f853027d105e55a55c69a8b55bf12f01eb1"
         ],
         [
           "",
@@ -8376,6 +8382,11 @@
         ],
         [
           "export",
+          "OSError",
+          "0ed18be4f676f50cfc295af5bd6a8b6d148c554c5a4b817e1de632557fd5ce82"
+        ],
+        [
+          "export",
           "ValueError",
           "2a666abbb2a1fde1850b8c6c44d3a15dc798c3dd24c76eb18cbbbfd4c308edd6"
         ],
@@ -8408,6 +8419,11 @@
           "export",
           "ValueError",
           "bb97d8fcb06b605771358d4587378f4da6b65c6bd5ef355f42188bf095abe312"
+        ],
+        [
+          "export",
+          "ValueError",
+          "f29fb1e4a87e12a6cdbbb0fa6483bee82b4f4804c5fb34120d8b3a160a438562"
         ],
         [
           "export",
@@ -8516,6 +8532,11 @@
         ],
         [
           "export",
+          "publish_bundle_v2",
+          "03c17c45bda195341987b11141e0149a6550cf8a43fb989a26f9c592a40c56fe"
+        ],
+        [
+          "export",
           "read",
           "3450d25713c93e4d10a6ce5d24b26b142933a6548c0f2067b13543568c838494"
         ],
@@ -8611,8 +8632,18 @@
         ],
         [
           "export",
+          "str",
+          "ac21b5e6705c69eec368406129c3927fb69226e1c7181f1f7830ab68cf750b41"
+        ],
+        [
+          "export",
           "stream.write",
           "3070a99a27da952c8155592f5393a517bffb6b4a99b363e5a483269cd23dec03"
+        ],
+        [
+          "export",
+          "type",
+          "9e96fc604030f6690035ab99a2ab5a3a15aec1291a45af6a21c8c8f6c8e190dc"
         ],
         [
           "render_reports",
@@ -9741,6 +9772,306 @@
         ]
       ],
       "controlFields": []
+    },
+    "report_bundle_v2": {
+      "moduleASTHash": "652ef8a0876cd070643c10ce847da2d0a35db6a493602dbdfd5fa8da929d8f77",
+      "imports": [
+        "from __future__ import annotations",
+        "import hashlib",
+        "import json",
+        "import os",
+        "import secrets",
+        "import stat"
+      ],
+      "callSites": [
+        [
+          "",
+          "frozenset",
+          "915f4fdc2215bc8f3f4ccf2253b13c102ee890ecc09c22083b17377d3b442328"
+        ],
+        [
+          "_matches",
+          "OSError",
+          "0110675ae2f135f2573e3e3c2dc03fc7032e633ce914afc07c9e019a5b466c3c"
+        ],
+        [
+          "_matches",
+          "OSError",
+          "a28c2d41d591bddfcaebb83a1f2511c904911d382f46ed2d1319ff20e7a4f4f7"
+        ],
+        [
+          "_matches",
+          "OSError",
+          "d209e6f13595cf939d7ea78e092f94d1b41e01c0fe37ccad79a9ac9e1fd385b9"
+        ],
+        [
+          "_matches",
+          "len",
+          "14381ee198b233fab86e0cefdac3169f8ede2b4f94479d019dcd9cc290015a66"
+        ],
+        [
+          "_matches",
+          "len",
+          "14381ee198b233fab86e0cefdac3169f8ede2b4f94479d019dcd9cc290015a66"
+        ],
+        [
+          "_matches",
+          "len",
+          "1c0552a86223f6395b3fb319910fa4c2f75794e93060c54c87d4b489ff8347e2"
+        ],
+        [
+          "_matches",
+          "len",
+          "1c0552a86223f6395b3fb319910fa4c2f75794e93060c54c87d4b489ff8347e2"
+        ],
+        [
+          "_matches",
+          "min",
+          "f839aacf77e3801169f2d3f7b1b47670f5cb7406ff630d87a2e39a807fd5a175"
+        ],
+        [
+          "_matches",
+          "os.close",
+          "5e53ed07e4ca5a07b4ea1627e0c8c20d53193bf9a8eca3acdc75bafd1d79af7f"
+        ],
+        [
+          "_matches",
+          "os.fstat",
+          "44b2896228cfc3269f644063379a873ff7af1fc2ef2dfa251b78fd765f58be93"
+        ],
+        [
+          "_matches",
+          "os.fsync",
+          "cc0a9205313b39d7f2cc9a509076711d694bfe64931498c6c65e79aedcf39fa1"
+        ],
+        [
+          "_matches",
+          "os.open",
+          "0af10f28eedfbaaf5a0f49e0f04208085198c9198904ec941c64fbf1d3cd6d8d"
+        ],
+        [
+          "_matches",
+          "os.read",
+          "30f5170b0015ba2b0ff9cc93a02d6e0af64fb7997f134aacd05f49c13106d375"
+        ],
+        [
+          "_matches",
+          "os.read",
+          "47788d981b28f96a63b9125e788e0bbf0226e46291066bf732fc633d4917f31a"
+        ],
+        [
+          "_matches",
+          "stat.S_ISREG",
+          "863ed53d797173566a1d34082808dda81c2935a9de8fc56be2f1f1dd9010632d"
+        ],
+        [
+          "_write",
+          "OSError",
+          "12428bab16c2c2ae80b9b47006bc573b3d6c767f991a91908ba4fc9aefb0c02f"
+        ],
+        [
+          "_write",
+          "len",
+          "14381ee198b233fab86e0cefdac3169f8ede2b4f94479d019dcd9cc290015a66"
+        ],
+        [
+          "_write",
+          "len",
+          "14381ee198b233fab86e0cefdac3169f8ede2b4f94479d019dcd9cc290015a66"
+        ],
+        [
+          "_write",
+          "min",
+          "f839aacf77e3801169f2d3f7b1b47670f5cb7406ff630d87a2e39a807fd5a175"
+        ],
+        [
+          "_write",
+          "os.fsync",
+          "cc0a9205313b39d7f2cc9a509076711d694bfe64931498c6c65e79aedcf39fa1"
+        ],
+        [
+          "_write",
+          "os.write",
+          "6253acd541f06fffb796fbf74f9263db747eea26b6213ac6f87fba4c9475e99c"
+        ],
+        [
+          "encode_bundle_v2",
+          "(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':')) + '\\n').encode",
+          "fe79eec8e4a94f7f0d68d2d7030b287e6e5301757b22c1993ea974a43d5d74de"
+        ],
+        [
+          "encode_bundle_v2",
+          "any",
+          "436a2ca8f9c5700fb0ec00970cadd7a2a09ce6b2649059680824041a679e1170"
+        ],
+        [
+          "encode_bundle_v2",
+          "json.dumps",
+          "bce7496e9d803edc9bcd0f2ddca71bb40c0bebfd8296b4f1179d381582c07d8f"
+        ],
+        [
+          "encode_bundle_v2",
+          "len",
+          "14381ee198b233fab86e0cefdac3169f8ede2b4f94479d019dcd9cc290015a66"
+        ],
+        [
+          "encode_bundle_v2",
+          "len",
+          "57bdbf809c25115282faa72b8f2a20b503b69c9d181b909be2b57a332a04a030"
+        ],
+        [
+          "encode_bundle_v2",
+          "len",
+          "57bdbf809c25115282faa72b8f2a20b503b69c9d181b909be2b57a332a04a030"
+        ],
+        [
+          "encode_bundle_v2",
+          "reports.values",
+          "2e614a13537dcb1f5b4d103b2b5802a30272a28c49575282f60e3698dd9fa5c6"
+        ],
+        [
+          "encode_bundle_v2",
+          "reports.values",
+          "2e614a13537dcb1f5b4d103b2b5802a30272a28c49575282f60e3698dd9fa5c6"
+        ],
+        [
+          "encode_bundle_v2",
+          "reports[name].decode",
+          "ef521c6a34d4275b382e0a93d009ec880e14a58199254d4e0178c3e6219aa551"
+        ],
+        [
+          "encode_bundle_v2",
+          "set",
+          "a398e4cd04c14bd51536ca174a6cee0aa8e79d37c097c6e53e60156259856004"
+        ],
+        [
+          "encode_bundle_v2",
+          "sorted",
+          "9d160b7278e32a8e0300ffc411e9073f9a37e0e7e6052a73c19138219fbc39e9"
+        ],
+        [
+          "encode_bundle_v2",
+          "sum",
+          "0024e1ff5b13943d52c8fdb0e9865c534f494fefc02901d0210ac6dadfca637c"
+        ],
+        [
+          "encode_bundle_v2",
+          "type",
+          "89a8808e1ace744dbc289a7d224dab549867aee762f0266394c28d63955d897e"
+        ],
+        [
+          "encode_bundle_v2",
+          "type",
+          "a17a6931ac954db8619d8e0a6240ead3e757fcdb6647e625e925b7f462437b71"
+        ],
+        [
+          "publish_bundle_v2",
+          "OSError",
+          "34286552e8ac77c651d035ded131b0bc59ec97a6fb4b2d487e0930680eace41a"
+        ],
+        [
+          "publish_bundle_v2",
+          "_matches",
+          "fa183f6776c5c6569a788a11c6f9d9355ab378b2a177f982377f2cafb8013cac"
+        ],
+        [
+          "publish_bundle_v2",
+          "_matches",
+          "fa183f6776c5c6569a788a11c6f9d9355ab378b2a177f982377f2cafb8013cac"
+        ],
+        [
+          "publish_bundle_v2",
+          "_write",
+          "d09235f9e9278a5277d4000dc12409dd3c0194515f027743227d37739ba97ce4"
+        ],
+        [
+          "publish_bundle_v2",
+          "encode_bundle_v2",
+          "8e2ff9b581001cc4d255cc1c5f89c694ccbd0b2189c2b70630958ec963777f91"
+        ],
+        [
+          "publish_bundle_v2",
+          "hashlib.sha256",
+          "12a456a8f0e7527180fbb5dcc3b4806f8d3efd8bed365b9c2a0b6d8c2c0a98ba"
+        ],
+        [
+          "publish_bundle_v2",
+          "hashlib.sha256(raw).hexdigest",
+          "b2be9b0451b94a2347162e04938f05c00da073ca3aaaae4aa70ead50cd8ba516"
+        ],
+        [
+          "publish_bundle_v2",
+          "len",
+          "84d2e21aec74828e2db40fd0663165a7494030d9705c3f7ddbb160796ee84660"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.close",
+          "233651cee1201c730511c1ccb39fd3389f72814868ea7d4c21193de0d5772e89"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.close",
+          "5e53ed07e4ca5a07b4ea1627e0c8c20d53193bf9a8eca3acdc75bafd1d79af7f"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.fsync",
+          "eee1eed2996fad81da5c9d9657c01a9c927f7f7f462d4672a53a8360b2864e96"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.link",
+          "3d73334eb8833e7a1bbc9a46afd2f6c850a15422369473fe1c7960c18f01170f"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.open",
+          "23c7ad2157663cc5ce350a877dd2e72334061834a7ae4871b1e4e8c9332aa909"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.open",
+          "a1aa84eea191a7b6504ad0277395e02c971a6902a0f0ed55a04d9af5c4f54835"
+        ],
+        [
+          "publish_bundle_v2",
+          "os.unlink",
+          "098e5ae2d8bd2169cd0679c76a535b37c7c0d2b443614ff5f2bc57a13ee0f38e"
+        ],
+        [
+          "publish_bundle_v2",
+          "secrets.token_hex",
+          "e34235db57e1220be4a834068d130300e878b1ac9d2acaabfbfb959b49cdcc3e"
+        ],
+        [
+          "publish_bundle_v2",
+          "type",
+          "2fd59e97a000d6cc2dc799ab534b5dc009f3203b64d9ddfb5419e4cd01179ffe"
+        ],
+        [
+          "publish_bundle_v2",
+          "type",
+          "53b83e652d2ef2911defc64adf6069cdb8b22294c0cb655e9cc6ab3f416684bd"
+        ]
+      ],
+      "controlFields": [
+        [
+          "encode_bundle_v2",
+          "enabled",
+          "{'schema': VERSION, 'promotion': 'research', 'enabled': False, 'liveAuthorization': False, 'reports': {name: reports[name].decode('utf-8') for name in sorted(NAMES)}}"
+        ],
+        [
+          "encode_bundle_v2",
+          "liveAuthorization",
+          "{'schema': VERSION, 'promotion': 'research', 'enabled': False, 'liveAuthorization': False, 'reports': {name: reports[name].decode('utf-8') for name in sorted(NAMES)}}"
+        ],
+        [
+          "encode_bundle_v2",
+          "promotion",
+          "{'schema': VERSION, 'promotion': 'research', 'enabled': False, 'liveAuthorization': False, 'reports': {name: reports[name].decode('utf-8') for name in sorted(NAMES)}}"
+        ]
+      ]
     }
   }
 }

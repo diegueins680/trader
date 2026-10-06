@@ -1,5 +1,7 @@
 # Trader
 
+Verified offline report exports have an opt-in `--report-bundle-v2` mode. It publishes one complete, retryable `report-bundle-v2.json` in an existing output directory, using exclusive linking and file/directory fsync. Matching retries preserve the existing file; conflicts fail closed. The default seven-file export remains unchanged. See the [contract](formal/research/report-bundle-contract.md) and [recovery evidence and usage](research-notes/sequential-control-2026-09-17/report-bundle-2026-10-06.md).
+
 Offline diagnostics now include default-disabled `ope-rational-v2`: exact probability ratios, trajectory weights, IS/PDIS/WIS/DR estimates and ESS, with bounded rational arithmetic and whole-batch rejection. Results remain descriptive and never authorize promotion. See the [contract](formal/research/ope-rational-contract.md) and [engineering evidence](research-notes/sequential-control-2026-09-17/ope-rational-2026-10-06.md).
 
 Offline research now has a separate default-disabled `point-in-time-training-v3` entry. It requires release/first-seen/collection/revision witnesses, freezes each bar at its decision vintage, rejects missing or ambiguous data, and calls the existing PPO successor only after complete admission. It does not infer historical availability or enable a candidate. See the [point-in-time contract](formal/research/point-in-time-contract.md) and [engineering report](research-notes/sequential-control-2026-09-17/point-in-time-2026-10-06.md).

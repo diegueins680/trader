@@ -711,6 +711,22 @@
         {
           "id": "F-RL-OPE-V2-CONFORMANCE",
           "statement": "The actual exact OPE estimator agrees with an independent prefix-product oracle, preserves positive extreme weights, rejects invalid and oversized batches, and deterministically publishes immutable descriptive results without statistical acceptance."
+        },
+        {
+          "id": "F-RL-BUNDLE-ARITH",
+          "statement": "Source-bound partial-write cursors remain within the encoded byte length and strictly progress on admitted writes; exclusive publication and exact existing-byte comparison preserve old identity/content and reject mismatched acknowledgements."
+        },
+        {
+          "id": "F-RL-BUNDLE-SOURCE",
+          "statement": "The complete reviewed default-disabled publisher encodes a closed research-only schema before effects, writes only exclusively acquired staging descriptors, fsyncs complete bytes before an exclusive same-directory link, and fsyncs the directory before success; exporter admission/reconciliation dominates its sole optional call."
+        },
+        {
+          "id": "F-RL-BUNDLE-FLOW",
+          "statement": "Two-writer finite crash/retry interleavings never expose partial target bytes, replace an existing target or lose acknowledged bytes under modeled fsync semantics; every same-intent state has a healthy completion path and unacknowledged-writer steps strictly decrease a checked recovery rank."
+        },
+        {
+          "id": "F-RL-BUNDLE-CONFORMANCE",
+          "statement": "Actual verified export preserves seven legacy report byte strings in a deterministic bundle; filesystem faults, process crashes, conflicts, short writes and concurrent retries preserve old files and recover matching complete output without replacing its inode."
         }
       ],
       "invariants": [
@@ -958,6 +974,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "ExactOpeTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ReportBundleTests"
         }
       ]
     },

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Add opt-in `--report-bundle-v2` to verified offline report export: complete bundle encoding, bounded inputs, exclusive staging/link publication, file/directory fsync, exact-byte retry validation and conflict refusal. Preserve default export bytes and existing files. Add crash/retry model, SMT, process-kill and filesystem-failure regressions; recovery gains partial evidence, with training archives and bot persistence still unresolved. No candidate or live behavior is enabled.
+
 - Add default-disabled `ope-rational-v2` for complete exact-rational probability-to-estimate arithmetic, preserving positive weights lost by floating-point products and rejecting oversized batches. Add source-bound SMT, publication model, independent oracle and failure regressions. Preserve frozen OPE evidence, champion, holdouts and all live settings; no broad obligation is closed by this component.
 
 - Add a versioned, default-disabled point-in-time training entry with immutable per-bar revision witnesses and all-or-nothing admission before PPO training. Preserve frozen v1/v2 semantics; add timestamp SMT, a finite admission model, differential tests and required boundary composition. Revision timing gains partial evidence; no candidate or live behavior is enabled.

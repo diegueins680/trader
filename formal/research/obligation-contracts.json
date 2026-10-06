@@ -39,7 +39,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -51,7 +54,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -81,7 +85,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -93,7 +100,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -181,7 +189,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -198,7 +209,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -232,7 +244,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -258,7 +273,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -409,7 +425,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/ess_rational_v2.py",
@@ -432,7 +451,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/formal/promotion_boundary.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -453,7 +473,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -468,7 +491,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -504,7 +528,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/ess_rational_v2.py",
@@ -527,7 +554,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/formal/promotion_boundary.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -568,7 +596,10 @@
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-ARTIFACT-DISJOINT",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
@@ -587,7 +618,8 @@
         "haskell/research/InferenceProcessV2.hs",
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -613,7 +645,10 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -627,7 +662,8 @@
         "research-notes/registrations/artifact-admission-engineering.json",
         "scripts/formal/artifact_composition.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -653,7 +689,10 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -667,7 +706,8 @@
         "research-notes/registrations/artifact-admission-engineering.json",
         "scripts/formal/artifact_composition.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -686,7 +726,10 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-PIT-BOUNDARY",
-        "F-RL-OPE-V2-BOUNDARY"
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -700,7 +743,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -784,9 +828,11 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "haskell/app/Trader/BotSnapshotRecovery.hs",
-        "scripts/research/run_sequential_screen.py"
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/summarize_sequential_screen.py"
       ],
-      "closureClass": null
+      "closureClass": "partially_verified"
     },
     {
       "number": 38,

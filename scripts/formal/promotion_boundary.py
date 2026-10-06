@@ -20,10 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = 'formal/research/promotion-boundary-source.json'
 ROOTS = {'run_sequential_screen', 'summarize_sequential_screen', 'ppo_artifact_v4', 'ess_rational_v2', 'point_in_time_v3', 'ope_rational_v2'}
 MODULES = ROOTS | {'sequential_env', 'sequential_learning', 'sequential_evaluation', 'sequential_registry',
-                   'optimizer_snapshot_v2', 'ppo_successor_v2', 'ppo_inference_v3', 'gae_targets_v2'}
+                   'optimizer_snapshot_v2', 'ppo_successor_v2', 'ppo_inference_v3', 'gae_targets_v2', 'report_bundle_v2'}
 EXTERNAL = {'__future__', 'argparse', 'csv', 'dataclasses', 'datetime', 'hashlib', 'io', 'json', 'math',
             'pathlib', 'platform', 'resource', 'subprocess', 'time', 'numpy', 'pandas', 're', 'collections',
-            'statistics', 'sys', 'threading', 'fractions'}
+            'statistics', 'sys', 'threading', 'fractions', 'os', 'secrets', 'stat'}
 FIELDS = {'promotion', 'enabled', 'promotionAllowed', 'liveAuthorization'}
 
 
@@ -97,6 +97,12 @@ def extract(sources=None, registry=None):
             if not isinstance(n, ast.Call):
                 continue
             callee = ast.unparse(n.func)
+            if callee.startswith('os.'):
+                require(name == 'report_bundle_v2' and callee in {'os.open','os.write','os.read','os.fstat','os.fsync','os.link','os.unlink','os.close'}, 'unreviewed OS effect')
+            if callee == 'os.open':
+                require(name == 'report_bundle_v2', 'unreviewed descriptor open')
+                # Full primitive flags, ordering and owned cleanup are checked below.
+                continue
             if isinstance(n.func, ast.Attribute) and n.func.attr == 'open':
                 require(len(n.args) == 1 and isinstance(n.args[0], ast.Constant) and n.args[0].value in ('x','xb','rb') and not n.keywords, 'nonexclusive/unreviewed file mode')
                 opens.append((name, callee, n.args[0].value))
@@ -130,11 +136,13 @@ def extract(sources=None, registry=None):
                             ('summarize_sequential_screen','path.open','rb')], 'file boundary coverage')
     require(sorted(dirs)==[('run_sequential_screen',"(output / 'policies').mkdir"),('run_sequential_screen','output.mkdir'),('summarize_sequential_screen','output.mkdir')], 'directory coverage')
     require(len(processes)==2 and all('cwd=ROOT' in p for p in processes), 'source-identity process coverage')
-    require(sorted(writes)==[('run_sequential_screen','ledger.flush'),('run_sequential_screen','ledger.write'),
+    require(sorted(writes)==[('report_bundle_v2','os.write'),('run_sequential_screen','ledger.flush'),('run_sequential_screen','ledger.write'),
                              ('run_sequential_screen','stream.write'),('run_sequential_screen','writer.writerow'),
                              ('run_sequential_screen','writer.writerow'),('sequential_learning','stream.write'),
                              ('summarize_sequential_screen','stream.write'),
                              ('summarize_sequential_screen','writer.writeheader'),('summarize_sequential_screen','writer.writerows')], 'write sink coverage')
+    from report_bundle import extract as bundle_extract
+    _, bundle_surface = bundle_extract(sources['report_bundle_v2'], exporter=sources['summarize_sequential_screen'])
     destinations = check_destinations(trees)
     check_saved_default(sources['sequential_learning'])
     # Complete reviewed callback bodies are pinned, not just their names.
@@ -143,6 +151,7 @@ def extract(sources=None, registry=None):
              'localImportEdges':sum(map(len,graph.values())), 'callSites':call_count, 'controlFieldOccurrences':field_count,
              'callbacks':sorted(callbacks), 'fileOpens':sorted(opens), 'directoryCreates':sorted(dirs),
              'writeSites':sorted(writes), 'processes':processes, 'destinations':destinations,
+             'bundlePublication':bundle_surface,
              'scope':'all finite reviewed source sites; primitive effect/type contracts, not whole-language or OS refinement'}
     return trees, surface
 

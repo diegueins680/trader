@@ -74,6 +74,20 @@
       "resolution": "Exact conversion before ratio/product, bounded rational recurrences through complete descriptive estimates; frozen v1 remains unchanged and invalid for adoption.",
       "regression": "scripts/formal/test_integrity.py",
       "requirement": "F-RL-OPE-V2-ARITH"
+    },
+    {
+      "id": "CE-REPORT-V1-RETRY",
+      "status": "refuted",
+      "claim": "Exclusive report file creation alone implies interrupted report export can resume in the same directory.",
+      "trace": [
+        "legacy default creates fresh report directory",
+        "injected failure writes first3 bytes of first report",
+        "retry rejects the existing directory; partial output remains"
+      ],
+      "resolution": "Preserve legacy default semantics; opt-in v2 encodes a complete bundle, fsyncs staging bytes, publishes an exclusive link, then fsyncs the parent. Retry validates matching bytes and preserves target identity. Training archives are not repaired.",
+      "regression": "scripts/formal/champion_archive.py",
+      "requirement": "F-RL-BUNDLE-FLOW",
+      "fixture": "formal/research/fixtures/champion-archive.json"
     }
   ]
 }

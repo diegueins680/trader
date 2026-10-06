@@ -11,6 +11,7 @@ import io
 import json
 import math
 from pathlib import Path
+from report_bundle_v2 import publish_bundle_v2
 from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition
 
 
@@ -46,7 +47,9 @@ def decode_evidence(raw: bytes) -> object:
                       parse_float=finite_float)
 
 
-def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
+def export(source, output, *, rss_unit, platform_label, expected_index_sha256, bundle_v2=False):
+    if type(bundle_v2) is not bool:
+        raise ValueError('report bundle mode must be boolean')
     if rss_unit not in ('bytes', 'kib'):
         raise ValueError('unsupported process peak RSS unit')
     # Resolve aliases once; keep reports outside the admitted source archive.
@@ -90,6 +93,11 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         reports = {name: content.encode('utf-8') for name, content in reports.items()}
     except (KeyError, TypeError, OverflowError) as exc:
         raise ValueError('malformed registry evidence') from exc
+    if bundle_v2:
+        result = publish_bundle_v2(str(output), reports, enabled=True)
+        if result is None:
+            raise OSError('report bundle publication failed; retry only with identical verified reports')
+        return result
     output.mkdir(parents=True, exist_ok=False)
     for name, content in reports.items():
         # Refuse leaf collisions, including symlinks, even after mkdir succeeds.
@@ -168,6 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('--rss-unit',choices=['bytes','kib'],required=True)
     parser.add_argument('--platform',required=True)
     parser.add_argument('--expected-index-sha256',required=True)
+    parser.add_argument('--report-bundle-v2', action='store_true', help='Publish a retryable verified bundle in an existing output directory')
     args=parser.parse_args()
     export(args.source,args.output,rss_unit=args.rss_unit,platform_label=args.platform,
-           expected_index_sha256=args.expected_index_sha256)
+           expected_index_sha256=args.expected_index_sha256,bundle_v2=args.report_bundle_v2)
