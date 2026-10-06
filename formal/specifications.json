@@ -663,6 +663,22 @@
         {
           "id": "F-RL-ARCHIVE-CONFORMANCE",
           "statement": "Actual exporter and writer regressions reproduce three legacy collision failures, preserve regular/symlink/hardlink targets after repair, retain seven report byte streams and preserve existing files on failed writes and retries."
+        },
+        {
+          "id": "F-RL-SHIELD-CONSUMERS",
+          "statement": "All delivered replay constructors, receiver uses, callbacks and action consumers preserve local instance ownership; actual step admission dominates scheduling and both guarded fill paths, under reviewed primitive effects."
+        },
+        {
+          "id": "F-RL-SHIELD-ORIGIN",
+          "statement": "The extracted absent-or-shielded pending transfer preserves action origin and the shield action domain; consumed pending targets require current admission, observation, due and risk gates; terminal zero is independently risk-selected and distinct instances preserve each other."
+        },
+        {
+          "id": "F-RL-SHIELD-FLOW",
+          "statement": "The finite repeated-call shield/observation/pending/fill model and its independent two-instance product preserve shield origin and consumer precedence, including delayed pending targets, rejection, cancellation and fixed-zero terminal liquidation."
+        },
+        {
+          "id": "F-RL-SHIELD-CONSUMER-CONFORMANCE",
+          "statement": "Actual shield, Replay and all collector/replay/OPE consumers conform to projected model traces on synthetic paths; generated invalid proposals cannot consume an existing pending target."
         }
       ],
       "invariants": [
@@ -895,6 +911,11 @@
           "level": "regression",
           "path": "test/sequential_screen_test.py",
           "contains": "test_export_refuses_leaf_collisions_after_directory_creation"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ShieldConsumerTests"
         }
       ]
     },
