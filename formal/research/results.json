@@ -882,6 +882,157 @@
       ]
     }
   },
+  "championArchive": {
+    "composition": {
+      "crashDurability": false,
+      "filesystemKernelProved": false,
+      "productionRoots": [
+        "analyze-close-timing",
+        "lstm-bench",
+        "merge-top-combos",
+        "optimize-equity",
+        "outbox-publisher",
+        "trader-hs"
+      ],
+      "wholeProductionCorrectness": false
+    },
+    "conformance": {
+      "cases": 16,
+      "collisionKinds": [
+        "file",
+        "symlink",
+        "hardlink"
+      ],
+      "compatibleReportFiles": 7,
+      "legacyCounterexamples": 3,
+      "marketDataReads": 0,
+      "newPartialOutputPermitted": true,
+      "scope": "actual full exporter and actual writer bodies on deterministic synthetic archives",
+      "trainingRuns": 0
+    },
+    "legacyModel": {
+      "completedStates": 38,
+      "failureStates": 121,
+      "keys": 2,
+      "legacyCounterexample": [
+        "insert-collision",
+        "0:select-1",
+        "0:open"
+      ],
+      "maxShortestDepth": 9,
+      "objectIdentities": 4,
+      "opaqueContentClasses": 6,
+      "partialWriteStates": 38,
+      "scope": "stable parent/object identities with leaf insertion; no crash durability, liveness or archive atomicity claim",
+      "search": "reachable fixed point; retries unbounded, no retry-depth cutoff",
+      "states": 242,
+      "transitions": 815,
+      "writers": 2
+    },
+    "model": {
+      "completedStates": 8,
+      "failureStates": 63,
+      "keys": 2,
+      "legacyCounterexample": null,
+      "maxShortestDepth": 7,
+      "objectIdentities": 4,
+      "opaqueContentClasses": 6,
+      "partialWriteStates": 8,
+      "scope": "stable parent/object identities with leaf insertion; no crash durability, liveness or archive atomicity claim",
+      "search": "reachable fixed point; retries unbounded, no retry-depth cutoff",
+      "states": 110,
+      "transitions": 359,
+      "writers": 2
+    },
+    "smt": {
+      "F-RL-ARCHIVE-PRESERVE": "unsat"
+    },
+    "surface": {
+      "callbacks": [
+        [
+          "ppo_successor_v2",
+          "behavior"
+        ],
+        [
+          "run_sequential_screen",
+          "choose"
+        ],
+        [
+          "sequential_evaluation",
+          "None"
+        ],
+        [
+          "sequential_learning",
+          "None"
+        ],
+        [
+          "sequential_learning",
+          "explore"
+        ],
+        [
+          "sequential_learning",
+          "lambda s: softmax(net.forward(s))"
+        ]
+      ],
+      "destinations": {
+        "namespaceAssumption": "ordinary Paths and registered scalar trial identifiers; fresh stable directories; no hostile filesystem mutation",
+        "policyPath": "output / 'policies' / (trial.replace('/', '_') + '.json')",
+        "reportNames": [
+          "all-seed-results.csv",
+          "evaluation-summary.json",
+          "experiment-manifest.json",
+          "experiment-registry.csv",
+          "multi-seed-training.json",
+          "ope-report.json",
+          "symbol-fold-base-results.csv"
+        ],
+        "runnerJson": [
+          "output / 'evaluation.json'",
+          "output / 'evidence-index.json'",
+          "output / 'manifest.json'",
+          "output / 'ope.json'",
+          "output / 'planned-registry.json'",
+          "output / 'summary.json'",
+          "output / 'training.json'"
+        ]
+      },
+      "processes": [
+        "subprocess.check_output(['git', 'show', f'{commit}:{path.relative_to(ROOT)}'], cwd=ROOT)",
+        "subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True)"
+      ],
+      "researchModules": 12,
+      "reviewedCalls": 1737,
+      "scope": "actual writer tails plus complete reviewed effect/consumer composition; trusted primitive semantics",
+      "status": "exhaustively_checked",
+      "writerSites": [
+        [
+          "run_sequential_screen",
+          "(output / 'events.jsonl').open",
+          "x"
+        ],
+        [
+          "run_sequential_screen",
+          "(output / 'returns.csv').open",
+          "x"
+        ],
+        [
+          "run_sequential_screen",
+          "path.open",
+          "x"
+        ],
+        [
+          "sequential_learning",
+          "path.open",
+          "xb"
+        ],
+        [
+          "summarize_sequential_screen",
+          "(output / name).open",
+          "xb"
+        ]
+      ]
+    }
+  },
   "closedTradeRecovery": {
     "conformance": {
       "boundaryRows": 624,
@@ -1449,10 +1600,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 9,
+    "closedMissionObligations": 10,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 29
+    "openMissionObligations": 28
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -1999,7 +2150,7 @@
       "F-RL-PROMOTION-SCHEMA": "unsat"
     },
     "surface": {
-      "callSites": 1736,
+      "callSites": 1737,
       "callbacks": [
         [
           "ppo_successor_v2",
@@ -2091,6 +2242,11 @@
         ],
         [
           "summarize_sequential_screen",
+          "(output / name).open",
+          "xb"
+        ],
+        [
+          "summarize_sequential_screen",
           "path.open",
           "rb"
         ]
@@ -2131,7 +2287,7 @@
         ],
         [
           "summarize_sequential_screen",
-          "(output / name).write_bytes"
+          "stream.write"
         ],
         [
           "summarize_sequential_screen",
@@ -2727,6 +2883,7 @@
     "F-RECOVERY-INDEX": "unsat",
     "F-RECOVERY-NUMERIC": "unsat",
     "F-RL-ACCOUNT": "unsat",
+    "F-RL-ARCHIVE-PRESERVE": "unsat",
     "F-RL-ARTIFACT-DISJOINT": "unsat",
     "F-RL-ARTIFACT-IDENTITY": "unsat",
     "F-RL-ARTIFACT-METADATA": "unsat",
@@ -2893,13 +3050,16 @@
     "formal/research/capability-source-contract.json": "9a425a1cc7b1e9a0b86136e3847d6619289b7d82d2bc25444c0487a582e54970",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
+    "formal/research/champion-archive-contract.md": "7f184d931a68f620707b532cb93c76158bd2978a190cf74b8f3a05f36a2098b7",
+    "formal/research/champion-archive-legacy.json": "2af6360c3b735da5ab3ed805362f439eb47f3931acdcb49e11aacd49b66f0df0",
+    "formal/research/champion-archive-source.json": "4198ed2fe344b6db993ef5a7cc99a51c716e7b99871a70ac74b44496b9b0003f",
     "formal/research/closed-trade-recovery-contract.md": "017f0a6aa472504b0519e19eb766b1f63875b17819a148f578e5033513e0a30d",
     "formal/research/closed-trade-recovery-counterexamples.json": "2d5f26b37956e76c87e95f67a30ba2711d30478e62b3018600517942f42f66c9",
     "formal/research/closed-trade-recovery-source.json": "eb7bb0950165a6ed349a38cd423caf3d0139021032cb8ced15e689832eb71f5f",
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
     "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/counterexamples.json": "f71d55605f5ef69d2a402ac029e391ff174824ca0968c033d8108d14140fb821",
+    "formal/research/counterexamples.json": "7ffbc976a92049d11a5123003764cda8f3b3c7095fa4467516bbe7dbd9fde8ad",
     "formal/research/data-composition-contract.md": "eefa7a6863bd2b7a0c680c4dd85e2d683d0c594bd3148a2300aa7bcf27cd2591",
     "formal/research/data-composition-counterexamples.json": "f6cf00b5d33bc7305f6334581e2707feec118f4cb913ad3b4518538b56f66a2d",
     "formal/research/data-composition-source.json": "c31a4f86f01e8853235f1891d37be8c7d65af1916f48b76add3cca7ba142e1b6",
@@ -2913,6 +3073,7 @@
     "formal/research/fixtures/async-seal-witness.hs": "9f2a9fea7ad9935967ea6d7442a1d36f3011c73b459d65065b889c6901c8fd30",
     "formal/research/fixtures/backtest-gate-before.hs": "b5a53915036a4dc2f94d7b71e13f68147aed8fe2bd3d274de77b400ce9bb6d3c",
     "formal/research/fixtures/backtest-gate-witness.hs": "8780a8949dc9072c634430eaf74bf5ec374f8bec2c5a047e25965c5c4a8ff454",
+    "formal/research/fixtures/champion-archive.json": "a709d111d6bde0a232632644d1bcca202f6257fa3cdcb767f10b3c44d68c4732",
     "formal/research/fixtures/drain-pool-before-async.hs": "6ecd030872efbc7d39b4716f24070334b561db7456a4dcc62a54fe702ab7516a",
     "formal/research/fixtures/drain-pool-before-backtest.hs": "c0979d9a007d9ee1442487f1687b918fb2c6cb8b918b1e7403abbe870c4daf9f",
     "formal/research/fixtures/drain-pool-before-drain.hs": "384c4fff89926b1780c88f6fcd93386d03642e7a99d00ba574137ebe6c693c60",
@@ -2930,8 +3091,8 @@
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "d041ff4fea0096e49a53e8162637b9d335c07719edc541ae0c442765e21c94ad",
-    "formal/research/obligation-closure-audit.md": "443f7ee873b5eddac07782797ae637b14fe709c5e4672366d0c3942547707a96",
-    "formal/research/obligation-contracts.json": "5114b4c96cfe78f6f02f1ce75f3d2805359a6bf3d20e9ec9dbdabf2f80d6a65c",
+    "formal/research/obligation-closure-audit.md": "595b2d9a663a2e0662008e2ede1c75e6beda8a6bb5b838c24d1e18e4a7f618e0",
+    "formal/research/obligation-contracts.json": "99cef33e7010c26d02c01f3c0d0321efbb5635934218d6452f7e3c683df0456d",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
@@ -2951,8 +3112,8 @@
     "formal/research/ppo-successor-source.json": "b58e97c2ab60b48fe812e8c7b92ff1de9d40cb5c7399a0f60eb786d22956c08c",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
-    "formal/research/promotion-boundary-source.json": "dc7a99297dd6e28cffeb360937fd26cf8504114e6f8a766bcc8f7ec6e1c728ee",
-    "formal/research/proof-ledger.json": "6331c8deb85ad8d163a946abbc14b1b66799237c8ed4d829701f83dd6da7e2b7",
+    "formal/research/promotion-boundary-source.json": "3ac915aa47457dd89cbbf75c169a05763a83c0c707e972cdcee04b7003115cc9",
+    "formal/research/proof-ledger.json": "3ac79a0ce98094f9392f670a921e1963546912f13314641448a7fc43dd947f08",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -2987,7 +3148,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "b8c1bafe3c3dd3cd63189ae8401d19134fe2fb1f3eb17682c4db8e5e333ddc8d",
-    "formal/specifications.json": "9def215851f7ad47dc395415acb2301c7acb7a76151a4f5602c38d819131ae40",
+    "formal/specifications.json": "b35a9212cfaaae44ff72d6eb679c70cd8f070a4d418ad2a851caeef3904304a2",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
@@ -3127,6 +3288,7 @@
     "research-notes/registrations/backtest-gate-engineering.json": "8982091af1f7b9590e461c6118f2229c9b8d300d4a03b111beb3749b9491e6a4",
     "research-notes/registrations/bot-worker-publication-engineering.json": "77846ffc265249da2354459fc23eebebd9da357e2e92c0b5d0ed7df7330a1bf5",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
+    "research-notes/registrations/champion-archive-engineering.json": "c85ffe9f4f1dcca1bc02a83784bbe4e18278a587fced36cd417242d95eef0a00",
     "research-notes/registrations/closed-trade-recovery-engineering.json": "aab2981fb719834652e837f7801fdb1a5a606bf40093ca6be8f252631e26ab52",
     "research-notes/registrations/drain-pool-engineering.json": "061ddd0e2fa719c6e2bb4893b71d1b0b84effbab924d267133b2964f3761312e",
     "research-notes/registrations/ess-v2-engineering.json": "f1938cd2acfce2302251a805354d22a5b1005aefa1f75e8640689b970b565a14",
@@ -3169,6 +3331,7 @@
     "scripts/formal/bot_worker_publication.py": "353c3548ce505523d76fbe4ab6f2caab4d9277d9e48d573d6e641e7ca74e2113",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
+    "scripts/formal/champion_archive.py": "d794da8095117537b707763280181506fad2acc2caf48d4d5c0a2c6df5415e40",
     "scripts/formal/closed_trade_recovery.py": "76f07d58d1fdeb6501d5b8fb718854c6b4b4c84a8cf6f4d4714d9f816c53fa72",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
     "scripts/formal/data_composition.py": "4157eb5015c31e2fba5819112d6f53dba3872dd55e796a83f6e4525ee6d45af6",
@@ -3188,7 +3351,7 @@
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
-    "scripts/formal/promotion_boundary.py": "98cf3ce8d34ee3cb571543ee9368ce428818a720d81b72b0889d94bd51fda610",
+    "scripts/formal/promotion_boundary.py": "6fbaca6367172ec049c4e8f59abe44490f829ad8a77a29ab81152015c3f806cd",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/quantity_rounding.py": "d0188f00d69ea4c156c40b0e629a66d7db97f0e4a1072c5935c35e3b099075a0",
     "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
@@ -3200,12 +3363,12 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "27099d966b1d7ab03358db09dbe89ff98ed92990f48e58e6d65f4a8534cfd38c",
+    "scripts/formal/test_integrity.py": "fe92358a754805a6407fb7d91ee0c1274d3c74163c021316bdc9a0b9aac44fd7",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "27121847645f277260e6e6202a12fe2ea83d5110ebdc31db66ee1f38a73feb5d",
+    "scripts/formal/verify.py": "4022956059d9cb0578f8cdda1b037f27a56f2ccb84d720414cdfd2e8ad3c82d6",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
@@ -3218,9 +3381,10 @@
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/research/sequential_evaluation.py": "fbe9c0a1c974c55985c8dcdfe19479072215b384af567daa5c0a710e6da2ad48",
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+    "scripts/research/summarize_sequential_screen.py": "8cd511342c6f2310b5bb19509dc1c0fbb0b561da18044485aa56b8954b32a506",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
-    "test/sequential_screen_test.py": "f64f6b0db30bef28fde5652a9a0fd1fe508337bc7c498d5d1876da7fc341e1e5"
+    "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
   },
   "targetV2": {
     "model": {

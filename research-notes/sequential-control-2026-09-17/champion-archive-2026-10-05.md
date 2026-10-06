@@ -80,8 +80,8 @@ invoke a production selector, replace its existing configuration/artifacts, or
 enter the native model loader unchanged. Production ownership, draining,
 reconciliation and recovery require their separate unresolved proofs.
 
-All original 38 scope and closure-criterion strings are unchanged. Subject to
-successful fresh canonical reproduction, obligation 28 becomes conditionally
+All original 38 scope and closure-criterion strings are unchanged. After
+successful fresh canonical reproduction, obligation 28 is conditionally
 `exhaustively_checked` through the specified composition: **10 scoped closures,
 24 partial, 4 open**. Overall formal and mission completion remain false. Open
 obligations remain 4/10/37/38; this repair does not close crash recovery.
@@ -102,10 +102,10 @@ The user-owned original worktree and its running services remain untouched.
 
 ## Verification and delivery
 
-Targeted proof/conformance and exporter tests pass locally. Canonical formal/full
-and final-head CI results will be recorded after execution. No completed check is
-inferred from the presence of a model or a successful fixture alone. Merge only the
-tested tree, suppress deployment triggers, and audit the merge SHA afterward.
+Targeted proof/conformance and exporter tests pass locally. Pinned CI reproduced
+the complete certificate and passed both canonical wrappers; details follow.
+Final-head checks and merge-SHA deployment audits are recorded in PR 307. Merge
+only the tested tree and suppress deployment triggers.
 
 Local `bash scripts/verify.sh automation` passed all 185 tests (51.106 seconds).
 The initial local formal wrapper ran 224 tests in 161.027 seconds and failed the
@@ -113,5 +113,26 @@ old explicit closure roster (`28 != 29` unresolved); all other tests passed.
 The roster now names the original nine closures plus 28. An added validator
 mutation test removes each required constituent in turn and requires rejection;
 the new archive/closure subset passes 11 tests in 2.315 seconds. No proof or
-economic threshold was weakened. The superseded CI runs are cancelled before
-reproduction; a fresh run must produce the final receipt and full-wrapper result.
+economic threshold was weakened. Superseded runs were cancelled and are not counted as successful checks.
+
+
+Pinned [run 37390460978](https://github.com/diegueins680/trader/actions/runs/37390460978)
+checked exact source commit `d7a23b53d6559c3912380589577904bd91fb4088`:
+
+- `python3 scripts/formal/verify.py --record`: passed; 68 seconds.
+- `bash scripts/verify.sh formal`: passed; 130 seconds; 225 integrity tests.
+- `bash scripts/verify.sh full`: passed; 490 seconds; 225 integrity tests,
+  Haskell build/format/lint/smoke/test suite, 241 web tests and build, and 185
+  automation tests. Integrity test durations were 61.148 and 60.447 seconds.
+- All 74 SMT requirement groups reproduce; the added archive group contains
+  eight satisfiable-premise/UNSAT obligations. Results retain per-property status.
+- Reproduced receipt SHA256:
+  `9cbde36821f1d9968c290569265ae7e1e87a57f7c13ae2fdb8ef522b1828ca5a`.
+  Imported byte-for-byte from the job log, with every source hash checked against
+  the toolchain manifest. Only archive, promotion, closure, SMT and source-hash
+  sections differ from the previous receipt. No result was manually synthesized.
+
+The temporary reproduction workflow is removed from the delivered tree. Final
+head CI must independently reproduce this committed receipt. Aggregate results
+still say `formalObligationsComplete=false` and `missionComplete=false`.
+This is a conditional affected-scope closure, not overall operational readiness.
