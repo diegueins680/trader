@@ -140,3 +140,13 @@ Complete local `scripts/formal/verify.py --record` passed in181.139s using the
 pinned Python/NumPy/Z3/GHC toolchain, reproducing76 SMT requirement groups and
 all composed models. Overall completion remains false with27 unresolved
 obligations. The canonical formal/full wrappers still require pinned CI success.
+
+On0569dcb0, pinned proof reproduction passed, but the formal integrity suite
+failed one of243 tests: ChampionArchiveTests supplied the old12-module count
+while expecting the later production-root rejection. Its fixture is corrected
+to13 so it again tests the intended missing-root gate. The expected rejection
+is preserved; the full integrity suite is rerun before another CI attempt.
+
+After the fixture correction, the **entire243-test integrity suite passed locally
+in173.660s**. No test was skipped or weakened. This supplements the complete
+local76-group verifier pass; pinned formal/full wrappers remain required.

@@ -79,7 +79,7 @@
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
     "scripts/formal/verify.py": "bad292e3afdef71b1627b2167367caa78f506e18c659a528f19a8bd0654fd536",
-    "scripts/formal/test_integrity.py": "a8889f8af16c88e615fcce3a8231e488730910874a4b843eacfd801657e6c6e8",
+    "scripts/formal/test_integrity.py": "cf56750e71ef29af5e2b0e7e4e56521770ead0f0c9d0114a178654bde7683cb5",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
