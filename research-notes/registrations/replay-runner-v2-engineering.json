@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "replay-runner-v2",
+  "date": "2026-10-06",
+  "baseCommit": "9c23673ba3e86b4e3a138bc47ecfd88d4b3513de",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/replay-runner-v2-contract.md",
+  "requirements": ["F-RL-RUNNER-V2-SOURCE", "F-RL-RUNNER-V2-ARITH", "F-RL-RUNNER-V2-FLOW", "F-RL-RUNNER-V2-CONFORMANCE"],
+  "composes": ["replay-accounting-v2", "funding-events-v2"],
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "enabledByDefault": false,
+  "productionIntegration": false,
+  "maximumSteps": 4096,
+  "maximumBars": 8192,
+  "metamorphicSeed": 20261008,
+  "metamorphicEpisodes": 64,
+  "oracleSeed": 20261008,
+  "oracleEpisodes": 64,
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Exact composed episode runner over a fixed target schedule; no policy, learner, OPE or production composition. No broad status change."
+}
