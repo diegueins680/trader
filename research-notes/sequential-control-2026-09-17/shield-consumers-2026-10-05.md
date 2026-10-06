@@ -81,7 +81,7 @@ coverage and exclusion from all six production executables. No future shared or
 production consumer inherits this certificate automatically. All original 38
 scope/criterion strings remain unchanged. Only obligation12 changes status.
 
-Subject to canonical reproduction, current totals become **11 scoped closures,
+After fresh canonical reproduction, current totals are **11 scoped closures,
 23 partial, 4 open**. Open4/10/37/38 and every other partial obligation retain
 their existing requirements. Overall mission and formal completion remain false.
 
@@ -107,3 +107,28 @@ Local `bash scripts/verify.sh automation` completed 185 tests in 74.040 seconds:
 (`null !== 0`, research-datafeed-scheduler.test.mjs:732). Concurrent machine load
 was observed; this does not establish the cause. No timeout or unrelated code was
 changed. Pinned CI must pass the canonical wrapper; this local run is not a pass.
+
+
+Pinned [run37394576416](https://github.com/diegueins680/trader/actions/runs/37394576416)
+checked exact source `be18931c3aeaf40d7620f8c4188f5f39196c5b75` and passed:
+
+- `python3 scripts/formal/verify.py --record`:70 seconds.
+- `bash scripts/verify.sh formal`:141 seconds;232 integrity tests in69.605seconds.
+- `bash scripts/verify.sh full`:508 seconds;232 integrity tests in70.001seconds,
+  Haskell build/format/lint/smoke/tests,241 web tests/build and185 automation tests,
+  including the unchanged scheduler regression. All75 SMT groups reproduce.
+- Receipt SHA256:
+  `356b1f1f1f96778da07df9d60996d307c71bb7b203bc340f14a06b81f5ede7cc`.
+  Imported byte-for-byte from the job log; all source hashes matched the toolchain
+  manifest. Only shieldConsumers, SMT, closure and source-hash sections changed.
+
+The final local targeted subset passed12 tests in17.212seconds. Isolated scheduler
+rerun passed2 tests in23.165seconds with the original timeout. The earlier local
+full automation failure remains disclosed; no check or threshold was weakened.
+The queued initial ordinary CI was cancelled because it contained the old receipt;
+it is not counted as a pass.
+
+The temporary reproduction workflow is removed from the delivered tree. Final-head
+CI and two merge-SHA deployment audits are recorded in PR308. Overall results
+remain `formalObligationsComplete=false` and `missionComplete=false`; the11 scoped
+closures are not general production readiness or authorization.
