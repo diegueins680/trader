@@ -325,6 +325,12 @@
       "status": "assumption",
       "statement": "The reviewed eligibility projection distinguishes research computation from promotion eligibility. Ordinary pinned Python/GHC/JSON primitives, fixed source/callbacks and existing A-PROMOTION-BOUNDARY/A-CAPABILITY-BUILD conditions are trusted; source constructors, rejecting predicates and effect exclusion establish stage preservation rather than assuming it. No injected code, replacement binaries or manual artifact conversion. No future promotion service, liveness, production authority or whole-runtime refinement is certified.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ADMISSION-PROGRESS",
+      "status": "assumption",
+      "statement": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -499,7 +505,16 @@
     "formal/research/report-bundle-contract.md",
     "research-notes/registrations/report-bundle-engineering.json",
     "scripts/formal/report_bundle.py",
-    "scripts/formal/lifecycle_stage.py"
+    "scripts/formal/lifecycle_stage.py",
+    "scripts/formal/admission_progress.py",
+    "haskell/test/Trader/Test/AdmissionProgress.hs",
+    "formal/research/AdmissionProgress.hs",
+    "formal/research/fixtures/admission-progress-before.hs",
+    "formal/research/fixtures/admission-progress-witness.hs",
+    "formal/research/fixtures/admission-progress.json",
+    "formal/research/admission-progress-contract.md",
+    "research-notes/registrations/admission-progress-engineering.json",
+    "formal/research/admission-progress-source.json"
   ],
   "entries": [
     {
@@ -6274,6 +6289,150 @@
       "limitations": "The reviewed eligibility projection distinguishes research computation from promotion eligibility. Ordinary pinned Python/GHC/JSON primitives, fixed source/callbacks and existing A-PROMOTION-BOUNDARY/A-CAPABILITY-BUILD conditions are trusted; source constructors, rejecting predicates and effect exclusion establish stage preservation rather than assuming it. No injected code, replacement binaries or manual artifact conversion. No future promotion service, liveness, production authority or whole-runtime refinement is certified. Model relaxes unrelated decoder rejection guards; it overapproximates research acceptance for safety, not acceptance equivalence. Future shadow/paper/micro-live stages and their persistence must be specified and verified before implementation; reopen25 on any consumer/format/effect or eligibility transition change.",
       "counterexample": "CE-RL-STAGE-SKIP-MUTANT",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-ADMISSION-PROGRESS-SOURCE",
+      "claim": "Actual private FIFO registration, head-only reservation, immediate-call refusal, cancellation cleanup and drain handoff match the reviewed admission transition mapping; both slot owners install release before unmasking.",
+      "formalStatement": "Actual private FIFO registration, head-only reservation, immediate-call refusal, cancellation cleanup and drain handoff match the reviewed admission transition mapping; both slot owners install release before unmasking.",
+      "criticality": "high",
+      "assumptions": [
+        "A-ADMISSION-PROGRESS",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed source mapping, Z3, finite SCC fairness checker and compiled Haskell conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/admission_progress.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/admission-progress-contract.md",
+        "research-notes/registrations/admission-progress-engineering.json",
+        "formal/research/admission-progress-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/AdmissionProgress.hs",
+        "formal/research/AdmissionProgress.hs",
+        "formal/research/fixtures/admission-progress-before.hs",
+        "formal/research/fixtures/admission-progress-witness.hs",
+        "formal/research/fixtures/admission-progress.json"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source checks, SAT-premise/UNSAT-violation arithmetic, fixed-point fair-cycle exclusion and actual Haskell conformance must reproduce.",
+      "bounds": "Eight SMT queries over unbounded Integer/rank and bounded Int summaries; three callers, capacities1/2,838 states,3356 transitions,max shortest depth11; all finite retry/stutter cycles; five compiled tests plus32 generated cases.",
+      "limitations": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem. Finite legacy timing witness requires the contender to run during the original one-second sleep; timing failures must be reported. Original38 remains partial; unrelated server/runner paths are not certified.",
+      "counterexample": "CE-BACKTEST-STARVATION",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-ADMISSION-PROGRESS-NUMERIC",
+      "claim": "Exact Integer ticket increments preserve freshness and finite predecessor-rank summaries; bounded Int reservation preserves capacity and inverse release under the stated primitive semantics.",
+      "formalStatement": "Exact Integer ticket increments preserve freshness and finite predecessor-rank summaries; bounded Int reservation preserves capacity and inverse release under the stated primitive semantics.",
+      "criticality": "high",
+      "assumptions": [
+        "A-ADMISSION-PROGRESS",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed source mapping, Z3, finite SCC fairness checker and compiled Haskell conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/admission_progress.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/admission-progress-contract.md",
+        "research-notes/registrations/admission-progress-engineering.json",
+        "formal/research/admission-progress-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/AdmissionProgress.hs",
+        "formal/research/AdmissionProgress.hs",
+        "formal/research/fixtures/admission-progress-before.hs",
+        "formal/research/fixtures/admission-progress-witness.hs",
+        "formal/research/fixtures/admission-progress.json"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source checks, SAT-premise/UNSAT-violation arithmetic, fixed-point fair-cycle exclusion and actual Haskell conformance must reproduce.",
+      "bounds": "Eight SMT queries over unbounded Integer/rank and bounded Int summaries; three callers, capacities1/2,838 states,3356 transitions,max shortest depth11; all finite retry/stutter cycles; five compiled tests plus32 generated cases.",
+      "limitations": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem. Finite legacy timing witness requires the contender to run during the original one-second sleep; timing failures must be reported. Original38 remains partial; unrelated server/runner paths are not certified.",
+      "counterexample": "CE-BACKTEST-STARVATION",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-ADMISSION-PROGRESS-FLOW",
+      "claim": "In the three-caller capacity1/2 FIFO transition model, reservations preserve ownership, queue identity and draining safety, and every persistent waiter resolves under weak action fairness and terminating owner/cleanup assumptions; legacy polling admits a fair starvation lasso.",
+      "formalStatement": "In the three-caller capacity1/2 FIFO transition model, reservations preserve ownership, queue identity and draining safety, and every persistent waiter resolves under weak action fairness and terminating owner/cleanup assumptions; legacy polling admits a fair starvation lasso.",
+      "criticality": "high",
+      "assumptions": [
+        "A-ADMISSION-PROGRESS",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed source mapping, Z3, finite SCC fairness checker and compiled Haskell conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/admission_progress.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/admission-progress-contract.md",
+        "research-notes/registrations/admission-progress-engineering.json",
+        "formal/research/admission-progress-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/AdmissionProgress.hs",
+        "formal/research/AdmissionProgress.hs",
+        "formal/research/fixtures/admission-progress-before.hs",
+        "formal/research/fixtures/admission-progress-witness.hs",
+        "formal/research/fixtures/admission-progress.json"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source checks, SAT-premise/UNSAT-violation arithmetic, fixed-point fair-cycle exclusion and actual Haskell conformance must reproduce.",
+      "bounds": "Eight SMT queries over unbounded Integer/rank and bounded Int summaries; three callers, capacities1/2,838 states,3356 transitions,max shortest depth11; all finite retry/stutter cycles; five compiled tests plus32 generated cases.",
+      "limitations": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem. Finite legacy timing witness requires the contender to run during the original one-second sleep; timing failures must be reported. Original38 remains partial; unrelated server/runner paths are not certified.",
+      "counterexample": "CE-BACKTEST-STARVATION",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-ADMISSION-PROGRESS-CONFORMANCE",
+      "claim": "Compiled current Haskell gates reject barging, preserve FIFO, clean up cancelled waiters and wake on drain; the preserved legacy helper admits a competing request before its registered retrying waiter in the tested finite schedule.",
+      "formalStatement": "Compiled current Haskell gates reject barging, preserve FIFO, clean up cancelled waiters and wake on drain; the preserved legacy helper admits a competing request before its registered retrying waiter in the tested finite schedule.",
+      "criticality": "high",
+      "assumptions": [
+        "A-ADMISSION-PROGRESS",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed source mapping, Z3, finite SCC fairness checker and compiled Haskell conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/admission_progress.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "formal/research/admission-progress-contract.md",
+        "research-notes/registrations/admission-progress-engineering.json",
+        "formal/research/admission-progress-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/AdmissionProgress.hs",
+        "formal/research/AdmissionProgress.hs",
+        "formal/research/fixtures/admission-progress-before.hs",
+        "formal/research/fixtures/admission-progress-witness.hs",
+        "formal/research/fixtures/admission-progress.json"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source checks, SAT-premise/UNSAT-violation arithmetic, fixed-point fair-cycle exclusion and actual Haskell conformance must reproduce.",
+      "bounds": "Eight SMT queries over unbounded Integer/rank and bounded Int summaries; three callers, capacities1/2,838 states,3356 transitions,max shortest depth11; all finite retry/stutter cycles; five compiled tests plus32 generated cases.",
+      "limitations": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem. Finite legacy timing witness requires the contender to run during the original one-second sleep; timing failures must be reported. Original38 remains partial; unrelated server/runner paths are not certified.",
+      "counterexample": "CE-BACKTEST-STARVATION",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -6879,7 +7038,11 @@
         "F-ASYNC-SEAL-CONFORMANCE",
         "F-DRAIN-POOL-ORDER",
         "F-DRAIN-POOL-LIFECYCLE",
-        "F-DRAIN-POOL-CONFORMANCE"
+        "F-DRAIN-POOL-CONFORMANCE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-NUMERIC",
+        "F-ADMISSION-PROGRESS-FLOW",
+        "F-ADMISSION-PROGRESS-CONFORMANCE"
       ],
       "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7899,7 +8062,11 @@
         "F-BOT-PUBLICATION-GATES",
         "F-BOT-PUBLICATION-FLOW",
         "F-BOT-PUBLICATION-SOURCE",
-        "F-BOT-PUBLICATION-CONFORMANCE"
+        "F-BOT-PUBLICATION-CONFORMANCE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-NUMERIC",
+        "F-ADMISSION-PROGRESS-FLOW",
+        "F-ADMISSION-PROGRESS-CONFORMANCE"
       ],
       "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7952,7 +8119,11 @@
         "F-BOT-PUBLICATION-GATES",
         "F-BOT-PUBLICATION-FLOW",
         "F-BOT-PUBLICATION-SOURCE",
-        "F-BOT-PUBLICATION-CONFORMANCE"
+        "F-BOT-PUBLICATION-CONFORMANCE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-NUMERIC",
+        "F-ADMISSION-PROGRESS-FLOW",
+        "F-ADMISSION-PROGRESS-CONFORMANCE"
       ],
       "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8045,7 +8216,11 @@
         "F-BOT-PUBLICATION-GATES",
         "F-BOT-PUBLICATION-FLOW",
         "F-BOT-PUBLICATION-SOURCE",
-        "F-BOT-PUBLICATION-CONFORMANCE"
+        "F-BOT-PUBLICATION-CONFORMANCE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-NUMERIC",
+        "F-ADMISSION-PROGRESS-FLOW",
+        "F-ADMISSION-PROGRESS-CONFORMANCE"
       ],
       "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8105,7 +8280,7 @@
     {
       "number": 38,
       "claim": "No permanent lockout",
-      "status": "open",
+      "status": "partially_verified",
       "evidenceRequirements": [
         "F-ASYNC-ADMISSION-NUMERIC",
         "F-ASYNC-ADMISSION-LIFECYCLE",
@@ -8122,20 +8297,25 @@
         "F-BOT-PUBLICATION-GATES",
         "F-BOT-PUBLICATION-FLOW",
         "F-BOT-PUBLICATION-SOURCE",
-        "F-BOT-PUBLICATION-CONFORMANCE"
+        "F-BOT-PUBLICATION-CONFORMANCE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-NUMERIC",
+        "F-ADMISSION-PROGRESS-FLOW",
+        "F-ADMISSION-PROGRESS-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. FIFO now replaces backtest retry competition; no-barging and fair-cycle checks supply scoped progress evidence. Full38 criterion remains unresolved.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Invalid unrelated candidates cannot permanently block valid safe work.",
-      "nextAction": "Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness.",
+      "nextAction": "Compose runner failure isolation and every inherited worker/admission consumer with the FIFO and existing ownership/drain proofs; establish bounded-resource assumptions without assuming away blocked callbacks.",
       "implementationFiles": [
         "haskell/app/Main.hs",
         "scripts/research/run_sequential_screen.py",
         "haskell/app/Trader/App/GracefulShutdown.hs",
-        "haskell/app/Trader/App/WorkerPublication.hs"
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Trader/App/BacktestGate.hs"
       ],
       "blockers": [
-        "No isolation/fair scheduling model connects candidate failures to continued server progress."
+        "FIFO backtest progress is source-bound and checked under explicit weak fairness, but full runner candidate isolation, other server admission paths, persistent state and inherited worker progress are not composed."
       ],
       "requiredCertificates": []
     }

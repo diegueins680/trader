@@ -80,3 +80,16 @@ and its cited PPoPP 2005 paper, Harris, Marlow, Peyton Jones and Herlihy,
 STM was already a production dependency; this change pins that dependency and adds
 it to the test component. No production service, toolchain architecture or market
 data dependency is introduced.
+
+
+## FIFO refinement extension (2026-10-06)
+
+The [FIFO progress contract](admission-progress-contract.md) supersedes the polling
+behavior described above. Waiting registration is private and slot-free; acquisition
+atomically removes the head and reserves capacity. Immediate calls may now return
+Busy despite free capacity when tickets are queued. Cancellation removes its own
+ticket; drain wakes and removes waiters. The old safety models now conservatively
+allow queue-erased contention (reject/wait with free capacity); they do not certify
+fairness. The new838-state model checks explicit weak-fair progress. Prior numeric,
+exception-routing, ownership and drain regressions remain active. No whole-server
+progress, new timeout, configured-limit or HTTP/JSON shape change is claimed.

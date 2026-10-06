@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "fb00a66707d2e645e15fb347833a661e044a7a77",
+  "hashes": {
+    "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
+    "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
+    "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
+    "haskell/app/Trader/App/GracefulShutdown.hs": "fbd3cbd0e9a310dc4f31cf421479008689d08cc2914ef3d2a9e4c8214e91b092",
+    "scripts/formal/admission_progress.py": "0b875429da291552c7eb8797349259713bc25f3e0eeea48aa15d685f6a6088df",
+    "scripts/formal/test_integrity.py": "3ffbf96d17f657f15e41eb605b4e54f3f278ae1dddfa8c01b459ba6c59e2b072",
+    "haskell/test/Trader/Test/AdmissionProgress.hs": "aaae04d8b6b315dc8214abd1e4b8363ee54f52159717c2577427aa0118c74451",
+    "formal/research/AdmissionProgress.hs": "62bf77149e36459169414f66c9a6cec93aa48a941c1a0c6cca1868185651c0e7",
+    "formal/research/fixtures/admission-progress-before.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
+    "formal/research/fixtures/admission-progress-witness.hs": "866dc747f34b80c5ba3652a66add1a0de5072973984f03b3e600ae36e063484e"
+  },
+  "bodies": {
+    "haskell/app/Trader/App/BacktestGate.hs": {
+      "newBacktestGateWithDrain": "newBacktestGateWithDrain :: DrainController -> Int -> Int -> IO BacktestGate\nnewBacktestGateWithDrain drain maxRunning timeoutSec = do\n    running <- newTVarIO 0\n    waiters <- newTVarIO (0, Seq.empty)\n    pure BacktestGate{btRunning = running, btWaiters = waiters, btMaxRunning = max 1 maxRunning, btTimeoutSec = max 1 timeoutSec, btDrain = drain}",
+      "backtestWaitingCount": "backtestWaitingCount :: BacktestGate -> IO Int\nbacktestWaitingCount gate = Seq.length . snd <$> readTVarIO (btWaiters gate)\n\n-- System.Timeout treats negative microseconds as unlimited, so multiply exactly\n-- and saturate before converting back to the machine representation.",
+      "runBacktestWithGate": "runBacktestWithGate :: BacktestGate -> IO a -> IO (Either BacktestFailure a)\nrunBacktestWithGate gate action = mask $ \\restore -> do\n    acquired <- atomically $ unlessDraining (btDrain gate) $ do\n        (_, queue) <- readTVar (btWaiters gate)\n        current <- readTVar (btRunning gate)\n        let (next, accepted) = if Seq.null queue then admitSlot (btMaxRunning gate) current else (current, False)\n        when accepted (writeTVar (btRunning gate) next)\n        pure accepted\n    case acquired of\n        Nothing -> pure (Left BacktestDraining)\n        Just False -> pure (Left BacktestBusy)\n        Just True -> restore (runTimedBacktest gate action) `finally` releaseBacktest gate",
+      "runBacktestWithGateWait": "runBacktestWithGateWait :: BacktestGate -> IO a -> IO (Either BacktestFailure a)\nrunBacktestWithGateWait gate action = mask $ \\restore -> do\n    registered <- atomically $ unlessDraining (btDrain gate) $ do\n        (ticket, queue) <- readTVar (btWaiters gate)\n        let next = ticket + 1\n        next `seq` writeTVar (btWaiters gate) (next, queue Seq.|> ticket)\n        pure ticket\n    case registered of\n        Nothing -> pure (Left BacktestDraining)\n        Just ticket -> do\n            let removeTicket = modifyTVar' (btWaiters gate) (second (Seq.filter (/= ticket)))\n                acquire = do\n                    guarded <- unlessDraining (btDrain gate) $ do\n                        (nextTicket, queue) <- readTVar (btWaiters gate)\n                        current <- readTVar (btRunning gate)\n                        case Seq.viewl queue of\n                            first Seq.:< rest | first == ticket -> do\n                                let (next, accepted) = admitSlot (btMaxRunning gate) current\n                                if accepted\n                                    then do\n                                        writeTVar (btRunning gate) next\n                                        writeTVar (btWaiters gate) (nextTicket, rest)\n                                    else retry\n                            _ -> retry\n                    case guarded of\n                        Nothing -> removeTicket >> pure False\n                        Just () -> pure True\n            acquired <- atomically acquire `onException` atomically removeTicket\n            if acquired\n                then restore (runTimedBacktest gate action) `finally` releaseBacktest gate\n                else pure (Left BacktestDraining)",
+      "runTimedBacktest": "runTimedBacktest :: BacktestGate -> IO a -> IO (Either BacktestFailure a)\nrunTimedBacktest gate action = do\n    result <- tryJust synchronousFailure (timeout (timeoutMicroseconds (btTimeoutSec gate)) action)\n    pure $ case result of\n        Left ex -> Left (BacktestException ex)\n        Right Nothing -> Left BacktestTimedOut\n        Right (Just value) -> Right value\n\n-- Registration and admission use separate masked transactions: a waiting caller\n-- owns only its ticket. Cancellation removes that ticket; successful admission\n-- atomically exchanges it for a slot, whose finalizer is installed before unmasking.",
+      "releaseBacktest": "releaseBacktest :: BacktestGate -> IO ()\nreleaseBacktest gate = atomically (modifyTVar' (btRunning gate) releaseSlot)"
+    }
+  },
+  "assumption": "A-ADMISSION-PROGRESS"
+}
