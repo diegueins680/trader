@@ -94,6 +94,14 @@ def prove_steps(facts, guards):
             'smt': {'F-RL-STAGE-STEP': 'unsat'}}
 
 
+def stage_index(value):
+    if type(value) is not str:
+        return -1
+    if value in TAGS.values():
+        return 0
+    return next((i for i, stage in enumerate(STAGES) if value == stage), -1)
+
+
 def successors(state, facts, mutant=False):
     version, phase, stored, retained, stage = state
     def go(label, next_phase, new_stored=stored, new_retained=retained, next_stage=stage):
@@ -101,7 +109,7 @@ def successors(state, facts, mutant=False):
     yield go('failure', 'failed')
     yield go('disable', 'disabled')
     if phase == 'fresh':
-        yield go('save-research', 'saved', True)
+        yield go('save-research', 'saved', True, next_stage=stage_index(facts[version]['promotion']))
     elif phase == 'saved':
         # Nonstrings and unknown strings are explicit equivalence classes. Other
         # codec gates are relaxed: accepting extra research inputs is conservative
@@ -109,7 +117,8 @@ def successors(state, facts, mutant=False):
         for value in (*STAGES, *TAGS.values(), 'unknown', None):
             for exact_false in (True, False):
                 admitted = type(value) is str and value == facts[version]['promotion'] and exact_false
-                yield go('load:' + repr(value) + ':' + str(exact_false), 'loaded' if admitted else 'failed')
+                yield go('load:' + repr(value) + ':' + str(exact_false), 'loaded' if admitted else 'failed',
+                         next_stage=stage_index(value) if admitted else stage)
     elif phase == 'loaded':
         yield go('infer-research', 'proposed', new_retained=True)
     elif phase == 'proposed':

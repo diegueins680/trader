@@ -2,6 +2,21 @@
   "schemaVersion": 1,
   "id": "CE-RL-STAGE-SKIP-MUTANT",
   "kind": "model_mutation_not_observed_runtime_defect",
-  "trace": ["save-research", "load:'rejected_research_only':True", "infer-research", "unreviewed-skip-to-shadow"],
-  "resolution": "The actual format guards admit only Research; the injected stage3 edge fails model checking. No runtime stage promotion is added."
+  "trace": [
+    "save-research",
+    "load:'rejected_research_only':True",
+    "infer-research",
+    "unreviewed-skip-to-shadow"
+  ],
+  "resolution": "The actual format guards admit only Research; the injected stage3 edge fails model checking. No runtime stage promotion is added.",
+  "projectionRegression": {
+    "id": "CE-RL-STAGE-PROJECTION-MUTANT",
+    "kind": "proof_model_correspondence_not_runtime_defect",
+    "writerFormat": "v1",
+    "writerTag": "shadow-eligible",
+    "correctTrace": [
+      "save-research"
+    ],
+    "oldModelOutcome": "Previous-stage transfer fails to notice changed metadata; the separate source/SMT writer check already rejects it."
+  }
 }

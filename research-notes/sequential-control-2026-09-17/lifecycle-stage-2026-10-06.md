@@ -59,6 +59,13 @@ committed, and no predictive-efficacy inference follows from this reference.
   on every case: 2 ordinary research cases accepted, 202 rejected. Non-string values,
   advanced-stage labels, wrong versions of research labels and false-like values
   cannot bypass the guards. Nested provenance data cannot replace root controls.
+- Save/load model transfers derive the next eligibility stage from the extracted
+  metadata. CE-RL-STAGE-PROJECTION-MUTANT preserves a weakness in the first model
+  draft: carrying the previous stage would not notice a changed writer tag.
+  The separate source/SMT check already rejected that tag; this strengthens model
+  correspondence and does not imply a prior complete false certificate or runtime
+  defect. The revised model rejects at the first save, and its scalar projection
+  agrees with the SMT projection on all registered metadata classes.
 - Removing stage or exact-False guards fails the SMT checks independently of
   source hashes. Missing constituent certificates block closure. A stage-skipping
   model mutation is preserved as
@@ -119,3 +126,11 @@ The bridge retains its existing 20 ms guard; no timeout, assertion or gate is
 weakened. That attempt is not a pass. The clean local retry failed at the same unchanged check. Neither attempt is a
 pass. Pinned canonical formal/full CI reproduction remains mandatory and pending;
 no local service or process is stopped to influence timing.
+
+The first pinned reproduction (run37414502933) passed receipt generation on the
+initial checker revision, then was superseded during formal-wrapper execution by
+the stronger metadata-derived model transfer. Its unfinished formal/full steps are
+not passes. Revised targeted stage tests passed9/9 in3.036seconds before the final
+preserved-old-transfer regression; that regression and the full revised suite must
+pass in the new reproduction. Initial ordinary CI37414502994 was canceled for the
+stale receipt, not counted as a pass.

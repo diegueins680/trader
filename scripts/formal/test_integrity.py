@@ -4088,9 +4088,28 @@ class LifecycleStageTests(unittest.TestCase):
             facts=copy.deepcopy(self.facts); mutate(facts)
             with self.assertRaises(ValueError):self.s.prove_steps(facts,self.s.predicates(self.trees))
 
+        # The finite model must derive the stage from metadata too; hard-coding
+        # Research in its transfer would hide a bad writer despite the SMT gate.
+        import inspect,json
+        fixture=read_json(ROOT/'formal/research/fixtures/lifecycle-stage-skip.json')['projectionRegression']
+        facts=copy.deepcopy(self.facts); facts[fixture['writerFormat']]['promotion']=fixture['writerTag']
+        with self.assertRaisesRegex(ValueError,'promotion counterexample') as raised:
+            self.s.check_model(facts)
+        self.assertEqual(json.loads(str(raised.exception).split('promotion counterexample: ',1)[1]),fixture['correctTrace'])
+        old_transfer=inspect.getsource(self.s.successors)
+        for before in ("next_stage=stage_index(facts[version]['promotion'])",'next_stage=stage_index(value) if admitted else stage'):
+            self.assertEqual(old_transfer.count(before),1)
+            old_transfer=old_transfer.replace(before,'next_stage=stage')
+        namespace=dict(vars(self.s));exec(compile(old_transfer,'<old-stage-transfer>','exec'),namespace)
+        with patch.object(self.s,'successors',namespace['successors']):
+            self.assertEqual(self.s.check_model(facts)['states'],28)
+
     def test_unknown_metadata_is_not_neutral_research(self):
         for text,is_text in [('unknown',True),('research-only',False),('shadow-eligible',True)]:
             self.assertNotEqual(z3.simplify(self.s.projection(z3.StringVal(text),z3.BoolVal(is_text))).as_long(),0)
+        for value in (*self.s.STAGES,*self.s.TAGS.values(),'unknown',None,False,0,[],{}):
+            result=z3.simplify(self.s.projection(z3.StringVal(str(value)),z3.BoolVal(type(value) is str))).as_long()
+            self.assertEqual(self.s.stage_index(value),result)
 
     def test_stage_relation_forbids_skips_even_with_all_evidence(self):
         for before in range(7):
