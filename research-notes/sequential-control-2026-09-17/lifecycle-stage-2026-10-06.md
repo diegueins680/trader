@@ -63,7 +63,9 @@ committed, and no predictive-efficacy inference follows from this reference.
   source hashes. Missing constituent certificates block closure. A stage-skipping
   model mutation is preserved as
   [CE-RL-STAGE-SKIP-MUTANT](../../formal/research/fixtures/lifecycle-stage-skip.json).
-  It is a verifier regression, not a claimed historical runtime defect.
+  It is a verifier regression, not a claimed historical runtime defect. In that
+  trace, the load suffix `True` means the exact-False identity guard holds; it does
+  not mean the artifact enabled field is true.
 
 A-STAGE-PROJECTION names the reviewed mapping from concrete metadata/proposals to
 eligibility, ordinary pinned runtime semantics, fixed code and the existing
@@ -114,5 +116,6 @@ passed in 288.752 seconds. The first local `verify.py --record` attempt failed i
 the unchanged PPO process-bridge conformance with
 `ValueError: PPO process bridge: no actual inference for trained policy`.
 The bridge retains its existing 20 ms guard; no timeout, assertion or gate is
-weakened. That attempt is not a pass. A clean local retry and pinned canonical
-formal/full CI reproduction are pending and will be recorded before merge.
+weakened. That attempt is not a pass. The clean local retry failed at the same unchanged check. Neither attempt is a
+pass. Pinned canonical formal/full CI reproduction remains mandatory and pending;
+no local service or process is stopped to influence timing.
