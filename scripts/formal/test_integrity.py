@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 15)
+        self.assertEqual(r['surface']['researchModules'], 16)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))

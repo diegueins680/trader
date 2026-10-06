@@ -93,3 +93,10 @@ This was not a passed verification. Only this isolated worktree's338MiB generate
 `haskell/dist-newstyle` cache was removed; other worktrees/services were untouched.
 The separate7 promotion integrity tests passed in21.240s and the formal-specification
 schema passed. Pinned CI must supply both complete canonical wrapper results.
+
+Pinned run37434513361 reproduced the receipt in77s, then failed the canonical
+formal wrapper: `LifecycleStageTests.test_actual_stage_composition` still asserted
+15 research modules after adding the16th.289 other tests passed;290 ran in93.149s.
+The assertion is updated to the reviewed16-module inventory. No runtime or proof
+predicate changes. Full was skipped. Ordinary stale-receipt CI37434513485 was
+canceled, not passed. This failed receipt is not imported as a successful run.
