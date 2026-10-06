@@ -129,3 +129,14 @@ expanded to13. The explicit count is corrected to13, and a full composed-checker
 regression now accepts13 and rejects a12-module receipt. This was a fail-closed
 coverage mismatch, not a trading/data counterexample. The failed run is retained
 as failed evidence; no result from it is counted as a passing wrapper.
+
+Second pinned reproduction run37401000171 failed before either wrapper because
+the archive-preservation certificate retained the two pre-extension promotion
+source hashes. Both reviewed dependency hashes are refreshed. An audit of all
+current formal source-registry path hashes found no other stale entries. Both
+failed runs remain failures; source checks were not disabled or relaxed.
+
+Complete local `scripts/formal/verify.py --record` passed in181.139s using the
+pinned Python/NumPy/Z3/GHC toolchain, reproducing76 SMT requirement groups and
+all composed models. Overall completion remains false with27 unresolved
+obligations. The canonical formal/full wrappers still require pinned CI success.

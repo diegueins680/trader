@@ -38,7 +38,7 @@ def extract(source=None, registry=None):
     require(source == registry['exporter'], 'complete exporter drift')
     for path, expected in registry['supportHashes'].items():
         require(hashlib.sha256((ROOT/path).read_bytes()).hexdigest() == expected, 'support drift: ' + path)
-    # Require the independently reviewed complete reviewed effect/callback roster.
+    # Require the complete independently reviewed effect/callback roster.
     trees, surface = promotion_extract()
     require(shape(ast.parse(source)) == shape(trees['summarize_sequential_screen']), 'exporter/effect composition drift')
     fn = definition(ast.parse(source), 'export')
