@@ -311,3 +311,5 @@ partial output is possible after failure: this does not discharge durable recove
 or archive atomicity. Risk status remains OPEN; no Haskell production behavior,
 live authorization, ownership configuration or limits change. Current counts:
 10 scoped closures / 24 partial / 4 open; no research candidate passed.
+
+Shield-consumer follow-up (2026-10-05, RL-OFFLINE-001): A-SHIELD-COMPOSITION trusts pinned ordinary Python/NumPy control-flow/identity/copy and primitive effects, fixed source/callbacks and the reviewed source-to-model relation. Actual receiver locality is checked; hostile subclasses, reflective mutation, injected callbacks and external private-helper calls are excluded. Scoped obligation12 composes with existing Haskell/type/process boundaries; no Haskell runtime behavior changes. Numeric accounting, complete hard constraints, asynchronous revocation, recovery and inherited production races remain unresolved. Current totals11 scoped /23 partial /4 open; no research adoption.

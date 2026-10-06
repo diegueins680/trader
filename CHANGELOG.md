@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verify shield-to-consumer composition for every delivered offline replay caller, including pending targets across calls and deterministic terminal liquidation. Add source-derived ownership/guard checks, SMT origin preservation, repeated-call model and actual trace conformance; conditionally close obligation 12 without runtime, risk, configuration or research-evidence changes.
+
 - Refuse report-file collisions with exclusive binary creation, preserving existing files and linked champion data. Retain byte-compatible reports and deterministic collision/failure fixtures; compose source, SMT, state-model and capability evidence for scoped champion-preservation obligation 28. No model, live configuration, risk limit or frozen financial evidence changes.
 
 - Gate bot initialization until its runtime-map entry commits. Preserve duplicate-start checks and reject unpublished children on failure; add compiled rollback/cancellation regressions and source-bound model/SMT evidence. Persistent ownership, live settings and risk rules are unchanged; full ownership/lifecycle obligations remain incomplete.

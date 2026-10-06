@@ -521,3 +521,7 @@ and source fixture reproduce truncation of colliding data. Obligation 28 require
 all constituent certificates in the same invocation. Current ledger: 10 scoped
 closures, 24 partial, 4 open; kernel refinement, durability and mission completion
 are not claimed.
+
+## Replay shield-consumer composition
+
+[Contract](replay-shield-contract.md) and [report](../../research-notes/sequential-control-2026-09-17/shield-consumers-2026-10-05.md) connect all four replay constructors/four step calls/two fill sites to shield origin and actual entry guards. F-RL-SHIELD-CONSUMERS/ORIGIN/FLOW/CONSUMER-CONFORMANCE retain separate statuses. Local model129 states213 transitions; independent two-instance product16641 states54954 transitions; seven SMT queries; actual trace conformance28 cases. A-SHIELD-COMPOSITION is explicit. Current totals supersede earlier counts: **11 scoped closures /23 partial /4 open**, overall incomplete. No runtime source or financial evidence changes.
