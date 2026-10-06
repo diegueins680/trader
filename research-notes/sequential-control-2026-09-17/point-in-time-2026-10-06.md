@@ -91,8 +91,8 @@ bash scripts/verify.sh full
 ```
 
 No network is required after dependencies are installed. The existing proof
-receipt, ledger and source locks include this entry. Verification run evidence is
-recorded below after actual completion; an unrun check is not a pass.
+receipt, ledger and source locks include this entry. Chronological verification evidence follows. Earlier pending/failed states are
+retained as history; the final pinned run below passed both required wrappers.
 
 Local targeted verification:20 tests passed in5.822s (PointInTimeTests and
 IntegrityTests). The specification coverage check passed:40 specs,353 named
@@ -150,3 +150,23 @@ is preserved; the full integrity suite is rerun before another CI attempt.
 After the fixture correction, the **entire243-test integrity suite passed locally
 in173.660s**. No test was skipped or weakened. This supplements the complete
 local76-group verifier pass; pinned formal/full wrappers remain required.
+
+Final pinned reproduction [run37402601210](https://github.com/diegueins680/trader/actions/runs/37402601210),
+job112072889934, exact source `ce6a7b4a633da5d7c7e4d0df7086a34cf0cc3d05`:
+
+- Receipt reproduction:70.942s;76 SMT requirement groups; all scoped models pass.
+- `bash scripts/verify.sh formal`:success,149s wall time;243 integrity tests
+  passed76.728s and the receipt independently reproduced70.322s.
+- `bash scripts/verify.sh full`:success,438s wall time;243 integrity tests passed
+ 75.431s; formal reproduction70.641s; Haskell build/format/lint/test/smoke passed;
+ 241 web tests/build and185 automation tests passed.
+
+Receipt SHA256:
+`9b33bdcf08c5c4631cd84d112fa267313a4e5f74b96c4aafb8efeefdf8a1152c`.
+Imported verbatim from the pinned job log and compared with every current source
+hash. Exactly six sections differ from main:pointInTime,SMT,sourceHashes and the
+promotion/shield/archive surfaces expanded to13 modules. Existing model/SMT/
+conformance results in those three composed sections are unchanged. No receipt
+was manually synthesized. The temporary reproduction workflow is removed.
+Final-commit CI and merge/deployment audit evidence are recorded in PR309.
+Overall formal completion and mission completion remain false; no adoption.
