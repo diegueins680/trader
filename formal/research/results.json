@@ -1614,6 +1614,48 @@
     },
     "sourceHash": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab"
   },
+  "lifecycleStage": {
+    "conformance": {
+      "acceptedResearchCases": 2,
+      "correctHashOnEveryCase": true,
+      "marketDataReads": 0,
+      "metadataCases": 204,
+      "nestedPromotionDoesNotOverride": true,
+      "rejectedCases": 202,
+      "status": "property_tested",
+      "trainingRuns": 0
+    },
+    "model": {
+      "eligibilityStages": 7,
+      "formats": 2,
+      "maxShortestDepth": 6,
+      "proposedStates": 2,
+      "rejectedMetadataEdges": 84,
+      "retainedProposalCases": 12,
+      "scope": "source-derived stage safety; no promotion liveness, service, concurrency or storage theorem",
+      "search": "reachable fixed point, including arbitrary retry/successor cycles",
+      "states": 28,
+      "status": "model_checked",
+      "transitions": 168
+    },
+    "premiseChecks": 8,
+    "queries": 8,
+    "smt": {
+      "F-RL-STAGE-STEP": "unsat"
+    },
+    "surface": {
+      "newProductionConsumers": 0,
+      "newPromotionServices": 0,
+      "researchModules": 15,
+      "reviewedCalls": 1949,
+      "scope": "reviewed stage projection and complete existing effect inventory; constituent certificates mandatory",
+      "status": "exhaustively_checked",
+      "writerTags": {
+        "v1": "rejected_research_only",
+        "v4": "research-only"
+      }
+    }
+  },
   "model": {
     "callers": 2,
     "counterexampleToRevocation": [
@@ -1634,10 +1676,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 11,
+    "closedMissionObligations": 12,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 27
+    "openMissionObligations": 26
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -3284,6 +3326,7 @@
     "F-RL-SNAPSHOT-CAS": "unsat",
     "F-RL-SNAPSHOT-FINITE": "unsat",
     "F-RL-SPLIT": "unsat",
+    "F-RL-STAGE-STEP": "unsat",
     "F-RL-TARGET-V2-FINITE": "unsat",
     "F-RL-TARGET-V2-REAL": "unsat",
     "F-RL-TARGET-V2-TERMINAL": "unsat",
@@ -3414,7 +3457,7 @@
     "formal/research/closure-contract.md": "9af6014e1d340872406b6e6354c03839545517ec4e008e0a0e83bdd7d726b1ab",
     "formal/research/closure-counterexamples.json": "6f60e4188eaf4c716bcae7738c74fbd0f721cf81475bcd02a2e9a631542e0225",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/counterexamples.json": "e2e565669cd7ae1d3e8b1c68da9a5dd008d8c916183dfff2d6bc7701e5d80c2b",
+    "formal/research/counterexamples.json": "bc16ce45d819902df29cffc2433af863afe38b8b75e7d2856f15239dea5bd98d",
     "formal/research/data-composition-contract.md": "eefa7a6863bd2b7a0c680c4dd85e2d683d0c594bd3148a2300aa7bcf27cd2591",
     "formal/research/data-composition-counterexamples.json": "f6cf00b5d33bc7305f6334581e2707feec118f4cb913ad3b4518538b56f66a2d",
     "formal/research/data-composition-source.json": "c31a4f86f01e8853235f1891d37be8c7d65af1916f48b76add3cca7ba142e1b6",
@@ -3433,6 +3476,7 @@
     "formal/research/fixtures/drain-pool-before-backtest.hs": "c0979d9a007d9ee1442487f1687b918fb2c6cb8b918b1e7403abbe870c4daf9f",
     "formal/research/fixtures/drain-pool-before-drain.hs": "384c4fff89926b1780c88f6fcd93386d03642e7a99d00ba574137ebe6c693c60",
     "formal/research/fixtures/drain-pool-witness.hs": "4cb9337ae823854bd5bd2851fced2a4666f9986eded1172e89c2a170135ca3a1",
+    "formal/research/fixtures/lifecycle-stage-skip.json": "9455bff18bb99d1ed930713bc4d5700542bad17a2cf825090755080bc6c34a49",
     "formal/research/fixtures/worker-registry-before.hs": "425b04e98553bc6bbaf9d088d0cdcc1799243a83bc364bca1b9f5ab68e6df387",
     "formal/research/fixtures/worker-registry-witness.hs": "e8d1e491f09433438493e30f78398187547349f756561e49c266e6026c681aec",
     "formal/research/funding-boundary-contract.md": "97a8cc3e97751b714a33b1874ced95c80ca06c9e536aba3ff09394d15ade566e",
@@ -3446,8 +3490,9 @@
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "d041ff4fea0096e49a53e8162637b9d335c07719edc541ae0c442765e21c94ad",
-    "formal/research/obligation-closure-audit.md": "d6b9c96242b678841d9dd992ae912b208c749bf24244c5b9677b640e2830b058",
-    "formal/research/obligation-contracts.json": "64db6e57b708f64e037630432a077bac5999764db18e9ca64cacfb534ceb3d61",
+    "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
+    "formal/research/obligation-closure-audit.md": "d40a89f21cfcb1a0d5c6517010cedced1ae6df3a9510675579cc45ebf6719190",
+    "formal/research/obligation-contracts.json": "7d52278b6be6695844fc6a472d5c11e00a4a37257252085742146a887598008e",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/ope-rational-contract.md": "9c9aca05ea87fba9c3f3f1b9c9a558e3fd80a85de5f25859b28b4db6014c8642",
@@ -3472,7 +3517,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "994a323ea28542303978c90f30a10c032ed5ad7f1ed7f6764357d95463408e7c",
-    "formal/research/proof-ledger.json": "5a21cdc9d6bd934bffd72984f126d777c5ca3c0b563cbab30450417b3a281c59",
+    "formal/research/proof-ledger.json": "7b43f7a500b88412d5319530c16792be852e4a71931cdec01226b6668ca5cd03",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -3511,7 +3556,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "b8c1bafe3c3dd3cd63189ae8401d19134fe2fb1f3eb17682c4db8e5e333ddc8d",
-    "formal/specifications.json": "ad02ab034492842752ac7cfa2d163c6a0416dac536547448f0ab2d9e46d80c6c",
+    "formal/specifications.json": "3dfec1d8a519b87f66c2c5333592153e5e7b3de4a60556d5b41a22348582fa72",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
@@ -3660,6 +3705,7 @@
     "research-notes/registrations/inference-boundary-audit-engineering.json": "79a56c520b05c76bbe941dd56645b3cc7bd5702474e3830831d7c90619d01f76",
     "research-notes/registrations/inference-process-v2-engineering.json": "55102aca5df4e79e2aa82df87a22809097f867da3d5001905291c1d1451cf757",
     "research-notes/registrations/inventory-readiness-engineering.json": "dfaba019721e90d83bf12813e38772b2aacfae62dde4f56a055e146b960fff5f",
+    "research-notes/registrations/lifecycle-stage-engineering.json": "1900f299af00ea4b3e337e5853ddec3774a6fab3672952a2c2dac0eeab7595ed",
     "research-notes/registrations/numerical-query-isolation-engineering.json": "fa70b6d59e461b2b2b337a55f911c5541891783edd5e8e79b7f37ea7c63e9af5",
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
     "research-notes/registrations/ope-algebra-audit-engineering.json": "7c9b5f1c5b03888f8fbd7705c70a03e6b949fb227ff52e60d2f78a6e9e6c097c",
@@ -3712,6 +3758,7 @@
     "scripts/formal/inference_process.py": "783072d26950456d6d7a62ab1a4895a8f86fae2f693b371f495f4630f7021a28",
     "scripts/formal/inventory_readiness.py": "b22bc96bdedd30c0057f399521e419b8ef2c37706ac16d3bd68bd03e94cdee1a",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
+    "scripts/formal/lifecycle_stage.py": "d1dd10649a1c4d4a08a6f3e75dcba748363f865db16d87e3cada52e40e7ad32b",
     "scripts/formal/ope_algebra.py": "3e7eeae7e52732464e34d15210c0d479e1414eae05e945b69b7a18ef4483413e",
     "scripts/formal/ope_rational.py": "bd2d38101051c5042ce0a336ccede2dce9a6da7257e0864815c1d955462705a1",
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
@@ -3734,12 +3781,12 @@
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "82f7c7e320c1c12c4fc7b49d0a31b456917c786f3540283bcd387ad388e3c9bb",
+    "scripts/formal/test_integrity.py": "241d438fbe9f4464cc042c9a06e45733e52d2816f2b8e46b7a0fb09214c8e32c",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "704ae85e0970a42f19595b1cea7f1dc933d5ac85f72ed226c9c279b0d6aa813f",
+    "scripts/formal/verify.py": "e925aa5969f39f7daf8fae8bfbd863c9695829a91c950a07f2e38e5a34877d8a",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",

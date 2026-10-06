@@ -124,13 +124,38 @@ the unchanged PPO process-bridge conformance with
 `ValueError: PPO process bridge: no actual inference for trained policy`.
 The bridge retains its existing 20 ms guard; no timeout, assertion or gate is
 weakened. That attempt is not a pass. The clean local retry failed at the same unchanged check. Neither attempt is a
-pass. Pinned canonical formal/full CI reproduction remains mandatory and pending;
-no local service or process is stopped to influence timing.
+pass. Pinned canonical formal/full CI subsequently passed as recorded below;
+no local service or process was stopped to influence timing.
 
 The first pinned reproduction (run37414502933) passed receipt generation on the
 initial checker revision, then was superseded during formal-wrapper execution by
 the stronger metadata-derived model transfer. Its unfinished formal/full steps are
 not passes. Revised targeted stage tests passed9/9 in3.036seconds before the final
-preserved-old-transfer regression; that regression and the full revised suite must
-pass in the new reproduction. Initial ordinary CI37414502994 was canceled for the
+preserved-old-transfer regression; that regression and the full revised suite passed in the new reproduction. Initial ordinary CI37414502994 was canceled for the
 stale receipt, not counted as a pass.
+
+
+Pinned [run37414952875](https://github.com/diegueins680/trader/actions/runs/37414952875),
+[job112111423122](https://github.com/diegueins680/trader/actions/runs/37414952875/job/112111423122),
+passed at `54d2e43a1dcc8061d5fdbea560a69e3385e1ebb6`: receipt generation67s,
+`bash scripts/verify.sh formal`126s and `bash scripts/verify.sh full`433s.
+Both wrapper invocations passed all274 integrity tests (60.080s and62.953s).
+Haskell `trader-tests` passed; web241/241 and automation185/185 passed.
+All79 SMT groups returned UNSAT for their violation queries. The new stage group
+contains eight separate premise/violation pairs. No proof placeholder remains.
+
+Receipt SHA256:
+`578c47a85ff68257573a648ee3695422e4e905ee1259e735c53711eb70c4d9c1`.
+The receipt was imported verbatim from the pinned reproduction and checked against
+every local source hash. Only source hashes, the new stage section/SMT group and
+obligation counts differ from base main; all unrelated proof results are identical.
+The temporary workflow is removed before merge; permanent formal/full checks retain
+the new obligations and regressions. Final-head CI is required separately.
+
+The two failed local proof attempts used
+`PYTHONPATH=scripts/formal:scripts/research /Users/diegosaa/.cache/trader-proof-20261003/bin/python scripts/formal/verify.py --record`
+on the shared macOS host. Their exact failure is retained above; the reason that
+no trained-policy inference met the existing bound locally was not isolated.
+The same unchanged process guard passed during pinned Linux reproduction and both
+wrappers. CI success does not erase the local reliability limitation, prove a
+universal timing SLA, or close broader obligation21/36.

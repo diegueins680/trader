@@ -1,6 +1,8 @@
 # Canonical Formal Specifications
 
-[Recoverable report bundle v2](../formal/research/report-bundle-contract.md) adds F-RL-BUNDLE-SOURCE, F-RL-BUNDLE-ARITH, F-RL-BUNDLE-FLOW and F-RL-BUNDLE-CONFORMANCE. Four SMT queries and a 446-state / 2,127-transition crash model cover bounded writes and exclusive publication under A-BUNDLE-FS; 508 healthy rank edges support conditional recovery. Actual process-death/failure tests connect the model to the exporter. Recovery obligation 37 is partial; current totals are 11 scoped closures / 25 partial / 2 open. Training archives, inherited bot persistence and whole-system progress remain unverified.
+Current ledger after stage preservation: **12 scoped closures / 24 partial / 2 open**. See the [current audit](../formal/research/obligation-closure-audit.md); earlier follow-up counts below are historical.
+
+[Recoverable report bundle v2](../formal/research/report-bundle-contract.md) adds F-RL-BUNDLE-SOURCE, F-RL-BUNDLE-ARITH, F-RL-BUNDLE-FLOW and F-RL-BUNDLE-CONFORMANCE. Four SMT queries and a 446-state / 2,127-transition crash model cover bounded writes and exclusive publication under A-BUNDLE-FS; 508 healthy rank edges support conditional recovery. Actual process-death/failure tests connect the model to the exporter. Recovery obligation 37 became partial at that revision, with 11 scoped closures / 25 partial / 2 open. Training archives, inherited bot persistence and whole-system progress remain unverified.
 
 Exact OPE v2 adds F-RL-OPE-V2-ARITH (twelve source-bound SMT queries), F-RL-OPE-V2-BOUNDARY (reviewed source/effects), F-RL-OPE-V2-FLOW (23-state finite publication model), and F-RL-OPE-V2-CONFORMANCE (96 independent oracle cases and regressions). [Contract](../formal/research/ope-rational-contract.md). Assumption A-OPE-RATIONAL names exact runtime primitives and truthful logged propensities; neither statistical reliability nor the full numeric obligation follows. At the earlier OPE follow-up, totals were11 scoped closures/24 partial/3 open.
 
@@ -808,7 +810,7 @@ and gate SMT,158 model states/308 edges and compiled scheduled regressions cover
 this publication boundary. They do not certify persistent owner uniqueness,
 stop/replacement races, global drain linearization, callback termination or durable
 recovery. SHUTDOWN-DEADLINE-001 stays open. Obligation15 moves open to partial;
-current totals are **9 scoped closures,25 partial,4 open**. No broad closure or
+totals at that revision were **9 scoped closures,25 partial,4 open**. No broad closure or
 financial evidence change is claimed.
 
 
@@ -820,14 +822,14 @@ SMT queries and a 110-state/359-transition model preserve existing identities an
 bytes, including leaf collisions, partial writes and retries. The old truncating
 exporter and three concrete collision failures are retained as regressions.
 Obligation 28 closes only with all required certificates reproduced; the original
-38 scope/criterion strings are unchanged. Current totals are 10 scoped closures,
+38 scope/criterion strings are unchanged. Totals at that revision were 10 scoped closures,
 24 partial, 4 open. Crash durability, hostile parent-namespace mutation, inherited
 production correctness and all economic acceptance gates remain uncertified.
 
-Shield-consumer composition adds F-RL-SHIELD-CONSUMERS/ORIGIN/FLOW/CONSUMER-CONFORMANCE under A-SHIELD-COMPOSITION. Source-derived receiver ownership, actual guard/target dominators, pending-origin induction and repeated-call trace conformance compose with existing Haskell/proposal/process/production-isolation certificates. Obligation12 retains its original scope/criterion. Current totals: **11 scoped closures /23 partial /4 open**; overall incomplete. No universal interpreter refinement, numeric/accounting, rollback or production-race theorem is claimed. See [contract](../formal/research/replay-shield-contract.md).
+Shield-consumer composition adds F-RL-SHIELD-CONSUMERS/ORIGIN/FLOW/CONSUMER-CONFORMANCE under A-SHIELD-COMPOSITION. Source-derived receiver ownership, actual guard/target dominators, pending-origin induction and repeated-call trace conformance compose with existing Haskell/proposal/process/production-isolation certificates. Obligation12 retains its original scope/criterion. Totals at that revision: **11 scoped closures /23 partial /4 open**; overall incomplete. No universal interpreter refinement, numeric/accounting, rollback or production-race theorem is claimed. See [contract](../formal/research/replay-shield-contract.md).
 
 
-Point-in-time training v3 adds F-RL-PIT-TIME/BOUNDARY/FLOW/CONFORMANCE under A-PIT-WITNESS. Seven SMT query pairs cover availability/order and maximum visible revision transfer; the126-state/470-transition fixed-point model covers complete admission before training. Actual generated/oracle and learner tests supplement the reviewed source relation. Each prior scoped closure additionally requires the new entry boundary certificate. Obligation4 moves open to partial without changing its original criterion. Current totals11 scoped/24 partial/3 open; historical timestamps, inherited ingestion and empirical acceptance remain unverified. See [contract](../formal/research/point-in-time-contract.md).
+Point-in-time training v3 adds F-RL-PIT-TIME/BOUNDARY/FLOW/CONFORMANCE under A-PIT-WITNESS. Seven SMT query pairs cover availability/order and maximum visible revision transfer; the126-state/470-transition fixed-point model covers complete admission before training. Actual generated/oracle and learner tests supplement the reviewed source relation. Each prior scoped closure additionally requires the new entry boundary certificate. Obligation4 moves open to partial without changing its original criterion. Totals at that revision were11 scoped/24 partial/3 open; historical timestamps, inherited ingestion and empirical acceptance remain unverified. See [contract](../formal/research/point-in-time-contract.md).
 
 
 Stage-preservation follow-up (2026-10-06): [contract](../formal/research/lifecycle-stage-contract.md)
