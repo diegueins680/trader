@@ -98,3 +98,34 @@ Local targeted verification:20 tests passed in5.822s (PointInTimeTests and
 IntegrityTests). The specification coverage check passed:40 specs,353 named
 features,483 clauses,599 implementation files,256 evidence links,34 risks.
 No proof placeholders found. Full pinned wrapper results remain pending.
+
+Admission-only maximum-size benchmark on the non-isolated local macOS host,
+CPython3.13.3/NumPy2.3.5:262,144 records,8 symbols,4,096 bars,4 revisions per
+price/funding slot;65,536 selected witnesses. Three runs took2.222s, 2.401s, 2.480s.
+Peak process RSS (including inputs and interpreter, not an allocation delta) was
+121,991,168 bytes; selected price/funding buffers total524,288 bytes. This is not
+a training/inference SLA or deployment-resource benchmark. Reproduce from repo root:
+
+```python
+import json,resource,sys,time
+sys.path.insert(0,'scripts/research')
+import point_in_time_v3 as p
+symbols=tuple('S'+str(i) for i in range(8));closes=tuple(1000*i for i in range(4096));decisions=tuple(c+100 for c in closes)
+records=tuple(p.Record(s,k,c,r,c+10+r,c+20+r,c+30+r,c+10+r if r else None,100. if k=='price' else 0.) for s in symbols for k in ('price','funding') for c in closes for r in range(4))
+measure=[]
+for _ in range(3):
+ start=time.perf_counter();result=p.admit_v3(records,symbols,closes,decisions,5,enabled=True);measure.append(time.perf_counter()-start)
+ assert result is not None and len(result.witnesses)==65536
+ assert all(w.revision==3 for w in result.witnesses)
+assert len(records)==p.MAX_RECORDS
+print(json.dumps({'scope':'synthetic maximum admission only; no training/inference/market','python':sys.version.split()[0],'records':len(records),'symbols':8,'bars':4096,'selectedWitnesses':len(result.witnesses),'seconds':measure,'processPeakRssNativeUnits':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,'priceFundingBytes':sum(map(len,result.prices+result.funding))},indent=2))
+```
+
+`ru_maxrss` is bytes on macOS and KiB on Linux; convert before comparing platforms.
+
+First pinned reproduction run37400457978 failed before either wrapper: the
+shield-consumer composition still required12 modules after the reviewed roster
+expanded to13. The explicit count is corrected to13, and a full composed-checker
+regression now accepts13 and rejects a12-module receipt. This was a fail-closed
+coverage mismatch, not a trading/data counterexample. The failed run is retained
+as failed evidence; no result from it is counted as a passing wrapper.

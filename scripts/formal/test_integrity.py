@@ -3743,6 +3743,16 @@ class PointInTimeTests(unittest.TestCase):
         result=self.v.conformance();self.assertEqual(result['generatedOracleCases'],64)
         self.assertEqual(result['syntheticTraining']['steps'],1)
 
+    def test_full_shield_composition_includes_new_entry(self):
+        import shield_consumers as c
+        from promotion_boundary import extract
+        _,surface=extract()
+        production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
+        result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
+        self.assertEqual(result['surface']['modules'],13)
+        with self.assertRaisesRegex(ValueError,'complete consumer composition'):
+            c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
+
     def test_existing_closures_require_new_boundary(self):
         from verify import validate_obligations
         ledger=read_json(ROOT/'formal/research/proof-ledger.json')
