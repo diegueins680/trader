@@ -316,3 +316,6 @@ Shield-consumer follow-up (2026-10-05, RL-OFFLINE-001): A-SHIELD-COMPOSITION tru
 
 
 Point-in-time follow-up (2026-10-06, RL-OFFLINE-001): A-PIT-WITNESS assumes truthful synchronized release/first-seen/collection/revision evidence and ordinary pinned Python/NumPy semantics. The new default-disabled research entry rejects unwitnessed or ambiguous records before training and retains immutable decision vintages. No Haskell/live behavior changes. Integer/model/source certificates do not authenticate provider clocks, repair frozen historical availability, prove fill/reward semantics or migrate inherited ingestion. Obligation4 is partial;11 scoped/24 partial/3 open remain. Risk stays OPEN; no adoption.
+
+
+Exact OPE follow-up (2026-10-06, RL-OFFLINE-001): A-OPE-RATIONAL trusts pinned Fraction/integer/base-float conversion and immutable tuple/dataclass semantics, ordinary fixed bindings and truthful complete causal logs. The default-disabled Python diagnostic uses exact ratios through whole estimates with8192-bit bounds; it does not certify behavior propensities, policy-value meaning, state-action support or confidence. Resource bounds apply to arithmetic objects, not wall time/process memory; frozen v1 and other numeric paths remain unresolved. No Haskell runtime or live configuration changes.11 scoped/24 partial/3 open; risk HIGH/OPEN.

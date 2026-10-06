@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Add default-disabled `ope-rational-v2` for complete exact-rational probability-to-estimate arithmetic, preserving positive weights lost by floating-point products and rejecting oversized batches. Add source-bound SMT, publication model, independent oracle and failure regressions. Preserve frozen OPE evidence, champion, holdouts and all live settings; no broad obligation is closed by this component.
+
 - Add a versioned, default-disabled point-in-time training entry with immutable per-bar revision witnesses and all-or-nothing admission before PPO training. Preserve frozen v1/v2 semantics; add timestamp SMT, a finite admission model, differential tests and required boundary composition. Revision timing gains partial evidence; no candidate or live behavior is enabled.
 
 - Verify shield-to-consumer composition for every delivered offline replay caller, including pending targets across calls and deterministic terminal liquidation. Add source-derived ownership/guard checks, SMT origin preservation, repeated-call model and actual trace conformance; conditionally close obligation 12 without runtime, risk, configuration or research-evidence changes.
