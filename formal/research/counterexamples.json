@@ -88,6 +88,37 @@
       "regression": "scripts/formal/champion_archive.py",
       "requirement": "F-RL-BUNDLE-FLOW",
       "fixture": "formal/research/fixtures/champion-archive.json"
+    },
+    {
+      "id": "CE-RL-STAGE-SKIP-MUTANT",
+      "status": "refuted",
+      "claim": "A deliberately injected score-only Research-to-Shadow edge preserves mandatory-stage safety.",
+      "kind": "model_mutation_not_observed_runtime_defect",
+      "trace": [
+        "save-research",
+        "load:'rejected_research_only':True",
+        "infer-research",
+        "unreviewed-skip-to-shadow"
+      ],
+      "resolution": "The source-derived model excludes this edge because actual decoders accept only Research. The mutant must fail; no runtime promotion is added and no historical runtime defect is claimed.",
+      "regression": "scripts/formal/test_integrity.py",
+      "requirement": "F-RL-STAGE-FLOW",
+      "fixture": "formal/research/fixtures/lifecycle-stage-skip.json"
+    },
+    {
+      "id": "CE-RL-STAGE-PROJECTION-MUTANT",
+      "status": "refuted",
+      "claim": "A finite model that carries the previous eligibility stage unchanged detects a promoted writer tag.",
+      "kind": "proof_model_correspondence_not_runtime_defect",
+      "trace": [
+        "supply v1 writerTag shadow-eligible",
+        "previous-stage transfer incorrectly retains Research",
+        "metadata-derived transfer rejects at save-research"
+      ],
+      "resolution": "Compute save/load stage from source-derived metadata. The independent source/SMT guard already rejected the bad tag; no actual runtime defect or formerly accepted complete proof is claimed.",
+      "regression": "scripts/formal/test_integrity.py",
+      "requirement": "F-RL-STAGE-FLOW",
+      "fixture": "formal/research/fixtures/lifecycle-stage-skip.json"
     }
   ]
 }

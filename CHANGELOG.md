@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Verify delivered candidate stage preservation from actual writers/loaders through artifact and production-exclusion boundaries. Close scoped obligation25 only through fresh source, SMT, finite-model and conformance composition; preserve all original criteria and reject every eligibility advancement. No runtime, model, configuration or research-evidence change.
+
 - Add opt-in `--report-bundle-v2` to verified offline report export: complete bundle encoding, bounded inputs, exclusive staging/link publication, file/directory fsync, exact-byte retry validation and conflict refusal. Preserve default export bytes and existing files. Add crash/retry model, SMT, process-kill and filesystem-failure regressions; recovery gains partial evidence, with training archives and bot persistence still unresolved. No candidate or live behavior is enabled.
 
 - Add default-disabled `ope-rational-v2` for complete exact-rational probability-to-estimate arithmetic, preserving positive weights lost by floating-point products and rejecting oversized batches. Add source-bound SMT, publication model, independent oracle and failure regressions. Preserve frozen OPE evidence, champion, holdouts and all live settings; no broad obligation is closed by this component.
