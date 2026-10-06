@@ -1,5 +1,7 @@
 # Obligation closure audit — 2026-10-03
 
+Exact replay accounting follow-up (2026-10-06): counts stay12 scoped closures /25 partial /1 open. F-RL-ACCOUNT-V2-* adds exact funding/debit and terminal-state evidence for6/8/10/18/19, without changing any original scope, criterion or broad status. The standalone transition kernel does not repair frozen v1 or establish learner/runner composition.
+
 All 38 original titles are retained. A closed affected-scope claim is not a proof of inherited production behavior. Production integration obligations stay open; none are silently marked inapplicable. Statistical/market-data blockers are separate from pure software closure.
 
 Current ledger (2026-10-06, FIFO progress): **12 scoped closures /25 partial /1 open**. The table below is synchronized with the machine-readable ledger; dated notes after it are historical.

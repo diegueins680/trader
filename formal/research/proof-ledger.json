@@ -331,6 +331,12 @@
       "status": "assumption",
       "statement": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REPLAY-ACCOUNT-V2",
+      "status": "assumption",
+      "statement": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -514,7 +520,13 @@
     "formal/research/fixtures/admission-progress.json",
     "formal/research/admission-progress-contract.md",
     "research-notes/registrations/admission-progress-engineering.json",
-    "formal/research/admission-progress-source.json"
+    "formal/research/admission-progress-source.json",
+    "scripts/formal/replay_accounting.py",
+    "formal/research/ReplayAccountingV2.hs",
+    "scripts/research/replay_accounting_v2.py",
+    "formal/research/replay-accounting-v2-contract.md",
+    "research-notes/registrations/replay-accounting-v2-engineering.json",
+    "formal/research/replay-accounting-v2-source.json"
   ],
   "entries": [
     {
@@ -4869,7 +4881,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "16 modules, 17 local imports, 2062 call sites, 22 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "exhaustively_checked"
@@ -4916,7 +4928,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "16 modules, 17 local imports, 2062 call sites, 22 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "smt_verified"
@@ -4963,7 +4975,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "16 modules, 17 local imports, 2062 call sites, 22 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "smt_verified"
@@ -5010,7 +5022,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "16 modules, 17 local imports, 2062 call sites, 22 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "model_checked"
@@ -5057,7 +5069,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_promotion and PromotionBoundaryTests, composed with freshly reproduced build/type/process certificates.",
-      "bounds": "12 modules, 15 local imports, 1737 call sites, 19 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
+      "bounds": "16 modules, 17 local imports, 2062 call sites, 22 control-field occurrences, six callback bindings; seven SAT-premise/UNSAT metadata queries and two schema exclusions over 12/10 membership bits. Reachable fixed point:18 states,88 edges,depth3,34 rejected metadata edges,2 formats,6 promotion inputs,3 enabled classes;72 actual codec cases,2 exclusive-create cases,zero training runs.",
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "counterexample": null,
       "status": "property_tested"
@@ -6457,6 +6469,126 @@
       "limitations": "Ordinary GHC9.4.8/base4.17.2.1/stm2.5.1.0/containers primitives, serializable STM rollback, exact Integer and Seq append/view/filter semantics, private cells, defined values, finite allocation, terminating callbacks/cleanup and weak scheduler fairness for continuously enabled actions. No fairness is assumed for intermittent admission; no wall-clock bound, overload guarantee, whole-server IO/compiler refinement or persistent recovery theorem. Finite legacy timing witness requires the contender to run during the original one-second sleep; timing failures must be reported. Original38 remains partial; unrelated server/runner paths are not certified.",
       "counterexample": "CE-BACKTEST-STARVATION",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-ACCOUNT-V2-SOURCE",
+      "claim": "Exact replay v2 has a completely reviewed pure source boundary, immutable state and receipts, explicit default rejection and version admission, and bounded rational primitives; it introduces no file, policy, promotion or order effect.",
+      "formalStatement": "Exact replay v2 has a completely reviewed pure source boundary, immutable state and receipts, explicit default rejection and version admission, and bounded rational primitives; it introduces no file, policy, promotion or order effect.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-ACCOUNT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 arithmetic, finite transition checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/replay-accounting-v2-contract.md",
+        "research-notes/registrations/replay-accounting-v2-engineering.json",
+        "formal/research/replay-accounting-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, nine SAT-premise/UNSAT-violation arithmetic queries, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit admitted numerator/denominator; at most16385-bit rational primitive intermediate;4096 ticks;128 funding events per tick;impact square-root error <2^-32;28 abstract states,52 transitions,max shortest depth3;128 generated episodes,1166 exact Haskell rows.",
+      "limitations": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established. Funding events and numeric values are abstracted in the state model. Extracted algebra plus tests is not full transition refinement. Old replay, policy/observation/training/loader composition and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-ACCOUNT-V2-ARITH",
+      "claim": "Source-extracted exact gross, funding and cost sums satisfy the one-step wealth identity and additive closing debit; admitted rational intermediates have bounded integer sizes, and the impact square-root upper approximation conservatively encloses the exact root under the isqrt contract.",
+      "formalStatement": "Source-extracted exact gross, funding and cost sums satisfy the one-step wealth identity and additive closing debit; admitted rational intermediates have bounded integer sizes, and the impact square-root upper approximation conservatively encloses the exact root under the isqrt contract.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-ACCOUNT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 arithmetic, finite transition checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/replay-accounting-v2-contract.md",
+        "research-notes/registrations/replay-accounting-v2-engineering.json",
+        "formal/research/replay-accounting-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, nine SAT-premise/UNSAT-violation arithmetic queries, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit admitted numerator/denominator; at most16385-bit rational primitive intermediate;4096 ticks;128 funding events per tick;impact square-root error <2^-32;28 abstract states,52 transitions,max shortest depth3;128 generated episodes,1166 exact Haskell rows.",
+      "limitations": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established. Funding events and numeric values are abstracted in the state model. Extracted algebra plus tests is not full transition refinement. Old replay, policy/observation/training/loader composition and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-ACCOUNT-V2-FLOW",
+      "claim": "The finite exact replay publication abstraction publishes only complete receipts, records terminal inventory as flat or explicitly failed liquidation, rejects arithmetic failure without a receipt, and has no continuation or order transition after termination.",
+      "formalStatement": "The finite exact replay publication abstraction publishes only complete receipts, records terminal inventory as flat or explicitly failed liquidation, rejects arithmetic failure without a receipt, and has no continuation or order transition after termination.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-ACCOUNT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 arithmetic, finite transition checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/replay-accounting-v2-contract.md",
+        "research-notes/registrations/replay-accounting-v2-engineering.json",
+        "formal/research/replay-accounting-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, nine SAT-premise/UNSAT-violation arithmetic queries, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit admitted numerator/denominator; at most16385-bit rational primitive intermediate;4096 ticks;128 funding events per tick;impact square-root error <2^-32;28 abstract states,52 transitions,max shortest depth3;128 generated episodes,1166 exact Haskell rows.",
+      "limitations": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established. Funding events and numeric values are abstracted in the state model. Extracted algebra plus tests is not full transition refinement. Old replay, policy/observation/training/loader composition and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-ACCOUNT-V2-CONFORMANCE",
+      "claim": "Exact replay v2 generated traces satisfy an independent compiled Haskell Rational wealth oracle, deterministic repetition and terminal refusal; extreme funding, subnormal-sized debits, insolvency and interrupted computation have explicit regression coverage.",
+      "formalStatement": "Exact replay v2 generated traces satisfy an independent compiled Haskell Rational wealth oracle, deterministic repetition and terminal refusal; extreme funding, subnormal-sized debits, insolvency and interrupted computation have explicit regression coverage.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-ACCOUNT-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 arithmetic, finite transition checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_accounting.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/replay-accounting-v2-contract.md",
+        "research-notes/registrations/replay-accounting-v2-engineering.json",
+        "formal/research/replay-accounting-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, nine SAT-premise/UNSAT-violation arithmetic queries, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit admitted numerator/denominator; at most16385-bit rational primitive intermediate;4096 ticks;128 funding events per tick;impact square-root error <2^-32;28 abstract states,52 transitions,max shortest depth3;128 generated episodes,1166 exact Haskell rows.",
+      "limitations": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established. Funding events and numeric values are abstracted in the state model. Extracted algebra plus tests is not full transition refinement. Old replay, policy/observation/training/loader composition and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -6524,7 +6656,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6541,7 +6674,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6555,7 +6689,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -6597,7 +6732,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6614,7 +6750,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6628,7 +6765,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -6680,9 +6818,13 @@
         "F-RECOVERY-NUMERIC",
         "F-RECOVERY-INDEX",
         "F-RECOVERY-FLOW",
-        "F-RECOVERY-CONFORMANCE"
+        "F-RECOVERY-CONFORMANCE",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-ACCOUNT-V2-ARITH",
+        "F-RL-ACCOUNT-V2-FLOW",
+        "F-RL-ACCOUNT-V2-CONFORMANCE"
       ],
-      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
       "nextAction": "Extend the composed PPO successor through checked artifact/process inference and full numeric replay/accounting; separately repair Q/CQL/OPE paths without changing frozen v1.",
@@ -6748,9 +6890,13 @@
         "F-RL-ROW-RECONCILE",
         "F-RL-WEALTH-FOLD",
         "F-RL-REWARD-RECONCILE",
-        "F-RL-REWARD-ADDITIVE"
+        "F-RL-REWARD-ADDITIVE",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-ACCOUNT-V2-ARITH",
+        "F-RL-ACCOUNT-V2-FLOW",
+        "F-RL-ACCOUNT-V2-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every wealth, fee, funding and liquidation debit reconciles actual binary64 execution within a stated error bound or rejects.",
       "nextAction": "Prove bounded arithmetic error and failure rules for a versioned replay accounting core.",
@@ -6845,9 +6991,13 @@
         "F-RL-OPE-V2-ARITH",
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-OPE-V2-FLOW",
-        "F-RL-OPE-V2-CONFORMANCE"
+        "F-RL-OPE-V2-CONFORMANCE",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-ACCOUNT-V2-ARITH",
+        "F-RL-ACCOUNT-V2-FLOW",
+        "F-RL-ACCOUNT-V2-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Extend bounded exact or checked arithmetic through replay/accounting, funding and Q/CQL successor paths; eliminate silent BLAS underflow. OPE v2 now composes raw probability ratios through descriptive estimates and ESS, but frozen v1 evidence stays invalid and numeric admission cannot establish empirical support.",
@@ -6882,7 +7032,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -6904,7 +7055,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6922,7 +7074,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -6958,7 +7111,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6989,7 +7143,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7020,7 +7175,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7172,9 +7328,13 @@
         "F-RL-ROW-RECONCILE",
         "F-RL-WEALTH-FOLD",
         "F-RL-REWARD-RECONCILE",
-        "F-RL-REWARD-ADDITIVE"
+        "F-RL-REWARD-ADDITIVE",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-ACCOUNT-V2-ARITH",
+        "F-RL-ACCOUNT-V2-FLOW",
+        "F-RL-ACCOUNT-V2-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every replay transition preserves state/ledger invariants or terminates in a specified failure state.",
       "nextAction": "Verify full transition composition with a bounded numeric core and preserved counterexample fixtures.",
@@ -7204,9 +7364,13 @@
         "F-RL-ROW-RECONCILE",
         "F-RL-WEALTH-FOLD",
         "F-RL-REWARD-RECONCILE",
-        "F-RL-REWARD-ADDITIVE"
+        "F-RL-REWARD-ADDITIVE",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-ACCOUNT-V2-ARITH",
+        "F-RL-ACCOUNT-V2-FLOW",
+        "F-RL-ACCOUNT-V2-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every terminal path records flat inventory or explicit failed liquidation and accounts all terminal costs exactly as specified.",
       "nextAction": "Prove each terminal branch, including insolvency, unavailable prices and rejected liquidation, against ledger publication.",
@@ -7382,7 +7546,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7410,7 +7575,8 @@
         "scripts/formal/promotion_boundary.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7431,7 +7597,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7454,7 +7621,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -7474,7 +7642,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7492,7 +7661,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7546,7 +7716,8 @@
         "F-RL-ARTIFACT-PATH",
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
-        "F-RL-DEFAULT"
+        "F-RL-DEFAULT",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Conditional delivered-stage safety closure. The pre-implementation consistency resolution in lifecycle-stage-contract.md replaces the unnecessary demand for an absent promotion service with source-bound preservation of Research eligibility. All original scope and criteria are unchanged; ordinary research inference remains possible, but every eligibility advancement is refused. This proves no future promotion-service liveness or implementation, gate satisfaction, production authorization, deployed-image behavior or economic acceptance. Every composed certificate must reproduce in the same invocation.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7595,7 +7766,8 @@
         "scripts/formal/artifact_composition.py",
         "scripts/formal/lifecycle_stage.py",
         "formal/research/lifecycle-stage-contract.md",
-        "research-notes/registrations/lifecycle-stage-engineering.json"
+        "research-notes/registrations/lifecycle-stage-engineering.json",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7643,7 +7815,8 @@
         "F-RL-ARTIFACT-PATH",
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
-        "F-RL-DEFAULT"
+        "F-RL-DEFAULT",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7670,7 +7843,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7698,7 +7872,8 @@
         "scripts/formal/promotion_boundary.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7719,7 +7894,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7776,7 +7952,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7800,7 +7977,8 @@
         "haskell/research/SnapshotRequestV3.hs",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7825,7 +8003,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7860,7 +8039,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7879,7 +8059,8 @@
         "scripts/formal/artifact_composition.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7902,7 +8083,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7933,7 +8115,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7952,7 +8135,8 @@
         "scripts/formal/artifact_composition.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7975,7 +8159,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {
@@ -7995,7 +8180,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ],
       "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
@@ -8014,7 +8200,8 @@
         "scripts/research/ppo_artifact_v4.py",
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
-        "scripts/research/report_bundle_v2.py"
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8030,7 +8217,8 @@
         "F-RL-OPE-V2-BOUNDARY",
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
-        "F-RL-BUNDLE-FLOW"
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE"
       ]
     },
     {

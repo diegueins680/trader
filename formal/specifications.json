@@ -93,7 +93,12 @@
         "formal/research/AdmissionProgress.hs",
         "formal/research/fixtures/admission-progress-before.hs",
         "formal/research/fixtures/admission-progress-witness.hs",
-        "formal/research/fixtures/admission-progress.json"
+        "formal/research/fixtures/admission-progress.json",
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/replay-accounting-v2-contract.md",
+        "formal/research/replay-accounting-v2-source.json",
+        "scripts/formal/replay_accounting.py",
+        "formal/research/ReplayAccountingV2.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -769,6 +774,22 @@
         {
           "id": "F-ADMISSION-PROGRESS-CONFORMANCE",
           "statement": "Compiled current Haskell gates reject barging, preserve FIFO, clean up cancelled waiters and wake on drain; the preserved legacy helper admits a competing request before its registered retrying waiter in the tested finite schedule."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-SOURCE",
+          "statement": "Exact replay v2 has a completely reviewed pure source boundary, immutable state and receipts, explicit default rejection and version admission, and bounded rational primitives; it introduces no file, policy, promotion or order effect."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-ARITH",
+          "statement": "Source-extracted exact gross, funding and cost sums satisfy the one-step wealth identity and additive closing debit; admitted rational intermediates have bounded integer sizes, and the impact square-root upper approximation conservatively encloses the exact root under the isqrt contract."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-FLOW",
+          "statement": "The finite exact replay publication abstraction publishes only complete receipts, records terminal inventory as flat or explicitly failed liquidation, rejects arithmetic failure without a receipt, and has no continuation or order transition after termination."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-CONFORMANCE",
+          "statement": "Exact replay v2 generated traces satisfy an independent compiled Haskell Rational wealth oracle, deterministic repetition and terminal refusal; extreme funding, subnormal-sized debits, insolvency and interrupted computation have explicit regression coverage."
         }
       ],
       "invariants": [

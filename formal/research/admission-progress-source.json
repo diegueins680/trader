@@ -7,7 +7,7 @@
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
     "haskell/app/Trader/App/GracefulShutdown.hs": "fbd3cbd0e9a310dc4f31cf421479008689d08cc2914ef3d2a9e4c8214e91b092",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
-    "scripts/formal/test_integrity.py": "bf71d63cd6ca4b2e565316bc88e9e99a6786eada111416e8248106177f53eb60",
+    "scripts/formal/test_integrity.py": "fac9dc584967dc43ef74d752c624a5a800f53e68179bb8348329f40f14e27dfd",
     "haskell/test/Trader/Test/AdmissionProgress.hs": "aaae04d8b6b315dc8214abd1e4b8363ee54f52159717c2577427aa0118c74451",
     "formal/research/AdmissionProgress.hs": "62bf77149e36459169414f66c9a6cec93aa48a941c1a0c6cca1868185651c0e7",
     "formal/research/fixtures/admission-progress-before.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
