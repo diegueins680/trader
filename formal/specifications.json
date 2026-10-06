@@ -679,6 +679,22 @@
         {
           "id": "F-RL-SHIELD-CONSUMER-CONFORMANCE",
           "statement": "Actual shield, Replay and all collector/replay/OPE consumers conform to projected model traces on synthetic paths; generated invalid proposals cannot consume an existing pending target."
+        },
+        {
+          "id": "F-RL-PIT-TIME",
+          "statement": "Source-derived integer availability bounds every selected timestamp by the decision and signed-63-bit publication domain; maximum visible revision transfer preserves its order, tie rejection and unavailable-record frame."
+        },
+        {
+          "id": "F-RL-PIT-BOUNDARY",
+          "statement": "The complete reviewed v3 entry admits immutable witnessed per-bar vintages before its sole private-array PPO successor call, defaults disabled, and publishes only a complete versioned envelope without new persistence, promotion or order effects."
+        },
+        {
+          "id": "F-RL-PIT-FLOW",
+          "statement": "The finite two-slot three-revision scan and training protocol never trains or publishes from missing or ambiguous greatest-visible revisions; failed or disabled calls publish no result."
+        },
+        {
+          "id": "F-RL-PIT-CONFORMANCE",
+          "statement": "Actual timestamp admission agrees with an independent oracle on generated records, preserves symbol and future-payload isolation, rejects malformed/missing data and composes with the actual PPO successor on a registered synthetic fixture."
         }
       ],
       "invariants": [
@@ -916,6 +932,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "ShieldConsumerTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "PointInTimeTests"
         }
       ]
     },

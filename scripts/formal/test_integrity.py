@@ -3373,7 +3373,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(12,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(13,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3483,7 +3483,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':12}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':13}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3610,6 +3610,156 @@ class ShieldConsumerTests(unittest.TestCase):
             changed=dict(reproduced);del changed[certificate]
             with self.subTest(certificate=certificate),self.assertRaisesRegex(ValueError,'not reproduced'):
                 validate_obligations(ledger['missionObligations'],ledger['entries'],changed)
+
+
+
+class PointInTimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import point_in_time_v3 as impl
+        import point_in_time as proof
+        cls.p=impl;cls.v=proof
+
+    def test_source_mutations_and_omissions_fail(self):
+        source=(ROOT/self.v.SOURCE).read_text()
+        for before,after in [('enabled: object = False','enabled: object = True'),
+                             ('available > decision','available < decision'),
+                             ('record.revision > old.revision','record.revision >= old.revision'),
+                             ('if admitted is None:','if False:'),
+                             ('ambiguous.add(key)','ambiguous.discard(key)'),
+                             ('np.asarray(row, dtype="<f8")','np.asarray(row, dtype="<f4")')]:
+            mutated=source.replace(before,after,1);self.assertNotEqual(source,mutated)
+            with self.assertRaises(ValueError):self.v.extract(mutated)
+        registry=read_json(ROOT/self.v.REGISTRY)
+        for name in registry['definitions']:
+            altered=copy.deepcopy(registry);del altered['definitions'][name]
+            with self.assertRaises(ValueError):self.v.extract(source,altered)
+
+    def test_smt_and_model_mutants_fail(self):
+        nodes,_=self.v.extract()
+        bad=copy.deepcopy(nodes)
+        bad['_available']=ast.parse('def _available(record, processing_us):\n return record.close + processing_us').body[0]
+        with self.assertRaises(ValueError):self.v.prove(bad)
+        with self.assertRaises(ValueError):self.v.check_model(mutant=True)
+        self.assertEqual(self.v.prove(nodes),{'F-RL-PIT-TIME':'unsat'})
+        self.assertEqual(self.v.check_model()['states'],126)
+
+    def test_unknown_solver_and_refreshed_witness_mutants_fail(self):
+        class Unknown:
+            def set(self,**kw):pass
+            def add(self,*args):pass
+            def check(self):return z3.unknown
+        nodes,_=self.v.extract()
+        with patch.object(self.v.z,'Solver',Unknown),self.assertRaises(ValueError):self.v.prove(nodes)
+        import hashlib
+        source=(ROOT/self.v.SOURCE).read_text()
+        for before,after in [('record.close <= record.first_seen <= record.collected','record.close <= record.first_seen'),
+                             ('record.revision > 0 and record.revised is None','False'),
+                             ('MAX_TIME = 2**63 - 1','MAX_TIME = 2**64 - 1')]:
+            changed=source.replace(before,after,1);tree=ast.parse(changed)
+            registry={'schemaVersion':1,'astSha256':hashlib.sha256(ast.dump(tree,include_attributes=False).encode()).hexdigest(),
+                      'definitions':{n.name:ast.dump(n,include_attributes=False) for n in tree.body if isinstance(n,(ast.FunctionDef,ast.ClassDef))}}
+            with self.assertRaises(ValueError):self.v.extract(changed,registry)
+
+    def test_schema_missingness_and_nonfinite_reject(self):
+        from dataclasses import replace
+        p=self.p;args=self.v.fixture();record=args[0][0]
+        bad=[replace(record,first_seen=None),replace(record,collected=None),
+             replace(record,first_seen=-1),replace(record,collected=0),
+             replace(record,released=100),replace(record,revised=-1),
+             replace(record,revision=1),replace(record,revision=True),
+             replace(record,close=True),replace(record,symbol='OTHER'),
+             replace(record,kind='order'),replace(record,value=float('nan')),
+             replace(record,value=float('inf')),replace(record,value=True),
+             replace(record,value=0.0),replace(record,value=-1.0)]
+        for invalid in bad:
+            with self.subTest(record=invalid):
+                self.assertIsNone(p.admit_v3((invalid,)+args[0][1:],*args[1:],enabled=True))
+        self.assertIsNone(p.admit_v3(args[0][:-1],*args[1:],enabled=True))
+        for symbols,closes,decisions,lag in [(('FIXTURE','FIXTURE'),args[2],args[3],0),
+              (args[1],args[2][:-1],args[3][:-1],0),(args[1],args[2],args[2],-1),
+              (args[1],args[2],(1001,)+args[3][1:],0),(args[1],args[2],args[3],True)]:
+            self.assertIsNone(p.admit_v3(args[0],symbols,closes,decisions,lag,enabled=True))
+
+    def test_no_future_payload_read_or_revision_backdate(self):
+        from dataclasses import replace
+        p=self.p;args=self.v.fixture();baseline=p.admit_v3(*args,5,enabled=True)
+        class Poison:
+            def __float__(self):raise AssertionError('future value accessed')
+        late=replace(args[0][0],revision=1,revised=30,first_seen=40,collected=101,value=Poison())
+        self.assertEqual(p.admit_v3(args[0]+(late,),*args[1:],5,enabled=True),baseline)
+        timely=replace(late,collected=50,value=101.)
+        updated=p.admit_v3(args[0]+(timely,),*args[1:],5,enabled=True)
+        self.assertIsNotNone(updated);self.assertEqual(updated.witnesses[0].revision,1)
+        self.assertIsNone(p.admit_v3(args[0]+(timely,timely),*args[1:],5,enabled=True))
+        self.assertEqual(p.admit_v3(args[0]+(args[0][0],timely),*args[1:],5,enabled=True),updated)
+
+    def test_symbol_isolation_and_temporal_bounds(self):
+        from dataclasses import replace
+        p=self.p;args=self.v.fixture()
+        other=tuple(replace(r,symbol='SECOND',value=200. if r.kind=='price' else 0.) for r in args[0])
+        admitted=p.admit_v3(args[0]+other,('FIXTURE','SECOND'),*args[2:],5,enabled=True)
+        self.assertIsNotNone(admitted);self.assertNotEqual(admitted.prices[0],admitted.prices[1])
+        modified=list(other);modified[0]=replace(modified[0],value=300.)
+        updated=p.admit_v3(args[0]+tuple(modified),('FIXTURE','SECOND'),*args[2:],5,enabled=True)
+        self.assertEqual(admitted.prices[0],updated.prices[0]);self.assertEqual(admitted.witnesses,updated.witnesses)
+        shift=p.MAX_TIME-args[3][-1]
+        shifted=tuple(replace(r,close=r.close+shift,first_seen=r.first_seen+shift,collected=r.collected+shift) for r in args[0])
+        c=tuple(t+shift for t in args[2]);d=tuple(t+shift for t in args[3])
+        self.assertIsNotNone(p.admit_v3(shifted,args[1],c,d,80,enabled=True))
+        self.assertIsNone(p.admit_v3(shifted,args[1],c,d,81,enabled=True))
+        self.assertGreater(p._available(shifted[-1],p.MAX_TIME),p.MAX_TIME)
+        self.assertIsNone(p.admit_v3(shifted,args[1],c,d,p.MAX_TIME,enabled=True))
+
+    def test_default_and_failure_never_publish_or_train(self):
+        p=self.p;args=self.v.fixture()
+        for value in (False,None,0,1,'true'):
+            with patch.object(p,'train_ppo_v2',side_effect=AssertionError('unadmitted')):
+                self.assertIsNone(p.train_point_in_time_v3(*args,1,31,1,enabled=value))
+        with patch.object(p,'train_ppo_v2',side_effect=AssertionError('bad-version')):
+            self.assertIsNone(p.train_point_in_time_v3(*args,1,31,1,enabled=True,version='v2'))
+        for failure in (None,ValueError('injected'),MemoryError('injected')):
+            with patch.object(p,'train_ppo_v2',return_value=failure if failure is None else None,
+                              side_effect=failure if isinstance(failure,Exception) else None):
+                self.assertIsNone(p.train_point_in_time_v3(*args,1,31,1,enabled=True))
+
+    def test_private_array_handoff_and_immutable_envelope(self):
+        from dataclasses import FrozenInstanceError
+        import numpy as np
+        p=self.p;args=self.v.fixture();admitted=p.admit_v3(*args,enabled=True)
+        def learner(prices,funding,*pos,**kw):
+            self.assertEqual(prices['FIXTURE'].tolist(),[100.]*121)
+            prices['FIXTURE'][0]=123.;funding['FIXTURE'][0]=3.
+            return None
+        with patch.object(p,'train_ppo_v2',side_effect=learner):
+            self.assertIsNone(p.train_point_in_time_v3(*args,1,31,1,enabled=True))
+        self.assertEqual(p.admit_v3(*args,enabled=True),admitted)
+        with self.assertRaises(FrozenInstanceError):admitted.processing_us=999
+        with self.assertRaises(ValueError):np.frombuffer(admitted.prices[0],dtype='<f8').setflags(write=True)
+
+    def test_oracle_and_actual_training_conformance(self):
+        result=self.v.conformance();self.assertEqual(result['generatedOracleCases'],64)
+        self.assertEqual(result['syntheticTraining']['steps'],1)
+
+    def test_full_shield_composition_includes_new_entry(self):
+        import shield_consumers as c
+        from promotion_boundary import extract
+        _,surface=extract()
+        production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
+        result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
+        self.assertEqual(result['surface']['modules'],13)
+        with self.assertRaisesRegex(ValueError,'complete consumer composition'):
+            c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
+
+    def test_existing_closures_require_new_boundary(self):
+        from verify import validate_obligations
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        reproduced={e['requirementId']:e['status'] for e in ledger['entries']}
+        del reproduced['F-RL-PIT-BOUNDARY']
+        with self.assertRaisesRegex(ValueError,'not reproduced'):
+            validate_obligations(ledger['missionObligations'],ledger['entries'],reproduced)
 
 
 if __name__ == '__main__':

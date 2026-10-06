@@ -301,6 +301,12 @@
       "status": "assumption",
       "statement": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-PIT-WITNESS",
+      "status": "assumption",
+      "statement": "A-PIT-WITNESS: caller timestamp/revision evidence is truthful and clock-consistent; authenticity and historical availability are not proved. Exact CPython integer, tuple, frozen dataclass and NumPy copying semantics, ordinary base objects and trusted reviewed primitive effects. No hostile reflection/monkeypatching or concurrent source mutation. Source/model mapping is reviewed and conformance-tested, not compiler refinement. Per-bar decision vintages are frozen, not retrospective rolling revisions. Frozen CSV, actual market fills, numerical accounting, production ingestion and empirical superiority remain outside this certificate.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -459,7 +465,12 @@
     "formal/research/shield-consumer-source.json",
     "formal/research/replay-shield-contract.md",
     "research-notes/registrations/replay-shield-consumer-engineering.json",
-    "scripts/formal/shield_consumers.py"
+    "scripts/formal/shield_consumers.py",
+    "scripts/research/point_in_time_v3.py",
+    "formal/research/point-in-time-source.json",
+    "formal/research/point-in-time-contract.md",
+    "research-notes/registrations/point-in-time-engineering.json",
+    "scripts/formal/point_in_time.py"
   ],
   "entries": [
     {
@@ -5441,7 +5452,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
-      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete13-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "counterexample": null,
       "status": "exhaustively_checked"
@@ -5476,7 +5487,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
-      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete13-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "counterexample": null,
       "status": "smt_verified"
@@ -5511,7 +5522,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
-      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete13-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "counterexample": null,
       "status": "model_checked"
@@ -5546,8 +5557,140 @@
       ],
       "ciCommand": "bash scripts/verify.sh full",
       "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
-      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete13-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-PIT-TIME",
+      "claim": "Source-derived integer availability bounds every selected timestamp by the decision and signed-63-bit publication domain; maximum visible revision transfer preserves its order, tie rejection and unavailable-record frame.",
+      "formalStatement": "Source-derived integer availability bounds every selected timestamp by the decision and signed-63-bit publication domain; maximum visible revision transfer preserves its order, tie rejection and unavailable-record frame.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PIT-WITNESS",
+        "A-PROMOTION-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source extraction, Z3 integer arithmetic, finite fixed-point model, generated oracle and actual learner conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/point_in_time.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/point-in-time-source.json",
+        "formal/research/point-in-time-contract.md",
+        "research-notes/registrations/point-in-time-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Fresh check_point_in_time and PointInTimeTests required; economic acceptance remains blocked.",
+      "bounds": "Integer timestamps 0..2^63-1;1..8 symbols;121..4096 bars;1..262144 records.7 SAT/UNSAT queries.126 model states470 transitions depth6;2 slots3 revision ranks.64 oracle cases,5 future payload cases,1 synthetic training step seed31.",
+      "limitations": "A-PIT-WITNESS: caller timestamp/revision evidence is truthful and clock-consistent; authenticity and historical availability are not proved. Exact CPython integer, tuple, frozen dataclass and NumPy copying semantics, ordinary base objects and trusted reviewed primitive effects. No hostile reflection/monkeypatching or concurrent source mutation. Source/model mapping is reviewed and conformance-tested, not compiler refinement. Per-bar decision vintages are frozen, not retrospective rolling revisions. Frozen CSV, actual market fills, numerical accounting, production ingestion and empirical superiority remain outside this certificate.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-PIT-BOUNDARY",
+      "claim": "The complete reviewed v3 entry admits immutable witnessed per-bar vintages before its sole private-array PPO successor call, defaults disabled, and publishes only a complete versioned envelope without new persistence, promotion or order effects.",
+      "formalStatement": "The complete reviewed v3 entry admits immutable witnessed per-bar vintages before its sole private-array PPO successor call, defaults disabled, and publishes only a complete versioned envelope without new persistence, promotion or order effects.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PIT-WITNESS",
+        "A-PROMOTION-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source extraction, Z3 integer arithmetic, finite fixed-point model, generated oracle and actual learner conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/point_in_time.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/point-in-time-source.json",
+        "formal/research/point-in-time-contract.md",
+        "research-notes/registrations/point-in-time-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Fresh check_point_in_time and PointInTimeTests required; economic acceptance remains blocked.",
+      "bounds": "Integer timestamps 0..2^63-1;1..8 symbols;121..4096 bars;1..262144 records.7 SAT/UNSAT queries.126 model states470 transitions depth6;2 slots3 revision ranks.64 oracle cases,5 future payload cases,1 synthetic training step seed31.",
+      "limitations": "A-PIT-WITNESS: caller timestamp/revision evidence is truthful and clock-consistent; authenticity and historical availability are not proved. Exact CPython integer, tuple, frozen dataclass and NumPy copying semantics, ordinary base objects and trusted reviewed primitive effects. No hostile reflection/monkeypatching or concurrent source mutation. Source/model mapping is reviewed and conformance-tested, not compiler refinement. Per-bar decision vintages are frozen, not retrospective rolling revisions. Frozen CSV, actual market fills, numerical accounting, production ingestion and empirical superiority remain outside this certificate.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-PIT-FLOW",
+      "claim": "The finite two-slot three-revision scan and training protocol never trains or publishes from missing or ambiguous greatest-visible revisions; failed or disabled calls publish no result.",
+      "formalStatement": "The finite two-slot three-revision scan and training protocol never trains or publishes from missing or ambiguous greatest-visible revisions; failed or disabled calls publish no result.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PIT-WITNESS",
+        "A-PROMOTION-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source extraction, Z3 integer arithmetic, finite fixed-point model, generated oracle and actual learner conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/point_in_time.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/point-in-time-source.json",
+        "formal/research/point-in-time-contract.md",
+        "research-notes/registrations/point-in-time-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Fresh check_point_in_time and PointInTimeTests required; economic acceptance remains blocked.",
+      "bounds": "Integer timestamps 0..2^63-1;1..8 symbols;121..4096 bars;1..262144 records.7 SAT/UNSAT queries.126 model states470 transitions depth6;2 slots3 revision ranks.64 oracle cases,5 future payload cases,1 synthetic training step seed31.",
+      "limitations": "A-PIT-WITNESS: caller timestamp/revision evidence is truthful and clock-consistent; authenticity and historical availability are not proved. Exact CPython integer, tuple, frozen dataclass and NumPy copying semantics, ordinary base objects and trusted reviewed primitive effects. No hostile reflection/monkeypatching or concurrent source mutation. Source/model mapping is reviewed and conformance-tested, not compiler refinement. Per-bar decision vintages are frozen, not retrospective rolling revisions. Frozen CSV, actual market fills, numerical accounting, production ingestion and empirical superiority remain outside this certificate.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-PIT-CONFORMANCE",
+      "claim": "Actual timestamp admission agrees with an independent oracle on generated records, preserves symbol and future-payload isolation, rejects malformed/missing data and composes with the actual PPO successor on a registered synthetic fixture.",
+      "formalStatement": "Actual timestamp admission agrees with an independent oracle on generated records, preserves symbol and future-payload isolation, rejects malformed/missing data and composes with the actual PPO successor on a registered synthetic fixture.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-PIT-WITNESS",
+        "A-PROMOTION-BOUNDARY",
+        "A-SOLVER"
+      ],
+      "tool": "Source extraction, Z3 integer arithmetic, finite fixed-point model, generated oracle and actual learner conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/point_in_time.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/point-in-time-source.json",
+        "formal/research/point-in-time-contract.md",
+        "research-notes/registrations/point-in-time-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Fresh check_point_in_time and PointInTimeTests required; economic acceptance remains blocked.",
+      "bounds": "Integer timestamps 0..2^63-1;1..8 symbols;121..4096 bars;1..262144 records.7 SAT/UNSAT queries.126 model states470 transitions depth6;2 slots3 revision ranks.64 oracle cases,5 future payload cases,1 synthetic training step seed31.",
+      "limitations": "A-PIT-WITNESS: caller timestamp/revision evidence is truthful and clock-consistent; authenticity and historical availability are not proved. Exact CPython integer, tuple, frozen dataclass and NumPy copying semantics, ordinary base objects and trusted reviewed primitive effects. No hostile reflection/monkeypatching or concurrent source mutation. Source/model mapping is reviewed and conformance-tested, not compiler refinement. Per-bar decision vintages are frozen, not retrospective rolling revisions. Frozen CSV, actual market fills, numerical accounting, production ingestion and empirical superiority remain outside this certificate.",
       "counterexample": null,
       "status": "property_tested"
     }
@@ -5612,7 +5755,8 @@
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -5626,7 +5770,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -5635,24 +5780,31 @@
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
       "number": 4,
       "claim": "Revision timing",
-      "status": "open",
-      "evidenceRequirements": [],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed.",
+      "status": "partially_verified",
+      "evidenceRequirements": [
+        "F-RL-PIT-TIME",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-PIT-FLOW",
+        "F-RL-PIT-CONFORMANCE"
+      ],
+      "limitations": "A-PIT-WITNESS: caller timestamp/revision evidence is truthful and clock-consistent; authenticity and historical availability are not proved. Exact CPython integer, tuple, frozen dataclass and NumPy copying semantics, ordinary base objects and trusted reviewed primitive effects. No hostile reflection/monkeypatching or concurrent source mutation. Source/model mapping is reviewed and conformance-tested, not compiler refinement. Per-bar decision vintages are frozen, not retrospective rolling revisions. Frozen CSV, actual market fills, numerical accounting, production ingestion and empirical superiority remain outside this certificate.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "A revision is visible only at or after its release or first observation, whichever the availability contract requires.",
-      "nextAction": "Add versioned timestamp admission to an unfrozen research data path; reject unverifiable revision records.",
+      "nextAction": "Obtain authentic release/first-seen/revision witnesses for prospective data and extend the proved admission contract to inherited ingestion. Do not backfill invented historical availability or treat frozen CSV as causal confirmation.",
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_env.py"
+        "scripts/research/sequential_env.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [
-        "Current OHLCV/funding input has no sufficient point-in-time revision witness."
+        "Frozen OHLCV/funding input has no sufficient point-in-time revision witness; inherited production ingestion and timestamp authenticity remain unverified."
       ],
       "requiredCertificates": []
     },
@@ -5666,7 +5818,8 @@
         "F-RL-DATA-KEYS",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -5680,7 +5833,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -5689,7 +5843,8 @@
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -5933,7 +6088,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -5952,7 +6108,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -5965,7 +6122,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -5996,7 +6154,8 @@
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-SHIELD-CONSUMER-CONFORMANCE"
+        "F-RL-SHIELD-CONSUMER-CONFORMANCE",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6024,7 +6183,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6050,7 +6210,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6403,7 +6564,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6428,7 +6590,8 @@
         "haskell/trader.cabal",
         "haskell/research/InferenceProcessV2.hs",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/formal/promotion_boundary.py"
+        "scripts/formal/promotion_boundary.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6444,7 +6607,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6462,7 +6626,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -6479,7 +6644,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6492,7 +6658,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6534,7 +6701,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6559,7 +6727,8 @@
         "haskell/trader.cabal",
         "haskell/research/InferenceProcessV2.hs",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/formal/promotion_boundary.py"
+        "scripts/formal/promotion_boundary.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6575,7 +6744,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6627,7 +6797,8 @@
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
         "F-RL-ARTIFACT-DISJOINT",
-        "F-RL-ARCHIVE-CONFORMANCE"
+        "F-RL-ARCHIVE-CONFORMANCE",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6648,7 +6819,8 @@
         "scripts/formal/champion_archive.py",
         "haskell/trader.cabal",
         "haskell/research/InferenceProcessV2.hs",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6668,7 +6840,8 @@
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-ARTIFACT-DISJOINT"
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6698,7 +6871,8 @@
         "F-RL-PROMOTION-SCHEMA",
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6714,7 +6888,8 @@
         "formal/research/artifact-legacy-loader.json",
         "formal/research/artifact-composition-contract.md",
         "research-notes/registrations/artifact-admission-engineering.json",
-        "scripts/formal/artifact_composition.py"
+        "scripts/formal/artifact_composition.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6732,7 +6907,8 @@
         "F-RL-PROMOTION-SCHEMA",
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6758,7 +6934,8 @@
         "F-RL-PROMOTION-SCHEMA",
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6774,7 +6951,8 @@
         "formal/research/artifact-legacy-loader.json",
         "formal/research/artifact-composition-contract.md",
         "research-notes/registrations/artifact-admission-engineering.json",
-        "scripts/formal/artifact_composition.py"
+        "scripts/formal/artifact_composition.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6792,7 +6970,8 @@
         "F-RL-PROMOTION-SCHEMA",
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
@@ -6807,7 +6986,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
@@ -6823,7 +7003,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6834,7 +7015,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ]
     },
     {
