@@ -850,3 +850,5 @@ must not be treated as completed evidence. Retries do not replace existing outpu
 The [champion preservation report](research-notes/sequential-control-2026-09-17/champion-archive-2026-10-05.md)
 records the composed, conditional closure of obligation 28: **10 scoped closures,
 24 partial, 4 open**. This is no candidate adoption or production authorization.
+
+The [shield-consumer report](research-notes/sequential-control-2026-09-17/shield-consumers-2026-10-05.md) composes actual replay ownership, call-entry gates and pending-action origin with existing Haskell/type/process isolation. Conditional scoped obligation12 closes only when every constituent reproduces: **11 scoped closures, 23 partial, 4 open**. No runtime behavior or financial evidence changes. Hard-constraint completeness, accounting, rollback and production races remain separate unresolved requirements.

@@ -295,6 +295,12 @@
       "status": "assumption",
       "statement": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SHIELD-COMPOSITION",
+      "status": "assumption",
+      "statement": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -447,7 +453,13 @@
     "formal/research/champion-archive-contract.md",
     "formal/research/fixtures/champion-archive.json",
     "research-notes/registrations/champion-archive-engineering.json",
-    "scripts/formal/champion_archive.py"
+    "scripts/formal/champion_archive.py",
+    "scripts/research/sequential_env.py",
+    "scripts/research/sequential_evaluation.py",
+    "formal/research/shield-consumer-source.json",
+    "formal/research/replay-shield-contract.md",
+    "research-notes/registrations/replay-shield-consumer-engineering.json",
+    "scripts/formal/shield_consumers.py"
   ],
   "entries": [
     {
@@ -5398,6 +5410,146 @@
       "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "counterexample": "CE-RL-ARCHIVE-COLLISION",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-CONSUMERS",
+      "claim": "All delivered replay constructors, receiver uses, callbacks and action consumers preserve local instance ownership; actual step admission dominates scheduling and both guarded fill paths, under reviewed primitive effects.",
+      "formalStatement": "All delivered replay constructors, receiver uses, callbacks and action consumers preserve local instance ownership; actual step admission dominates scheduling and both guarded fill paths, under reviewed primitive effects.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SHIELD-COMPOSITION",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Source-derived receiver/effect and control-flow checks; Z3; finite fixed-point checker; actual trace conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/shield_consumers.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/shield-consumer-source.json",
+        "formal/research/replay-shield-contract.md",
+        "research-notes/registrations/replay-shield-consumer-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-ORIGIN",
+      "claim": "The extracted absent-or-shielded pending transfer preserves action origin and the shield action domain; consumed pending targets require current admission, observation, due and risk gates; terminal zero is independently risk-selected and distinct instances preserve each other.",
+      "formalStatement": "The extracted absent-or-shielded pending transfer preserves action origin and the shield action domain; consumed pending targets require current admission, observation, due and risk gates; terminal zero is independently risk-selected and distinct instances preserve each other.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SHIELD-COMPOSITION",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Source-derived receiver/effect and control-flow checks; Z3; finite fixed-point checker; actual trace conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/shield_consumers.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/shield-consumer-source.json",
+        "formal/research/replay-shield-contract.md",
+        "research-notes/registrations/replay-shield-consumer-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-FLOW",
+      "claim": "The finite repeated-call shield/observation/pending/fill model and its independent two-instance product preserve shield origin and consumer precedence, including delayed pending targets, rejection, cancellation and fixed-zero terminal liquidation.",
+      "formalStatement": "The finite repeated-call shield/observation/pending/fill model and its independent two-instance product preserve shield origin and consumer precedence, including delayed pending targets, rejection, cancellation and fixed-zero terminal liquidation.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SHIELD-COMPOSITION",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Source-derived receiver/effect and control-flow checks; Z3; finite fixed-point checker; actual trace conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/shield_consumers.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/shield-consumer-source.json",
+        "formal/research/replay-shield-contract.md",
+        "research-notes/registrations/replay-shield-consumer-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-SHIELD-CONSUMER-CONFORMANCE",
+      "claim": "Actual shield, Replay and all collector/replay/OPE consumers conform to projected model traces on synthetic paths; generated invalid proposals cannot consume an existing pending target.",
+      "formalStatement": "Actual shield, Replay and all collector/replay/OPE consumers conform to projected model traces on synthetic paths; generated invalid proposals cannot consume an existing pending target.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SHIELD-COMPOSITION",
+        "A-PROMOTION-BOUNDARY",
+        "A-CAPABILITY-BUILD",
+        "A-SOLVER"
+      ],
+      "tool": "Source-derived receiver/effect and control-flow checks; Z3; finite fixed-point checker; actual trace conformance",
+      "toolVersion": "CPython 3.13.3; Z3 4.15.4; GHC 9.4.8; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/shield_consumers.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/shield-consumer-source.json",
+        "formal/research/replay-shield-contract.md",
+        "research-notes/registrations/replay-shield-consumer-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh full",
+      "result": "Reproduced by check_consumers and ShieldConsumerTests, plus all required fresh Haskell/type/process/production-isolation constituents.",
+      "bounds": "4 constructors,4 step calls,2 fill sites,89 receiver uses in complete12-module inventory. Seven SAT-premise/UNSAT queries. Local129 states213 transitions,depth10; two-instance product16641 states54954 transitions.28 actual conformance cases,187 steps,178 trades;64 generated rejection cases. No financial data/training.",
+      "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -5819,26 +5971,87 @@
     {
       "number": 12,
       "claim": "Safety-shield precedence",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
+        "F-RL-SHIELD-CONSUMERS",
+        "F-RL-SHIELD-ORIGIN",
+        "F-RL-SHIELD-FLOW",
         "F-RL-SHIELD-GUARDS",
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-SHIELD-FALLBACK",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROCESS-ADMISSION",
+        "F-RL-PROCESS-LIFECYCLE",
         "F-RL-BRIDGE-V3-CODEC",
         "F-RL-BRIDGE-V3-FLOW",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-BRIDGE-V3-CONFORMANCE"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-SHIELD-CONSUMER-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness.",
+      "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every consumed action passes the deterministic shield and cannot race around it.",
-      "nextAction": "Prove proposal-to-consumer composition, including rejection and rescreening at consumption.",
+      "nextAction": "Reopen on any added/shared replay consumer, receiver escape, mutable callback, asynchronous control, helper effect, pending/guard mutation or production integration. Preserve separate numeric, hard-constraint, rollback and production-race obligations.",
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
-        "scripts/research/sequential_env.py"
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/formal/promotion_boundary.py",
+        "formal/research/promotion-boundary-source.json",
+        "formal/research/shield-consumer-source.json",
+        "formal/research/replay-shield-contract.md",
+        "research-notes/registrations/replay-shield-consumer-engineering.json",
+        "scripts/formal/shield_consumers.py",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Main.hs",
+        "haskell/trader.cabal",
+        "scripts/research/sequential_learning.py",
+        "scripts/formal/capability_isolation.py",
+        "formal/research/ComponentGraph.hs",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py"
       ],
-      "blockers": [
-        "Pure proposal guard is checked; replay consumers and any future runtime bridge are not fully refined."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-SHIELD-CONSUMERS",
+        "F-RL-SHIELD-ORIGIN",
+        "F-RL-SHIELD-FLOW",
+        "F-RL-SHIELD-GUARDS",
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-SHIELD-FALLBACK",
+        "F-RL-REPLAY-DUE",
+        "F-RL-REPLAY-ORDER",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROCESS-ADMISSION",
+        "F-RL-PROCESS-LIFECYCLE",
+        "F-RL-BRIDGE-V3-CODEC",
+        "F-RL-BRIDGE-V3-FLOW",
+        "F-RL-COMPONENT-ISOLATION",
+        "F-RL-POLICY-EFFECTS",
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-AUTH",
+        "F-RL-DEFAULT-PATH",
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PROCESS-ISOLATION",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY"
+      ]
     },
     {
       "number": 13,

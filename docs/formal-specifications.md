@@ -819,3 +819,5 @@ Obligation 28 closes only with all required certificates reproduced; the origina
 38 scope/criterion strings are unchanged. Current totals are 10 scoped closures,
 24 partial, 4 open. Crash durability, hostile parent-namespace mutation, inherited
 production correctness and all economic acceptance gates remain uncertified.
+
+Shield-consumer composition adds F-RL-SHIELD-CONSUMERS/ORIGIN/FLOW/CONSUMER-CONFORMANCE under A-SHIELD-COMPOSITION. Source-derived receiver ownership, actual guard/target dominators, pending-origin induction and repeated-call trace conformance compose with existing Haskell/proposal/process/production-isolation certificates. Obligation12 retains its original scope/criterion. Current totals: **11 scoped closures /23 partial /4 open**; overall incomplete. No universal interpreter refinement, numeric/accounting, rollback or production-race theorem is claimed. See [contract](../formal/research/replay-shield-contract.md).

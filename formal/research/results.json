@@ -1600,10 +1600,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 10,
+    "closedMissionObligations": 11,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 28
+    "openMissionObligations": 27
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -2781,6 +2781,231 @@
     }
   },
   "schemaVersion": 1,
+  "shieldConsumers": {
+    "conformance": {
+      "cases": 28,
+      "marketDataReads": 0,
+      "ordinaryTrades": 149,
+      "scope": "actual shield, fill helper, collector, replay and OPE on synthetic constant prices; conformance not numeric proof",
+      "stepCalls": 187,
+      "terminalTrades": 29,
+      "tradeCalls": 178,
+      "trainingRuns": 0
+    },
+    "model": {
+      "actions": [
+        -0.25,
+        0,
+        0.25
+      ],
+      "instances": 2,
+      "maxShortestDepth": 10,
+      "pendingDelays": [
+        0,
+        1,
+        2
+      ],
+      "scope": "numeric-free precedence abstraction; no production races, asynchronous revocation or liveness theorem",
+      "search": "reachable fixed point; factored Cartesian asynchronous product; no call-depth cutoff",
+      "states": 129,
+      "transitions": 213,
+      "twoInstanceProductStates": 16641,
+      "twoInstanceProductTransitions": 54954
+    },
+    "smt": {
+      "F-RL-SHIELD-ORIGIN": "unsat"
+    },
+    "surface": {
+      "actionDomain": [
+        -0.25,
+        0.0,
+        0.25
+      ],
+      "callbacks": [
+        [
+          "ppo_successor_v2",
+          "behavior"
+        ],
+        [
+          "run_sequential_screen",
+          "choose"
+        ],
+        [
+          "sequential_evaluation",
+          "None"
+        ],
+        [
+          "sequential_learning",
+          "None"
+        ],
+        [
+          "sequential_learning",
+          "explore"
+        ],
+        [
+          "sequential_learning",
+          "lambda s: softmax(net.forward(s))"
+        ]
+      ],
+      "constructors": [
+        [
+          "sequential_env",
+          "collect",
+          "env = Replay(p, funding[symbol], start, start + 97, horizon, scale, execution, enabled=True)"
+        ],
+        [
+          "sequential_evaluation",
+          "replay_policy",
+          "env = Replay(p, funding, start, stop, horizon, scale, execution, enabled=True)"
+        ],
+        [
+          "sequential_evaluation",
+          "short_ope",
+          "env = Replay(prices[sym], funding[sym], t, t + 6 * horizon + 1, horizon, scale, enabled=True)"
+        ],
+        [
+          "sequential_evaluation",
+          "short_ope",
+          "replay = Replay(prices[sym], funding[sym], t, t + 6 * horizon + 1, horizon, scale, enabled=True)"
+        ]
+      ],
+      "consumers": [
+        [
+          "sequential_env",
+          "collect",
+          "env.step(float(ACTIONS[a]))"
+        ],
+        [
+          "sequential_env",
+          "step",
+          "self._trade(0.0, terminal=True)"
+        ],
+        [
+          "sequential_env",
+          "step",
+          "self._trade(self.pending[1])"
+        ],
+        [
+          "sequential_evaluation",
+          "replay_policy",
+          "env.step(target, elapsed_ms=ms)"
+        ],
+        [
+          "sequential_evaluation",
+          "short_ope",
+          "env.step(float(ACTIONS[a]))"
+        ],
+        [
+          "sequential_evaluation",
+          "short_ope",
+          "replay.step(float(ACTIONS[a]))"
+        ]
+      ],
+      "modules": 12,
+      "pendingAndEnableWrites": [
+        [
+          "__init__",
+          "self.enabled = enabled"
+        ],
+        [
+          "__init__",
+          "self.pending: tuple[int, float] | None = None"
+        ],
+        [
+          "step",
+          "self.pending = (self.t + 1 + self.execution.extra_delay, proposal)"
+        ],
+        [
+          "step",
+          "self.pending = None"
+        ],
+        [
+          "step",
+          "self.pending = None"
+        ]
+      ],
+      "receiverUses": 89,
+      "researchImporters": [
+        [
+          "scripts/research/ppo_artifact_v4.py",
+          "from optimizer_snapshot_v2 import Snapshot"
+        ],
+        [
+          "scripts/research/ppo_artifact_v4.py",
+          "from ppo_inference_v3 import encode_request_v3"
+        ],
+        [
+          "scripts/research/ppo_artifact_v4.py",
+          "from ppo_successor_v2 import TrainingResult, _configuration"
+        ],
+        [
+          "scripts/research/ppo_inference_v3.py",
+          "from optimizer_snapshot_v2 import Snapshot"
+        ],
+        [
+          "scripts/research/ppo_inference_v3.py",
+          "from ppo_successor_v2 import TrainingResult, _configuration"
+        ],
+        [
+          "scripts/research/ppo_successor_v2.py",
+          "from gae_targets_v2 import batch_v2"
+        ],
+        [
+          "scripts/research/ppo_successor_v2.py",
+          "from optimizer_snapshot_v2 import Snapshot, create_v2, forward_v2, update_v2"
+        ],
+        [
+          "scripts/research/ppo_successor_v2.py",
+          "from sequential_env import Scale, collect"
+        ],
+        [
+          "scripts/research/ppo_successor_v2.py",
+          "from sequential_learning import ppo_gradient, softmax"
+        ],
+        [
+          "scripts/research/run_sequential_screen.py",
+          "from sequential_env import Execution, Scale"
+        ],
+        [
+          "scripts/research/run_sequential_screen.py",
+          "from sequential_evaluation import Baselines, replay_policy, short_ope"
+        ],
+        [
+          "scripts/research/run_sequential_screen.py",
+          "from sequential_learning import infer, save_policy, train_ppo, train_q"
+        ],
+        [
+          "scripts/research/sequential_evaluation.py",
+          "from sequential_env import ACTIONS, FEATURE_COUNT, Execution, Replay, _finite_real, _integer, _real_series, collect, market_features"
+        ],
+        [
+          "scripts/research/sequential_learning.py",
+          "from sequential_env import ACTIONS, ENVIRONMENT, FEATURE_COUNT, OBSERVATION, Execution, _finite_real, _integer, collect"
+        ],
+        [
+          "scripts/research/summarize_sequential_screen.py",
+          "from sequential_registry import RL_FAMILIES, reconcile, reconcile_disposition"
+        ]
+      ],
+      "scope": "all reviewed consumers, local receiver ownership, actual admission/target dominators; trusted primitive effects",
+      "status": "exhaustively_checked",
+      "tradeGuards": [
+        {
+          "call": "self._trade(self.pending[1])",
+          "guards": [
+            "self.failure is None and self.pending is not None and (self.pending[0] <= self.t)"
+          ]
+        },
+        {
+          "call": "self._trade(0.0, terminal=True)",
+          "guards": [
+            "isfinite(self.equity) and self.equity > 0",
+            "terminal"
+          ]
+        }
+      ]
+    }
+  },
   "shutdownDeadline": {
     "conformance": {
       "cases": 580,
@@ -2926,6 +3151,7 @@
     "F-RL-SHIELD-FALLBACK": "unsat",
     "F-RL-SHIELD-GUARDS": "unsat",
     "F-RL-SHIELD-IDEMPOTENT": "unsat",
+    "F-RL-SHIELD-ORIGIN": "unsat",
     "F-RL-SNAPSHOT-CAS": "unsat",
     "F-RL-SNAPSHOT-FINITE": "unsat",
     "F-RL-SPLIT": "unsat",
@@ -3091,8 +3317,8 @@
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "d041ff4fea0096e49a53e8162637b9d335c07719edc541ae0c442765e21c94ad",
-    "formal/research/obligation-closure-audit.md": "595b2d9a663a2e0662008e2ede1c75e6beda8a6bb5b838c24d1e18e4a7f618e0",
-    "formal/research/obligation-contracts.json": "99cef33e7010c26d02c01f3c0d0321efbb5635934218d6452f7e3c683df0456d",
+    "formal/research/obligation-closure-audit.md": "ab852e8715d5b5b53ea41d4652fddab1bea8127c09dff8a3e48bdafade94bfba",
+    "formal/research/obligation-contracts.json": "b81827a2f34637860125932fc4b13df5a83fe0acda5c3b08b7e7a5f270372714",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/optimizer-counterexamples.json": "d71a5ef818b824aa5ab3d58343ba0f8d728745cd3065f820ca200e942d9dfd44",
@@ -3113,7 +3339,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "3ac915aa47457dd89cbbf75c169a05763a83c0c707e972cdcee04b7003115cc9",
-    "formal/research/proof-ledger.json": "3ac79a0ce98094f9392f670a921e1963546912f13314641448a7fc43dd947f08",
+    "formal/research/proof-ledger.json": "5e4f5a5478e83e0893e2450d630f91285acc1c303a686754b63ca3d5984dfef4",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -3122,8 +3348,10 @@
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
     "formal/research/replay-order-contract.md": "c3670d42a9ca555823caaa42419c8c22b5f756a937dc35993aec586e318f731b",
     "formal/research/replay-order-fixtures.json": "2c44f45007f86a9d84103ad4a06f92e8a9d2fcfbab60dccdcc32a4ba62d9f3fc",
+    "formal/research/replay-shield-contract.md": "471825414459d02f74abb96a3bfaa16a24738c5399f613593bb14e3cdbbe5d88",
     "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
+    "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
     "formal/research/shutdown-deadline-contract.md": "052481312f9074fc73118ce6ea9e13b8b32ff7e4f32b1a60dfff8159d661b9fd",
     "formal/research/shutdown-source.json": "e3ad96f0cac3b4fcd7d86ab744642672381e2a021a7756b6fe915f0fc6b8a4c7",
@@ -3148,7 +3376,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "b8c1bafe3c3dd3cd63189ae8401d19134fe2fb1f3eb17682c4db8e5e333ddc8d",
-    "formal/specifications.json": "b35a9212cfaaae44ff72d6eb679c70cd8f070a4d418ad2a851caeef3904304a2",
+    "formal/specifications.json": "d0576b6bab95c7250f5a217b150b7fa4510a3f4753fc7cb21cc03b9539f1d33b",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
@@ -3312,6 +3540,7 @@
     "research-notes/registrations/quantity-rounding-engineering.json": "ca6c5a19229813233bac33f41e5d81fddff33f4f0700268b92ab1c6630b62227",
     "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc",
     "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
+    "research-notes/registrations/replay-shield-consumer-engineering.json": "c418f79b2f7de2a3f402b4b07cbafefbc70f9641646c1df7d48096b78212e7c4",
     "research-notes/registrations/research-data-composition-engineering.json": "b88cedd60593b144b6bc3786615e3846d028b3c1bd40f73a6774bdcf73317de9",
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
@@ -3358,17 +3587,18 @@
     "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
+    "scripts/formal/shield_consumers.py": "4c0f5e4b6ee754c4442dd57751831ff2c0ab31507ef637de88a54d1c95a52359",
     "scripts/formal/shutdown_deadline.py": "793e0dd083da053b9d3a1a57ed24f279a8e4024290e4e6cc466bc47d1ec593d7",
     "scripts/formal/sizing_inputs.py": "9a1b098828f5b10f6ed41824fafa069d8e1f4cb02659c8559d8d9c562bc657ea",
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "fe92358a754805a6407fb7d91ee0c1274d3c74163c021316bdc9a0b9aac44fd7",
+    "scripts/formal/test_integrity.py": "077b2a4b8afabe156518faa59fadc6426cf8ca218807b0fdf90dbba79b226ad8",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "4022956059d9cb0578f8cdda1b037f27a56f2ccb84d720414cdfd2e8ad3c82d6",
+    "scripts/formal/verify.py": "35a92b04329f366af2f251cc92c61b6e4f564c55c0cd82385d393a72186e5fec",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",

@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 28)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,23,24,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 27)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,12,23,24,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -3528,6 +3528,88 @@ class ChampionArchiveTests(unittest.TestCase):
                 with self.assertRaises(FileExistsError): exporter.export(source, output, **kwargs)
                 self.assertEqual(path.read_bytes(), value)
                 self.assertEqual(list(output.iterdir()), [path])
+
+
+class ShieldConsumerTests(unittest.TestCase):
+    def test_source_origin_and_repeated_call_model(self):
+        import shield_consumers as p
+        surface=p.extract()
+        self.assertEqual((len(surface['constructors']),len(surface['consumers']),surface['receiverUses']), (4,6,89))
+        self.assertEqual(p.origins(surface),{'F-RL-SHIELD-ORIGIN':'unsat'})
+        result=p.model()
+        self.assertEqual(result,p.model())
+        self.assertEqual(result['twoInstanceProductStates'],result['states']**2)
+        self.assertEqual(result['twoInstanceProductTransitions'],2*result['states']*result['transitions'])
+
+    def test_actual_shield_consumer_trace_conformance(self):
+        import shield_consumers as p
+        result=p.conformance()
+        self.assertEqual((result['cases'],result['stepCalls'],result['ordinaryTrades'],result['terminalTrades']), (28,187,149,29))
+        self.assertEqual(result['marketDataReads'],0)
+        self.assertEqual(result['trainingRuns'],0)
+
+    def test_complete_receiver_roster_required(self):
+        import shield_consumers as p
+        registry=read_json(ROOT/p.REGISTRY)
+        with self.assertRaisesRegex(ValueError,'unregistered research consumer'):
+            p.research_importers({'scripts/research/unregistered.py':'from sequential_evaluation import replay_policy'})
+        for key in ('receiverUses','constructors','consumers'):
+            for variant in ('omit','empty','first','last'):
+                changed=copy.deepcopy(registry)
+                if variant=='omit': del changed[key]
+                elif variant=='empty': changed[key]=[]
+                elif variant=='first': changed[key].pop(0)
+                else: changed[key].pop()
+                with self.subTest(key=key,variant=variant),self.assertRaises(ValueError):p.extract(registry=changed)
+
+    def test_semantic_mutations_fail_even_with_updated_inventory(self):
+        import ast, shield_consumers as p
+        trees,surface=p.promotion_extract()
+        for before,after in [('self._trade(self.pending[1])','self._trade(action)'),
+                             ('self.execution.extra_delay, proposal','self.execution.extra_delay, action'),
+                             ('if proposal is None:', 'if False:'),
+                             ('self.pending = None','self.pending = (0, action)')]:
+            changed=dict(trees);source=(ROOT/'scripts/research/sequential_env.py').read_text()
+            changed['sequential_env']=ast.parse(source.replace(before,after))
+            registry={'schemaVersion':1,**p.roster(changed)}
+            with patch.object(p,'promotion_extract',return_value=(changed,surface)),self.assertRaises(ValueError):
+                p.extract(changed,registry)
+        changed=dict(trees)
+        changed['sequential_evaluation']=ast.parse((ROOT/'scripts/research/sequential_evaluation.py').read_text().replace('target, ms = action(obs)','target, ms = action(env)'))
+        with patch.object(p,'promotion_extract',return_value=(changed,surface)),self.assertRaisesRegex(ValueError,'callback escape'):
+            p.extract(changed,{'schemaVersion':1,**p.roster(changed)})
+
+    def test_unsafe_model_edges_and_unsatisfied_premises_fail(self):
+        import shield_consumers as p
+        from dataclasses import replace
+        for mutant in (lambda s: ('target-fill',replace(s,phase='after')),
+                       lambda s: ('liquidate-zero',replace(s,phase='done')),
+                       lambda s: ('bad-origin',replace(s,pending=1,tagged=False))):
+            with self.assertRaises(ValueError):p.model(lambda s:p.local_steps(s)+[mutant(s)])
+        with self.assertRaises(RuntimeError):p.certify('nonvacuity',z3.BoolVal(False),z3.BoolVal(True),[])
+
+    def test_generated_shield_rejection_cannot_consume_pending(self):
+        import random,numpy as np
+        import sequential_env as e
+        rng=random.Random(20261005);prices=np.full(40,100.);funding=np.zeros(40);scale=e.Scale.fit([prices[:25]])
+        for _ in range(64):
+            env=e.Replay(prices,funding,24,35,1,scale,e.Execution(extra_delay=1),enabled=True)
+            env.step(rng.choice([-.25,0.,.25]));before=(env.t,env.units,env.equity,env.pending,len(env.rows),env.fills)
+            invalid=rng.choice([float('nan'),float('inf'),float('-inf'),rng.uniform(.26,100),True,None])
+            env.step(invalid)
+            self.assertTrue(env.done)
+            self.assertEqual((env.t,env.units,env.equity,env.pending,len(env.rows),env.fills),before)
+
+    def test_closure_requires_every_reproduced_constituent(self):
+        from verify import validate_obligations
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        target=next(o for o in ledger['missionObligations'] if o['number']==12)
+        self.assertTrue(target['requiredCertificates'])
+        reproduced={e['requirementId']:e['status'] for e in ledger['entries']}
+        for certificate in target['requiredCertificates']:
+            changed=dict(reproduced);del changed[certificate]
+            with self.subTest(certificate=certificate),self.assertRaisesRegex(ValueError,'not reproduced'):
+                validate_obligations(ledger['missionObligations'],ledger['entries'],changed)
 
 
 if __name__ == '__main__':

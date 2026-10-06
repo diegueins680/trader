@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "replay-shield-consumer-engineering-v1",
+  "date": "2026-10-05",
+  "baseCommit": "4894a6d813bad18b5881d40b51b7a835848df316",
+  "classification": [
+    "safety",
+    "authorization",
+    "concurrency correctness",
+    "lifecycle correctness"
+  ],
+  "contract": "formal/research/replay-shield-contract.md",
+  "hypothesis": "Complete actual consumer and pending-origin composition establishes unchanged obligation 12; otherwise retain partial.",
+  "requirements": [
+    "F-RL-SHIELD-CONSUMERS",
+    "F-RL-SHIELD-ORIGIN",
+    "F-RL-SHIELD-FLOW",
+    "F-RL-SHIELD-CONSUMER-CONFORMANCE"
+  ],
+  "experimentBudget": 0,
+  "marketDataReads": 0,
+  "trainingRuns": 0,
+  "holdoutAccess": false,
+  "runtimeChange": false,
+  "liveAuthority": false,
+  "deployment": false,
+  "bounds": {
+    "actions": [
+      -0.25,
+      0,
+      0.25
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "extraDelays": [
+      0,
+      1
+    ],
+    "instances": 2,
+    "search": "reachable fixed point, repeated calls; numeric arithmetic abstracted"
+  },
+  "gates": [
+    "unchanged original criterion",
+    "complete source/callback/consumer roster",
+    "satisfiable SMT premises and UNSAT violations",
+    "counterexample-sensitive model",
+    "actual conformance",
+    "fresh canonical formal/full and final-head CI"
+  ]
+}
