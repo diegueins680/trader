@@ -103,7 +103,11 @@
         "formal/research/funding-events-v2-contract.md",
         "formal/research/funding-events-v2-source.json",
         "scripts/formal/funding_events.py",
-        "formal/research/FundingEventsV2.hs"
+        "formal/research/FundingEventsV2.hs",
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "formal/research/replay-runner-v2-source.json",
+        "scripts/formal/replay_runner.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -811,6 +815,22 @@
         {
           "id": "F-RL-FUNDING-V2-CONFORMANCE",
           "statement": "Exact funding v2 seeded synthetic loads and registered edge cases, including both CE-RL-019 witnesses as decimal text, agree with an independent compiled Haskell Rational oracle, repeat deterministically, reject by default, and compose with replay-accounting-v2 so that exact funding equals minus units times the published coefficient."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-SOURCE",
+          "statement": "Exact replay runner v2 has a completely reviewed pure source boundary that imports only the two exact v2 kernels, admits only matching funding buckets, prices and a bounded fixed target schedule, reads only prices[left], prices[left+k], buckets.events[left+k] and targets[k-1], forces the final step terminal, publishes an immutable episode or nothing, and has activation-first default rejection with no policy, file, promotion or order effect."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-ARITH",
+          "statement": "For every admitted start, horizon and grid, each runner read index is in bounds and step k reads no bar after left+k; the final step alone is forced terminal; final equity telescopes to one plus summed gross and funding minus summed debits from the per-step identity; and every charged funding bucket has index at least one, so an event charged at step k lies in (close[left+k-1], close[left+k]] and the bucket-0 prehistory exception is never charged."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-FLOW",
+          "statement": "The finite runner abstraction for horizons 1..8 publishes only terminal episodes with between one and H receipts, never steps beyond H, rejects without publication at any step, and has no continuation or order transition after publication."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-CONFORMANCE",
+          "statement": "Seeded synthetic episodes satisfy deterministic repetition, default rejection, exact telescoping, funding and price alignment and per-row agreement with the compiled Haskell Rational wealth oracle; rewriting every price and settlement after the step-k close leaves receipts 1..k unchanged, and this metamorphic check rejects deliberately leaky future-price and future-funding variants."
         }
       ],
       "invariants": [

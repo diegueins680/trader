@@ -10981,6 +10981,164 @@
         ]
       ],
       "controlFields": []
+    },
+    "replay_runner_v2": {
+      "moduleASTHash": "c8d27486bb286093bcad7f1a0370369f69f5ba8f921f79a7e12f5a825bfd94df",
+      "imports": [
+        "from __future__ import annotations",
+        "from dataclasses import dataclass",
+        "from fractions import Fraction as F",
+        "import funding_events_v2 as funding",
+        "import replay_accounting_v2 as accounting"
+      ],
+      "callSites": [
+        [
+          "Episode",
+          "dataclass",
+          "021f24ae76c533a6b83d7304adec630f10c95ebb240b241c56aa4d28aa590738"
+        ],
+        [
+          "_admissible",
+          "all",
+          "c35fd19b28637c2c217a4adc081aa6f841bc09b6c602bd9a0f38a55c5de3c6d2"
+        ],
+        [
+          "_admissible",
+          "len",
+          "0436b6d3f80d06ba7aedbb02b88c30c920436e9e6357878875b8941620b03391"
+        ],
+        [
+          "_admissible",
+          "len",
+          "0436b6d3f80d06ba7aedbb02b88c30c920436e9e6357878875b8941620b03391"
+        ],
+        [
+          "_admissible",
+          "len",
+          "194e4d554421b048d49fca027a09916bcb2e3e5acbde4aec9a88e5acf503bd5e"
+        ],
+        [
+          "_admissible",
+          "len",
+          "ed3e7336b7df67910623795335f96bb570efcbe91053bd7a2081de6f36da8648"
+        ],
+        [
+          "_admissible",
+          "len",
+          "fc197cb083ae03a3e97d60043449c711f2c104515aa5a3f23ab10ab6bc6abbf5"
+        ],
+        [
+          "_admissible",
+          "len",
+          "fc197cb083ae03a3e97d60043449c711f2c104515aa5a3f23ab10ab6bc6abbf5"
+        ],
+        [
+          "_admissible",
+          "len",
+          "fc197cb083ae03a3e97d60043449c711f2c104515aa5a3f23ab10ab6bc6abbf5"
+        ],
+        [
+          "_admissible",
+          "len",
+          "fc197cb083ae03a3e97d60043449c711f2c104515aa5a3f23ab10ab6bc6abbf5"
+        ],
+        [
+          "_admissible",
+          "type",
+          "227c01ccf9d8c954bedd6bc7a565d61beb06e46cbefd6c862b3101e36917ce07"
+        ],
+        [
+          "_admissible",
+          "type",
+          "5ab8b0ea6701a08aea181458e364a7df0fb4a5117cfe1b6da3f8d1cec599b0ea"
+        ],
+        [
+          "_admissible",
+          "type",
+          "750a1a431ab4fb6d72cbc206d3ebc97ee14dbba64d41df78e4f9a6e547b22f58"
+        ],
+        [
+          "_admissible",
+          "type",
+          "b3a962044f61d838eb53ad3fed5309f05d40cd90f5482b0e29482a7073830ff7"
+        ],
+        [
+          "_admissible",
+          "type",
+          "f013b4eda0d031db65a27adae2cfbaf359d00bcddec370b8033315bd8bd81317"
+        ],
+        [
+          "_run",
+          "Episode",
+          "346cdab9c6336b9840122ac552512bc57fa421a70568265892839ecbb1d0f49c"
+        ],
+        [
+          "_run",
+          "accounting.advance_v2",
+          "97eb76666b1899478260768b08135386ad0d7f4b14aac32a846a78d5b6ec9ddc"
+        ],
+        [
+          "_run",
+          "accounting.initial_v2",
+          "7dd05edd2a491738e6c21084a5cfa2c041128218560e842d9209a3d2467f27ec"
+        ],
+        [
+          "_run",
+          "len",
+          "0436b6d3f80d06ba7aedbb02b88c30c920436e9e6357878875b8941620b03391"
+        ],
+        [
+          "_run",
+          "len",
+          "0436b6d3f80d06ba7aedbb02b88c30c920436e9e6357878875b8941620b03391"
+        ],
+        [
+          "_run",
+          "range",
+          "062e5caf4bcb8756fe6392c7bf134e090ebd201e46484ad152da3702b7c23cc8"
+        ],
+        [
+          "_run",
+          "receipts.append",
+          "de7704aae55cd23d4f34ed6577353a304a3bcbbef191f229a918dd39e5c5bb25"
+        ],
+        [
+          "_run",
+          "tuple",
+          "1673f4d830d94c3df19a14f90982e02c2952cfac9413a69c671f9e168a4f8189"
+        ],
+        [
+          "run_v2",
+          "F",
+          "124e3b8199397ce03e559eb57243008dfcc1307cad037c5749e5c98dc70fecef"
+        ],
+        [
+          "run_v2",
+          "F",
+          "124e3b8199397ce03e559eb57243008dfcc1307cad037c5749e5c98dc70fecef"
+        ],
+        [
+          "run_v2",
+          "F",
+          "a73e7453d7a7ebb4b3e010097c0c6e22aa485eb23e19b052b45e1b3e2585b1c0"
+        ],
+        [
+          "run_v2",
+          "_admissible",
+          "fdd2c9a5b9f6ca6fd6241953ab1308a116ba23bd39d83b24381bd4f27520fb9e"
+        ],
+        [
+          "run_v2",
+          "_run",
+          "11263c9c95e0db0b5415a355d387a2ebca8dd4c08cb6762a2287d7aefc8e1f13"
+        ],
+        [
+          "run_v2",
+          "type",
+          "2fd59e97a000d6cc2dc799ab534b5dc009f3203b64d9ddfb5419e4cd01179ffe"
+        ]
+      ],
+      "controlFields": []
     }
   }
 }

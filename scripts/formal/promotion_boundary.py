@@ -18,7 +18,7 @@ from default_paths import check_saved_default
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = 'formal/research/promotion-boundary-source.json'
-ROOTS = {'run_sequential_screen', 'summarize_sequential_screen', 'ppo_artifact_v4', 'ess_rational_v2', 'point_in_time_v3', 'ope_rational_v2', 'replay_accounting_v2', 'funding_events_v2'}
+ROOTS = {'run_sequential_screen', 'summarize_sequential_screen', 'ppo_artifact_v4', 'ess_rational_v2', 'point_in_time_v3', 'ope_rational_v2', 'replay_accounting_v2', 'funding_events_v2', 'replay_runner_v2'}
 MODULES = ROOTS | {'sequential_env', 'sequential_learning', 'sequential_evaluation', 'sequential_registry',
                    'optimizer_snapshot_v2', 'ppo_successor_v2', 'ppo_inference_v3', 'gae_targets_v2', 'report_bundle_v2'}
 EXTERNAL = {'__future__', 'argparse', 'csv', 'dataclasses', 'datetime', 'hashlib', 'io', 'json', 'math',

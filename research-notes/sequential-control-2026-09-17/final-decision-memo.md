@@ -76,3 +76,7 @@ The [reward accounting audit](reward-accounting-followup-2026-10-03.md) verifies
 ## Exact funding events (2026-10-06)
 
 The [funding-events-v2 continuation](funding-events-2026-10-06.md) adds a disabled, disconnected exact-decimal funding loader successor. CE-RL-019 inputs reject before arithmetic, and admitted coefficients are exact under source-bound SMT size/endpoint lemmas, an exhaustive small-grid sweep, a publication model and Haskell oracle tests. The frozen loader stays refuted and unchanged; obligation 10 stays open and no adoption follows.
+
+## Exact replay runner (2026-10-06)
+
+The [replay-runner-v2 continuation](replay-runner-2026-10-06.md) composes the exact funding and replay kernels into a disabled episode runner over a fixed target schedule. SMT index, telescoping and funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests provide scoped evidence. It contains no policy, so no economic or adoption claim follows; obligation 10 stays open.

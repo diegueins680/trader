@@ -6,7 +6,7 @@
     "formal/research/fixtures/champion-archive.json": "a709d111d6bde0a232632644d1bcca202f6257fa3cdcb767f10b3c44d68c4732",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
-    "scripts/formal/promotion_boundary.py": "8b56a40effb1ca3266670268b5fc7670a3f46f44a916c7222e61476eceabd187",
-    "formal/research/promotion-boundary-source.json": "2036b8cc0e7f4abf35d4216d9f9fdac70654362e5727fa099bbac7b028ff71e6"
+    "scripts/formal/promotion_boundary.py": "ca54e3cdad7905923161ff6b31e12287443e138d720485cb4dcb2311b0aa0b84",
+    "formal/research/promotion-boundary-source.json": "68a0202baac1ee92aa89b8f33833a20cf9f3a6940a84ca8bc92eb5d96aae5585"
   }
 }

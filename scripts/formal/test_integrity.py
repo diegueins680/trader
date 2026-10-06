@@ -3452,7 +3452,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(17,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(18,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3562,7 +3562,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':17}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':18}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3828,7 +3828,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],17)
+        self.assertEqual(result['surface']['modules'],18)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 17)
+        self.assertEqual(r['surface']['researchModules'], 18)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
@@ -4434,6 +4434,97 @@ class FundingEventsTests(unittest.TestCase):
         step=replay.advance_v2(entry.after,F(100),got.events[1],F(0),terminal=True,multiplier=F(0),enabled=True)
         self.assertEqual(step.funding,-entry.after.units*got.per_unit[1])
         self.assertEqual(got.per_unit[1],F(100)*F(1,10000)+F(101)*F(-3,10000))
+
+
+class ReplayRunnerTests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import replay_runner_v2 as impl
+        import funding_events_v2 as fe
+        import replay_runner as proof
+        from fractions import Fraction
+        return impl, fe, proof, Fraction
+
+    def test_source_smt_model_oracle_and_metamorphic(self):
+        r,fe,p,F=self.modules()
+        got=p.check_runner()
+        self.assertEqual(got['smt'],{'F-RL-RUNNER-V2-ARITH':'unsat'})
+        self.assertEqual((got['model']['states'],got['model']['transitions']),(180,172))
+        self.assertEqual((got['conformance']['episodes'],got['conformance']['haskellRows']),(64,157))
+        self.assertGreater(got['conformance']['earlyTerminations'],0)
+        self.assertEqual(got['metamorphic']['episodes'],64)
+
+    def test_source_mutants_model_mutant_and_solver_fail_closed(self):
+        r,fe,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('prices[left + k], buckets','prices[left + k + 1], buckets'),
+                        ('buckets.events[left + k]','buckets.events[left + k - 1]'),
+                        ('terminal=k == len(targets)','terminal=False'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('        if state.terminal:\n            break\n',''),
+                        ('left + len(targets) >= len(prices)','left + len(targets) > len(prices)')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'publication without terminal episode'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_metamorphic_detects_lookahead_variants(self):
+        import types
+        r,fe,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('prices[left + k], buckets','prices[min(left + k + 1, len(prices) - 1)], buckets'),
+                        ('buckets.events[left + k]','buckets.events[min(left + k + 1, len(prices) - 1)]')]:
+            import sys
+            leaky=types.ModuleType('leaky_runner')
+            with patch.dict(sys.modules,{'leaky_runner':leaky}):
+                exec(compile(source.replace(old,new),'leaky_runner',"exec"),leaky.__dict__)
+                with self.subTest(old=old), self.assertRaisesRegex(ValueError,'future data changed'):
+                    p.metamorphic(leaky.run_v2)
+
+    def test_default_admission_and_atomic_rejection(self):
+        r,fe,p,F=self.modules()
+        b=fe.load_v2((9,19,29,39),(('10','0.0001','100'),),enabled=True)
+        prices=(F(100),F(101),F(99),F(100))
+        t=(F(1,4),F(0),F(0))
+        self.assertIsNone(r.run_v2(prices,b,0,t))
+        for kw in ({'enabled':1},{'version':'replay-runner-v1'}):
+            self.assertIsNone(r.run_v2(prices,b,0,t,**{'enabled':True,**kw}))
+        bad=[(prices[:3],b,0,t),(list(prices),b,0,t),(prices,None,0,t),(prices,b,-1,t),(prices,b,True,t),
+             (prices,b,1,t),(prices,b,0,()),(prices,b,0,list(t)),(prices,b,0,(F(1,2),F(0),F(0))),
+             ((F(100),F(0),F(99),F(100)),b,0,t),((100.0,F(101),F(99),F(100)),b,0,t)]
+        for args in bad:
+            with self.subTest(args=args):
+                self.assertIsNone(r.run_v2(*args,enabled=True))
+        forged=fe.Buckets('funding-events-v1',b.closes,b.events,b.per_unit)
+        self.assertIsNone(r.run_v2(prices,forged,0,t,enabled=True))
+        import replay_accounting_v2 as acc
+        with patch.object(acc,'advance_v2',side_effect=[acc.advance_v2(acc.initial_v2(F(100),enabled=True),F(101),(),F(1,4),enabled=True),None]):
+            self.assertIsNone(r.run_v2(prices,b,0,t,enabled=True))
+        with patch.object(acc,'advance_v2',side_effect=MemoryError):
+            self.assertIsNone(r.run_v2(prices,b,0,t,enabled=True))
+
+    def test_bucket_alignment_terminal_and_early_stop(self):
+        r,fe,p,F=self.modules()
+        b=fe.load_v2((9,19,29,39),(('5','1','1'),('10','0.0001','100'),('25','-0.0002','101')),enabled=True)
+        prices=(F(100),F(101),F(99),F(100))
+        ep=r.run_v2(prices,b,0,(F(1,4),F(1,4),F(0)),enabled=True)
+        self.assertEqual(len(ep.receipts),3)
+        self.assertEqual(ep.receipts[0].funding,0)  # bucket 0 prehistory never charged; flat at step 1
+        self.assertEqual(ep.receipts[1].funding,-ep.receipts[0].after.units*F(-101,5000))
+        self.assertTrue(ep.final.terminal and ep.final.units==0 and ep.receipts[-1].liquidation=='flat')
+        with self.assertRaises(Exception):
+            ep.receipts=()
+        stop=r.run_v2((F(100),F(100),F(1000),F(1000)),b,0,(F(-1,4),F(0),F(0)),enabled=True)
+        self.assertEqual(len(stop.receipts),2)
+        self.assertEqual(stop.receipts[-1].reason,'equity_exhausted')
+        self.assertEqual(stop.receipts[-1].liquidation,'failed')
 
 
 if __name__ == '__main__':

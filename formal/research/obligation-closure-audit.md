@@ -1,5 +1,7 @@
 # Obligation closure audit — 2026-10-03
 
+Exact replay runner follow-up (2026-10-06): counts stay 12 scoped closures / 25 partial / 1 open. F-RL-RUNNER-V2-* adds composed exact-episode evidence for 1/8/10/18/19/22 over a fixed target schedule, without changing any original scope, criterion or broad status. No policy, observation, learner or OPE composition follows.
+
 Exact funding events follow-up (2026-10-06): counts stay 12 scoped closures / 25 partial / 1 open. F-RL-FUNDING-V2-* adds exact, overflow-free funding-coefficient evidence for 6 and 10 in a disconnected successor, without changing any original scope, criterion or broad status. CE-RL-019 remains refuted in the frozen loader; runner composition and provider release timing remain unresolved.
 
 Exact replay accounting follow-up (2026-10-06): counts stay12 scoped closures /25 partial /1 open. F-RL-ACCOUNT-V2-* adds exact funding/debit and terminal-state evidence for6/8/10/18/19, without changing any original scope, criterion or broad status. The standalone transition kernel does not repair frozen v1 or establish learner/runner composition.
