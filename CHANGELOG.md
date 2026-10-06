@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Prevent repeated immediate backtests from overtaking registered waiters: use FIFO STM admission, remove cancelled tickets, and wake waiters on drain. Preserve execution-only timeout, concurrency limits and error/API shapes. Add source-bound weak-fairness model, SMT arithmetic and compiled starvation/cancellation regressions; obligation38 gains partial evidence without narrowing any closure criterion.
+
 - Verify delivered candidate stage preservation from actual writers/loaders through artifact and production-exclusion boundaries. Close scoped obligation25 only through fresh source, SMT, finite-model and conformance composition; preserve all original criteria and reject every eligibility advancement. No runtime, model, configuration or research-evidence change.
 
 - Add opt-in `--report-bundle-v2` to verified offline report export: complete bundle encoding, bounded inputs, exclusive staging/link publication, file/directory fsync, exact-byte retry validation and conflict refusal. Preserve default export bytes and existing files. Add crash/retry model, SMT, process-kill and filesystem-failure regressions; recovery gains partial evidence, with training archives and bot persistence still unresolved. No candidate or live behavior is enabled.
