@@ -828,3 +828,14 @@ Shield-consumer composition adds F-RL-SHIELD-CONSUMERS/ORIGIN/FLOW/CONSUMER-CONF
 
 
 Point-in-time training v3 adds F-RL-PIT-TIME/BOUNDARY/FLOW/CONFORMANCE under A-PIT-WITNESS. Seven SMT query pairs cover availability/order and maximum visible revision transfer; the126-state/470-transition fixed-point model covers complete admission before training. Actual generated/oracle and learner tests supplement the reviewed source relation. Each prior scoped closure additionally requires the new entry boundary certificate. Obligation4 moves open to partial without changing its original criterion. Current totals11 scoped/24 partial/3 open; historical timestamps, inherited ingestion and empirical acceptance remain unverified. See [contract](../formal/research/point-in-time-contract.md).
+
+
+Stage-preservation follow-up (2026-10-06): [contract](../formal/research/lifecycle-stage-contract.md)
+resolves the absent-service ambiguity before verification. F-RL-STAGE-SOURCE/STEP/FLOW/
+CONFORMANCE connect actual research-only writers and rejecting loaders to the eligibility
+projection, SMT and finite transition model, with actual-code metadata regressions.
+Original obligation25 closes conditionally without a scope/criterion change and requires
+all constituent artifact/Haskell/capability/boundary certificates in the same invocation.
+No future promotion service, evidence-gate satisfaction or liveness is certified.
+Current totals:12 scoped closures,24 partial,2 open;26 unresolved and both empirical gates
+remain blocked. No runtime, live, risk, model, configuration or economic-evidence change.

@@ -1,5 +1,7 @@
 # Trader
 
+The [candidate stage audit](research-notes/sequential-control-2026-09-17/lifecycle-stage-2026-10-06.md) verifies that delivered policy writers/loaders preserve Research eligibility and reject promoted metadata. Scoped obligation25 closes only with all composing certificates reproduced; current totals are12 scoped closures,24 partial,2 open. No runtime, model, live setting or promotion eligibility changes.
+
 Verified offline report exports have an opt-in `--report-bundle-v2` mode. It publishes one complete, retryable `report-bundle-v2.json` in an existing output directory, using exclusive linking and file/directory fsync. Matching retries preserve the existing file; conflicts fail closed. The default seven-file export remains unchanged. See the [contract](formal/research/report-bundle-contract.md) and [recovery evidence and usage](research-notes/sequential-control-2026-09-17/report-bundle-2026-10-06.md).
 
 Offline diagnostics now include default-disabled `ope-rational-v2`: exact probability ratios, trajectory weights, IS/PDIS/WIS/DR estimates and ESS, with bounded rational arithmetic and whole-batch rejection. Results remain descriptive and never authorize promotion. See the [contract](formal/research/ope-rational-contract.md) and [engineering evidence](research-notes/sequential-control-2026-09-17/ope-rational-2026-10-06.md).
