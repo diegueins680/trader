@@ -98,7 +98,13 @@
         "formal/research/replay-accounting-v2-contract.md",
         "formal/research/replay-accounting-v2-source.json",
         "scripts/formal/replay_accounting.py",
-        "formal/research/ReplayAccountingV2.hs"
+        "formal/research/ReplayAccountingV2.hs",
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "formal/research/funding-events-v2-source.json",
+        "scripts/formal/funding_events.py",
+        "formal/research/FundingEventsV2.hs",
+        "research-notes/registrations/funding-events-v2-engineering.json"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -790,6 +796,22 @@
         {
           "id": "F-RL-ACCOUNT-V2-CONFORMANCE",
           "statement": "Exact replay v2 generated traces satisfy an independent compiled Haskell Rational wealth oracle, deterministic repetition and terminal refusal; extreme funding, subnormal-sized debits, insolvency and interrupted computation have explicit regression coverage."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-SOURCE",
+          "statement": "Exact funding events v2 has a completely reviewed pure source boundary, a canonical ASCII fixed-point decimal and integer-time admission domain, an immutable all-or-nothing published value, activation-first default rejection and checked rational primitives; it introduces no float, file, network, policy, promotion or order effect."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-ARITH",
+          "statement": "On the admitted decimal domain, decoded, product, 128-term accumulated and reduced funding coefficients and every Fraction primitive intermediate stay far below the 8192-bit guard, so admitted settlements publish exact coefficients without overflow, underflow or rounding while out-of-domain text rejects before arithmetic; the sweep assigns each event to the unique first close no earlier than its time."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-FLOW",
+          "statement": "The finite funding-load publication abstraction publishes a value only after activation, grid, record, bucket and arithmetic stages all succeed; any stage failure is terminal with no partial publication and no order transition."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-CONFORMANCE",
+          "statement": "Exact funding v2 seeded synthetic loads and registered edge cases, including both CE-RL-019 witnesses as decimal text, agree with an independent compiled Haskell Rational oracle, repeat deterministically, reject by default, and compose with replay-accounting-v2 so that exact funding equals minus units times the published coefficient."
         }
       ],
       "invariants": [

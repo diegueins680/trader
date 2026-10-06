@@ -3452,7 +3452,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(16,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(17,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3562,7 +3562,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':16}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':17}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3828,7 +3828,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],16)
+        self.assertEqual(result['surface']['modules'],17)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 16)
+        self.assertEqual(r['surface']['researchModules'], 17)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
@@ -4337,6 +4337,103 @@ class ReplayAccountingTests(unittest.TestCase):
         self.assertEqual(got.after.units,F(1,800))
         got=a.advance_v2(s,F(100),(),F(1,4),multiplier=F(5000),enabled=True)
         self.assertEqual((got.reason,got.liquidation),('equity_exhausted','failed'))
+
+
+class FundingEventsTests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import funding_events_v2 as impl
+        import funding_events as proof
+        from fractions import Fraction
+        return impl, proof, Fraction
+
+    def test_source_smt_exhaustive_model_and_haskell(self):
+        a,p,F=self.modules()
+        r=p.check_funding_events()
+        self.assertEqual(r['smt'],{'F-RL-FUNDING-V2-ARITH':'unsat'})
+        self.assertEqual(r['exhaustive']['cases'],256)
+        self.assertEqual((r['model']['states'],r['model']['transitions']),(8,12))
+        self.assertEqual(r['conformance']['haskellRows'],146)
+
+    def test_mutants_and_solver_fail_closed(self):
+        a,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('closes[j] < time','closes[j] <= time'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('total = _add(total, _mul(mark, rate))','total = total + mark * rate'),
+                        ('{0,19}','{0,400}'),
+                        ('if mark <= 0:','if mark < 0:'),
+                        ('if parsed and time <= parsed[-1][0]:','if parsed and time < parsed[-1][0]:'),
+                        ('import re','import re\nimport os')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'publication without every stage'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_default_domain_and_atomic_rejection(self):
+        a,p,F=self.modules()
+        grid=(9,19,29)
+        self.assertIsNone(a.load_v2(grid,(('10','1','1'),)))
+        for kw in ({'enabled':1},{'version':'funding-events-v1'}):
+            self.assertIsNone(a.load_v2(grid,(),**{'enabled':True,**kw}))
+        bad=[('10',1.0,'1'),('10','1',True),(10,'1','1'),('10','+1','1'),('10',' 1','1'),('10','1 ','1'),
+             ('10','nan','1'),('10','inf','1'),('10','1e3','1'),('10','٣','1'),('10','01','1'),
+             ('10','1.','1'),('10','.5','1'),('10','1','0'),('10','1','-0.5'),('-1','1','1'),('010','1','1'),
+             ('9223372036854775808','1','1'),('10','1'*21,'1'),('10','0.'+'1'*21,'1')]
+        for row in bad:
+            with self.subTest(row=row):
+                self.assertIsNone(a.load_v2(grid,(row,),enabled=True))
+        for closes in ((),[9],(9,9),(9,8),(9.0,),(True,),(-1,),(2**63,)):
+            self.assertIsNone(a.load_v2(closes,(),enabled=True))
+        self.assertIsNone(a.load_v2(grid,[('10','1','1')],enabled=True))
+        self.assertIsNone(a.load_v2(grid,(('10','1','1'),('10','1','1')),enabled=True))
+        self.assertIsNone(a.load_v2(grid,(('30','1','1'),),enabled=True))
+        with patch.object(a,'_per_unit',side_effect=MemoryError):
+            self.assertIsNone(a.load_v2(grid,(('10','1','1'),),enabled=True))
+
+    def test_endpoint_semantics_and_bucket_limit(self):
+        a,p,F=self.modules()
+        got=a.load_v2((9,19,29),(('0','1','1'),('9','1','2'),('10','1','3'),('19','1','4'),('29','1','5')),enabled=True)
+        self.assertEqual(tuple(len(b) for b in got.events),(2,2,1))
+        self.assertEqual(got.per_unit,(F(3),F(7),F(5)))
+        self.assertEqual(got.events[0],((F(1),F(1)),(F(2),F(1))))
+        ok=a.load_v2((1000,),tuple((str(k),'1','1') for k in range(128)),enabled=True)
+        self.assertEqual(ok.per_unit,(F(128),))
+        self.assertIsNone(a.load_v2((1000,),tuple((str(k),'1','1') for k in range(129)),enabled=True))
+        self.assertEqual(a.load_v2((9,),(),enabled=True).events,((),))
+
+    def test_ce_rl_019_witnesses_reject_or_stay_exact(self):
+        a,p,F=self.modules()
+        huge='%.0f' % 1.7976931348623157e308
+        self.assertIsNone(a.load_v2((9,19,29),(('10','2',huge),),enabled=True))
+        self.assertIsNone(a.load_v2((9,19,29),(('10','0.75',huge),('11','0.75',huge)),enabled=True))
+        top='99999999999999999999.99999999999999999999'
+        got=a.load_v2((9,1000),tuple((str(10+k),'-'+top,top) for k in range(128)),enabled=True)
+        exact=F(top)
+        self.assertEqual(got.per_unit[1],-128*exact*exact)
+        self.assertGreater(float(abs(got.per_unit[1])),1e40)
+        tiny=a.load_v2((9,),(('1','0.00000000000000000001','0.00000000000000000001'),),enabled=True)
+        self.assertEqual(tiny.per_unit,(F(1,10**40),))
+
+    def test_published_value_is_immutable_and_composes_with_replay(self):
+        a,p,F=self.modules()
+        import replay_accounting_v2 as replay
+        got=a.load_v2((9,19),(('10','0.0001','100'),('11','-0.0003','101')),enabled=True)
+        with self.assertRaises(Exception):
+            got.per_unit=()
+        self.assertIsInstance(got.events,tuple)
+        state=replay.initial_v2(F(100),enabled=True)
+        entry=replay.advance_v2(state,F(100),(),F(1,4),multiplier=F(0),enabled=True)
+        step=replay.advance_v2(entry.after,F(100),got.events[1],F(0),terminal=True,multiplier=F(0),enabled=True)
+        self.assertEqual(step.funding,-entry.after.units*got.per_unit[1])
+        self.assertEqual(got.per_unit[1],F(100)*F(1,10000)+F(101)*F(-3,10000))
 
 
 if __name__ == '__main__':

@@ -1,5 +1,7 @@
 # Trader
 
+Exact funding events v2 (2026-10-06) adds a default-disabled, disconnected funding-settlement loader successor: canonical ASCII fixed-point decimal and integer-time admission, exact Fraction coefficients, first-close-no-earlier bucketing and all-or-nothing immutable publication. Eleven SMT size/endpoint queries, 256 exhaustive sweep cases, an 8-state publication model and 146 Haskell Rational oracle loads provide scoped evidence; both CE-RL-019 witnesses reject as out-of-domain text before arithmetic, and admitted coefficients compose exactly with replay-accounting-v2. The frozen loader stays refuted (F-RL-FUNDING-FINITE) and unchanged. The original 38 remain **12 scoped closures / 25 partial / 1 open**; obligation 10 stays open. [Contract](formal/research/funding-events-v2-contract.md). No candidate, champion, fleet, live flag, market data or holdout changes.
+
 Exact replay accounting v2 (2026-10-06) adds a default-disabled rational transition kernel, explicit flat/failed terminal liquidation receipts, bounded raw funding aggregation and conservatively rounded impact. Nine SMT queries, a 28-state/52-edge publication model and 128 generated episodes/1166 Haskell Rational comparisons provide scoped evidence. The original 38 remain **12 scoped closures / 25 partial / 1 open**: the kernel is not connected to frozen learning/replay and does not close a whole-system criterion. [Contract](formal/research/replay-accounting-v2-contract.md). No candidate, champion, fleet, live flag or holdout changes.
 
 
