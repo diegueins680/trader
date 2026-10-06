@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Add default-disabled `replay-accounting-v2` with bounded exact funding, wealth and cost arithmetic, conservative impact rounding and explicit failed-liquidation receipts. Preserve frozen v1 semantics and financial evidence. Add source-bound SMT, finite publication model and1166 exact Haskell oracle comparisons; no broad closure or production integration.
+- Add default-disabled `replay-accounting-v2` with bounded exact funding, wealth and cost arithmetic, conservative impact rounding and explicit failed-liquidation receipts. Preserve frozen v1 semantics and financial evidence. Add source-bound SMT, finite publication model and 1166 exact Haskell oracle comparisons; no broad closure or production integration.
 
 - Prevent repeated immediate backtests from overtaking registered waiters: use FIFO STM admission, remove cancelled tickets, and wake waiters on drain. Preserve execution-only timeout, concurrency limits and error/API shapes. Add source-bound weak-fairness model, SMT arithmetic and compiled starvation/cancellation regressions; obligation38 gains partial evidence without narrowing any closure criterion.
 

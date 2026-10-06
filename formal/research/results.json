@@ -1069,8 +1069,8 @@
         "subprocess.check_output(['git', 'show', f'{commit}:{path.relative_to(ROOT)}'], cwd=ROOT)",
         "subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True)"
       ],
-      "researchModules": 15,
-      "reviewedCalls": 1949,
+      "researchModules": 16,
+      "reviewedCalls": 2062,
       "scope": "actual writer tails plus complete reviewed effect/consumer composition; trusted primitive semantics",
       "status": "exhaustively_checked",
       "writerSites": [
@@ -1524,6 +1524,36 @@
       "status": "exhaustively_checked"
     }
   },
+  "exactReplayV2": {
+    "conformance": {
+      "economicEvidence": false,
+      "generatedEpisodes": 128,
+      "haskellExactRows": 1166,
+      "marketDataReads": 0,
+      "seed": 20261006,
+      "status": "property_tested",
+      "transitions": 1166
+    },
+    "model": {
+      "fundingEventsAbstracted": true,
+      "maxShortestDepth": 3,
+      "orderTransitions": 0,
+      "scope": "finite terminal/publication abstraction; no whole-language refinement or physical liveness",
+      "states": 28,
+      "status": "model_checked",
+      "transitions": 52
+    },
+    "smt": {
+      "F-RL-ACCOUNT-V2-ARITH": "unsat"
+    },
+    "source": {
+      "checkedPrimitives": 3,
+      "defaultDisabledEntries": 2,
+      "definitions": 17,
+      "scope": "complete reviewed AST and extracted arithmetic; runtime semantics assumed",
+      "status": "exhaustively_checked"
+    }
+  },
   "fundingBoundary": {
     "counterexample": "CE-RL-019",
     "grid": {
@@ -1715,8 +1745,8 @@
     "surface": {
       "newProductionConsumers": 0,
       "newPromotionServices": 0,
-      "researchModules": 15,
-      "reviewedCalls": 1949,
+      "researchModules": 16,
+      "reviewedCalls": 2062,
       "scope": "reviewed stage projection and complete existing effect inventory; constituent certificates mandatory",
       "status": "exhaustively_checked",
       "writerTags": {
@@ -2339,7 +2369,7 @@
         "scope": "reviewed full source and primitive transfers; POSIX/fsync semantics assumed, not kernel refinement",
         "status": "exhaustively_checked"
       },
-      "callSites": 1949,
+      "callSites": 2062,
       "callbacks": [
         [
           "ppo_successor_v2",
@@ -2441,7 +2471,7 @@
         ]
       ],
       "localImportEdges": 17,
-      "moduleCount": 15,
+      "moduleCount": 16,
       "processes": [
         "subprocess.check_output(['git', 'show', f'{commit}:{path.relative_to(ROOT)}'], cwd=ROOT)",
         "subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True)"
@@ -3130,7 +3160,7 @@
           "replay.step(float(ACTIONS[a]))"
         ]
       ],
-      "modules": 15,
+      "modules": 16,
       "pendingAndEnableWrites": [
         [
           "__init__",
@@ -3346,6 +3376,7 @@
     "F-RECOVERY-INDEX": "unsat",
     "F-RECOVERY-NUMERIC": "unsat",
     "F-RL-ACCOUNT": "unsat",
+    "F-RL-ACCOUNT-V2-ARITH": "unsat",
     "F-RL-ARCHIVE-PRESERVE": "unsat",
     "F-RL-ARTIFACT-DISJOINT": "unsat",
     "F-RL-ARTIFACT-IDENTITY": "unsat",
@@ -3496,10 +3527,11 @@
     "formal/research/ComponentGraph.hs": "adce2baf7f0b713dfc2835502dc5459295ac799cd208d96404d09b3a5e7a48b4",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
     "formal/research/DrainPool.hs": "6cfc98bba07d89093360b1d0df08532201105c650dd802ce070fc5599d4a13e4",
+    "formal/research/ReplayAccountingV2.hs": "cf484424ede8d6ffa163b775da200f52ae54ad5ecba5200e0e0b418dee87d87c",
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "cfe516725146726ee847b6894f61ef7a528816b6b8d6c7f65b7c5b15d9b90e83",
+    "formal/research/admission-progress-source.json": "967414abe6b7238b4ddd438586f5f97b2251204311da351c185c84047e3c4cdc",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -3523,7 +3555,7 @@
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/champion-archive-contract.md": "7f184d931a68f620707b532cb93c76158bd2978a190cf74b8f3a05f36a2098b7",
     "formal/research/champion-archive-legacy.json": "2af6360c3b735da5ab3ed805362f439eb47f3931acdcb49e11aacd49b66f0df0",
-    "formal/research/champion-archive-source.json": "dbd2c772c2c8f89d08ece649862f42241e8fa31ea3fa34409a171f3c3756cdeb",
+    "formal/research/champion-archive-source.json": "9271a51ccd0d6a97f5fb7dd5ae7ee0349c0504c80b5b4c12d07ab17899d43bd1",
     "formal/research/closed-trade-recovery-contract.md": "017f0a6aa472504b0519e19eb766b1f63875b17819a148f578e5033513e0a30d",
     "formal/research/closed-trade-recovery-counterexamples.json": "2d5f26b37956e76c87e95f67a30ba2711d30478e62b3018600517942f42f66c9",
     "formal/research/closed-trade-recovery-source.json": "eb7bb0950165a6ed349a38cd423caf3d0139021032cb8ced15e689832eb71f5f",
@@ -3567,8 +3599,8 @@
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "d041ff4fea0096e49a53e8162637b9d335c07719edc541ae0c442765e21c94ad",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
-    "formal/research/obligation-closure-audit.md": "3409be122ee79f0c15fe98420d43efd100717e727cdf533fe30c337de00f08f2",
-    "formal/research/obligation-contracts.json": "d857d52169d17cd383b82c2792e450a3efbbbe0165e1c99b6dba1bf9cce46476",
+    "formal/research/obligation-closure-audit.md": "0534ada58c36164138e5b9983dab4d6b2a089e6eef1f0c483494068e78054c7d",
+    "formal/research/obligation-contracts.json": "c02f13845b933fa9340d391a9da248fc7e7147ca82186fe89bf7bbac943b81ba",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/ope-rational-contract.md": "9c9aca05ea87fba9c3f3f1b9c9a558e3fd80a85de5f25859b28b4db6014c8642",
@@ -3592,12 +3624,14 @@
     "formal/research/ppo-successor-source.json": "b58e97c2ab60b48fe812e8c7b92ff1de9d40cb5c7399a0f60eb786d22956c08c",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
-    "formal/research/promotion-boundary-source.json": "994a323ea28542303978c90f30a10c032ed5ad7f1ed7f6764357d95463408e7c",
-    "formal/research/proof-ledger.json": "b4e8e22b2104fad414f3064137f768bb5e99b264d55c39a2cf4b3c939382562e",
+    "formal/research/promotion-boundary-source.json": "17e27c97b487f42bb91015a28093a39bd4cca52e75fbd28a9c88ccf910f2b51a",
+    "formal/research/proof-ledger.json": "14ad7e4cc2650457392bfd190cd024728930818aa5d239c8624896b7be10b8e0",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
     "formal/research/query-isolation-contract.md": "9c8b0b42ebc438afb3f29147aca5f937de97a3b7378ac8af29a2285162a7609e",
+    "formal/research/replay-accounting-v2-contract.md": "c0c24a7cd52cd328e0e48b4520191723d11922e716bc98095ab89c0f021dd09d",
+    "formal/research/replay-accounting-v2-source.json": "16025a605f2082015e519efb75e34cf66677473ab82958e49635c9c8e93e7967",
     "formal/research/replay-cutoff-contract.md": "08b54a94e65c5d36805b338867ef3426b299c05ca42345f47e8ca331f4327647",
     "formal/research/replay-cutoff-fixtures.json": "189641a65186943c68825eacd68cf83c0343480ed0fd2675b01faa21c880e17d",
     "formal/research/replay-order-contract.md": "c3670d42a9ca555823caaa42419c8c22b5f756a937dc35993aec586e318f731b",
@@ -3632,7 +3666,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "90ac85c25698e22c5a37ebe936474d11c8a237062017f75742ba4d1c06818878",
-    "formal/specifications.json": "b2731a9e19c9c73765512bf5e7e902dd38d981f2c377dcc5252478c7fced6beb",
+    "formal/specifications.json": "add761f85d1a9cce4c227571136ed1f77eff4abe9de17c0f6c155d26f6fb5642",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
@@ -3799,6 +3833,7 @@
     "research-notes/registrations/ppo-successor-v2-engineering.json": "fa1b6bbbc43e669e3007d7e340eb0ef2244ea7e663a0d7fa502825373f21c09d",
     "research-notes/registrations/promotion-boundary-engineering.json": "5a9659b44e6d77557307ad033444e12543de07807155b31ef9ab05c694f21b50",
     "research-notes/registrations/quantity-rounding-engineering.json": "ca6c5a19229813233bac33f41e5d81fddff33f4f0700268b92ab1c6630b62227",
+    "research-notes/registrations/replay-accounting-v2-engineering.json": "9a6870406979a00e0bcf558c5e8de2fc795f5de94b0be2d6d91c654bf25c75d5",
     "research-notes/registrations/replay-cutoff-audit-engineering.json": "1acde9fbee6c18321669b4435e98240b5fabfb2620249a1c917b53426a423ddc",
     "research-notes/registrations/replay-order-audit-engineering.json": "9a240dfe56ce8c85c61a0820ac97b47c0ff48f6410b82f274a2098c25a45f616",
     "research-notes/registrations/replay-shield-consumer-engineering.json": "c418f79b2f7de2a3f402b4b07cbafefbc70f9641646c1df7d48096b78212e7c4",
@@ -3846,26 +3881,27 @@
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
-    "scripts/formal/promotion_boundary.py": "d21957d2a52995fdc58b16409e13d6335bb07bdaf6ae25126dcc27db3eee2f66",
+    "scripts/formal/promotion_boundary.py": "2318726d22acfc4271f7af2a40b242a1eab34dd14ef3f771d271aed6b87637a3",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/quantity_rounding.py": "d0188f00d69ea4c156c40b0e629a66d7db97f0e4a1072c5935c35e3b099075a0",
+    "scripts/formal/replay_accounting.py": "bb71217913d049d192e807955da290988bde5905f23784f018bb4a363d2ce108",
     "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
     "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
     "scripts/formal/report_bundle.py": "4d6ff62c1e8aa275a16f44d50123ebf44acdda0fbda0b72a6347fe7b7a50d336",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
-    "scripts/formal/shield_consumers.py": "f2e658d792a83dc6a244d793eba520e31c09e78a0d7f3295f5b03f82a29c9daa",
+    "scripts/formal/shield_consumers.py": "136454f818b360c4c1860c310889c73ef30e2d9ccba412647302cadd413b65dc",
     "scripts/formal/shutdown_deadline.py": "793e0dd083da053b9d3a1a57ed24f279a8e4024290e4e6cc466bc47d1ec593d7",
     "scripts/formal/sizing_inputs.py": "9a1b098828f5b10f6ed41824fafa069d8e1f4cb02659c8559d8d9c562bc657ea",
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "bf71d63cd6ca4b2e565316bc88e9e99a6786eada111416e8248106177f53eb60",
+    "scripts/formal/test_integrity.py": "e6664964330011037e5d05ddb34f6fdecafe0b0b3727fca6b691e9711c04a206",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/verify.py": "1cd914972eeba15336e1f9b7d93b00463bf957cc5da5fb23458d309a8a4d561c",
+    "scripts/formal/verify.py": "48f7ea7b6c763d3f1b3847e23c80bd5892107fb572f7e90c06028f0b11dc40d8",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
@@ -3876,6 +3912,7 @@
     "scripts/research/ppo_artifact_v4.py": "062e2e0583fc3420758610b5c511e74365b260db72448d635180305741e061f5",
     "scripts/research/ppo_inference_v3.py": "78d7a425a2619136aa5d2429c0ff069d4c03770f3260d3d7fa588e243ba656f5",
     "scripts/research/ppo_successor_v2.py": "89d66f4f096e378ee476a630f670975f6c175b118f8821765207ac562b2ac049",
+    "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/report_bundle_v2.py": "33d9fad1c8d9003c5798a2722e14f6131c2afe8b4563ce17240d1d376ce04b47",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
