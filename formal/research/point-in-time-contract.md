@@ -7,8 +7,9 @@ It does not reinterpret frozen CSV data or authorize a financial experiment.
 ## Semantics before implementation
 
 All times are integer UTC microseconds in [0,2^63-1]. A requested grid contains
-121..4096 increasing completed-bar close times; decisions are close+fixed
-nonnegative processing delay. Symbols are explicit, distinct and bounded (1..8).
+121..4096 increasing completed-bar close times and explicit decision times.
+Each decision is at or after its close and strictly before the next close (when
+present); processing delay is a separate fixed nonnegative microsecond count. Symbols are explicit, distinct and bounded (1..8).
 Each immutable record identifies symbol, price/funding kind, bar close, revision
 number, release time (optional), first-seen time, collection time, revision-release
 time (optional), and finite binary64 value. Initial revision is zero. Positive
@@ -34,7 +35,7 @@ later grid decisions; this does not prove a market fill at that timestamp.
 
 Training gets only independently allocated arrays from a fully admitted grid.
 No partial prefixes or partial result can escape. A returned v3 envelope includes
-the exact grid, delay and selected timestamp/revision witnesses and the immutable
+the exact close/decision grids, processing delay and selected timestamp/revision witnesses and the immutable
 v2 result. The envelope is not a v4 persisted artifact and has no promotion or
 order capability. There is no inference or production consumer. A failed learner
 returns absence. Existing v2 remains separately callable with its old limitations.
