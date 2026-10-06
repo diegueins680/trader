@@ -74,7 +74,7 @@ bash scripts/verify.sh full
 ```
 
 Use the existing pinned formal toolchain in the [runbook](../../formal/research/README.md).
-The public API needs standard-library dependencies only. For a small example:
+The public API needs standard-library dependencies only. For a small example (run Python with `PYTHONPATH=scripts/research`):
 
 ```python
 from ope_rational_v2 import Episode, estimate_v2
@@ -99,7 +99,7 @@ contaminated development evidence. The 1,227-return holdout remains sealed and t
 prospective embargo remains 2027-01-20T13:00Z. No champion, fleet, live setting, risk
 limit, production ownership, exposure, credential, order or deployment is changed.
 
-Verification results will be recorded after actual complete reproduction. Initial
+The pinned reproduction results below supersede the pending verification state. Initial
 setup used the system interpreter without Z3 and was corrected to the pinned
 formal interpreter. A documentation update initially selected the wrong risk JSON
 field; it was corrected to `verificationLimitation` without changing risk status.
@@ -113,3 +113,26 @@ local full proof attempt failed the existing process-bridge timing-sensitive
 requirement (`ValueError: PPO process bridge: no actual inference for trained
 policy`) on the shared host. No timeout or risk limit was weakened; pinned CI must
 reproduce that obligation before merge. This local failure is not a passing gate.
+
+
+## Pinned verification receipt
+
+Run [37406072370](https://github.com/diegueins680/trader/actions/runs/37406072370),
+job112083820502, tested head491e5385f926e6f9ffc1b42d073e9fadbe540114:
+
+- Receipt reproduction passed (49 seconds by job step timestamps).
+- `bash scripts/verify.sh formal` passed (86 seconds);255 integrity tests in38.869 seconds.
+- `bash scripts/verify.sh full` passed (301 seconds);255 integrity tests in39.388 seconds,
+  Haskell build/format/lint/smoke/tests,241 web tests/build and185 automation tests passed.
+- All77 SMT requirement groups reproduced, including the12 new OPE queries.
+- Receipt SHA256: `92155b72818667a67fe52278f05cf470b48d85862fcbfffa87601d30bf051ed0`.
+  Imported verbatim from the successful pinned job. Every source hash matches.
+  Changed receipt sections only:exactOpeV2,sourceHashes,smt,promotionBoundary,
+  shieldConsumers,championArchive. Previous non-surface model/SMT/conformance results
+  in those boundary sections are unchanged. Broad closure counts are unchanged.
+- Ordinary CI37406072351 on the pre-receipt revision was canceled because it had
+  the prior committed receipt; it is not counted as a pass. The temporary reproduction
+  workflow is removed from the delivered tree. Final-head CI is reported in PR310.
+
+No verification limit was weakened, no new dependency added, and no proof placeholder
+introduced. Passing these scoped checks does not make the research mission complete.
