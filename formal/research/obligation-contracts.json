@@ -45,7 +45,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -61,7 +62,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -97,7 +99,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -113,7 +116,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -207,7 +211,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -228,7 +233,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -268,7 +274,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -298,7 +305,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -455,7 +463,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/ess_rational_v2.py",
@@ -482,7 +491,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -509,7 +519,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -528,7 +539,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -585,7 +597,8 @@
         "F-RL-DEFAULT",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -633,7 +646,8 @@
         "research-notes/registrations/lifecycle-stage-engineering.json",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -663,7 +677,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/ess_rational_v2.py",
@@ -690,7 +705,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -737,7 +753,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
@@ -760,7 +777,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -792,7 +810,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -810,7 +829,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -842,7 +862,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -860,7 +881,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -885,7 +907,8 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
-        "F-RL-RUNNER-V2-SOURCE"
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -903,7 +926,8 @@
         "scripts/research/report_bundle_v2.py",
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
-        "scripts/research/replay_runner_v2.py"
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "closureClass": "exhaustively_checked"
     },

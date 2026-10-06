@@ -80,3 +80,7 @@ The [funding-events-v2 continuation](funding-events-2026-10-06.md) adds a disabl
 ## Exact replay runner (2026-10-06)
 
 The [replay-runner-v2 continuation](replay-runner-2026-10-06.md) composes the exact funding and replay kernels into a disabled episode runner over a fixed target schedule. SMT index, telescoping and funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests provide scoped evidence. It contains no policy, so no economic or adoption claim follows; obligation 10 stays open.
+
+## Value objective (2026-10-06)
+
+The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disabled, disconnected conservative Double-DQN objective that rejects CE-RL-014 inputs, removes the CE-RL-015 shift defect, and preserves and resolves CE-RL-024 (a signed-zero counterexample found during proof). The frozen learner is unchanged; obligation 10 stays open and no adoption follows.

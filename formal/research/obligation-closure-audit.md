@@ -1,5 +1,7 @@
 # Obligation closure audit — 2026-10-03
 
+Value objective follow-up (2026-10-06): counts stay 12 scoped closures / 25 partial / 1 open. F-RL-VALUE-V2-* adds finite, shift-stable objective evidence for 6 and 10 in a disconnected kernel; CE-RL-024 was found during proof and resolved. The frozen learner and its counterexamples are unchanged.
+
 Exact replay runner follow-up (2026-10-06): counts stay 12 scoped closures / 25 partial / 1 open. F-RL-RUNNER-V2-* adds composed exact-episode evidence for 1/8/10/18/19/22 over a fixed target schedule, without changing any original scope, criterion or broad status. No policy, observation, learner or OPE composition follows.
 
 Exact funding events follow-up (2026-10-06): counts stay 12 scoped closures / 25 partial / 1 open. F-RL-FUNDING-V2-* adds exact, overflow-free funding-coefficient evidence for 6 and 10 in a disconnected successor, without changing any original scope, criterion or broad status. CE-RL-019 remains refuted in the frozen loader; runner composition and provider release timing remain unresolved.

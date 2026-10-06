@@ -48,10 +48,13 @@ branch skips the penalty; penalty and softmax consume only differences; fsum
 reductions; final finiteness guard; no NumPy import, float conversion of external
 arrays, file, policy or order effect.
 
-F-RL-VALUE-V2-ARITH (SMT): (a) Z3 IEEE binary64: whenever a + s and b + s are
-exact (no rounding), fl(fl(a + s) − fl(b + s)) = fl(a − b), so every difference
-the kernel consumes, and therefore loss and gradient, is bitwise invariant under
-an exact common shift. (b) Real arithmetic with the standard rounding model
+F-RL-VALUE-V2-ARITH (SMT): (a) Under the IEEE 754 correct-rounding assumption
+(A-FP-ROUNDING: each basic operation returns the rounding of its exact real
+result), whenever a + s and b + s are exact, fl(fl(a + s) − fl(b + s)) and
+fl(a − b) are equal as IEEE values, and the row maximum commutes with an exact
+shift. So every difference the kernel consumes, and therefore loss and gradient,
+is value-invariant under an exact common shift; zero canonicalization makes the
+*published* values bitwise invariant. (b) Real arithmetic with the standard rounding model
 |fl(x) − x| <= u|x| (u = 2^-53) and explicit primitive bounds 0 <= exp(x) <= 1
 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3. On the admitted domain every
 residual, square, penalty, mean and gradient magnitude stays below 2^220, far
@@ -76,3 +79,14 @@ machine-proved for the CPython build. No learner composition, convergence,
 conservative-value guarantee, data support or economic claim follows. The 38
 original criteria and scopes are unchanged; obligation 10 does not close on this
 kernel.
+
+## Correction after preregistration (CE-RL-024)
+
+The draft claim (a) said "bitwise". A bit-blasted Z3 binary32 query refuted it:
+a = −0, b = +0, s = −1.05·2^72 gives (a+s) − (b+s) = +0 but a − b = −0. The same
+values reproduce in binary64. Full binary64 bit-blasting returned unknown within
+120 s, so it cannot serve as the gate. Resolution: published floats are
+canonicalized with `x + 0.0` (−0 maps to +0 under RNE, identity otherwise), and
+the intermediate claim is restated as IEEE value equality, proved by a congruence
+lemma under the named correct-rounding assumption. The counterexample is
+preserved in `value-v2-counterexamples.json` with a binary64 regression fixture.

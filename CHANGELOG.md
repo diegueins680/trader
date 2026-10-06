@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Add default-disabled `value-objective-v2`, a finite, shift-stable conservative Double-DQN objective (scalar fsum arithmetic, bounded admission, penalty skipped at alpha = 0, published underflow count). It rejects CE-RL-014 inputs, makes CE-RL-015 shift-invariant, and preserves and resolves new CE-RL-024 (signed zero). Frozen learner unchanged; no broad closure.
+
 - Add default-disabled `replay-runner-v2`, composing exact funding buckets with exact replay transitions over a fixed target schedule. Add SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests that reject leaky variants. No policy, production path or broad closure.
 
 - Add default-disabled `funding-events-v2`: exact canonical-decimal funding settlement bucketing that rejects CE-RL-019 overflow inputs before arithmetic and publishes exact per-bar coefficients for `replay-accounting-v2`. Preserve the frozen development loader and its refuted finiteness claim. Add source-bound SMT size/endpoint lemmas, exhaustive sweep checks, a publication model and 146 Haskell oracle comparisons; obligation 10 stays open and nothing is integrated into production.

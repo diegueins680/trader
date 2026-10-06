@@ -107,7 +107,12 @@
         "scripts/research/replay_runner_v2.py",
         "formal/research/replay-runner-v2-contract.md",
         "formal/research/replay-runner-v2-source.json",
-        "scripts/formal/replay_runner.py"
+        "scripts/formal/replay_runner.py",
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json",
+        "scripts/formal/value_objective_successor.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -831,6 +836,22 @@
         {
           "id": "F-RL-RUNNER-V2-CONFORMANCE",
           "statement": "Seeded synthetic episodes satisfy deterministic repetition, default rejection, exact telescoping, funding and price alignment and per-row agreement with the compiled Haskell Rational wealth oracle; rewriting every price and settlement after the step-k close leaves receipts 1..k unchanged, and this metamorphic check rejects deliberately leaky future-price and future-funding variants."
+        },
+        {
+          "id": "F-RL-VALUE-V2-SOURCE",
+          "statement": "Value objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain, activation-first default rejection, a conservative penalty evaluated only when alpha is positive and computed from differences only, fsum reductions, zero canonicalization and a final finiteness guard before immutable publication; it has no learner, data, policy or order effect."
+        },
+        {
+          "id": "F-RL-VALUE-V2-ARITH",
+          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^201 and gradients below 2^101, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
+        },
+        {
+          "id": "F-RL-VALUE-V2-FLOW",
+          "statement": "The finite value-objective publication abstraction publishes only after activation, admission, computation with or without the penalty and the finite guard; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-VALUE-V2-CONFORMANCE",
+          "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values."
         }
       ],
       "invariants": [

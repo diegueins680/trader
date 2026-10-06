@@ -3452,7 +3452,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(18,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(19,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3562,7 +3562,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':18}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':19}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3828,7 +3828,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],18)
+        self.assertEqual(result['surface']['modules'],19)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 18)
+        self.assertEqual(r['surface']['researchModules'], 19)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
@@ -4525,6 +4525,93 @@ class ReplayRunnerTests(unittest.TestCase):
         self.assertEqual(len(stop.receipts),2)
         self.assertEqual(stop.receipts[-1].reason,'equity_exhausted')
         self.assertEqual(stop.receipts[-1].liquidation,'failed')
+
+
+class ValueObjectiveV2Tests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import value_objective_v2 as impl
+        import value_objective_successor as proof
+        return impl, proof
+
+    def test_source_smt_bounds_model_and_oracles(self):
+        v,p=self.modules()
+        r=p.check_value_objective()
+        self.assertEqual(r['smt'],{'F-RL-VALUE-V2-ARITH':'unsat'})
+        self.assertEqual((r['bounds']['lossBoundLog2'],r['bounds']['gradientBoundLog2']),(201,101))
+        self.assertEqual((r['model']['states'],r['model']['transitions']),(6,9))
+        self.assertEqual((r['conformance']['oracleBatches'],r['conformance']['frozenDifferential']),(96,96))
+        self.assertGreater(r['conformance']['finiteDifferenceChecks'],0)
+
+    def test_mutants_and_solver_fail_closed(self):
+        v,p=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('if alpha > 0.0:','if alpha >= 0.0:'),
+                        ('gap = (m - row[action]) + math.log(total)','gap = m + math.log(total) - row[action]'),
+                        ('    loss += 0.0\n',''),
+                        ('tuple(g + 0.0 for g in r)','tuple(g for g in r)'),
+                        ('abs(x) <= BOUND','abs(x) <= BOUND * 2'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('import math','import math\nimport numpy as np'),
+                        ('math.fsum(e * e for e in residuals)','sum(e * e for e in residuals)')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'publication without finite guard'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_oracle_rejects_frozen_style_penalty(self):
+        import math
+        v,p=self.modules()
+        def frozen_style(row, action):
+            m=max(row); t=[math.exp(x-m) for x in row]; total=math.fsum(t)
+            return (m+math.log(total))-row[action], tuple(x/total for x in t), 0
+        S=2.0**54
+        with patch.object(v,'_penalty',side_effect=frozen_style):
+            shifted=v.objective_v2(((S,S,S),),(0,),(S,),0.1,enabled=True)
+        self.assertEqual(shifted.loss,0.0)  # the CE-RL-015 defect reappears
+        with patch.object(v,'_penalty',side_effect=frozen_style):
+            with self.assertRaisesRegex(ValueError,'CE-RL-015'):
+                p.witnesses()
+
+    def test_domain_default_and_atomic_rejection(self):
+        import math
+        v,p=self.modules()
+        ok=(((0.0,1.0,2.0),),(1,),(0.5,),0.1)
+        self.assertIsNone(v.objective_v2(*ok))
+        for kw in ({'enabled':1},{'version':'value-objective-v1'}):
+            self.assertIsNone(v.objective_v2(*ok,**{'enabled':True,**kw}))
+        B=2.0**100
+        bad=[(((0.0,1.0),),(1,),(0.5,),0.1),(((0.0,1.0,2.0),),(3,),(0.5,),0.1),(((0.0,1.0,2.0),),(True,),(0.5,),0.1),
+             (((0.0,1.0,2.0),),(1,),(0.5,),1.5),(((0.0,1.0,2.0),),(1,),(0.5,),-0.0-1e-300),(((0.0,1.0,2.0),),(1,),(0.5,),1),
+             (((0.0,1.0,math.nan),),(1,),(0.5,),0.1),(((0.0,1.0,math.inf),),(1,),(0.5,),0.1),(((0.0,1.0,B*2),),(1,),(0.5,),0.1),
+             (((0,1.0,2.0),),(1,),(0.5,),0.1),([(0.0,1.0,2.0)],(1,),(0.5,),0.1),((),(),(),0.1),
+             (((0.0,1.0,2.0),)*257,(1,)*257,(0.5,)*257,0.1),(((0.0,1.0,2.0),),(1,),(0.5,0.5),0.1)]
+        for args in bad:
+            with self.subTest(args=str(args)[:60]):
+                self.assertIsNone(v.objective_v2(*args,enabled=True))
+        self.assertIsNotNone(v.objective_v2(((B,-B,0.0),),(1,),(B,),1.0,enabled=True))
+        with patch.object(v,'_penalty',side_effect=MemoryError):
+            self.assertIsNone(v.objective_v2(*ok,enabled=True))
+        with patch.object(v.math,'fsum',return_value=math.inf):
+            self.assertIsNone(v.objective_v2(*ok,enabled=True))
+
+    def test_alpha_zero_skips_penalty_and_underflow_is_reported(self):
+        v,p=self.modules()
+        with patch.object(v,'_penalty',side_effect=AssertionError('evaluated')):
+            got=v.objective_v2(((1.0,2.0,3.0),),(0,),(0.0,),0.0,enabled=True)
+        self.assertEqual((got.loss,got.underflow),(0.5,0))
+        far=v.objective_v2(((0.0,-1000.0,-2000.0),),(0,),(0.0,),0.5,enabled=True)
+        self.assertEqual(far.underflow,2)
+        self.assertEqual(far.loss,0.0)
+        with self.assertRaises(Exception):
+            far.loss=1.0
 
 
 if __name__ == '__main__':
