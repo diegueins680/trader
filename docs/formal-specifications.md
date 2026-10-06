@@ -806,3 +806,16 @@ stop/replacement races, global drain linearization, callback termination or dura
 recovery. SHUTDOWN-DEADLINE-001 stays open. Obligation15 moves open to partial;
 current totals are **9 scoped closures,25 partial,4 open**. No broad closure or
 financial evidence change is claimed.
+
+
+Champion archive preservation adds F-RL-ARCHIVE-SOURCE/PRESERVE/FLOW/CONFORMANCE
+under [A-CHAMPION-ARCHIVE](../formal/research/champion-archive-contract.md).
+Five exclusive writer sites and the complete research effect/destination boundary
+compose with the existing metadata, type, process and build certificates. Eight
+SMT queries and a 110-state/359-transition model preserve existing identities and
+bytes, including leaf collisions, partial writes and retries. The old truncating
+exporter and three concrete collision failures are retained as regressions.
+Obligation 28 closes only with all required certificates reproduced; the original
+38 scope/criterion strings are unchanged. Current totals are 10 scoped closures,
+24 partial, 4 open. Crash durability, hostile parent-namespace mutation, inherited
+production correctness and all economic acceptance gates remain uncertified.

@@ -1882,6 +1882,37 @@ class SequentialContracts(unittest.TestCase):
             self.assertTrue(all(value == outputs[0] for value in outputs))
             self.assertEqual({str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}, before)
 
+    def test_export_refuses_leaf_collisions_after_directory_creation(self):
+        for kind in ('file', 'symlink', 'hardlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                root = Path(td).resolve(); source = root/"archive"; output = root/"review"
+                sha, _ = self.export_fixture(source)
+                champion = root/"champion.json"; sentinel = b"existing champion bytes"; champion.write_bytes(sentinel)
+                original_open = Path.open; injected = []
+                def collide(path, mode='r', *args, **kwargs):
+                    if path.parent == output and mode in ('xb', 'wb') and not injected:
+                        injected.append(path)
+                        if kind == 'symlink': path.symlink_to(champion)
+                        elif kind == 'hardlink': path.hardlink_to(champion)
+                        else:
+                            with original_open(path, 'xb') as stream: stream.write(sentinel)
+                    return original_open(path, mode, *args, **kwargs)
+                with patch.object(Path, 'open', collide), self.assertRaises(FileExistsError):
+                    export(source, output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                self.assertEqual(len(injected), 1)
+                self.assertEqual(injected[0].read_bytes(), sentinel)
+                self.assertEqual(champion.read_bytes(), sentinel)
+
+    def test_export_fixture_bytes_remain_compatible(self):
+        fixture = json.loads((Path(__file__).resolve().parents[1]/"formal/research/fixtures/champion-archive.json").read_text())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"archive"; source.mkdir()
+            for name, raw in fixture['archive'].items(): (source/name).write_bytes(raw.encode())
+            output = root/"review"
+            export(source, output, rss_unit='bytes', platform_label='synthetic-champion-fixture', expected_index_sha256=fixture['indexSha256'])
+            self.assertEqual({p.name:p.read_bytes() for p in output.iterdir()},
+                             {name:raw.encode() for name,raw in fixture['reports'].items()})
+
     def test_export_parses_verified_snapshots_after_archive_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

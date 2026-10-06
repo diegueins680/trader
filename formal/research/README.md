@@ -509,3 +509,15 @@ The [contract](bot-worker-publication-contract.md) distinguishes gate publicatio
 from ongoing worker ownership and termination. The preserved legacy ordering
 counterexample is not a claim of a real exchange incident. Obligation15 now has
 partial evidence;29 broader obligations and economic gates remain unresolved.
+
+
+The [champion archive contract](champion-archive-contract.md) binds every research
+writer to exclusive creation and composes preservation with the existing capability
+certificates. `bash scripts/verify.sh formal` runs the new source checks, eight SMT
+queries, fixed-point collision/retry model and actual exporter/writer regressions;
+`full` also runs the automation exporter tests. Model bounds: 110 states/359 edges,
+two writers/two keys/four identities/six byte classes. The legacy 242-state model
+and source fixture reproduce truncation of colliding data. Obligation 28 requires
+all constituent certificates in the same invocation. Current ledger: 10 scoped
+closures, 24 partial, 4 open; kernel refinement, durability and mission completion
+are not claimed.

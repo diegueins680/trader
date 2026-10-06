@@ -46,6 +46,21 @@
       "resolution": "Private child gate rejects on failed publication and accepts only after masked runtime-map commit. Legacy ordering adapter deterministically reproduces the failure without trading.",
       "regression": "haskell/test/Trader/Test/WorkerPublication.hs",
       "requirement": "F-BOT-PUBLICATION-FLOW"
+    },
+    {
+      "id": "CE-RL-ARCHIVE-COLLISION",
+      "status": "refuted",
+      "claim": "A fresh report directory alone prevents truncation of colliding existing files or linked champion data.",
+      "trace": [
+        "insert-collision",
+        "0:select-1",
+        "0:open"
+      ],
+      "resolution": "Exclusive binary create at every actual report leaf rejects regular-file, symlink and hardlink collisions, preserving old bytes. New partial output is not a durable complete archive.",
+      "regression": "scripts/formal/test_integrity.py",
+      "requirement": "F-RL-ARCHIVE-FLOW",
+      "fixture": "formal/research/fixtures/champion-archive.json",
+      "legacySource": "formal/research/champion-archive-legacy.json"
     }
   ]
 }

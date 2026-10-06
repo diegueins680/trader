@@ -299,3 +299,15 @@ stop/replacement races, global drain linearization, callback termination or dura
 recovery. SHUTDOWN-DEADLINE-001 stays open. Obligation15 moves open to partial;
 current totals are **9 scoped closures,25 partial,4 open**. No broad closure or
 financial evidence change is claimed.
+
+
+Champion archive follow-up (2026-10-05, RL-OFFLINE-001): research export now uses
+exclusive file creation, rejecting colliding files, symlinks and hardlinks. The
+[contract](../formal/research/champion-archive-contract.md) composes actual writer
+and capability evidence for conditional obligation 28 closure. A-CHAMPION-ARCHIVE
+trusts primitive exclusive-create semantics and stable parent/open-object identity;
+CE-RL-ARCHIVE-COLLISION preserves the legacy truncation witness. Newly created
+partial output is possible after failure: this does not discharge durable recovery
+or archive atomicity. Risk status remains OPEN; no Haskell production behavior,
+live authorization, ownership configuration or limits change. Current counts:
+10 scoped closures / 24 partial / 4 open; no research candidate passed.

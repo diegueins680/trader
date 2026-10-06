@@ -92,7 +92,9 @@ def export(source, output, *, rss_unit, platform_label, expected_index_sha256):
         raise ValueError('malformed registry evidence') from exc
     output.mkdir(parents=True, exist_ok=False)
     for name, content in reports.items():
-        (output / name).write_bytes(content)
+        # Refuse leaf collisions, including symlinks, even after mkdir succeeds.
+        with (output / name).open("xb") as stream:
+            stream.write(content)
 
 
 def render_reports(manifest, summary, records, training, planned, terminal, ope, index,
