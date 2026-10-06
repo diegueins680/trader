@@ -103,8 +103,7 @@
         "formal/research/funding-events-v2-contract.md",
         "formal/research/funding-events-v2-source.json",
         "scripts/formal/funding_events.py",
-        "formal/research/FundingEventsV2.hs",
-        "research-notes/registrations/funding-events-v2-engineering.json"
+        "formal/research/FundingEventsV2.hs"
       ],
       "uses": [
         "G-FAIL-CLOSED",

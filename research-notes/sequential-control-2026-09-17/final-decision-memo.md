@@ -72,3 +72,7 @@ The [ordering audit](replay-order-followup-2026-10-01.md) distinguishes delayed 
 The [cutoff audit](replay-cutoff-followup-2026-10-01.md) extends the ordering abstraction to a seven-or-more-bars class. Integer SMT and finite graph/conformance evidence preserve the distinction between a six-bar call and a later episode endpoint. A false-terminal trace-matcher counterexample was corrected and retained. Actual observations/rewards, multi-call runtime behavior and all broader promotion requirements remain unresolved; no adoption follows.
 
 The [reward accounting audit](reward-accounting-followup-2026-10-03.md) verifies scoped real-arithmetic identities and preserves a synthetic zero-summed-reward path with a -0.0625% economic return. The existing reporter correctly records that loss. Reward, simulator and financial evidence are unchanged; no policy-objective equivalence, universal floating-point bound or new adoption evidence follows.
+
+## Exact funding events (2026-10-06)
+
+The [funding-events-v2 continuation](funding-events-2026-10-06.md) adds a disabled, disconnected exact-decimal funding loader successor. CE-RL-019 inputs reject before arithmetic, and admitted coefficients are exact under source-bound SMT size/endpoint lemmas, an exhaustive small-grid sweep, a publication model and Haskell oracle tests. The frozen loader stays refuted and unchanged; obligation 10 stays open and no adoption follows.
