@@ -525,3 +525,6 @@ are not claimed.
 ## Replay shield-consumer composition
 
 [Contract](replay-shield-contract.md) and [report](../../research-notes/sequential-control-2026-09-17/shield-consumers-2026-10-05.md) connect all four replay constructors/four step calls/two fill sites to shield origin and actual entry guards. F-RL-SHIELD-CONSUMERS/ORIGIN/FLOW/CONSUMER-CONFORMANCE retain separate statuses. Local model129 states213 transitions; independent two-instance product16641 states54954 transitions; seven SMT queries; actual trace conformance28 cases. A-SHIELD-COMPOSITION is explicit. Current totals supersede earlier counts: **11 scoped closures /23 partial /4 open**, overall incomplete. No runtime source or financial evidence changes.
+
+
+Point-in-time follow-up (2026-10-06): [contract](point-in-time-contract.md), [registration](../../research-notes/registrations/point-in-time-engineering.json), and [report](../../research-notes/sequential-control-2026-09-17/point-in-time-2026-10-06.md) add F-RL-PIT-TIME/BOUNDARY/FLOW/CONFORMANCE. Both wrappers reproduce integer availability, the126-state protocol and synthetic actual training. Current counts supersede historical counts above:11 scoped/24 partial/3 open. Timestamp authenticity and old CSV history remain unresolved; no financial trial or new dependency.
