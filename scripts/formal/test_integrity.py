@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 27)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,12,23,24,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 26)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,12,23,24,25,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -4040,6 +4040,92 @@ raise SystemExit(74)
         with patch('ppo_successor.z.Solver') as solver:
             solver.return_value.check.return_value=z3.unknown
             with self.assertRaises((ValueError,RuntimeError)):self.p.arithmetic(self.p.extract()[0])
+
+
+class LifecycleStageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import lifecycle_stage as stage
+        cls.s = stage
+        cls.trees, _ = stage.extract()
+        cls.facts, _ = stage.metadata(cls.trees)
+
+    def test_actual_stage_composition(self):
+        r = self.s.check_stages()
+        self.assertEqual(r['surface']['researchModules'], 15)
+        self.assertEqual(r['queries'], 8)
+        self.assertEqual(r['premiseChecks'], 8)
+        self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
+        self.assertEqual(r['model']['proposedStates'], 2)
+        self.assertEqual(r['model']['retainedProposalCases'], 12)
+        self.assertEqual(r['conformance']['metadataCases'], 204)
+        self.assertEqual(r['conformance']['acceptedResearchCases'], 2)
+
+    def test_missing_stage_guard_fails_without_relying_on_source_hash(self):
+        class Remove(ast.NodeTransformer):
+            def visit_Compare(self, node):
+                return ast.Constant(value=False) if "['promotion']" in ast.unparse(node.left) else self.generic_visit(node)
+        for version in self.s.TAGS:
+            guards = self.s.predicates(self.trees)
+            node, container = guards[version]
+            guards[version] = (Remove().visit(copy.deepcopy(node)), container)
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                self.s.prove_steps(self.facts, guards)
+
+    def test_missing_enable_guard_fails_without_relying_on_source_hash(self):
+        class Remove(ast.NodeTransformer):
+            def visit_Compare(self, node):
+                return ast.Constant(value=False) if "['enabled']" in ast.unparse(node.left) else self.generic_visit(node)
+        guards = self.s.predicates(self.trees)
+        node, container = guards['v4']
+        guards['v4'] = (Remove().visit(copy.deepcopy(node)), container)
+        with self.assertRaises(ValueError):
+            self.s.prove_steps(self.facts, guards)
+
+    def test_writer_stage_and_format_coverage_cannot_be_relabeled(self):
+        for mutate in (lambda x:x['v1'].update(promotion='shadow-eligible'),
+                       lambda x:x['v4'].update(enabled=True), lambda x:x.pop('v4')):
+            facts=copy.deepcopy(self.facts); mutate(facts)
+            with self.assertRaises(ValueError):self.s.prove_steps(facts,self.s.predicates(self.trees))
+
+    def test_unknown_metadata_is_not_neutral_research(self):
+        for text,is_text in [('unknown',True),('research-only',False),('shadow-eligible',True)]:
+            self.assertNotEqual(z3.simplify(self.s.projection(z3.StringVal(text),z3.BoolVal(is_text))).as_long(),0)
+
+    def test_stage_relation_forbids_skips_even_with_all_evidence(self):
+        for before in range(7):
+            for after in range(7):
+                for evidence in (False, True):
+                    allowed = z3.is_true(z3.simplify(self.s.lawful(z3.IntVal(before),z3.IntVal(after),
+                                                [z3.BoolVal(evidence)]*6,z3.BoolVal(evidence))))
+                    self.assertEqual(allowed, after==before or (after==before+1 and after<6 and evidence))
+
+    def test_preserved_stage_skip_counterexample(self):
+        import json
+        fixture=read_json(ROOT/'formal/research/fixtures/lifecycle-stage-skip.json')
+        with self.assertRaisesRegex(ValueError,'promotion counterexample') as raised:
+            self.s.check_model(self.facts,mutant=True)
+        trace=json.loads(str(raised.exception).split('promotion counterexample: ',1)[1])
+        self.assertEqual(trace,fixture['trace'])
+        self.assertEqual(fixture['kind'],'model_mutation_not_observed_runtime_defect')
+
+    def test_unknown_solver_and_false_premise_refused(self):
+        with patch('ppo_successor.z.Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises(ValueError):self.s.prove_steps(self.facts,self.s.predicates(self.trees))
+        with self.assertRaises(ValueError):self.s.certify(z3.BoolVal(False),z3.BoolVal(True))
+
+    def test_closure_requires_every_composed_certificate(self):
+        from verify import validate_obligations
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        obligation=ledger['missionObligations'][24]
+        self.assertEqual(obligation['closureCriteria'],'Candidate promotion follows all mandatory evidence stages without skipping or self-promotion.')
+        self.assertEqual(obligation['status'],'exhaustively_checked')
+        reproduced={e['requirementId']:e['status'] for e in ledger['entries']}
+        for certificate in obligation['requiredCertificates']:
+            missing=dict(reproduced); missing.pop(certificate)
+            with self.subTest(certificate=certificate), self.assertRaises(ValueError):
+                validate_obligations(ledger['missionObligations'],ledger['entries'],missing)
 
 
 if __name__ == '__main__':

@@ -727,6 +727,22 @@
         {
           "id": "F-RL-BUNDLE-CONFORMANCE",
           "statement": "Actual verified export preserves seven legacy report byte strings in a deterministic bundle; filesystem faults, process crashes, conflicts, short writes and concurrent retries preserve old files and recover matching complete output without replacing its inode."
+        },
+        {
+          "id": "F-RL-STAGE-SOURCE",
+          "statement": "The complete delivered research writer/reader/effect surface projects admitted candidates to Research eligibility and has no alternative promotion consumer; this source-to-stage composition requires the existing artifact, Haskell protocol, capability and build certificates."
+        },
+        {
+          "id": "F-RL-STAGE-STEP",
+          "statement": "For arbitrary JSON metadata classes and unconstrained evidence/review booleans, actual v1/v4 decoder predicates imply exact research-only metadata and false enabled flags; every admitted Research-to-Research step refines the mandatory-stage relation, and non-research metadata is rejected."
+        },
+        {
+          "id": "F-RL-STAGE-FLOW",
+          "statement": "The finite delivered-format model preserves Research eligibility across create/save/load/infer/failure/disable/retry/successor histories, including retained results and advanced-stage input attempts; no stage advancement or skipping is reachable."
+        },
+        {
+          "id": "F-RL-STAGE-CONFORMANCE",
+          "statement": "Actual v1/v4 writers/loaders retain ordinary research behavior and reject every tested promoted or malformed metadata tuple even after hashes are correctly recomputed; nested policy data cannot override root control fields."
         }
       ],
       "invariants": [
@@ -979,6 +995,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "ReportBundleTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "LifecycleStageTests"
         }
       ]
     },

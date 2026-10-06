@@ -2,7 +2,7 @@
 
 All 38 original titles are retained. A closed affected-scope claim is not a proof of inherited production behavior. Production integration obligations stay open; none are silently marked inapplicable. Statistical/market-data blockers are separate from pure software closure.
 
-Current ledger (2026-10-06): **11 scoped closures /25 partial /2 open**. The table below is synchronized with the machine-readable ledger; dated notes after it are historical.
+Current ledger (2026-10-06, stage preservation): **12 scoped closures /24 partial /2 open**. The table below is synchronized with the machine-readable ledger; dated notes after it are historical.
 
 | # | Obligation / status | Closure criterion | Remaining blocker / next action |
 |---|---|---|---|
@@ -30,7 +30,7 @@ Current ledger (2026-10-06): **11 scoped closures /25 partial /2 open**. The tab
 | 22 | Replay determinism — `partially_verified` | Pinned data, configuration, seed and artifact yield the same replay transitions and economic report. | Source pins and local traces do not certify the full runner, BLAS and timed inference path. Specify deterministic evaluation without wall-clock-dependent selection; compare complete reproducible archives on pinned runtime. |
 | 23 | No self-promotion — `exhaustively_checked` | A candidate cannot mutate its promotion state or authorize successor artifacts. | Conditional scoped closure; all required certificates must reproduce. Reopen before any new candidate consumer, callback, write destination, executable/import/helper, artifact/control schema or production integration change. Keep inherited authorization/ownership and empirical obligations unresolved. |
 | 24 | No production learning — `exhaustively_checked` | The pinned executable/deployment source boundary excludes delivered research training; admitted offline inference never writes policy parameters, and emitted policies cannot enter native LSTM persistence unchanged. | Conditional scoped closure; all required certificates must reproduce. Reopen on new executable, import/effect, artifact schema, runtime helper, packaging or integration change; retain remaining production and empirical gates. |
-| 25 | Valid lifecycle transitions — `partially_verified` | Candidate promotion follows all mandatory evidence stages without skipping or self-promotion. | Existing two-caller lifecycle models calls, not a concrete persistent candidate promotion service. Define a versioned promotion state machine and typed transition guard before any challenger activation. |
+| 25 | Valid lifecycle transitions — `exhaustively_checked` | Candidate promotion follows all mandatory evidence stages without skipping or self-promotion. | Conditional delivered-stage closure: actual writers/loaders preserve Research eligibility and advanced metadata is rejected. The preregistered consistency resolution distinguishes offline computation from eligibility; no absent promotion service is assumed verified. All artifact/capability/source/SMT/model certificates must reproduce. Reopen before any advancement or new consumer; future promotion liveness and inherited production correctness remain unproved. |
 | 26 | No automatic live transition — `exhaustively_checked` | No delivered transition can grant live authorization to a new candidate. | Conditional scoped closure; all required certificates must reproduce. Reopen before any new candidate consumer, callback, write destination, executable/import/helper, artifact/control schema or production integration change. Keep inherited authorization/ownership and empirical obligations unresolved. |
 | 27 | Rollback — `partially_verified` | Disable/rollback prevents new candidate effects and leaves no residual authorization, exposure, ownership or persistence changes. | CE-RL-001 retains immutable proposals; no complete runtime revocation/persistence refinement. Define rollback at consumer boundary and prove old proposals remain non-authorizing after disable. |
 | 28 | Champion preservation — `exhaustively_checked` | Challenger failure cannot modify champion configuration/artifacts or selection. | Conditional scoped closure; all required certificates must reproduce. Reopen on any new archive writer, destination, callback, selector consumer, filesystem identity assumption, executable/helper or production integration change. Durable recovery, inherited live authorization and economic gates remain unresolved. |
@@ -110,3 +110,13 @@ Shield-consumer follow-up supersedes historical counts: **11 scoped closures /23
 
 
 Point-in-time follow-up: obligation4 now has actual versioned timestamp admission, SMT/finite-model and learner conformance evidence, while missing historical witnesses and inherited ingestion keep it partial. The11 prior scoped closures additionally require F-RL-PIT-BOUNDARY. No original criterion is changed and no economic gate is weakened.
+
+Stage-preservation follow-up (2026-10-06): obligation25 closes conditionally with
+its original scope and criterion unchanged. The [preregistered contract](lifecycle-stage-contract.md)
+resolves the old request for an absent persistent promotion service: the safety
+requirement is established by complete source-bound Research-stage preservation,
+not by asserting a future workflow exists. Ordinary research inference is exercised;
+advanced-stage metadata with valid hashes is rejected. Required constituent
+certificates reproduce in the same invocation. Current totals: **12 scoped closures /
+24 partial /2 open**;26 obligations and both empirical gates remain unresolved.
+No runtime, configuration, scientific evidence or production eligibility changes.
