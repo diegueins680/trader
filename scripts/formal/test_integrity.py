@@ -3452,7 +3452,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(15,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(16,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3562,7 +3562,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':15}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':16}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3828,7 +3828,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],15)
+        self.assertEqual(result['surface']['modules'],16)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 15)
+        self.assertEqual(r['surface']['researchModules'], 16)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
@@ -4224,6 +4224,119 @@ class LifecycleStageTests(unittest.TestCase):
             missing=dict(reproduced); missing.pop(certificate)
             with self.subTest(certificate=certificate), self.assertRaises(ValueError):
                 validate_obligations(ledger['missionObligations'],ledger['entries'],missing)
+
+
+class ReplayAccountingTests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import replay_accounting_v2 as impl
+        import replay_accounting as proof
+        from fractions import Fraction
+        return impl, proof, Fraction
+
+    def test_source_smt_model_and_haskell(self):
+        a,p,F=self.modules()
+        self.assertEqual(p.check_accounting()['smt'], {'F-RL-ACCOUNT-V2-ARITH':'unsat'})
+
+    def test_mutants_and_solver_fail_closed(self):
+        a,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('funding = -_mul', 'funding = _mul'),
+                        ('enabled: object = False', 'enabled: object = True'),
+                        ('equity = _add(equity, -_debit(closing))','equity = equity'),
+                        ('liquidation = "failed"','liquidation = "flat"')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'terminal accounting status'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_default_bad_types_and_rejection_atomicity(self):
+        a,p,F=self.modules()
+        self.assertIsNone(a.initial_v2(F(100)))
+        state=a.initial_v2(F(100),enabled=True)
+        self.assertIsNone(a.advance_v2(state,F(100),(),F(0)))
+        for kw in ({'enabled':1},{'version':'sequential_replay_v1'}, {'fill':F(0)},
+                   {'multiplier':F(-1)}, {'impact':float('nan')}, {'terminal':1}):
+            args={'enabled':True,**kw}
+            self.assertIsNone(a.advance_v2(state,F(100),(),F(0),**args))
+        for price in (100.0,True,F(0),F(-1),F(1<<8192)):
+            self.assertIsNone(a.advance_v2(state,price,(),F(0),enabled=True))
+        for events in ([],((F(1),),),((F(0),F(1)),),((F(1),F(1)),)*129):
+            self.assertIsNone(a.advance_v2(state,F(100),events,F(0),enabled=True))
+        before=repr(state)
+        for error in (ArithmeticError,MemoryError):
+            with patch.object(a,'_cost',side_effect=error):
+                self.assertIsNone(a.advance_v2(state,F(100),(),F(1,4),enabled=True))
+        self.assertEqual(repr(state),before)
+
+    def test_exact_cost_and_terminal_debit(self):
+        a,p,F=self.modules()
+        s=a.initial_v2(F(100),enabled=True)
+        entry=a.advance_v2(s,F(100),(),F(1,4),enabled=True)
+        self.assertEqual(entry.after.units,F(1,400))
+        self.assertEqual(entry.after.equity,F(3999,4000))
+        closed=a.advance_v2(entry.after,F(100),(),F(-1,4),terminal=True,enabled=True)
+        self.assertEqual(closed.after.units,0)
+        self.assertEqual(closed.after.equity,F(1999,2000))
+        self.assertEqual(closed.liquidation,'flat')
+        self.assertIsNone(a.advance_v2(closed.after,F(100),(),F(0),enabled=True))
+
+    def test_insolvent_gap_is_explicit_failed_liquidation(self):
+        a,p,F=self.modules()
+        s=a.initial_v2(F(100),enabled=True)
+        entry=a.advance_v2(s,F(100),(),F(-1,4),enabled=True)
+        gap=a.advance_v2(entry.after,F(1000),(),F(0),enabled=True)
+        self.assertLess(gap.after.equity,0)
+        self.assertEqual(gap.after.units,entry.after.units)
+        self.assertTrue(gap.after.terminal)
+        self.assertEqual((gap.reason,gap.liquidation),('equity_exhausted','failed'))
+        self.assertEqual(gap.costs,a.Costs())
+
+    def test_extreme_funding_and_small_debits_are_exact_or_rejected(self):
+        a,p,F=self.modules()
+        s=a.initial_v2(F(1),enabled=True)
+        entry=a.advance_v2(s,F(1),(),F(1,4),multiplier=F(0),enabled=True)
+        tiny=F(1,2**1074)
+        got=a.advance_v2(entry.after,F(1),((F(1),tiny),),F(0),terminal=True,multiplier=F(0),enabled=True)
+        self.assertEqual(got.funding,-tiny/4)
+        self.assertEqual(got.after.equity,F(1)-tiny/4)
+        # Raw products that overflow binary64 remain exact within the bit budget.
+        huge=F(2**1023)
+        got=a.advance_v2(entry.after,F(1),((huge,huge),),F(0),terminal=True,enabled=True)
+        self.assertEqual(got.funding,-huge*huge/4)
+        self.assertEqual(got.liquidation,'failed')
+        self.assertIsNone(a.advance_v2(entry.after,F(1),((F(2**8191),F(2**8191)),),F(0),enabled=True))
+
+    def test_exact_sqrt_enclosure(self):
+        a,p,F=self.modules()
+        for value in [F(0),F(1),F(4),F(1,2),F(1,2**1074),F(2**1023)]:
+            bound=a._sqrt_up(value)
+            self.assertGreaterEqual(bound*bound,value)
+            if bound:
+                self.assertLess((bound-F(1,a.SQRT_GRID))**2,value)
+
+    def test_tick_bound_turnover_risk_and_partial_fill(self):
+        a,p,F=self.modules()
+        s=a.State(4095,F(100),F(1,400),F(1),F(1),False)
+        got=a.advance_v2(s,F(100),(),F(1,4),enabled=True)
+        self.assertTrue(got.after.terminal)
+        self.assertEqual(got.liquidation,'flat')
+        s=a.State(0,F(100),F(3,1000),F(1),F(1),False)
+        got=a.advance_v2(s,F(100),(),F(-1,4),enabled=True)
+        self.assertEqual(got.reason,'turnover_limit')
+        self.assertEqual(got.after.units,0)
+        s=a.initial_v2(F(100),enabled=True)
+        got=a.advance_v2(s,F(100),(),F(1,4),fill=F(1,2),enabled=True)
+        self.assertEqual(got.after.units,F(1,800))
+        got=a.advance_v2(s,F(100),(),F(1,4),multiplier=F(5000),enabled=True)
+        self.assertEqual((got.reason,got.liquidation),('equity_exhausted','failed'))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "replay-accounting-v2",
+  "date": "2026-10-06",
+  "baseCommit": "30f76ac18fee3f02d31b1276f25fa2e42c619e83",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/replay-accounting-v2-contract.md",
+  "requirements": ["F-RL-ACCOUNT-V2-ARITH", "F-RL-ACCOUNT-V2-SOURCE", "F-RL-ACCOUNT-V2-FLOW", "F-RL-ACCOUNT-V2-CONFORMANCE"],
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "enabledByDefault": false,
+  "productionIntegration": false,
+  "maximumTicks": 4096,
+  "maximumFundingEvents": 128,
+  "maximumRationalBits": 8192,
+  "sqrtFractionalBits": 32,
+  "oracleSeed": 20261006,
+  "oracleCases": 128,
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Exact replay accounting core; full runner/learner composition and frozen arithmetic remain blockers. No broad status change."
+}

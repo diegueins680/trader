@@ -1,5 +1,8 @@
 # Canonical Formal Specifications
 
+Exact replay accounting v2 (2026-10-06) adds a default-disabled rational transition kernel, explicit flat/failed terminal liquidation receipts, bounded raw funding aggregation and conservatively rounded impact. Nine SMT queries, a 28-state/52-edge publication model and 128 generated episodes/1166 Haskell Rational comparisons provide scoped evidence. The original 38 remain **12 scoped closures / 25 partial / 1 open**: the kernel is not connected to frozen learning/replay and does not close a whole-system criterion. [Contract](../formal/research/replay-accounting-v2-contract.md). No candidate, champion, fleet, live flag or holdout changes.
+
+
 FIFO progress (2026-10-06): **12 scoped closures /25 partial /1 open**, still26 unresolved. Original38 gains source-bound FIFO, eight SMT queries, an838-state/3356-edge weak-fairness model and compiled conformance; it does not close. A-ADMISSION-PROGRESS assumes finite resources, terminating callback/cleanup and weak scheduler fairness, with no latency or whole-server guarantee. CE-BACKTEST-STARVATION preserves a fair polling-starvation cycle. No learned candidate or live authorization is introduced. See the [contract](../formal/research/admission-progress-contract.md). Earlier counts below are historical.
 
 

@@ -1,5 +1,8 @@
 # Trader
 
+Exact replay accounting v2 (2026-10-06) adds a default-disabled rational transition kernel, explicit flat/failed terminal liquidation receipts, bounded raw funding aggregation and conservatively rounded impact. Nine SMT queries, a 28-state/52-edge publication model and 128 generated episodes/1166 Haskell Rational comparisons provide scoped evidence. The original 38 remain **12 scoped closures / 25 partial / 1 open**: the kernel is not connected to frozen learning/replay and does not close a whole-system criterion. [Contract](formal/research/replay-accounting-v2-contract.md). No candidate, champion, fleet, live flag or holdout changes.
+
+
 Waiting backtests now register in FIFO order. Immediate requests return the existing Busy response while waiters are queued; cancellation removes only the caller's ticket, and draining wakes waiters without new admission. Execution timeouts and concurrency limits are unchanged. See the [progress contract](formal/research/admission-progress-contract.md) and [engineering report](research-notes/sequential-control-2026-09-17/admission-progress-2026-10-06.md). Current ledger: **12 scoped closures, 25 partial, 1 open**; the full mission remains incomplete.
 
 The [candidate stage audit](research-notes/sequential-control-2026-09-17/lifecycle-stage-2026-10-06.md) verifies that delivered policy writers/loaders preserve Research eligibility and reject promoted metadata. Scoped obligation 25 closes only with all composing certificates reproduced; totals at that stage-preservation milestone were 12 scoped closures, 24 partial, 2 open. Earlier counts below are historical. No runtime, model, live setting or promotion eligibility changes.

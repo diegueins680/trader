@@ -537,3 +537,6 @@ are not claimed.
 
 
 Point-in-time follow-up (2026-10-06): [contract](point-in-time-contract.md), [registration](../../research-notes/registrations/point-in-time-engineering.json), and [report](../../research-notes/sequential-control-2026-09-17/point-in-time-2026-10-06.md) add F-RL-PIT-TIME/BOUNDARY/FLOW/CONFORMANCE. Both wrappers reproduce integer availability, the126-state protocol and synthetic actual training. Totals at the point-in-time revision were11 scoped/24 partial/3 open. Timestamp authenticity and old CSV history remain unresolved; no financial trial or new dependency.
+
+
+Exact replay accounting v2: `replay_accounting_v2.initial_v2` and `advance_v2` require `enabled=True`, the exact version and native `fractions.Fraction` inputs. They publish immutable exact receipts or `None`; they have no runner/learner, data or order interface. Run `bash scripts/verify.sh formal` for arithmetic, model and compiled Haskell oracle checks. The [contract](replay-accounting-v2-contract.md) specifies bounds, units, costs and failure semantics.
