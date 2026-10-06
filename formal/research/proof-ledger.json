@@ -3297,10 +3297,14 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
-      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
+      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1792 states, 3456 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE. FIFO extension: queue-erased contention is overapproximated; fair progress requires the separate F-ADMISSION-PROGRESS-FLOW certificate.",
       "counterexample": "formal/research/backtest-gate-counterexamples.json",
-      "status": "smt_verified"
+      "status": "smt_verified",
+      "modelBounds": {
+        "states": 1792,
+        "transitions": 3456
+      }
     },
     {
       "requirementId": "F-BACKTEST-GATE-LIFECYCLE",
@@ -3335,10 +3339,14 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
-      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
+      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1792 states, 3456 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE. FIFO extension: queue-erased contention is overapproximated; fair progress requires the separate F-ADMISSION-PROGRESS-FLOW certificate.",
       "counterexample": "formal/research/backtest-gate-counterexamples.json",
-      "status": "model_checked"
+      "status": "model_checked",
+      "modelBounds": {
+        "states": 1792,
+        "transitions": 3456
+      }
     },
     {
       "requirementId": "F-BACKTEST-GATE-CONFORMANCE",
@@ -3373,10 +3381,14 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1656 states, 2984 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
-      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE.",
+      "bounds": "Five SMT duration claims over arbitrary positive signed Int maximum and all representable seconds; existing admission/release arithmetic remains a dependency. Eight finite configurations: 2 callers, capacity 1/2, all immediate/waiting mode pairs; 1792 states, 3456 edges, max shortest depth 8. Compiled 264 numeric cases (256 generated), seven runtime tests, 32 generated schedules, seed 20261004.",
+      "limitations": "Execution timer starts after admission; waiting admission may remain blocked indefinitely without availability/cancellation. Callback cooperation/interruptibility required; no forced foreign-call termination, whole-server drain transaction, outer-caller exception policy, durable ownership or complete IO refinement. Reserve-gap counterexample uses a labeled injected schedule. Current atomic counter implementation uses STM; these older models project the standalone initially-open controller. Shared drain ordering is checked separately by F-DRAIN-POOL-LIFECYCLE. FIFO extension: queue-erased contention is overapproximated; fair progress requires the separate F-ADMISSION-PROGRESS-FLOW certificate.",
       "counterexample": "formal/research/backtest-gate-counterexamples.json",
-      "status": "property_tested"
+      "status": "property_tested",
+      "modelBounds": {
+        "states": 1792,
+        "transitions": 3456
+      }
     },
     {
       "requirementId": "F-DRAIN-POOL-ORDER",
@@ -3414,10 +3426,14 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17728 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
-      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
+      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17872 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
+      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs. FIFO extension: registration/waiting stutter at the reservation boundary; queue-erased rejection is nondeterministic. No fairness theorem follows from this drain safety model.",
       "counterexample": "formal/research/drain-pool-counterexamples.json",
-      "status": "smt_verified"
+      "status": "smt_verified",
+      "modelBounds": {
+        "states": 5376,
+        "transitions": 17872
+      }
     },
     {
       "requirementId": "F-DRAIN-POOL-LIFECYCLE",
@@ -3455,10 +3471,14 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17728 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
-      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
+      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17872 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
+      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs. FIFO extension: registration/waiting stutter at the reservation boundary; queue-erased rejection is nondeterministic. No fairness theorem follows from this drain safety model.",
       "counterexample": "formal/research/drain-pool-counterexamples.json",
-      "status": "model_checked"
+      "status": "model_checked",
+      "modelBounds": {
+        "states": 5376,
+        "transitions": 17872
+      }
     },
     {
       "requirementId": "F-DRAIN-POOL-CONFORMANCE",
@@ -3496,10 +3516,14 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Scoped numeric, lifecycle and implementation evidence; broader mission remains incomplete.",
-      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17728 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
-      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs.",
+      "bounds": "Five SMT claims over arbitrary nonnegative counts and positive capacity. Eight configurations: 2 callers, 2 pools, 2 drainers, capacity 1/2, all caller-pool assignments; 5376 states, 17872 transitions, max shortest depth 10, initial decreasing rank 12. Four compiled tests; 32 generated concurrent cases, seed 20261004; OS interleavings are not seeded.",
+      "limitations": "Reservations committed before drain keep ownership and may begin callbacks afterward. Whole-server compute/bot/order admission, fairness, durable recovery and full implementation refinement remain unresolved. Runtime STM semantics trusted; tests are not proofs. FIFO extension: registration/waiting stutter at the reservation boundary; queue-erased rejection is nondeterministic. No fairness theorem follows from this drain safety model.",
       "counterexample": "formal/research/drain-pool-counterexamples.json",
-      "status": "property_tested"
+      "status": "property_tested",
+      "modelBounds": {
+        "states": 5376,
+        "transitions": 17872
+      }
     },
     {
       "requirementId": "F-RL-DATA-COMPOSITION",

@@ -2753,6 +2753,19 @@ class AdmissionProgressTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     p.prove_numeric()
 
+    def test_ledger_model_bounds_are_reproduced(self):
+        from verify import validate_progress_bounds
+        ledger = read_json(ROOT / 'formal/research/proof-ledger.json')
+        result = {'backtestGate': {'model': {'states':1792, 'transitions':3456}},
+                  'drainPool': {'model': {'states':5376, 'transitions':17872}}}
+        validate_progress_bounds(ledger['entries'], result)
+        for field in ('modelBounds', 'bounds'):
+            changed = copy.deepcopy(ledger['entries'])
+            entry = next(e for e in changed if e['requirementId'] == 'F-BACKTEST-GATE-LIFECYCLE')
+            entry[field] = {} if field == 'modelBounds' else '1656 states, 2984 edges'
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                validate_progress_bounds(changed, result)
+
     def test_preserved_legacy_lasso(self):
         import admission_progress as p
         fixture = read_json(ROOT / 'formal/research/fixtures/admission-progress.json')

@@ -94,6 +94,17 @@ def validate_ledger(ledger, root):
     return open_count
 
 
+def validate_progress_bounds(entries, result):
+    for prefix, section, noun in [('F-BACKTEST-GATE-', 'backtestGate', 'edges'),
+                                  ('F-DRAIN-POOL-', 'drainPool', 'transitions')]:
+        bounds = {k: result[section]['model'][k] for k in ('states', 'transitions')}
+        for entry in entries:
+            if entry['requirementId'].startswith(prefix):
+                require(entry.get('modelBounds') == bounds, 'stale registered model bounds')
+                phrase = f"{bounds['states']} states, {bounds['transitions']} {noun}"
+                require(phrase in entry['bounds'], 'stale human-readable model bounds')
+
+
 VERIFIED = {'proved', 'model_checked', 'probabilistically_model_checked',
             'smt_verified', 'refinement_verified', 'exhaustively_checked'}
 
@@ -316,6 +327,7 @@ def run(record=False, require_complete=False):
     result['smt'].update(result['botWorkerPublication']['smt'])
     result['rewardAccounting'] = check_reward_accounting()
     result['smt'].update(result['rewardAccounting']['smt'])
+    validate_progress_bounds(ledger['entries'], result)
     require(set(result['smt']) == {e['requirementId'] for e in ledger['entries'] if e['status'] == 'smt_verified'}, 'SMT obligation roster mismatch')
     counterexamples = read_json(ROOT / 'formal/research/counterexamples.json')
     require(result['model']['counterexampleToRevocation'] == counterexamples['entries'][0]['trace'], 'counterexample regression drift')
