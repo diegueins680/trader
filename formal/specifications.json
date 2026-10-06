@@ -695,6 +695,22 @@
         {
           "id": "F-RL-PIT-CONFORMANCE",
           "statement": "Actual timestamp admission agrees with an independent oracle on generated records, preserves symbol and future-payload isolation, rejects malformed/missing data and composes with the actual PPO successor on a registered synthetic fixture."
+        },
+        {
+          "id": "F-RL-OPE-V2-ARITH",
+          "statement": "Source-extracted exact rational OPE weight, discount, return, IS, PDIS, DR and batch recurrences satisfy their algebra; nonzero supported weights stay positive, ESS accumulation preserves Cauchy bounds, and guarded means/WIS/ESS have nonzero denominators. Checked rational primitives bound intermediate representation size."
+        },
+        {
+          "id": "F-RL-OPE-V2-BOUNDARY",
+          "statement": "The reviewed complete OPE v2 surface is default-disabled, admits the entire immutable bounded batch before arithmetic, uses checked exact primitives, and returns only a versioned descriptive envelope without persistence, promotion or order effects."
+        },
+        {
+          "id": "F-RL-OPE-V2-FLOW",
+          "statement": "The finite two-episode three-decision OPE publication model rejects invalid data before arithmetic and never publishes a partial batch on arithmetic or allocation failure."
+        },
+        {
+          "id": "F-RL-OPE-V2-CONFORMANCE",
+          "statement": "The actual exact OPE estimator agrees with an independent prefix-product oracle, preserves positive extreme weights, rejects invalid and oversized batches, and deterministically publishes immutable descriptive results without statistical acceptance."
         }
       ],
       "invariants": [
@@ -937,6 +953,11 @@
           "level": "regression",
           "path": "scripts/formal/test_integrity.py",
           "contains": "PointInTimeTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ExactOpeTests"
         }
       ]
     },

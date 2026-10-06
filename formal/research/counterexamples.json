@@ -61,6 +61,19 @@
       "requirement": "F-RL-ARCHIVE-FLOW",
       "fixture": "formal/research/fixtures/champion-archive.json",
       "legacySource": "formal/research/champion-archive-legacy.json"
+    },
+    {
+      "id": "CE-OPE-WEIGHT-UNDERFLOW",
+      "status": "refuted",
+      "claim": "A positive two-decision likelihood-ratio trajectory always retains a nonzero weight under binary64 cumulative multiplication.",
+      "trace": [
+        "behavior probabilities (1,1), target probabilities (1e-200,1e-200)",
+        "binary64 product becomes0 despite each ratio being positive",
+        "v2 exact product remains positive; ESS1 and WIS2 for rewards (1,1), gamma1"
+      ],
+      "resolution": "Exact conversion before ratio/product, bounded rational recurrences through complete descriptive estimates; frozen v1 remains unchanged and invalid for adoption.",
+      "regression": "scripts/formal/test_integrity.py",
+      "requirement": "F-RL-OPE-V2-ARITH"
     }
   ]
 }

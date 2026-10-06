@@ -1,5 +1,7 @@
 # Offline research verification runbook
 
+Current continuation (2026-10-06): **11 scoped closures,24 partial,3 open**; see the [current all38 table](obligation-closure-audit.md). Earlier dated counts below are historical. The [exact OPE v2 contract](ope-rational-contract.md) adds complete ratio-to-estimate arithmetic with twelve SMT queries, a23-state publication model and96 oracle cases. Reproduce through `bash scripts/verify.sh formal` and `bash scripts/verify.sh full`; no new dependency, market data or financial rerun is required. The optional `--require-complete` gate must still fail for27 unresolved obligations and2 empirical acceptance gates.
+
 [Quantity rounding](quantity-rounding-contract.md) adds exact integer/real and IEEE binary64 guard lemmas, an independent Fraction oracle (4226 compiled cases), source mutation tests, and production adapter generated properties. No new dependency, temporal state, model integration or financial trial. Run the existing formal/full wrappers; broader rounding remains partial.
 
 

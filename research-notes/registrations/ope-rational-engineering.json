@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ope-rational-v2",
+  "date": "2026-10-06",
+  "baseCommit": "2c37ae3f5d2d30d49aa6aedf44a3d9294f0848e5",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/ope-rational-contract.md",
+  "requirements": ["F-RL-OPE-V2-ARITH", "F-RL-OPE-V2-BOUNDARY", "F-RL-OPE-V2-FLOW", "F-RL-OPE-V2-CONFORMANCE"],
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "enabledByDefault": false,
+  "productionIntegration": false,
+  "maximumEpisodes": 256,
+  "maximumDecisions": 32,
+  "maximumRationalBits": 8192,
+  "oracleSeed": 20261006,
+  "oracleCases": 96,
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Compose probability ratios through estimates and ESS; obligation10 stays open pending all other critical numeric paths. No broad status change."
+}

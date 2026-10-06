@@ -3373,7 +3373,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(13,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(14,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3483,7 +3483,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':13}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':14}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3749,7 +3749,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],13)
+        self.assertEqual(result['surface']['modules'],14)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -3760,6 +3760,123 @@ class PointInTimeTests(unittest.TestCase):
         del reproduced['F-RL-PIT-BOUNDARY']
         with self.assertRaisesRegex(ValueError,'not reproduced'):
             validate_obligations(ledger['missionObligations'],ledger['entries'],reproduced)
+
+
+class ExactOpeTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import ope_rational_v2 as impl
+        import ope_rational as proof
+        self.p,self.f=impl,proof
+        self.e=impl.Episode((1.0,),(1,),(0.5,),(0.5,),(0.0,),(0.0,0.0))
+
+    def test_actual_proof_and_oracle(self):
+        result=self.f.check_ope()
+        self.assertEqual(result['queries'],12)
+        self.assertEqual(result['conformance']['oracleCases'],96)
+        self.assertEqual(result['model']['states'],23)
+
+    def test_defaults_and_versions_have_no_arithmetic(self):
+        with patch.object(self.p,'_episode',side_effect=AssertionError('arithmetic')):
+            for enabled in (False,None,1,'true'):
+                self.assertIsNone(self.p.estimate_v2((self.e,),1.0,enabled=enabled))
+            for version in (None,2,'ope-rational-v1'):
+                self.assertIsNone(self.p.estimate_v2((self.e,),1.0,enabled=True,version=version))
+
+    def test_entire_batch_validates_before_computation(self):
+        from dataclasses import replace
+        variants=[replace(self.e,rewards=(float('nan'),)),replace(self.e,behavior=(0.0,)),
+                  replace(self.e,behavior=(1.1,)),replace(self.e,target=(-0.1,)),
+                  replace(self.e,target=(float('inf'),)),replace(self.e,actions=(True,)),
+                  replace(self.e,actions=(3,)),replace(self.e,v=(0.0,1.0)),
+                  replace(self.e,q=[0.0]),replace(self.e,q=(False,)),
+                  replace(self.e,rewards=(1.0,2.0)),None]
+        with patch.object(self.p,'_episode',side_effect=AssertionError('arithmetic')):
+            for bad in variants:
+                with self.subTest(bad=bad):
+                    self.assertIsNone(self.p.estimate_v2((self.e,bad),1.0,enabled=True))
+
+    def test_shapes_budgets_and_scalar_types(self):
+        from dataclasses import replace
+        for batch in ((),[self.e],(self.e,)*257,(replace(self.e,rewards=()),),
+                      (replace(self.e,rewards=(1.0,)*33),)):
+            self.assertIsNone(self.p.estimate_v2(batch,1.0,enabled=True))
+        for gamma in (1,True,float('nan'),float('inf'),-0.1,1.1):
+            self.assertIsNone(self.p.estimate_v2((self.e,),gamma,enabled=True))
+
+    def test_extreme_ratios_do_not_overflow_or_underflow(self):
+        from dataclasses import replace
+        from fractions import Fraction
+        tiny=float.fromhex('0x0.0000000000001p-1022')
+        for behavior,target in ((tiny,1.0),(1.0,tiny)):
+            episode=replace(self.e,behavior=(behavior,),target=(target,))
+            got=self.p.estimate_v2((episode,episode),1.0,enabled=True)
+            expected=Fraction.from_float(target)/Fraction.from_float(behavior)
+            self.assertIsNotNone(got)
+            self.assertEqual(got.max_weight,expected)
+            self.assertEqual(got.ordinary_is,expected)
+            self.assertEqual(got.weighted_is,1)
+            self.assertEqual(got.effective_sample_size,2)
+            self.assertGreater(got.max_weight,0)
+
+    def test_nonzero_cumulative_underflow_regression(self):
+        from fractions import Fraction
+        episode=self.p.Episode((1.0,1.0),(1,1),(1.0,1.0),(1e-200,1e-200),
+                               (0.0,0.0),(0.0,0.0,0.0))
+        got=self.p.estimate_v2((episode,),1.0,enabled=True)
+        self.assertEqual(1e-200*1e-200,0.0)
+        self.assertIsNotNone(got)
+        self.assertEqual(got.max_weight,Fraction.from_float(1e-200)**2)
+        self.assertEqual(got.effective_sample_size,1)
+        self.assertEqual(got.weighted_is,2)
+
+    def test_zero_support_preserves_absence(self):
+        from dataclasses import replace
+        got=self.p.estimate_v2((replace(self.e,target=(0.0,)),),0.0,enabled=True)
+        self.assertIsNone(got.weighted_is)
+        self.assertEqual((got.effective_sample_size,got.nonzero_trajectories),(0,0))
+        self.assertFalse(got.reliable)
+
+    def test_size_and_allocation_failure_never_publish(self):
+        h=32;tiny=float.fromhex('0x0.0000000000001p-1022')
+        episode=self.p.Episode((1.0,)*h,(1,)*h,(tiny,)*h,(1.0,)*h,(0.0,)*h,(0.0,)*(h+1))
+        self.assertIsNone(self.p.estimate_v2((episode,),1.0,enabled=True))
+        with patch.object(self.p,'_episode',side_effect=[self.p._episode(self.e,self.f.Fraction(1)),MemoryError()]):
+            self.assertIsNone(self.p.estimate_v2((self.e,self.e),1.0,enabled=True))
+
+    def test_checked_size_threshold(self):
+        from fractions import Fraction
+        bound=2**8192
+        self.assertEqual(self.p._bounded(Fraction(bound-1)),bound-1)
+        for value in (Fraction(bound),Fraction(-bound),Fraction(1,bound)):
+            with self.assertRaises(ArithmeticError):self.p._bounded(value)
+
+    def test_result_is_immutable_and_replay_is_exact(self):
+        from dataclasses import FrozenInstanceError
+        got=self.p.estimate_v2((self.e,),1.0,enabled=True)
+        self.assertEqual(got,self.p.estimate_v2((self.e,),1.0,enabled=True))
+        with self.assertRaises(FrozenInstanceError):got.reliable=True
+        with self.assertRaises(FrozenInstanceError):got.episodes[0].weight=0
+
+    def test_source_mutations_and_refreshed_arithmetic_mutant(self):
+        import hashlib,json
+        source=(ROOT/self.f.SOURCE).read_text()
+        for old,new in [('enabled is not True','enabled is False'),('MAX_BITS = 8192','MAX_BITS = 8193'),
+                        ('return _bounded(a / b)','return a / b'),('episode.v[-1] == 0','True')]:
+            with self.assertRaises(ValueError):self.f.extract(source.replace(old,new))
+        mutant=source.replace('weight = _mul(weight, _div(target, behavior))','weight = _mul(weight, _div(behavior, target))')
+        tree=ast.parse(mutant);registry=json.loads((ROOT/self.f.REGISTRY).read_text())
+        registry['astSha256']=hashlib.sha256(self.f.shape(tree).encode()).hexdigest()
+        registry['definitions']={n.name:self.f.shape(n) for n in tree.body if isinstance(n,(ast.FunctionDef,ast.ClassDef))}
+        extracted,_=self.f.extract(mutant,registry)
+        with self.assertRaises((ValueError,RuntimeError)):self.f.prove(extracted)
+
+    def test_partial_publication_and_unknown_solver_rejected(self):
+        with self.assertRaisesRegex(ValueError,'partial publication'):self.f.check_model(mutant=True)
+        with patch('ppo_successor.z.Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises((ValueError,RuntimeError)):self.f.prove(self.f.extract()[0])
 
 
 if __name__ == '__main__':

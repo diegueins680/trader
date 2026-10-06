@@ -1,5 +1,7 @@
 # Canonical Formal Specifications
 
+Exact OPE v2 adds F-RL-OPE-V2-ARITH (twelve source-bound SMT queries), F-RL-OPE-V2-BOUNDARY (reviewed source/effects), F-RL-OPE-V2-FLOW (23-state finite publication model), and F-RL-OPE-V2-CONFORMANCE (96 independent oracle cases and regressions). [Contract](../formal/research/ope-rational-contract.md). Assumption A-OPE-RATIONAL names exact runtime primitives and truthful logged propensities; neither statistical reliability nor the full numeric obligation follows. Current totals remain11 scoped closures/24 partial/3 open.
+
 Downward rounding now has F-ROUND-DOWN-INTEGER (exact quotient/reconstruction SMT), F-ROUND-DOWN-FINITE (binary64 guard SMT) and F-ROUND-DOWN-CONFORMANCE (compiled properties). [The contract](../formal/research/quantity-rounding-contract.md) traces the pure core, Binance adapter, tests, CI and CE-ROUND-001. Source binding plus differential tests is not whole-compiler refinement. Obligation 9 is partial; final wire/order-cap correctness remains open.
 
 
