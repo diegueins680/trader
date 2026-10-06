@@ -63,7 +63,9 @@ def successors(state,capacity,modes):
         if phase=='new':
             add('cancel-before-reserve','done',e='cancel',o='propagated')
             if count<capacity:add('reserve','reserved',1)
-            elif modes[i]=='waiting':add('wait','waiting')
+            # Queue-erased overapproximation: FIFO contention may defer/reject
+            # even with an available slot. Fair ordering is checked separately.
+            if modes[i]=='waiting':add('wait','waiting')
             else:add('busy','done',e='busy',o='busy')
         elif phase=='waiting':
             add('retry','new')

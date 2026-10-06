@@ -931,9 +931,10 @@
         "haskell/app/Main.hs",
         "scripts/research/run_sequential_screen.py",
         "haskell/app/Trader/App/GracefulShutdown.hs",
-        "haskell/app/Trader/App/WorkerPublication.hs"
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Trader/App/BacktestGate.hs"
       ],
-      "closureClass": null
+      "closureClass": "partially_verified"
     }
   ]
 }

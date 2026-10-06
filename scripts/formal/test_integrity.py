@@ -2693,11 +2693,90 @@ class AsyncSealTests(unittest.TestCase):
             seal.extract()
 
 
+class AdmissionProgressTests(unittest.TestCase):
+    def test_source_numeric_model_and_actual_haskell(self):
+        import admission_progress as p
+        result = p.check_progress()
+        self.assertEqual(result['queries'], 8)
+        self.assertEqual(result['model']['states'], 838)
+        self.assertEqual(result['model']['transitions'], 3356)
+        self.assertEqual(result['conformance']['regression'], {'old': 'barged=True', 'new': 'barged=False'})
+
+    def test_barging_mutant_has_fair_starvation(self):
+        import admission_progress as p
+        graph, _ = p.explore(1, barging=True)
+        self.assertTrue(p.fair_bad_components(graph))
+
+    def test_cancellation_leak_is_detected(self):
+        import admission_progress as p
+        with self.assertRaisesRegex(ValueError, 'orphan'):
+            p.explore(1, leak_cancel=True)
+
+    def test_scc_against_all_three_vertex_graphs(self):
+        import admission_progress as p
+        import itertools
+        vertices = set(range(3))
+        possible = list(itertools.product(vertices, repeat=2))
+        for mask in range(1 << len(possible)):
+            graph = {v: [] for v in vertices}
+            for i, (v, w) in enumerate(possible):
+                if mask & (1 << i):
+                    graph[v].append(('edge', w))
+            reach = {v: {v} for v in vertices}
+            for v in vertices:
+                for _, w in graph[v]:
+                    reach[v].add(w)
+            for k in vertices:
+                for v in vertices:
+                    if k in reach[v]:
+                        reach[v].update(reach[k])
+            expected = {frozenset(w for w in vertices if w in reach[v] and v in reach[w]) for v in vertices}
+            self.assertEqual({frozenset(g) for g in p.components(vertices, graph)}, expected)
+
+    def test_weak_fairness_distinguishes_intermittent_enable(self):
+        import admission_progress as p
+        a = (False, (0,), ('wait', 'new', 'new'), 0)
+        b = (False, (0,), ('wait', 'active', 'new'), 1)
+        done = (False, (), ('reserved', 'new', 'new'), 1)
+        graph = {a: [('compete', b), ('acquire:0', done)], b: [('release:1', a)], done: [('stutter', done)]}
+        self.assertTrue(p.fair_bad_components(graph))  # intermittently enabled is not weak fairness
+        graph[b].append(('acquire:0', done))
+        self.assertFalse(p.fair_bad_components(graph))  # continuously enabled must eventually run
+        graph[a].append(('acquire:0', b))
+        self.assertTrue(p.fair_bad_components(graph))  # a fair edge inside the SCC is exercised
+
+    def test_numeric_unknown_and_vacuity_fail(self):
+        import admission_progress as p
+        from unittest.mock import patch
+        for result in (p.z.unknown, p.z.unsat):
+            with patch.object(p.z.Solver, 'check', return_value=result):
+                with self.assertRaises(ValueError):
+                    p.prove_numeric()
+
+    def test_ledger_model_bounds_are_reproduced(self):
+        from verify import validate_progress_bounds
+        ledger = read_json(ROOT / 'formal/research/proof-ledger.json')
+        result = {'backtestGate': {'model': {'states':1792, 'transitions':3456}},
+                  'drainPool': {'model': {'states':5376, 'transitions':17872}}}
+        validate_progress_bounds(ledger['entries'], result)
+        for field in ('modelBounds', 'bounds'):
+            changed = copy.deepcopy(ledger['entries'])
+            entry = next(e for e in changed if e['requirementId'] == 'F-BACKTEST-GATE-LIFECYCLE')
+            entry[field] = {} if field == 'modelBounds' else '1656 states, 2984 edges'
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                validate_progress_bounds(changed, result)
+
+    def test_preserved_legacy_lasso(self):
+        import admission_progress as p
+        fixture = read_json(ROOT / 'formal/research/fixtures/admission-progress.json')
+        self.assertEqual(p.legacy_witness(), fixture['legacy'])
+
+
 class BacktestGateTests(unittest.TestCase):
     def test_numeric_and_lifecycle(self):
         import backtest_gate as gate
         self.assertEqual(gate.prove_numeric(), {'F-BACKTEST-GATE-NUMERIC': 'unsat'})
-        self.assertEqual(gate.check_model()['states'], 1656)
+        self.assertEqual(gate.check_model()['states'], 1792)
 
     def test_invalid_lifecycle_rejected(self):
         import backtest_gate as gate

@@ -1,5 +1,8 @@
 # Trader Firm — Risk Register
 
+FIFO progress (2026-10-06): **12 scoped closures /25 partial /1 open**, still26 unresolved. Original38 gains source-bound FIFO, eight SMT queries, an838-state/3356-edge weak-fairness model and compiled conformance; it does not close. A-ADMISSION-PROGRESS assumes finite resources, terminating callback/cleanup and weak scheduler fairness, with no latency or whole-server guarantee. CE-BACKTEST-STARVATION preserves a fair polling-starvation cycle. No learned candidate or live authorization is introduced. See the [contract](../formal/research/admission-progress-contract.md). Earlier counts below are historical.
+
+
 A-ROUND-DOWN / CE-ROUND-001: downward epsilon rounding could increase quantity; the exact pure core and final binary64 guard repair this defect. Source-bound SMT and compiled properties do not certify wire rendering, upward rounding, minimum-size increases or all venue adapters. GHC primitives and sufficient resources remain assumptions. RL-OFFLINE-001 remains HIGH/OPEN; five scoped closures, 27 partial, six open. See [contract](../formal/research/quantity-rounding-contract.md).
 
 

@@ -60,8 +60,9 @@ def successors(state, capacity, assignment):
         elif phase == 1:
             if not snapshot and not draining and not closed[pool] and counts[pool] < capacity:
                 move('reserve', 2, 1, post=draining)
-            else:
-                move('reject', 4)
+            # Erasing the FIFO allows queue contention/cancellation rejection
+            # even while open with free capacity. Safety overapproximation only.
+            move('reject', 4)
         elif phase == 2:
             move('callback', 3)
         elif phase == 3:

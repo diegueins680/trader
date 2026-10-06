@@ -83,7 +83,17 @@
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotSnapshotRecovery.hs",
         "haskell/app/Trader/App/WorkerPublication.hs",
-        "scripts/research/summarize_sequential_screen.py"
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/trader.cabal",
+        "formal/research/admission-progress-contract.md",
+        "formal/research/admission-progress-source.json",
+        "scripts/formal/admission_progress.py",
+        "scripts/formal/test_integrity.py",
+        "formal/research/AdmissionProgress.hs",
+        "formal/research/fixtures/admission-progress-before.hs",
+        "formal/research/fixtures/admission-progress-witness.hs",
+        "formal/research/fixtures/admission-progress.json"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -743,6 +753,22 @@
         {
           "id": "F-RL-STAGE-CONFORMANCE",
           "statement": "Actual v1/v4 writers/loaders retain ordinary research behavior and reject every tested promoted or malformed metadata tuple even after hashes are correctly recomputed; nested policy data cannot override root control fields."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-SOURCE",
+          "statement": "Actual private FIFO registration, head-only reservation, immediate-call refusal, cancellation cleanup and drain handoff match the reviewed admission transition mapping; both slot owners install release before unmasking."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-NUMERIC",
+          "statement": "Exact Integer ticket increments preserve freshness and finite predecessor-rank summaries; bounded Int reservation preserves capacity and inverse release under the stated primitive semantics."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-FLOW",
+          "statement": "In the three-caller capacity1/2 FIFO transition model, reservations preserve ownership, queue identity and draining safety, and every persistent waiter resolves under weak action fairness and terminating owner/cleanup assumptions; legacy polling admits a fair starvation lasso."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-CONFORMANCE",
+          "statement": "Compiled current Haskell gates reject barging, preserve FIFO, clean up cancelled waiters and wake on drain; the preserved legacy helper admits a competing request before its registered retrying waiter in the tested finite schedule."
         }
       ],
       "invariants": [

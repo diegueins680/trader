@@ -2,7 +2,7 @@
 
 All 38 original titles are retained. A closed affected-scope claim is not a proof of inherited production behavior. Production integration obligations stay open; none are silently marked inapplicable. Statistical/market-data blockers are separate from pure software closure.
 
-Current ledger (2026-10-06, stage preservation): **12 scoped closures /24 partial /2 open**. The table below is synchronized with the machine-readable ledger; dated notes after it are historical.
+Current ledger (2026-10-06, FIFO progress): **12 scoped closures /25 partial /1 open**. The table below is synchronized with the machine-readable ledger; dated notes after it are historical.
 
 | # | Obligation / status | Closure criterion | Remaining blocker / next action |
 |---|---|---|---|
@@ -43,7 +43,7 @@ Current ledger (2026-10-06, stage preservation): **12 scoped closures /24 partia
 | 35 | Idempotence — `partially_verified` | Retries do not duplicate ownership, promotion or externally visible order intents. | Pure shield idempotence does not cover persistent operation identifiers or consumer retries. Define request identity and atomic deduplication at any future effect boundary; verify retry transitions. |
 | 36 | Shutdown termination — `partially_verified` | Stop reaches quiescence or explicit bounded failure under named environmental assumptions. | Frozen v1 CE-RL-017 remains; the process v2 engineering fixture is not composed into an approved successor runner. HTTP admission, detached/async workers, bots/listen-key completion, resource reconciliation, repeated process signals and logging/OS timing remain unrefined. Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence. |
 | 37 | Recovery — `partially_verified` | Interrupted recoverable work resumes without violating safety or duplicating irreversible effects. | Versioned report export now has composed crash/retry evidence; training-run archives and inherited bot snapshot persistence still lack a composed durable recovery proof. Extend durable checkpoints/idempotent restart to training-run evidence publication and inherited bot snapshot persistence. Preserve frozen evidence; report-bundle v2 does not rerun or resume model training. |
-| 38 | No permanent lockout — `open` | Invalid unrelated candidates cannot permanently block valid safe work. | No isolation/fair scheduling model connects candidate failures to continued server progress. Model per-candidate admission/failure isolation and prove progress under bounded resources and scheduler fairness. |
+| 38 | No permanent lockout — `partially_verified` | Invalid unrelated candidates cannot permanently block valid safe work. | FIFO backtest admission now has actual cancellation/drain conformance and weak-fair cycle exclusion. Runner isolation, other server admission paths, persistent state and inherited worker progress remain uncomposed. Complete those paths without assuming away blocked callbacks. |
 
 Historical initial count: 5 affected-scope closures (3, 5, 11, 24, 31); 27 partial and 6 open (33 unresolved). The [capability contract](capability-isolation-contract.md) explicitly excludes certification of deployed images and inherited live authority.
 
@@ -120,3 +120,5 @@ advanced-stage metadata with valid hashes is rejected. Required constituent
 certificates reproduce in the same invocation. Current totals: **12 scoped closures /
 24 partial /2 open**;26 obligations and both empirical gates remain unresolved.
 No runtime, configuration, scientific evidence or production eligibility changes.
+
+FIFO follow-up:38 open → partial only. A real polling starvation schedule is preserved and the inherited gate now prevents barging. Original scopes and criteria are unchanged;12 scoped closures /25 partial /1 open,26 unresolved. No empirical acceptance or production authorization.

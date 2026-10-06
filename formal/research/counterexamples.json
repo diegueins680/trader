@@ -119,6 +119,16 @@
       "regression": "scripts/formal/test_integrity.py",
       "requirement": "F-RL-STAGE-FLOW",
       "fixture": "formal/research/fixtures/lifecycle-stage-skip.json"
+    },
+    {
+      "id": "CE-BACKTEST-STARVATION",
+      "claim": "Polling with one-second retries prevents permanent admission starvation under thread fairness.",
+      "status": "refuted",
+      "sourceModel": "scripts/formal/admission_progress.py",
+      "fixture": "formal/research/fixtures/admission-progress.json",
+      "implementation": "haskell/app/Trader/App/BacktestGate.hs",
+      "resolution": "FIFO registration/head admission and no immediate barging; finite model checks weak-fair progress, compiled old/new witness retained.",
+      "limitation": "Three-caller abstraction; no assertion that an infinite starving runtime schedule was observed."
     }
   ]
 }

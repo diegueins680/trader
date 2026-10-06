@@ -1,6 +1,9 @@
 # Canonical Formal Specifications
 
-Current ledger after stage preservation: **12 scoped closures / 24 partial / 2 open**. See the [current audit](../formal/research/obligation-closure-audit.md); earlier follow-up counts below are historical.
+FIFO progress (2026-10-06): **12 scoped closures /25 partial /1 open**, still26 unresolved. Original38 gains source-bound FIFO, eight SMT queries, an838-state/3356-edge weak-fairness model and compiled conformance; it does not close. A-ADMISSION-PROGRESS assumes finite resources, terminating callback/cleanup and weak scheduler fairness, with no latency or whole-server guarantee. CE-BACKTEST-STARVATION preserves a fair polling-starvation cycle. No learned candidate or live authorization is introduced. See the [contract](../formal/research/admission-progress-contract.md). Earlier counts below are historical.
+
+
+Historical ledger after stage preservation: **12 scoped closures / 24 partial / 2 open**. See the [current audit](../formal/research/obligation-closure-audit.md); earlier follow-up counts below are historical.
 
 [Recoverable report bundle v2](../formal/research/report-bundle-contract.md) adds F-RL-BUNDLE-SOURCE, F-RL-BUNDLE-ARITH, F-RL-BUNDLE-FLOW and F-RL-BUNDLE-CONFORMANCE. Four SMT queries and a 446-state / 2,127-transition crash model cover bounded writes and exclusive publication under A-BUNDLE-FS; 508 healthy rank edges support conditional recovery. Actual process-death/failure tests connect the model to the exporter. Recovery obligation 37 became partial at that revision, with 11 scoped closures / 25 partial / 2 open. Training archives, inherited bot persistence and whole-system progress remain unverified.
 
