@@ -3373,7 +3373,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(14,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(15,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3483,7 +3483,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':14}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':15}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3749,7 +3749,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],14)
+        self.assertEqual(result['surface']['modules'],15)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -3877,6 +3877,169 @@ class ExactOpeTests(unittest.TestCase):
         with patch('ppo_successor.z.Solver') as solver:
             solver.return_value.check.return_value=z3.unknown
             with self.assertRaises((ValueError,RuntimeError)):self.f.prove(self.f.extract()[0])
+
+
+class ReportBundleTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import report_bundle_v2 as impl
+        import report_bundle as proof
+        self.b,self.p=impl,proof
+        self.reports={name:b'synthetic\n' for name in impl.NAMES}
+
+    def test_actual_models_and_exporter_parity(self):
+        result=self.p.check_bundle()
+        self.assertEqual((result['model']['states'],result['model']['transitions']),(446,2127))
+        self.assertEqual(result['model']['recoverableSameIntentStates'],254)
+        self.assertEqual(result['conformance']['reportByteParity'],7)
+
+    def test_default_disabled_before_filesystem(self):
+        with patch.object(self.b.os,'open',side_effect=AssertionError('filesystem')):
+            for enabled in (False,None,1,'true'):
+                self.assertIsNone(self.b.publish_bundle_v2('/invalid',self.reports,enabled=enabled))
+            for version in (None,True,'v1'):
+                self.assertIsNone(self.b.publish_bundle_v2('/invalid',self.reports,enabled=True,version=version))
+            for reports in ({},[],{**self.reports,'unknown':b'x'},dict(self.reports,**{'ope-report.json':b'\xff'})):
+                self.assertIsNone(self.b.publish_bundle_v2('/invalid',reports,enabled=True))
+
+    def test_encoding_schema_and_limits(self):
+        import json
+        raw=self.b.encode_bundle_v2(self.reports);value=json.loads(raw)
+        self.assertEqual(set(value),{'schema','promotion','enabled','liveAuthorization','reports'})
+        self.assertEqual((value['schema'],value['promotion'],value['enabled'],value['liveAuthorization']),('report-bundle-v2','research',False,False))
+        self.assertIsNone(self.b.encode_bundle_v2(dict(self.reports,**{'ope-report.json':b'x'*(self.b.MAX_REPORT+1)})))
+        self.assertIsNone(self.b.encode_bundle_v2({name:b'x'*self.b.MAX_REPORT for name in self.b.NAMES}))
+        # Valid decoded-size inputs may expand beyond the encoded-byte cap.
+        large={name:(b'\x00'*(self.b.MAX_REPORT//2)) for name in self.b.NAMES}
+        self.assertIsNone(self.b.encode_bundle_v2(large))
+
+    def test_existing_conflicts_and_links_preserve_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);champion=root/'champion';champion.write_bytes(b'KEEP')
+            for kind in ('regular','symlink','hardlink','directory','fifo'):
+                out=root/kind;out.mkdir();target=out/self.b.TARGET
+                if kind=='regular':target.write_bytes(b'KEEP')
+                elif kind=='symlink':target.symlink_to(champion)
+                elif kind=='hardlink':target.hardlink_to(champion)
+                elif kind=='directory':target.mkdir()
+                else:self.b.os.mkfifo(target)
+                before=champion.stat().st_ino
+                self.assertIsNone(self.b.publish_bundle_v2(str(out),self.reports,enabled=True))
+                self.assertEqual(champion.read_bytes(),b'KEEP');self.assertEqual(champion.stat().st_ino,before)
+                if kind in ('regular','hardlink'):self.assertEqual(target.read_bytes(),b'KEEP')
+
+    def test_short_write_and_zero_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original=self.b.os.write
+            with patch.object(self.b.os,'write',lambda fd,data:original(fd,data[:3])):
+                self.assertIsNotNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+            target=Path(tmp)/self.b.TARGET;expected=target.read_bytes();target.unlink()
+            with patch.object(self.b.os,'write',return_value=0):
+                self.assertIsNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+            self.assertFalse(target.exists())
+            self.assertIsNotNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+            self.assertEqual(target.read_bytes(),expected)
+
+    def test_failure_and_retry_at_effect_boundaries(self):
+        import os,stat
+        original={name:getattr(os,name) for name in ('open','write','fsync','link','unlink')}
+        def classify(name,args):
+            if name=='open':return 'stage-open' if args[1]&os.O_CREAT else 'open'
+            if name=='fsync':return 'directory-sync' if stat.S_ISDIR(os.fstat(args[0]).st_mode) else 'file-sync'
+            return name
+        for point in ('stage-open','write','file-sync','link','directory-sync','unlink'):
+            for after in (False,True):
+                with self.subTest(point=point,after=after), tempfile.TemporaryDirectory() as tmp:
+                    fired=[]
+                    def hook(name):
+                        def call(*args,**kwargs):
+                            hit=not fired and classify(name,args)==point
+                            if hit and not after:fired.append(True);raise OSError('injected')
+                            result=original[name](*args,**kwargs)
+                            if hit:fired.append(True);raise OSError('injected')
+                            return result
+                        return call
+                    from contextlib import ExitStack
+                    with ExitStack() as stack:
+                        for name in original:stack.enter_context(patch.object(os,name,hook(name)))
+                        result=self.b.publish_bundle_v2(tmp,self.reports,enabled=True)
+                    self.assertTrue(fired)
+                    if point!='unlink':self.assertIsNone(result)
+                    self.assertIsNotNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+                    self.assertEqual((Path(tmp)/self.b.TARGET).read_bytes(),self.b.encode_bundle_v2(self.reports))
+
+    def test_staging_collision_is_not_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/('.report-bundle-v2.'+'0'*32);path.write_bytes(b'KEEP')
+            with patch.object(self.b.secrets,'token_hex',return_value='0'*32):
+                self.assertIsNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+            self.assertEqual(path.read_bytes(),b'KEEP')
+            self.assertFalse((Path(tmp)/self.b.TARGET).exists())
+
+    def test_process_crashes_before_and_after_boundaries(self):
+        import os,subprocess,sys
+        script=r'''
+import os,stat,sys
+import report_bundle_v2 as b
+point,when,directory=sys.argv[1:]
+original={name:getattr(os,name) for name in ('open','write','fsync','link','unlink')}
+def label(name,args):
+    if name=='open':return 'stage-open' if args[1]&os.O_CREAT else 'parent-open' if args[1]&os.O_DIRECTORY else 'read-open'
+    if name=='fsync':return 'directory-sync' if stat.S_ISDIR(os.fstat(args[0]).st_mode) else 'file-sync'
+    return name
+def hook(name):
+    def call(*args,**kwargs):
+        hit=label(name,args)==point
+        if hit and when=='before':os._exit(73)
+        result=original[name](*args,**kwargs)
+        if hit and when=='after':os._exit(73)
+        return result
+    return call
+for name in original:setattr(os,name,hook(name))
+b.publish_bundle_v2(directory,{name:b'synthetic\n' for name in b.NAMES},enabled=True)
+raise SystemExit(74)
+'''
+        for point in ('parent-open','stage-open','write','file-sync','link','directory-sync','unlink'):
+            for when in ('before','after'):
+                with self.subTest(point=point,when=when),tempfile.TemporaryDirectory() as tmp:
+                    result=subprocess.run([sys.executable,'-c',script,point,when,tmp],env={'PATH':os.defpath,'PYTHONPATH':str(ROOT/'scripts/research')},capture_output=True,timeout=15)
+                    self.assertEqual(result.returncode,73,result.stderr.decode())
+                    self.assertIsNotNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+                    target=Path(tmp)/self.b.TARGET;inode=target.stat().st_ino
+                    self.assertEqual(target.read_bytes(),self.b.encode_bundle_v2(self.reports))
+                    self.assertIsNotNone(self.b.publish_bundle_v2(tmp,self.reports,enabled=True))
+                    self.assertEqual(target.stat().st_ino,inode)
+
+    def test_concurrent_matching_and_conflicting_writers(self):
+        import os,subprocess,sys
+        script="import sys;from report_bundle_v2 import *;r=publish_bundle_v2(sys.argv[1],{n:sys.argv[2].encode() for n in NAMES},enabled=True);print(r or 'absent')"
+        for values in (('same','same'),('first','second')):
+            with tempfile.TemporaryDirectory() as tmp:
+                workers=[subprocess.Popen([sys.executable,'-c',script,tmp,value],env={'PATH':os.defpath,'PYTHONPATH':str(ROOT/'scripts/research')},stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) for value in values]
+                outputs=[]
+                for worker in workers:
+                    out,err=worker.communicate(timeout=15);self.assertEqual(worker.returncode,0,err);outputs.append(out.strip())
+                successes=[o for o in outputs if o!='absent']
+                self.assertEqual(len(successes),2 if values[0]==values[1] else 1)
+                self.assertEqual(len(set(successes)),1)
+                import hashlib
+                self.assertEqual(successes[0],hashlib.sha256((Path(tmp)/self.b.TARGET).read_bytes()).hexdigest())
+
+    def test_source_and_model_mutants_fail(self):
+        import hashlib,json
+        source=(ROOT/self.p.SOURCE).read_text()
+        for before,after in [('os.O_EXCL','os.O_TRUNC'),('os.fsync(parent)','None'),('enabled is not True','enabled is False')]:
+            with self.assertRaises(ValueError):self.p.extract(source.replace(before,after))
+        mutant=source.replace('os.O_EXCL','os.O_TRUNC');tree=ast.parse(mutant);reg=read_json(ROOT/self.p.REGISTRY)
+        reg['astSha256']=hashlib.sha256(self.p.shape(tree).encode()).hexdigest()
+        reg['definitions']={n.name:self.p.shape(n) for n in tree.body if isinstance(n,ast.FunctionDef)}
+        reg['effects']=sorted(ast.unparse(n) for n in ast.walk(tree) if isinstance(n,ast.Call) and ast.unparse(n.func).startswith('os.'))
+        with self.assertRaisesRegex(ValueError,'exclusive staging'):self.p.extract(mutant,reg)
+        with self.assertRaisesRegex(ValueError,'partial target'):self.p.check_model(mutant=True)
+        with patch('ppo_successor.z.Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises((ValueError,RuntimeError)):self.p.arithmetic(self.p.extract()[0])
 
 
 if __name__ == '__main__':
