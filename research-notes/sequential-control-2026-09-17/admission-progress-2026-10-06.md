@@ -84,3 +84,19 @@ After the source assertion fix, all23 targeted tests passed in23.733s. Supersede
 Pinned reproduction37419355225/job112125007813 failed with `bot worker publication: support source drift: haskell/trader.cabal`. Its formal/full steps did not run. The nested support registry still pinned the pre-test-registration Cabal/TestMain files; those two reviewed hashes were updated. The worker implementation and predicates are unchanged. A recursive audit found no other stale current-source digest; no source-drift gate was relaxed. Ordinary stale-receipt CI37419355321 was canceled, not passed.
 
 Reproduction37419828641 passed receipt generation and the canonical formal wrapper. Review then found stale numeric bounds in the old backtest/drain ledger descriptions after their conservative models expanded. These are corrected to1792/3456 and5376/17872 states/edges, with a new mandatory receipt-to-ledger bounds check and mutation regression. Its full wrapper was superseded; passing final verification must use the corrected ledger/check. No runtime change accompanies this correction.
+
+
+Final pinned reproduction [37420428707](https://github.com/diegueins680/trader/actions/runs/37420428707),
+job112128332119, tested source `4b1ff2954a5cb67481bd0581f4f2a09d0531829b`:
+receipt generation80s; `bash scripts/verify.sh formal`163s; `bash scripts/verify.sh full`539s,
+all exit0. Formal/full integrity suites each passed282 tests (85.276s/83.591s).
+Haskell build/format/lint/smoke/tests passed, including the new admission suite;
+web241/241 and automation185/185 passed. All80 SMT groups returned UNSAT violations.
+Receipt SHA256 `f30812898b89f47fffbea4ba171a37ffccc6417a8d1131176d5cb0ab5ad44049`
+was imported verbatim after checking every current source digest. Only the new
+admission section, the two reviewed model extensions, SMT roster and source hashes
+changed; capability graph/effects stayed identical apart from the BacktestGate
+source digest. The old12/26 closure summary and both blocked research gates stayed
+identical. The temporary reproduction workflow is removed. Ordinary stale-receipt
+CI37419828653/37420428765 were canceled, not passed. Final-head CI and merge audits
+are recorded in the PR; broader mission and formal closure remain incomplete.
