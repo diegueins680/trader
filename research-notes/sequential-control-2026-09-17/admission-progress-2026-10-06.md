@@ -80,3 +80,5 @@ change, deployment, or live-authorization change is authorized by these results.
 The next local full-verifier attempt failed closed at `admission/cleanup control drift`: lint cleanup had changed the reviewed cancellation expression to `second (Seq.filter (/= ticket))`, while one source-shape assertion still expected the equivalent lambda. The assertion was updated to the actual reviewed expression; no runtime or safety guard was relaxed. This attempt is not a pass.
 
 After the source assertion fix, all23 targeted tests passed in23.733s. Superseded ordinary CI37419042071 and reproduction37419042098 were canceled; neither is a passing result.
+
+Pinned reproduction37419355225/job112125007813 failed with `bot worker publication: support source drift: haskell/trader.cabal`. Its formal/full steps did not run. The nested support registry still pinned the pre-test-registration Cabal/TestMain files; those two reviewed hashes were updated. The worker implementation and predicates are unchanged. A recursive audit found no other stale current-source digest; no source-drift gate was relaxed. Ordinary stale-receipt CI37419355321 was canceled, not passed.
