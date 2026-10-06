@@ -37,7 +37,8 @@
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -47,7 +48,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -59,9 +61,10 @@
       "requiredCertificates": [],
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_env.py"
+        "scripts/research/sequential_env.py",
+        "scripts/research/point_in_time_v3.py"
       ],
-      "closureClass": null
+      "closureClass": "partially_verified"
     },
     {
       "number": 5,
@@ -74,7 +77,8 @@
         "F-RL-FEATURE-FOOTPRINT",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_env.py",
@@ -84,7 +88,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -169,7 +174,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -184,7 +190,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -216,7 +223,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -240,7 +248,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -389,7 +398,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/ess_rational_v2.py",
@@ -410,7 +420,8 @@
         "haskell/trader.cabal",
         "haskell/research/InferenceProcessV2.hs",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/formal/promotion_boundary.py"
+        "scripts/formal/promotion_boundary.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -429,7 +440,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -442,7 +454,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -476,7 +489,8 @@
         "F-RL-SNAPSHOT-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/ess_rational_v2.py",
@@ -497,7 +511,8 @@
         "haskell/trader.cabal",
         "haskell/research/InferenceProcessV2.hs",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/formal/promotion_boundary.py"
+        "scripts/formal/promotion_boundary.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -536,7 +551,8 @@
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-ARTIFACT-DISJOINT"
+        "F-RL-ARTIFACT-DISJOINT",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/run_sequential_screen.py",
@@ -553,7 +569,8 @@
         "scripts/formal/champion_archive.py",
         "haskell/trader.cabal",
         "haskell/research/InferenceProcessV2.hs",
-        "haskell/research/SnapshotRequestV3.hs"
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -577,7 +594,8 @@
         "F-RL-PROMOTION-SCHEMA",
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -589,7 +607,8 @@
         "formal/research/artifact-legacy-loader.json",
         "formal/research/artifact-composition-contract.md",
         "research-notes/registrations/artifact-admission-engineering.json",
-        "scripts/formal/artifact_composition.py"
+        "scripts/formal/artifact_composition.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -613,7 +632,8 @@
         "F-RL-PROMOTION-SCHEMA",
         "F-RL-COMPONENT-ISOLATION",
         "F-RL-PROCESS-ISOLATION",
-        "F-RL-SNAPSHOT-ISOLATION"
+        "F-RL-SNAPSHOT-ISOLATION",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
@@ -625,7 +645,8 @@
         "formal/research/artifact-legacy-loader.json",
         "formal/research/artifact-composition-contract.md",
         "research-notes/registrations/artifact-admission-engineering.json",
-        "scripts/formal/artifact_composition.py"
+        "scripts/formal/artifact_composition.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
@@ -642,7 +663,8 @@
         "F-RL-PROCESS-ISOLATION",
         "F-RL-PPO-V2-BOUNDARY",
         "F-RL-BRIDGE-V3-BOUNDARY",
-        "F-RL-ARTIFACT-V4-BOUNDARY"
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY"
       ],
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
@@ -654,7 +676,8 @@
         "scripts/research/ppo_successor_v2.py",
         "scripts/research/ppo_inference_v3.py",
         "haskell/research/SnapshotRequestV3.hs",
-        "scripts/research/ppo_artifact_v4.py"
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py"
       ],
       "closureClass": "exhaustively_checked"
     },
