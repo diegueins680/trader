@@ -33,7 +33,7 @@ def extract():
     require('btWaiters :: !(TVar (Integer, Seq.Seq Integer))' in source, 'exact private ticket representation')
     # Source-shape checks are explicit review boundaries, not parser refinement.
     for text in ['if Seq.null queue then admitSlot (btMaxRunning gate) current else (current, False)',
-                 'first Seq.:< rest | first == ticket', 'queue Seq.|> ticket', 'Seq.filter (/= ticket) queue',
+                 'first Seq.:< rest | first == ticket', 'queue Seq.|> ticket', 'second (Seq.filter (/= ticket))',
                  'acquired <- atomically acquire `onException` atomically removeTicket']:
         require(text in source, 'admission/cleanup control drift')
     require(source.count('restore (runTimedBacktest gate action) `finally` releaseBacktest gate') == 2,

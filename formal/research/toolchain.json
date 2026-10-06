@@ -470,7 +470,7 @@
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
     "research-notes/registrations/lifecycle-stage-engineering.json": "1900f299af00ea4b3e337e5853ddec3774a6fab3672952a2c2dac0eeab7595ed",
     "formal/research/fixtures/lifecycle-stage-skip.json": "9455bff18bb99d1ed930713bc4d5700542bad17a2cf825090755080bc6c34a49",
-    "scripts/formal/admission_progress.py": "0b875429da291552c7eb8797349259713bc25f3e0eeea48aa15d685f6a6088df",
+    "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
     "haskell/test/Trader/Test/AdmissionProgress.hs": "aaae04d8b6b315dc8214abd1e4b8363ee54f52159717c2577427aa0118c74451",
     "formal/research/AdmissionProgress.hs": "62bf77149e36459169414f66c9a6cec93aa48a941c1a0c6cca1868185651c0e7",
     "formal/research/fixtures/admission-progress-before.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
@@ -478,7 +478,7 @@
     "formal/research/fixtures/admission-progress.json": "2894ced2677a9995aa68cb3f7605db635362fbbc68f43f49da583de63bc96f5f",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
     "research-notes/registrations/admission-progress-engineering.json": "1ff0bf3d120c065c0bcb13b92478564221a8459cf6e8ad323a4cb2e014f61489",
-    "formal/research/admission-progress-source.json": "d39835e1ec138eb1a52f0daf11bf87b5b93c49ff7392e3ab49b782bc2eacda1e"
+    "formal/research/admission-progress-source.json": "6268f17365cd77a2e2edd357eb4d8b3055b708d64f8416085ab54480d5303206"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

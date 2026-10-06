@@ -67,10 +67,16 @@ was renamed to `acquire` without changing the placeholder gate. No incomplete
 theorem was present. Canonical verification and final-head results will be recorded
 after execution, not assumed passed.
 
-No financial experiment, market-data read, training run, holdout evaluation, OPE
+No financial experiment, market-data read, model-training campaign, holdout evaluation, OPE
 rerun, financial metric or inference benchmark occurred. Frozen108 fits and19,440
 replays remain contaminated development; all108 OPE batches remain invalid. The
 1,227-return final holdout remains sealed and prospective embargo remains
 2027-01-20T13:00Z. No candidate passed. Continue offline research; no adoption.
+Existing synthetic training/conformance fixtures are re-executed by the formal gate;
+they are engineering tests, not financial trials.
 No order, authenticated trading call, live exploration, champion/fleet/risk-limit
 change, deployment, or live-authorization change is authorized by these results.
+
+The next local full-verifier attempt failed closed at `admission/cleanup control drift`: lint cleanup had changed the reviewed cancellation expression to `second (Seq.filter (/= ticket))`, while one source-shape assertion still expected the equivalent lambda. The assertion was updated to the actual reviewed expression; no runtime or safety guard was relaxed. This attempt is not a pass.
+
+After the source assertion fix, all23 targeted tests passed in23.733s. Superseded ordinary CI37419042071 and reproduction37419042098 were canceled; neither is a passing result.
