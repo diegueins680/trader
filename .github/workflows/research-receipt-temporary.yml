@@ -1,0 +1,36 @@
+name: Temporary research receipt reproduction
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    if: github.head_ref == 'research/rl-shielded-exposure-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.3'
+      - uses: haskell/ghcup-setup@v1
+        with:
+          ghc: '9.4.8'
+          cabal: '3.12.1.0'
+      - name: Install pinned verification dependencies
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
+          python3 -m pip install -r scripts/research/sequential-requirements.txt
+      - name: Reproduce scoped certificate on a clean runner
+        run: |
+          python3 scripts/formal/verify.py --record
+          python3 - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          print('REPRODUCED_RECEIPT=' + base64.b64encode(gzip.compress(Path('formal/research/results.json').read_bytes(), mtime=0)).decode())
+          PY
