@@ -4,9 +4,11 @@
       "costTermChecks": 16734,
       "episodes": 216,
       "grossFundingChecks": 1817,
+      "impactChecks": 5578,
       "rows": 5578,
       "seed": 20261013,
-      "status": "property_tested"
+      "status": "property_tested",
+      "tradeCalls": 2872
     },
     "constants": {
       "costTerm": [
