@@ -96,3 +96,27 @@ requires every stated bound to be at least the derived one.
   checked against the exact stated bounds (4u + 10H), and impact against 6u + 10H
   using rigorous exact-square-root enclosures. Episode-scoped call logs avoid
   object-id reuse across episodes.
+
+## Mechanical certificate (second review correction, before merge)
+
+The first certificate proved generic lemmas, and the per-bound operation counts
+and composition lived in hand-written Python. A wrong count would still have
+yielded "unsat". The certificate is now generated from the source AST:
+
+- **Gross and funding:** the reviewed expressions are translated to Z3 with
+  fresh rounding variables per binary operation, and the final advertised
+  inequality is one query each. The operation count (2) is asserted from the
+  AST.
+- **Fee, spread, slippage and impact:** the left-associated factor chain is
+  extracted from the `terms` dictionary AST. Each multiplication is one
+  certified step-lemma instance with concrete rational constants (the correctly
+  rounded `sqrt` contributes relative error only). The trade/liquidation merge
+  is one more certified instance, bound to the merge comprehension. The
+  resulting constants must not exceed the stated bounds.
+- **Roll-forward:** the 14 roundings come from the AST: the mark update, the
+  `sum` order over the cost keys, both debits and the four merges.
+  - Stage A certifies each operand's magnitude, one query per rounding.
+  - Stage B certifies the final 15·u·M + 15·H bound in one query.
+
+  With the constant 14 the generated query is satisfiable; that regression is
+  kept.

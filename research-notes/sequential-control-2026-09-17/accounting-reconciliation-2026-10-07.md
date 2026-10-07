@@ -32,16 +32,15 @@ claimed. The bound is per row: global trajectory error growth is not bounded.
   initialization, the mark-to-market update and the cost debit. The
   mark-to-market, costs, `sum` order, terminal merge, row record and rejecting
   exit are all bound.
-- **F-RL-RECON-ERROR** (SMT verified): five lemmas.
-  - single rounding;
-  - product-chain induction;
-  - accumulation recurrence;
-  - the exact roll-forward error identity;
-  - the gross absolute term.
+- **F-RL-RECON-ERROR** (SMT verified): queries mechanically generated from
+  the source AST.
+  - Gross and funding: direct final-inequality queries.
+  - Cost terms: one certified step instance per AST multiplication, plus a merge
+    instance per term.
+  - Roll-forward: 15 queries over the 14 AST-derived roundings.
 
-  Each stated constant is checked against its exactly derived value. The
-  roll-forward needs 14.00000000000001, so the preregistered 14 was a hair too
-  tight; 15 was recorded before any certificate.
+  With the constant 14 the roll-forward query is satisfiable, so the stated 15
+  is the necessary choice.
 - **F-RL-RECON-CONFORMANCE** (property tested): 216 episodes, all 5,578 rows,
   1,817 gross/funding checks, 16,734 cost-term checks and 5,578 impact checks.
   A pass-through spy captures every `_trade` call's executed inputs (2,872

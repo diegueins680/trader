@@ -4764,8 +4764,8 @@ class AccountingReconciliationTests(unittest.TestCase):
         import accounting_reconciliation as a
         r=a.check_reconciliation()
         self.assertEqual(r['smt'],{'F-RL-RECON-ERROR':'unsat'})
-        self.assertLessEqual(r['constants']['rollForward'][0],15)
-        self.assertGreater(r['constants']['rollForward'][0],14)   # 14 alone would be too tight
+        self.assertEqual((r['certified']['rollForwardRoundings'],r['certified']['rollForwardQueries']),(14,15))
+        self.assertEqual(r['certified']['terms']['impact']['multiplications'],3)
         self.assertGreater(r['conformance']['rows'],1000)
 
     def test_source_mutants_and_bad_constants_fail_closed(self):
@@ -4778,9 +4778,12 @@ class AccountingReconciliationTests(unittest.TestCase):
             self.assertIn(old,env)
             with self.subTest(old=old), self.assertRaises(ValueError):
                 a.bind({a.ENV:env.replace(old,new)})
+        with patch.object(a,'STATED',dict(a.STATED,costTerm=(a.Q(3),a.Q(8)))):
+            with self.assertRaisesRegex(ValueError,'stated bound below the AST-derived certified constant'):
+                a.lemmas()
         with patch.object(a,'STATED',dict(a.STATED,rollForward=(a.Q(14),a.Q(14)))):
-            with self.assertRaisesRegex(ValueError,'stated bound below derived constant'):
-                a.derive()
+            with self.assertRaises(ValueError):     # 14 is a hair too tight: the generated Z3 query is satisfiable
+                a._roll_forward()
         for answer in (z3.sat,z3.unknown):
             with patch('ppo_successor.z.Solver') as solver:
                 solver.return_value.check.return_value=answer

@@ -56,58 +56,163 @@ def bind(sources=None):
     return {'status': 'exhaustively_checked', 'equityWrites': len(writes), 'scope': 'unchanged frozen Replay ledger source; interpreter semantics assumed'}
 
 
-def lemmas():
+def _abs(x):
+    return z.If(x >= 0, x, -x)
+
+
+def _query(premise, claim):
+    """Positive certificate: premise satisfiable and premise-with-negated-claim unsatisfiable."""
+    certify(premise, claim)
+    return 1
+
+
+def _source_expr(name):
+    """Return the AST of a reviewed expression from the actual Replay source."""
+    replay = _named(ast.parse((ROOT / ENV).read_text()), 'Replay')
+    if name in ('gross', 'funding'):
+        node = next(s for s in ast.walk(_method(replay, 'step')) if isinstance(s, ast.Assign)
+                    and ast.unparse(s.targets[0]) == '(gross, funding)')
+        return node.value.elts[0 if name == 'gross' else 1]
+    terms = next(s for s in ast.walk(_method(replay, '_trade')) if isinstance(s, ast.Assign) and ast.unparse(s.targets[0]) == 'terms')
+    return dict(zip((ast.literal_eval(k) for k in terms.value.keys), terms.value.values))[name]
+
+
+def _factors(node):
+    """Left-associated multiplication chain -> list of factor ASTs (fails closed on any other shape)."""
+    out = []
+    while isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+        out.insert(0, node.right)
+        node = node.left
+    out.insert(0, node)
+    require(all(isinstance(f, (ast.Name, ast.Attribute, ast.Constant, ast.Call)) for f in out), 'unsupported factor')
+    return out
+
+
+def _direct(name):
+    """Final inequality for gross/funding as one query on the AST-translated rounded expression."""
     u, h = z.RealVal(str(U)), z.RealVal(str(H))
-    x, d, e, p, c, a, m, y = z.Reals('ar_x ar_d ar_e ar_p ar_c ar_a ar_m ar_y')
-    small = z.And(d >= -u, d <= u, e >= -h, e <= h)
-    absx = z.If(x >= 0, x, -x)
-    # L1: one rounding.
-    err = x * (1 + d) + e - x
-    certify(small, z.And(err <= u * absx + h, err >= -(u * absx + h)))
-    # L2: product chain step |P-1| <= c  =>  |P(1+d)-1| <= c(1+u)+u.
-    certify(z.And(small, c >= 0, p - 1 <= c, 1 - p <= c), z.And(p * (1 + d) - 1 <= c * (1 + u) + u, 1 - p * (1 + d) <= c * (1 + u) + u))
-    # L3: accumulation step: prior error <= a, operand magnitude <= m + a, new rounding of it.
-    absy = z.If(y >= 0, y, -y)
-    certify(z.And(small, a >= 0, m >= 0, absy <= m + a), (u * absy + h) + a <= a * (1 + u) + u * m + h)
-    # L4: roll-forward identity on recorded values (chain errors e_i, merge errors m_k).
-    E, g, f = z.Reals('ar_E ar_g ar_f')
-    t = z.Reals('ar_t0 ar_t1 ar_t2 ar_t3'); l = z.Reals('ar_l0 ar_l1 ar_l2 ar_l3')
-    ei = z.Reals(' '.join(f'ar_e{i}' for i in range(10))); mk = z.Reals('ar_m0 ar_m1 ar_m2 ar_m3')
-    s1 = g + f + ei[0]; Ea = E + s1 + ei[1]
-    q3 = t[0] + t[1] + ei[2] + t[2] + ei[3] + t[3] + ei[4]; Eb = Ea - q3 + ei[5]
-    r3 = l[0] + l[1] + ei[6] + l[2] + ei[7] + l[3] + ei[8]; Ec = Eb - r3 + ei[9]
-    rows = [t[k] + l[k] + mk[k] for k in range(4)]
+    node, cons, count = _source_expr(name), [], [0]
+    Uv, p0, p1, ft, m, Ev = z.Reals(f'ar_{name}_U ar_{name}_p0 ar_{name}_p1 ar_{name}_f ar_{name}_m ar_{name}_E')
+    names = {'self.units': Uv, 'p0': p0, 'p1': p1, 'f': ft, 'self.execution.funding_multiplier': m}
+    def tr(n):
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+            c, x = tr(n.operand)
+            return -c, -x                                                    # negation is exact
+        if isinstance(n, ast.BinOp):
+            (ca, xa), (cb, xb) = tr(n.left), tr(n.right)
+            op = {ast.Mult: lambda a, b: a * b, ast.Sub: lambda a, b: a - b}[type(n.op)]
+            count[0] += 1
+            d, e = z.Reals(f'ar_d_{name}{count[0]} ar_e_{name}{count[0]}')
+            cons.extend([d >= -u, d <= u, e >= -h, e <= h])
+            return op(ca, cb) * (1 + d) + e, op(xa, xb)
+        v = names[ast.unparse(n)]
+        return v, v
+    computed, exact = tr(node)
+    require(count[0] == 2, 'reviewed operation count for ' + name)
+    if name == 'gross':
+        x0 = (dbl(0.35) + 3 * H) / ((1 - U) * (1 - U))
+        premise = z.And(*cons, Ev >= z.RealVal('4/5'), Ev <= z.RealVal(str(HIGH)), p0 >= z.RealVal(str(LOW_PRICE)),
+                        p1 >= p0 / 2, p1 <= 3 * p0 / 2, _abs(Uv) * p0 <= z.RealVal(str(x0)) * Ev)
+        claim = _abs(computed - exact) <= 3 * u * _abs(exact) + z.RealVal(str(GROSS_E)) * Ev + 2 * h
+    else:
+        premise = z.And(*cons, m >= 0, m <= 2)
+        claim = _abs(computed - exact) <= STATED['funding'][0] * u * _abs(exact) + STATED['funding'][1] * h
+    return _query(premise, claim)
+
+
+def _chain(name, bounds):
+    """Per-call multiplicative chain from the AST, one certified step-lemma instance per multiplication.
+    State (c, a): |computed - exact| <= c*|exact| + a*H."""
+    factors = _factors(_source_expr(name))
+    require(ast.unparse(factors[0]) == 'cash', 'chain starts from executed cash')
+    u, h = z.RealVal(str(U)), z.RealVal(str(H))
+    c, a, queries = Q(0), Q(0), 0
+    for i, f in enumerate(factors[1:], start=1):
+        label = ast.unparse(f)
+        rel_in = U if label == 'np.sqrt(turnover)' else Q(0)                 # correctly rounded sqrt: relative only
+        B = bounds[label]
+        c_new = (1 + c) * (1 + rel_in) * (1 + U) - 1
+        a_new = a * B * (1 + rel_in) * (1 + U) + 1
+        C, X, F, dF, d, e = z.Reals(f'ar_c_{name}{i} ar_x_{name}{i} ar_f_{name}{i} ar_df_{name}{i} ar_d_{name}{i} ar_e_{name}{i}')
+        premise = z.And(X >= 0, F >= 0, F <= z.RealVal(str(B)), d >= -u, d <= u, e >= -h, e <= h,
+                        dF >= -z.RealVal(str(rel_in)), dF <= z.RealVal(str(rel_in)),
+                        _abs(C - X) <= z.RealVal(str(c)) * X + z.RealVal(str(a)) * h)
+        out = C * F * (1 + dF) * (1 + d) + e
+        queries += _query(premise, _abs(out - X * F) <= z.RealVal(str(c_new)) * X * F + z.RealVal(str(a_new)) * h)
+        c, a = c_new, a_new
+    return c, a, len(factors) - 1, queries
+
+
+def _merge(c, a, name):
+    """Certified merge instance rnd(T_t + T_l) against X_t + X_l, bound to the AST merge comprehension."""
+    step = _method(_named(ast.parse((ROOT / ENV).read_text()), 'Replay'), 'step')
+    require(any(isinstance(s, ast.Assign) and ast.unparse(s) == 'costs = {k: costs[k] + liquidation[k] for k in costs}' for s in ast.walk(step)),
+            'reviewed merge expression')
+    u, h = z.RealVal(str(U)), z.RealVal(str(H))
+    Tt, Tl, Xt, Xl, d, e = z.Reals(f'ar_mt_{name} ar_ml_{name} ar_mxt_{name} ar_mxl_{name} ar_md_{name} ar_me_{name}')
+    c_new, a_new = c * (1 + U) + U, 2 * a * (1 + U) + 1
+    premise = z.And(Xt >= 0, Xl >= 0, d >= -u, d <= u, e >= -h, e <= h,
+                    _abs(Tt - Xt) <= z.RealVal(str(c)) * Xt + z.RealVal(str(a)) * h,
+                    _abs(Tl - Xl) <= z.RealVal(str(c)) * Xl + z.RealVal(str(a)) * h)
+    _query(premise, _abs((Tt + Tl) * (1 + d) + e - (Xt + Xl)) <= z.RealVal(str(c_new)) * (Xt + Xl) + z.RealVal(str(a_new)) * h)
+    return c_new, a_new
+
+
+def _roll_forward():
+    """Two-stage certificate generated from the AST-bound ledger chain.
+    Stage A (one query per rounding): operand magnitude |y_i| <= M + sum_{j<i} a_j given |e_j| <= a_j.
+    Stage B (one query): with |e_i| <= a_i <= u*(M + sum_{j<i} a_j) + H, the final |E_c - L| <= 15u*M + 15H."""
+    replay = _named(ast.parse((ROOT / ENV).read_text()), 'Replay')
+    debit = next(s for s in ast.walk(_method(replay, '_trade')) if isinstance(s, ast.AugAssign) and ast.unparse(s.target) == 'self.equity')
+    keys = ast.literal_eval(debit.value.args[0].generators[0].iter)
+    require(keys == ('fee', 'spread', 'slippage', 'impact') and isinstance(debit.op, ast.Sub), 'reviewed debit sum')
+    mark = next(s for s in ast.walk(_method(replay, 'step')) if isinstance(s, ast.AugAssign) and ast.unparse(s.target) == 'self.equity')
+    require(isinstance(mark.op, ast.Add) and ast.unparse(mark.value) == 'gross + funding', 'reviewed mark update')
+    u, h = z.RealVal(str(U)), z.RealVal(str(H))
+    E, g, f = z.Reals('ar_rf_E ar_rf_g ar_rf_f')
+    t = z.Reals(' '.join(f'ar_rf_t_{k}' for k in keys)); l = z.Reals(' '.join(f'ar_rf_l_{k}' for k in keys))
+    ops = []                                       # (y_i, e_i, a_i) in evaluation order
+    def rnd(y, tag):
+        e, a = z.Reals(f'ar_rf_e_{tag} ar_rf_a_{tag}')
+        ops.append((y, e, a))
+        return y + e
+    def debit_of(vals, tag):
+        acc = vals[0]                              # sum(): 0 + first term is exact
+        for i, v in enumerate(vals[1:], start=1):
+            acc = rnd(acc + v, f'{tag}{i}')
+        return acc
+    Ea = rnd(E + rnd(g + f, 'gf'), 'Ea')           # self.equity += gross + funding
+    Eb = rnd(Ea - debit_of(t, 'q'), 'Eb')          # trade debit
+    Ec = rnd(Eb - debit_of(l, 'r'), 'Ec')          # liquidation debit
+    rows = [rnd(t[i] + l[i], f'm{i}') for i in range(len(keys))]   # merge comprehension
     ledger = E + g + f - sum(rows)
-    certify(z.BoolVal(True), Ec - ledger == ei[0] + ei[1] - ei[2] - ei[3] - ei[4] + ei[5] - ei[6] - ei[7] - ei[8] + ei[9] + sum(mk))
-    # L5: gross algebra with |U * p0| <= x0 * E: absolute part bounded by 2^-600 * E under the range premise.
-    U_, dp, d1, d2, e1, e2, Ev, p0 = z.Reals('ar_U ar_dp ar_d1 ar_d2 ar_e1 ar_e2 ar_Ev ar_p0')
-    g_c = (U_ * (dp * (1 + d1) + e1)) * (1 + d2) + e2
-    x0 = (dbl(0.35) + 3 * H) / ((1 - U) * (1 - U))
-    absU = z.If(U_ >= 0, U_, -U_)
-    certify(z.And(z.And(d1 >= -u, d1 <= u, d2 >= -u, d2 <= u, e1 >= -h, e1 <= h, e2 >= -h, e2 <= h),
-                  Ev >= z.RealVal('4/5'), Ev <= z.RealVal(str(HIGH)), p0 >= z.RealVal(str(LOW_PRICE)), absU * p0 <= z.RealVal(str(x0)) * Ev),
-            absU * h * (1 + u) <= z.RealVal(str(GROSS_E)) * Ev)
-    return 5
+    M = E + _abs(g) + _abs(f) + sum(t) + sum(l)
+    base = [E > 0, *[x >= 0 for x in t + l]]
+    for i, (y, _, _) in enumerate(ops):           # Stage A
+        prior = [z.And(a >= 0, e >= -a, e <= a) for _, e, a in ops[:i]]
+        _query(z.And(*base, *prior), _abs(y) <= M + sum((a for _, _, a in ops[:i]), z.RealVal(0)))
+    budget = []                                    # Stage B
+    for i, (_, e, a) in enumerate(ops):
+        budget.append(z.And(a >= 0, e >= -a, e <= a, a <= u * (M + sum((b for _, _, b in ops[:i]), z.RealVal(0))) + h))
+    _query(z.And(*base, *budget), _abs(Ec - ledger) <= STATED['rollForward'][0] * u * M + STATED['rollForward'][1] * h)
+    return len(ops), len(ops) + 1
 
 
-def derive():
-    chain = lambda k: (1 + U) ** k - 1            # relative error of k multiplicative roundings (L2 induction)
-    accum = ((1 + U) ** ROUNDINGS - 1) / U         # L3 recurrence: error <= (u*M + H) * accum
-    roll_rel, roll_abs = accum, accum
-    gross_rel = chain(2)
-    funding_rel, funding_abs = chain(2), Q(2) * (1 + U) + 1
-    cm = Q(5, 2)
-    term_rel = chain(3)
-    term_abs = 2 * (cm * (1 + U) ** 2 + (1 + U)) + 1
-    impact_rel = chain(5)
-    small = Q(10) * dbl(0.0001)
-    impact_abs = 2 * ((small + 2) * (1 + U) ** 2) + 1
-    derived = {'rollForward': (roll_rel, roll_abs), 'funding': (funding_rel / U, funding_abs), 'costTerm': (term_rel / U, term_abs),
-               'impact': (impact_rel / U, impact_abs), 'gross': (gross_rel / U, Q(2))}
-    stated = dict(STATED, gross=(Q(3), Q(2)))
-    for key, (rel, abs_) in derived.items():
-        require(rel <= stated[key][0] and abs_ <= stated[key][1], 'stated bound below derived constant: ' + key)
-    return {k: [float(v[0]), float(v[1])] for k, v in derived.items()}
+def lemmas():
+    queries = _direct('gross') + _direct('funding')
+    term_bounds = {'0.0005': dbl(0.0005), '5e-05': dbl(5e-05), '0.00045': dbl(0.00045), 'cfg.cost_multiplier': Q(5, 2),
+                   'cfg.impact_bps': Q(10), '0.0001': dbl(0.0001), 'np.sqrt(turnover)': Q(1)}
+    summary = {}
+    for name in ('fee', 'spread', 'slippage', 'impact'):
+        c, a, ops, n = _chain(name, term_bounds)
+        c, a = _merge(c, a, name)
+        queries += n + 1
+        rel, abs_ = STATED['impact' if name == 'impact' else 'costTerm']
+        require(c <= rel * U and a <= abs_, 'stated bound below the AST-derived certified constant: ' + name)
+        summary[name] = {'multiplications': ops, 'relative': float(c / U), 'absolute': float(a)}
+    roundings, roll_queries = _roll_forward()
+    require(roundings == ROUNDINGS, 'roll-forward rounding count drifted from the AST')
+    return {'termQueries': queries, 'rollForwardRoundings': roundings, 'rollForwardQueries': roll_queries, 'terms': summary}
 
 
 def _replay():
@@ -200,5 +305,5 @@ def conformance():
 def check_reconciliation():
     reg = json.loads((ROOT / REGISTRATION).read_text())
     require(reg['sourceChanges'] == 0 and reg['holdoutOpened'] is False, 'registration')
-    lemmas()
-    return {'source': bind(), 'smt': {'F-RL-RECON-ERROR': 'unsat'}, 'constants': derive(), 'conformance': conformance()}
+    certified = lemmas()
+    return {'source': bind(), 'smt': {'F-RL-RECON-ERROR': 'unsat'}, 'certified': certified, 'conformance': conformance()}
