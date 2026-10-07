@@ -142,8 +142,8 @@ class Bound:
     def plus(self, other):                       # S
         return Bound(self.rel + other.rel, self.abs + other.abs)
 
-    def relative(self):                          # abs <= abs/(4/5) * E since E >= 4/5
-        return self.rel + self.abs * Q(5, 4)
+    def relative(self, floor=Q(4, 5)):           # abs <= abs/floor * E since E >= floor
+        return self.rel + self.abs / floor
 
 
 def propagate():
@@ -166,14 +166,14 @@ def propagate():
     detect = Q(3, 2) * x0 / e1_ratio
     # Accepted trade: computed turnover <= turnover_cap bounds the exact |new - old| * p (lemma I);
     # the stored cash is that product rounded once more (cost() rounds it).
-    def cost(product_rel, sqrt_bound):
+    def cost(product_rel, sqrt_bound, floor):
         cash = Bound(product_rel).rounded()
         terms = [cash.scaled(c).rounded().scaled(cost_mult).rounded() for c in (fee, spread, slip)]
         impact = cash.scaled(impact_bps).rounded().scaled(unit_bp).rounded().scaled(sqrt_bound).rounded()
         total = terms[0].plus(terms[1]).rounded().plus(terms[2]).rounded().plus(impact).rounded()
-        return (1 - total.relative()) * (1 - U) - H * Q(5, 4)   # equity ratio after rnd(e - total)
+        return (1 - total.relative(floor)) * (1 - U) - H / floor   # equity ratio after rnd(e - total), e >= floor
     trade_product = (turnover_cap + 3 * H) / ((1 - U) * (1 - U))
-    after_trade = cost(trade_product, Q(1))
+    after_trade = cost(trade_product, Q(1), Q(4, 5))   # trades run only after the mark check passed: e >= dbl(0.8)
     # Post-trade inventory (relative to the equity e at the trade, where the mark check passed: |old*p| <= x0*e).
     # |h * p| / e <= 2^-1075 * 2^900 * 5/4 under the normal-range premise.
     hp = H / LOW_PRICE * Q(5, 4)
@@ -183,14 +183,16 @@ def propagate():
     post = ((x0 + filled) * (1 + U) + hp) / after_trade      # rnd(old + filled), over post-trade equity
     # Liquidation closes either the carried inventory (no trade this bar) or the post-trade inventory.
     liquidation_product = max(detect, post)
-    after_liquidation = cost(liquidation_product, Q(1))
+    # Liquidation equity can be below 4/5: after a breaching bar (>= e1_ratio * 4/5) or after a trade (>= after_trade * 4/5).
+    liquidation_floor = Q(4, 5) * min(e1_ratio, after_trade)
+    after_liquidation = cost(liquidation_product, Q(1), liquidation_floor)
     # Fresh full-fill target |w| = 1/4: |new * p| = |rnd(rnd(w * e) / p) * p|, then post-cost equity.
     entry_exposure = desired / after_trade
     checks = {'equityAfterBar': e1_ratio > Q(4, 5), 'detectionExposure': detect < Q(66, 100), 'turnoverSqrtArgument': liquidation_product * (1 + U) * (1 + U) + 3 * H < 1,
               'afterTrade': after_trade > Q(998, 1000), 'afterLiquidation': after_liquidation > Q(996, 1000),
               'entryExposure': entry_exposure < Q(2506, 10000) < cap, 'postTradeInventory': post < 1, 'floorLiteral': floor > Q(4, 5), 'halfLiteral': half == Q(1, 2)}
     require(all(checks.values()), 'exact bound propagation failed: ' + str([k for k, v in checks.items() if not v]))
-    return {'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'postTradeInventory': float(post), 'afterTradeRatio': float(after_trade),
+    return {'liquidationEquityFloor': float(liquidation_floor), 'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'postTradeInventory': float(post), 'afterTradeRatio': float(after_trade),
             'afterLiquidationRatio': float(after_liquidation), 'entryExposure': float(entry_exposure), 'checks': len(checks)}
 
 

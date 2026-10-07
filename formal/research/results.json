@@ -565,6 +565,7 @@
       "detectionExposure": 0.652985074626866,
       "entryExposure": 0.25043826696719357,
       "equityAfterBarRatio": 0.8039999999999998,
+      "liquidationEquityFloor": 0.6431999999999999,
       "postTradeInventory": 0.9516654144753357
     },
     "smt": {
@@ -3695,7 +3696,7 @@
     "formal/research/bot-worker-publication-contract.md": "af42fbb7b0edd88bda0a610d37313c43e8cad801abca2b6dedf264aa5d5e9cf4",
     "formal/research/bot-worker-publication-legacy.json": "9958775abab9f15de1b58201771232467644404839e0799ae153f1fd1e5b5f46",
     "formal/research/bot-worker-publication-source.json": "80e6f414ff4a7558fbb80fcc75cbad36e7d917fbcba297d7d1fa83eba1cf5867",
-    "formal/research/bounded-values-contract.md": "fe9da61eaf64da85defef3b0f9c96bed33e3b22650f598514c2d402fa8dd8edc",
+    "formal/research/bounded-values-contract.md": "0cac3ec8e32822aacefbda19cac9bdcd23d3212692c1ee33d1b596f2e3ec8c9d",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
     "formal/research/capability-source-contract.json": "a84e4893c5c68a2f45a6248da5acdde0538eb9d221a7a83349e65781918f9c79",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
@@ -4019,7 +4020,7 @@
     "scripts/formal/async_shutdown_seal.py": "27d3ea78b02790e39f06f577f608fef24393068ca934b5cbab8a37ad0d9f5083",
     "scripts/formal/backtest_gate.py": "ca59d6c12d70fbe4c350aeeb622993c5cb522ab47092c4b5467b0492c83d6c09",
     "scripts/formal/bot_worker_publication.py": "353c3548ce505523d76fbe4ab6f2caab4d9277d9e48d573d6e641e7ca74e2113",
-    "scripts/formal/bounded_values.py": "b4db653a15e7faef6b699953afd4cfc224e5fadc8037fe66df11dc314df28647",
+    "scripts/formal/bounded_values.py": "d273de0d90fbf1cf8bde34e62205563d3cac49ac3994d72aa35a8269ab8a6c0b",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/champion_archive.py": "2ccd38fd305f7cb55cf4a75b97b4ea1f79dfe3b2b1ce624cb97e51c8f96d91f4",

@@ -171,3 +171,18 @@ Revised margins:
   post-trade path);
 - every risk- or horizon-triggered termination still liquidates flat with
   positive equity.
+
+## Third review correction (before merge)
+
+The absolute rounding terms (η) were converted to relative terms assuming the
+current equity is ≥ 4/5. That is true where a trade runs, because a trade only
+runs after the mark check passed. It is false at liquidation:
+- after a breaching bar, equity can be ≈ 0.643 (0.804 × 0.8);
+- after a trade, equity can sit just under 0.8.
+
+The conversion now takes the applicable floor:
+- 4/5 for trades;
+- 4/5 · min(bar ratio, post-trade ratio) ≈ 0.6432 for liquidation.
+
+The margins are unchanged at the stated precision, because the η terms are
+≈ 2⁻¹⁰⁷⁵.

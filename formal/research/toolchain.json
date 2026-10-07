@@ -518,8 +518,8 @@
     "formal/research/observation-causality-contract.md": "32b3587b36e68e7f54cf406d0ab488bc4503f322e4faa45ef6141bbf90462a76",
     "research-notes/registrations/observation-causality-audit-engineering.json": "d5c9f6fa7ea88175cb42788a2d1b63560b4327590cfd28f1bcfe89482ad6b31c",
     "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
-    "scripts/formal/bounded_values.py": "b4db653a15e7faef6b699953afd4cfc224e5fadc8037fe66df11dc314df28647",
-    "formal/research/bounded-values-contract.md": "fe9da61eaf64da85defef3b0f9c96bed33e3b22650f598514c2d402fa8dd8edc",
+    "scripts/formal/bounded_values.py": "d273de0d90fbf1cf8bde34e62205563d3cac49ac3994d72aa35a8269ab8a6c0b",
+    "formal/research/bounded-values-contract.md": "0cac3ec8e32822aacefbda19cac9bdcd23d3212692c1ee33d1b596f2e3ec8c9d",
     "research-notes/registrations/bounded-values-engineering.json": "810539526ecc24f5a1d686f2a965f5aa9ebf9229604dedc6c7525d40589306d0"
   },
   "numpy": "2.3.5",
