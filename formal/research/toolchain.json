@@ -463,7 +463,7 @@
     "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/replay-shield-contract.md": "471825414459d02f74abb96a3bfaa16a24738c5399f613593bb14e3cdbbe5d88",
     "research-notes/registrations/replay-shield-consumer-engineering.json": "c418f79b2f7de2a3f402b4b07cbafefbc70f9641646c1df7d48096b78212e7c4",
-    "scripts/formal/shield_consumers.py": "82e017e45ab03828d45b7522d1bf783f19b18968761fe9d3c03dc5446092e5e2",
+    "scripts/formal/shield_consumers.py": "a24a1abf1580bdfa08de27b355eeef099dbb8b2709a9f6036e50f73822893c51",
     "scripts/research/point_in_time_v3.py": "90e178ca0e0565c262ec2d23e53cb4c4c1522aea476a9c6ad59027caf983848f",
     "formal/research/point-in-time-source.json": "538213555a6ba6a6831d4a527d178d54cda051f9734933cd6b24fb8f795e0d22",
     "formal/research/point-in-time-contract.md": "da8c71a6a8efb61ac4e7d7551a409397a222e90397a79ccefcd949380264dda6",
