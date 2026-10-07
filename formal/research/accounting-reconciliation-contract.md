@@ -41,9 +41,15 @@ M = E + |g| + |f| + Σ recorded costs:
   `cash·impact_bps·c₄·sqrt(turnover)`, with the exact square root of the
   computed turnover.
 
-The premises are A-GAP-BOUND's range premise (prices and equity in
-[2⁻⁴⁰⁰, 2⁴⁰⁰]) and binary64 arrays from the delivered loader. The sections
-below record how these final values were reached.
+The premises are:
+- A-GAP-BOUND's range premise: prices and equity in [2⁻⁴⁰⁰, 2⁴⁰⁰];
+- A-GAP-BOUND's **execution maxima**: cost multiplier ≤ 5/2, `impact_bps`
+  ≤ 10, funding multiplier ≤ 2. F-RL-BOUNDS-SOURCE binds these to the runner's
+  registered stresses. `Execution` itself accepts larger finite values, and such
+  configurations are outside this certificate;
+- binary64 arrays from the delivered loader.
+
+The sections below record how these final values were reached.
 
 ## Obligations / methods
 
