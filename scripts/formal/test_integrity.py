@@ -4854,5 +4854,33 @@ class AsyncStopTests(unittest.TestCase):
             a.bind({a.ASYNC: helper.replace('Left ex | isAsyncException (toException ex) -> throwIO ex', 'Left ex | False -> throwIO ex')})
 
 
+class PositionOwnershipTests(unittest.TestCase):
+    def test_source_model_and_compiled_regression(self):
+        import position_ownership as o
+        r = o.check_position_ownership()
+        self.assertEqual(r['source']['orderCapableDefinitions'], len(o.CLASSIFICATION))
+        self.assertIsNone(r['model']['fixed']['violation'])
+        self.assertEqual(set(r['model']['counterexamples']), {'CE-LIVE-002', 'CE-LIVE-003', 'no-bot-claim-check'})
+
+    def test_weakened_source_fails_closed(self):
+        import position_ownership as o
+        main = (ROOT / o.MAIN).read_text()
+        claimed = 'runManualTrade botCtrl argsFinal (computeTradeFromArgsWithLimits limits mOps argsFinal)'
+        self.assertEqual(main.count(claimed), 2)
+        cases = [
+            ('not run under a manual-trade claim', main.replace(claimed, '(computeTradeFromArgsWithLimits limits mOps argsFinal)', 1)),
+            ('does not refuse a claimed or owned identity', main.replace('ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey', 'ownerConflict <- pure Nothing', 1)),
+            ('no longer reduce-only', main.replace('OrderLive sym side qty (Just True)', 'OrderLive sym side qty Nothing', 1)),
+            ('order-capable definitions drifted', main + '\nsneakyOrder :: IO ()\nsneakyOrder = void (placeMarketOrder env OrderLive sym Buy q Nothing Nothing Nothing)\n'),
+            ('account identity differs', main.replace('<$> resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)', '<$> pure (argBinanceApiKey args)', 1)),
+        ]
+        for reason, text in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                o.bind({o.MAIN: text})
+        helper = (ROOT / o.OWNERSHIP).read_text()
+        with self.assertRaisesRegex(ValueError, 'manual claim protocol changed'):
+            o.bind({o.OWNERSHIP: helper.replace('uninterruptibleMask_ $', 'id $', 1)})
+
+
 if __name__ == '__main__':
     unittest.main()

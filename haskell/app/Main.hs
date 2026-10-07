@@ -139,6 +139,7 @@ import Trader.App.GracefulShutdown (
     stopSupervisedWorkersBounded,
     stopThreadIdsBounded,
  )
+import Trader.App.ManualTradeOwnership (ManualTradeClaims, ManualTradeOwnershipConflict (..), OwnershipKey, manualTradeClaimed, newManualTradeClaims, withManualTradeClaim)
 import Trader.App.Observability (
     Journal,
     Metrics,
@@ -6295,8 +6296,9 @@ data BotSettings = BotSettings
 type BotRuntimeMap = HM.HashMap String BotRuntimeState
 type BotTenantMap = HM.HashMap TenantKey BotRuntimeMap
 
-newtype BotController = BotController
+data BotController = BotController
     { bcRuntime :: MVar BotTenantMap
+    , bcManualTrades :: ManualTradeClaims
     }
 
 data BotStartRuntime = BotStartRuntime
@@ -6308,6 +6310,7 @@ data BotStartRuntime = BotStartRuntime
     , bsrTenantKey :: !TenantKey
     , bsrRequestedAtMs :: !Int64
     , bsrStartReason :: !String
+    , bsrOwnerKey :: !(Maybe OwnershipKey)
     , bsrAdoptingExisting :: !Bool
     }
 
@@ -6326,6 +6329,7 @@ data BotRuntime = BotRuntime
     , brStateVar :: MVar BotState
     , brStopSignal :: MVar ()
     , brOptimizer :: Maybe BotOptimizerRuntime
+    , brOwnerKey :: Maybe OwnershipKey
     }
 
 data BotOptimizerRuntime = BotOptimizerRuntime
@@ -6933,7 +6937,7 @@ botFeatureInputs st =
                 (Just (botVolumes st))
 
 newBotController :: IO BotController
-newBotController = BotController <$> newMVar HM.empty
+newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims
 
 emptyBotAdjustments :: BotAdjustments
 emptyBotAdjustments = BotAdjustments 0 0 0 0
@@ -10423,7 +10427,8 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                         comboGuard <- runTopComboStartupBacktestGuard topCombosCtx tenantKey sym argsSym mComboUuid
                                         case comboGuard of
                                             Left err -> pure (Left err)
-                                            Right () ->
+                                            Right () -> do
+                                                mOwnerKey <- botOwnerKey argsSym settings sym
                                                 publishWorker (bcRuntime ctrl) $ \mrt ->
                                                     let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                                      in case HM.lookup sym tenantMap of
@@ -10434,25 +10439,30 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                                                         BotRunning _ -> pure (Retain (Left "Bot is already running"))
                                                                         BotStarting _ -> pure (Retain (Left "Bot is starting"))
                                                             Nothing -> do
-                                                                stopSig <- newEmptyMVar
-                                                                now <- getTimestampMs
-                                                                pure $ Launch (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig) $ \tid ->
-                                                                    let rt =
-                                                                            BotStartRuntime
-                                                                                { bsrThreadId = tid
-                                                                                , bsrStopSignal = stopSig
-                                                                                , bsrArgs = sanitizeArgsKeys argsSym
-                                                                                , bsrSettings = settings
-                                                                                , bsrSymbol = sym
-                                                                                , bsrTenantKey = tenantKey
-                                                                                , bsrRequestedAtMs = now
-                                                                                , bsrStartReason = startReason
-                                                                                , bsrAdoptingExisting = arActive adoptReq
-                                                                                }
-                                                                        st = BotStarting rt
-                                                                        tenantMap' = HM.insert sym st tenantMap
-                                                                        mrt' = HM.insert tenantKey tenantMap' mrt
-                                                                     in (mrt', Right (BotStartOutcome sym st True))
+                                                                ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey
+                                                                case ownerConflict of
+                                                                    Just err -> pure (Retain (Left err))
+                                                                    Nothing -> do
+                                                                        stopSig <- newEmptyMVar
+                                                                        now <- getTimestampMs
+                                                                        pure $ Launch (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig) $ \tid ->
+                                                                            let rt =
+                                                                                    BotStartRuntime
+                                                                                        { bsrThreadId = tid
+                                                                                        , bsrStopSignal = stopSig
+                                                                                        , bsrArgs = sanitizeArgsKeys argsSym
+                                                                                        , bsrSettings = settings
+                                                                                        , bsrSymbol = sym
+                                                                                        , bsrTenantKey = tenantKey
+                                                                                        , bsrRequestedAtMs = now
+                                                                                        , bsrStartReason = startReason
+                                                                                        , bsrOwnerKey = mOwnerKey
+                                                                                        , bsrAdoptingExisting = arActive adoptReq
+                                                                                        }
+                                                                                st = BotStarting rt
+                                                                                tenantMap' = HM.insert sym st tenantMap
+                                                                                mrt' = HM.insert tenantKey tenantMap' mrt
+                                                                             in (mrt', Right (BotStartOutcome sym st True))
 
 botStartWorker ::
     Maybe OpsStore ->
@@ -10574,7 +10584,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                             case HM.lookup sym tenantMap of
                                 Just (BotStarting rt)
                                     | bsrThreadId rt == tid ->
-                                        let tenantMap' = HM.insert sym (BotRunning (BotRuntime tid stVar stopSig mOptimizerRt)) tenantMap
+                                        let tenantMap' = HM.insert sym (BotRunning (BotRuntime tid stVar stopSig mOptimizerRt (bsrOwnerKey rt))) tenantMap
                                          in pure (HM.insert tenantKey tenantMap' mrt, True)
                                 _ -> pure (mrt, False)
                         Nothing -> pure (mrt, False)
@@ -18591,11 +18601,11 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["trade"] ->
                                         case Wai.requestMethod req of
-                                            "POST" -> handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
+                                            "POST" -> handleTrade botCtrl reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["trade", "async"] ->
                                         case Wai.requestMethod req of
-                                            "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
+                                            "POST" -> handleTradeAsync botCtrl reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["trade", "async", jobId] ->
                                         case Wai.requestMethod req of
@@ -18757,23 +18767,25 @@ jsonError :: Status -> String -> Wai.Response
 jsonError st msg = jsonValue st (apiErrorFromMsg msg)
 
 exceptionToHttp :: SomeException -> (Status, String)
-exceptionToHttp ex =
-    case fromException ex of
-        Just (ErrorCall msg) ->
-            if isInternalErrorCall msg
-                then
-                    let msg' = dropInternalPrefix msg
-                        suffix = if null msg' then "" else ": " ++ msg'
-                     in (status500, "Internal server error" ++ suffix)
-                else (status400, msg)
-        Nothing ->
-            case fromException ex of
-                Just io
-                    | isUserError io -> (status400, ioeGetErrorString io)
-                _ ->
-                    case (fromException ex :: Maybe HttpException) of
-                        Just httpEx -> (status502, show httpEx)
-                        Nothing -> (status500, show ex)
+exceptionToHttp ex
+    | Just (ManualTradeOwnershipConflict msg) <- fromException ex = (status409, msg)
+    | otherwise =
+        case fromException ex of
+            Just (ErrorCall msg) ->
+                if isInternalErrorCall msg
+                    then
+                        let msg' = dropInternalPrefix msg
+                            suffix = if null msg' then "" else ": " ++ msg'
+                         in (status500, "Internal server error" ++ suffix)
+                    else (status400, msg)
+            Nothing ->
+                case fromException ex of
+                    Just io
+                        | isUserError io -> (status400, ioeGetErrorString io)
+                    _ ->
+                        case (fromException ex :: Maybe HttpException) of
+                            Just httpEx -> (status502, show httpEx)
+                            Nothing -> (status500, show ex)
   where
     internalIndicators = ["Singular matrix", "missing output bias", "argMaxAbs: empty"]
     isInternalErrorCall msg = "Internal:" `isPrefixOf` msg || any (`isInfixOf` msg) internalIndicators
@@ -22429,8 +22441,83 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                                                                 (object ["jobId" .= jobId, "jobType" .= ("signal" :: String), "status" .= ("running" :: String)])
                                                         respond (jsonValue status202 (object ["jobId" .= jobId]))
 
-handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond = do
+{- | Runs a manual trade holding a claim on its position identity whenever it
+may send a live order, so it can never act concurrently with a live bot that
+owns the same account and symbol (CE-LIVE-002). Dry runs and Binance
+test-mode orders are not claimed.
+-}
+runManualTrade :: BotController -> Args -> IO a -> IO a
+runManualTrade ctrl args action =
+    case argBinanceSymbol args of
+        Just symRaw
+            | manualTradeMayBeLive args -> do
+                mAccount <- orderAccountKey args
+                case mAccount of
+                    Nothing -> action
+                    Just account ->
+                        withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action
+        _ -> action
+
+manualTradeMayBeLive :: Args -> Bool
+manualTradeMayBeLive args = not (argDryRun args) && (argPlatform args /= PlatformBinance || argBinanceLive args)
+
+{- | The credential account an order for these args is signed with: the request
+keys if present, otherwise the server's environment keys, exactly as
+'makeBinanceEnv' and 'makeCoinbaseEnv' resolve them.
+-}
+orderAccountKey :: Args -> IO (Maybe TenantKey)
+orderAccountKey args =
+    case argPlatform args of
+        PlatformBinance ->
+            tenantKeyFromBinanceKeys
+                <$> resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
+                <*> resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
+        PlatformCoinbase ->
+            tenantKeyFromCoinbaseKeys
+                <$> resolveEnv "COINBASE_API_KEY" (argCoinbaseApiKey args)
+                <*> resolveEnv "COINBASE_API_SECRET" (argCoinbaseApiSecret args)
+                <*> resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
+        _ -> pure Nothing
+
+-- | A bot owns a position identity only when it can trade live.
+botOwnerKey :: Args -> BotSettings -> String -> IO (Maybe OwnershipKey)
+botOwnerKey args settings sym
+    | bsTradeEnabled settings && manualTradeMayBeLive args = fmap (,sym) <$> orderAccountKey args
+    | otherwise = pure Nothing
+
+-- | Every position identity owned by a starting or running live bot, across all tenants.
+ownedBotKeys :: BotTenantMap -> [OwnershipKey]
+ownedBotKeys mrt =
+    [ key
+    | tenantMap <- HM.elems mrt
+    , st <- HM.elems tenantMap
+    , Just key <- [runtimeOwnerKey st]
+    ]
+  where
+    runtimeOwnerKey st =
+        case st of
+            BotStarting rt -> bsrOwnerKey rt
+            BotRunning rt -> brOwnerKey rt
+
+{- | Bot start publication step (runs under the runtime lock): refuse an
+identity held by a manual trade or owned by another tenant's bot (CE-LIVE-003).
+-}
+botOwnerConflict :: BotController -> BotTenantMap -> Maybe OwnershipKey -> IO (Maybe String)
+botOwnerConflict ctrl mrt mOwnerKey =
+    case mOwnerKey of
+        Nothing -> pure Nothing
+        Just key@(_, sym) -> do
+            claimed <- manualTradeClaimed (bcManualTrades ctrl) key
+            pure $
+                if claimed
+                    then Just ("Manual trade in flight for " ++ sym ++ " on this account; retry bot start after it completes")
+                    else
+                        if key `elem` ownedBotKeys mrt
+                            then Just ("Another bot already trades " ++ sym ++ " on this account")
+                            else Nothing
+
+handleTrade :: BotController -> ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTrade botCtrl reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -22512,7 +22599,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                             TradeIdemBusy msg -> respond (jsonError status409 msg)
                                                             TradeIdemCached cachedValue -> respond (jsonValue status200 cachedValue)
                                                             TradeIdemAcquire -> do
-                                                                r <- trySync (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
+                                                                r <- trySync (runManualTrade botCtrl argsFinal (computeTradeFromArgsWithLimits limits mOps argsFinal)) :: IO (Either SomeException ApiTradeResponse)
                                                                 case r of
                                                                     Left ex -> do
                                                                         case (mOps, mIdemKey) of
@@ -22575,8 +22662,8 @@ tradeAsyncTimeoutMessage =
     printf
         "Trade async job timed out after %ds. Check exchange/order state before retrying; increase TRADER_API_TRADE_TIMEOUT_SEC if this deployment needs longer trade requests."
 
-handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs req respond = do
+handleTradeAsync :: BotController -> ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTradeAsync botCtrl reqLimits mOps limits store metrics mJournal mWebhook baseArgs req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -22673,7 +22760,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                         let tradeTimeoutSec = arlTradeTimeoutSec reqLimits
                                                                         outResult <-
                                                                             trySync
-                                                                                (timeout (tradeTimeoutSec * 1000000) (computeTradeFromArgsWithLimits limits mOps argsFinal)) ::
+                                                                                (timeout (tradeTimeoutSec * 1000000) (runManualTrade botCtrl argsFinal (computeTradeFromArgsWithLimits limits mOps argsFinal))) ::
                                                                                 IO (Either SomeException (Maybe ApiTradeResponse))
                                                                         out <-
                                                                             case outResult of

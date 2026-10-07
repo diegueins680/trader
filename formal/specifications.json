@@ -124,7 +124,9 @@
         "scripts/formal/accounting_reconciliation.py",
         "formal/research/replay-source-lock.json",
         "formal/research/async-stop-counterexample.json",
-        "scripts/formal/async_stop.py"
+        "scripts/formal/async_stop.py",
+        "formal/research/position-ownership-counterexamples.json",
+        "scripts/formal/position_ownership.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -916,6 +918,18 @@
         {
           "id": "F-LIVE-STOP-ASYNC-CONFORMANCE",
           "statement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync."
+        },
+        {
+          "id": "F-LIVE-OWNERSHIP-SOURCE",
+          "statement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release."
+        },
+        {
+          "id": "F-LIVE-OWNERSHIP-FLOW",
+          "statement": "Exhaustive interleavings of three bots (two tenants on one account, one on another) and three manual trades (admit, act, complete/fail/time out), with each lock-protected step atomic, never reach a state with two live bots or a live bot and an acting manual trade on one (account, symbol); removing the manual guard (CE-LIVE-002), keying uniqueness by tenant (CE-LIVE-003) or dropping the claim check at bot start each reaches such a state."
+        },
+        {
+          "id": "F-LIVE-OWNERSHIP-CONFORMANCE",
+          "statement": "A compiled program against the actual Trader.App.ManualTradeOwnership module refuses a same-account second bot across tenants while admitting another account, refuses a manual trade on an owned identity, refuses bot start during a manual trade, leaks no claim after a timeout, and observes no bot/manual overlap in 300 concurrent races; the Haskell suite checks the same behaviours."
         }
       ],
       "invariants": [

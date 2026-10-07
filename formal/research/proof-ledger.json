@@ -391,6 +391,12 @@
       "status": "assumption",
       "statement": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-LIVE-OWNERSHIP",
+      "status": "assumption",
+      "statement": "In-process only: one trading process's bot registry and manual trades. Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -614,7 +620,10 @@
     "formal/research/replay-source-lock.json",
     "scripts/formal/async_stop.py",
     "haskell/app/Trader/App/AsyncSafe.hs",
-    "formal/research/async-stop-counterexample.json"
+    "formal/research/async-stop-counterexample.json",
+    "scripts/formal/position_ownership.py",
+    "haskell/app/Trader/App/ManualTradeOwnership.hs",
+    "formal/research/position-ownership-counterexamples.json"
   ],
   "entries": [
     {
@@ -7433,6 +7442,90 @@
       "limitations": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "counterexample": "CE-LIVE-001",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-LIVE-OWNERSHIP-SOURCE",
+      "claim": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release.",
+      "formalStatement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-LIVE-OWNERSHIP"
+      ],
+      "tool": "Source-bound transitive order-authority classification over Main.hs and venue adapters",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/position_ownership.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs",
+        "formal/research/position-ownership-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/ManualTradeOwnership.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh classification of all 32 order-capable definitions and the guard bindings must reproduce; mutants fail closed.",
+      "bounds": "32 order-capable Main.hs definitions; model of 3 bots x 3 manual trades over 2 accounts.",
+      "limitations": "In-process only: one trading process's bot registry and manual trades. Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "counterexample": "CE-LIVE-002, CE-LIVE-003",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-LIVE-OWNERSHIP-FLOW",
+      "claim": "Exhaustive interleavings of three bots (two tenants on one account, one on another) and three manual trades (admit, act, complete/fail/time out), with each lock-protected step atomic, never reach a state with two live bots or a live bot and an acting manual trade on one (account, symbol); removing the manual guard (CE-LIVE-002), keying uniqueness by tenant (CE-LIVE-003) or dropping the claim check at bot start each reaches such a state.",
+      "formalStatement": "Exhaustive interleavings of three bots (two tenants on one account, one on another) and three manual trades (admit, act, complete/fail/time out), with each lock-protected step atomic, never reach a state with two live bots or a live bot and an acting manual trade on one (account, symbol); removing the manual guard (CE-LIVE-002), keying uniqueness by tenant (CE-LIVE-003) or dropping the claim check at bot start each reaches such a state.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-LIVE-OWNERSHIP"
+      ],
+      "tool": "Exhaustive breadth-first interleaving model with protocol mutants",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/position_ownership.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs",
+        "formal/research/position-ownership-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/ManualTradeOwnership.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fixed protocol: no violation over the full state space; the three weakened protocols must each be refuted.",
+      "bounds": "32 order-capable Main.hs definitions; model of 3 bots x 3 manual trades over 2 accounts.",
+      "limitations": "In-process only: one trading process's bot registry and manual trades. Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "counterexample": "CE-LIVE-002, CE-LIVE-003",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-LIVE-OWNERSHIP-CONFORMANCE",
+      "claim": "A compiled program against the actual Trader.App.ManualTradeOwnership module refuses a same-account second bot across tenants while admitting another account, refuses a manual trade on an owned identity, refuses bot start during a manual trade, leaks no claim after a timeout, and observes no bot/manual overlap in 300 concurrent races; the Haskell suite checks the same behaviours.",
+      "formalStatement": "A compiled program against the actual Trader.App.ManualTradeOwnership module refuses a same-account second bot across tenants while admitting another account, refuses a manual trade on an owned identity, refuses bot start during a manual trade, leaks no claim after a timeout, and observes no bot/manual overlap in 300 concurrent races; the Haskell suite checks the same behaviours.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-LIVE-OWNERSHIP"
+      ],
+      "tool": "Compiled GHC regression against Trader.App.ManualTradeOwnership, Haskell test suite",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/position_ownership.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs",
+        "formal/research/position-ownership-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/ManualTradeOwnership.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "The compiled regression output must match exactly.",
+      "bounds": "32 order-capable Main.hs definitions; model of 3 bots x 3 manual trades over 2 accounts.",
+      "limitations": "In-process only: one trading process's bot registry and manual trades. Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "counterexample": "CE-LIVE-002, CE-LIVE-003",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -8307,19 +8400,23 @@
         "F-BOT-PUBLICATION-SOURCE",
         "F-BOT-PUBLICATION-CONFORMANCE",
         "F-LIVE-STOP-ASYNC-SOURCE",
-        "F-LIVE-STOP-ASYNC-CONFORMANCE"
+        "F-LIVE-STOP-ASYNC-CONFORMANCE",
+        "F-LIVE-OWNERSHIP-SOURCE",
+        "F-LIVE-OWNERSHIP-FLOW",
+        "F-LIVE-OWNERSHIP-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open. Ownership guard (2026-10-07): CE-LIVE-002 (manual /trade on a bot-owned symbol) and CE-LIVE-003 (two tenants' bots on one account) are resolved; in-process at most one live owner per (credential account, symbol) is now source-bound, exhaustively model checked and compiled-tested (F-LIVE-OWNERSHIP-*).",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "At most one live owner exists per protected position identity.",
-      "nextAction": "Trace actual running-worker retirement, stop/replacement and persistent owner-key transactions; establish their shared identity and linearization boundary without changing production ownership.",
+      "nextAction": "Establish cross-process uniqueness without changing production ownership: either an attested deployment check that only the trading process holds trade-enabled keys per account, or a default-disabled persistent per-identity lease (e.g. a Postgres advisory lock) whose enablement is an owner decision.",
       "implementationFiles": [
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotStartSemantics.hs",
-        "haskell/app/Trader/App/WorkerPublication.hs"
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs"
       ],
       "blockers": [
-        "Startup map publication is checked, but persistent owner transactions, post-start/stop/replacement races, account identity and cross-instance uniqueness remain uncertified."
+        "In-process ownership is certified (F-LIVE-OWNERSHIP-*, F-LIVE-STOP-ASYNC-*, F-BOT-PUBLICATION-*). Cross-process uniqueness remains: only one process per account may hold trade-enabled credentials (trading box vs research box, Fly, CLI one-shot trades), which depends on deployment secrets the repository cannot verify."
       ],
       "requiredCertificates": []
     },

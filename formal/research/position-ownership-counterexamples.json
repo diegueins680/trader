@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "requirement": "F-LIVE-OWNERSHIP-FLOW",
+  "identity": "A position identity is (credential account, normalized symbol); the account is the tenant key derived from the API keys an order is actually signed with (request keys, else the server environment keys).",
+  "entries": [
+    {
+      "id": "CE-LIVE-002",
+      "status": "resolved",
+      "mechanism": "POST /trade and /trade/async never consulted the bot registry: on a live server with server keys an authenticated manual trade placed OrderLive orders on a symbol a running bot owned, so the bot and the operator acted on one position concurrently.",
+      "witness": "Model mutant unguarded-manual: bot t1 on account A running while a manual trade on account A is acting.",
+      "resolution": "runManualTrade holds a claim on the identity for the whole trade (admitted under the runtime lock only if no live bot owns it, else HTTP 409), and bot start publication refuses a claimed identity. Close-position stays an explicit reduce-only operator override."
+    },
+    {
+      "id": "CE-LIVE-003",
+      "status": "resolved",
+      "mechanism": "The bot registry is unique per (tenant key, symbol). Without request keys a tenant key comes from the X-Tenant-Key header, so two bot starts with different headers could both run one symbol on the server account.",
+      "witness": "Model mutant tenant-keyed: bots t1 and t2, both on account A, running at once.",
+      "resolution": "Each live-capable bot records its owner identity; bot start publication refuses an identity owned by any tenant's bot."
+    }
+  ]
+}
