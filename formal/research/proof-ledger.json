@@ -367,6 +367,12 @@
       "status": "assumption",
       "statement": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-OBSERVATION-AUDIT",
+      "status": "assumption",
+      "statement": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -576,7 +582,11 @@
     "formal/research/value-v2-counterexamples.json",
     "scripts/formal/split_isolation.py",
     "formal/research/split-isolation-contract.md",
-    "research-notes/registrations/split-isolation-engineering.json"
+    "research-notes/registrations/split-isolation-engineering.json",
+    "scripts/formal/observation_causality.py",
+    "formal/research/observation-causality-contract.md",
+    "research-notes/registrations/observation-causality-audit-engineering.json",
+    "formal/research/observation-counterexamples.json"
   ],
   "entries": [
     {
@@ -7093,6 +7103,64 @@
       "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-OBS-TRAIN-SCALE",
+      "claim": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision.",
+      "formalStatement": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-OBSERVATION-AUDIT"
+      ],
+      "tool": "AST source binding, executable counterexample witness and seeded metamorphic fixed-scale probe",
+      "toolVersion": "CPython3.13.3; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/observation_causality.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "formal/research/observation-causality-contract.md",
+        "research-notes/registrations/observation-causality-audit-engineering.json",
+        "formal/research/observation-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "CE-RL-025 must reproduce (observation change 1.050554799 on the registered witness).",
+      "bounds": "Witness: 300 bars, decision 100, future log-sigma 0.05; probe: 24 episodes of 260 bars, scale fitted on bars 0..119, episodes 130..199, horizons 1/3/6.",
+      "limitations": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
+      "counterexample": "CE-RL-025",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-OBS-REPLAY-CAUSAL",
+      "claim": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes.",
+      "formalStatement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-OBSERVATION-AUDIT"
+      ],
+      "tool": "AST source binding, executable counterexample witness and seeded metamorphic fixed-scale probe",
+      "toolVersion": "CPython3.13.3; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/observation_causality.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "formal/research/observation-causality-contract.md",
+        "research-notes/registrations/observation-causality-audit-engineering.json",
+        "formal/research/observation-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "250 per-decision fixed-scale checks over 24 seeded episodes must reproduce.",
+      "bounds": "Witness: 300 bars, decision 100, future log-sigma 0.05; probe: 24 episodes of 260 bars, scale fitted on bars 0..119, episodes 130..199, horizons 1/3/6.",
+      "limitations": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -7911,18 +7979,21 @@
         "F-RL-REPLAY-DUE",
         "F-RL-REPLAY-ORDER",
         "F-RL-REPLAY-CUTOFF",
-        "F-RL-REPLAY-QUOTIENT"
+        "F-RL-REPLAY-QUOTIENT",
+        "F-RL-OBS-TRAIN-SCALE",
+        "F-RL-OBS-REPLAY-CAUSAL"
       ],
-      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement.",
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Observation causality audit (2026-10-06): CE-RL-025 refutes training-time invariance in the frozen path because of the prefix-wide scale; a fixed-scale probe shows the Replay observation itself is causal. Evaluation observations are unaffected. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Current policy observation is invariant under changes to data first available after the decision.",
-      "nextAction": "Compose availability admission, feature footprint and complete replay-state observation projection.",
+      "nextAction": "Register a causal-scale successor (burn-in-only or expanding-window fit) composed with the exact replay runner, then compose availability admission; the frozen path stays refuted.",
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
       ],
       "blockers": [
-        "Feature/index lemmas do not cover all state/history inputs and actual availability."
+        "CE-RL-025: the frozen training path normalizes in-prefix observations (and supported() gating) with a scale fitted on later in-prefix bars, so training-time observations are not invariant to later data.",
+        "Actual provider availability is assumed, not witnessed."
       ],
       "requiredCertificates": []
     },

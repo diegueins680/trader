@@ -114,7 +114,10 @@
         "formal/research/value-v2-counterexamples.json",
         "scripts/formal/value_objective_successor.py",
         "formal/research/split-isolation-contract.md",
-        "scripts/formal/split_isolation.py"
+        "scripts/formal/split_isolation.py",
+        "formal/research/observation-causality-contract.md",
+        "formal/research/observation-counterexamples.json",
+        "scripts/formal/observation_causality.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -866,6 +869,14 @@
         {
           "id": "F-RL-SPLIT-CONFORMANCE",
           "statement": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6."
+        },
+        {
+          "id": "F-RL-OBS-TRAIN-SCALE",
+          "statement": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision."
+        },
+        {
+          "id": "F-RL-OBS-REPLAY-CAUSAL",
+          "statement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes."
         }
       ],
       "invariants": [

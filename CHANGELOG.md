@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Preserve CE-RL-025: the frozen screen's prefix-wide training scale makes in-prefix training observations depend on later bars (obligation 17 stays open). Add an executable witness and a fixed-scale Replay causality probe; no source or data change.
+
 - Close obligation 2 (split isolation) for the delivered offline screen under the owner-approved standard purge/embargo definition: source-bound fold-loop data uses, SMT region lemmas, registered fold/holdout arithmetic and a metamorphic future-rewrite probe. No source, registration or data change; counts become 13 scoped closures / 24 partial / 1 open.
 
 - Add default-disabled `value-objective-v2`, a finite, shift-stable conservative Double-DQN objective (scalar fsum arithmetic, bounded admission, penalty skipped at alpha = 0, published underflow count). It rejects CE-RL-014 inputs, makes CE-RL-015 shift-invariant, and preserves and resolves new CE-RL-024 (signed zero). Frozen learner unchanged; no broad closure.

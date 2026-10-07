@@ -4676,5 +4676,38 @@ class SplitIsolationTests(unittest.TestCase):
                 p.conformance()
 
 
+class ObservationCausalityTests(unittest.TestCase):
+    def test_witness_and_fixed_scale_probe(self):
+        import observation_causality as o
+        r=o.check_observation()
+        self.assertEqual(r['trainScale']['counterexample'],'CE-RL-025')
+        self.assertGreater(r['trainScale']['maxAbsObservationDifference'],1.0)
+        self.assertEqual(r['replayCausal']['decisionChecks'],250)
+
+    def test_source_drift_fails_closed(self):
+        import observation_causality as o
+        runner=(ROOT/o.RUNNER).read_text(); env=(ROOT/o.ENV).read_text()
+        for path,old,new in [(o.RUNNER,'scale = Scale.fit(list(train.values()))','scale = Scale.fit(list(train.values())[:1])'),
+                             (o.ENV,'start = int(rng.integers(24, len(p) - 96))','start = int(rng.integers(30, len(p) - 96))'),
+                             (o.ENV,'normalized = self.scale.transform(x)','normalized = x')]:
+            source=runner if path==o.RUNNER else env
+            self.assertIn(old,source)
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                o.bind({path:source.replace(old,new)})
+
+    def test_probe_detects_lookahead(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_env as env
+        import observation_causality as o
+        original=env.market_features
+        def peek(prices,t):
+            x=original(prices,t)
+            return None if x is None else x+0*prices[min(t+1,len(prices)-1)]+1e-3*prices[min(t+1,len(prices)-1)]
+        with patch.object(env,'market_features',peek):
+            with self.assertRaisesRegex(ValueError,'depends on data after t'):
+                o.replay_causal()
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -88,3 +88,7 @@ The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disa
 ## Split isolation closure (2026-10-06)
 
 [Obligation 2 closes](split-isolation-2026-10-06.md) for the delivered offline screen under the owner-approved standard purge/embargo definition. Counts are now 13 scoped closures / 24 partial / 1 open. This is a formal data-handling result, not economic evidence; the recommendation is unchanged.
+
+## Observation causality audit (2026-10-06)
+
+[CE-RL-025](observation-causality-2026-10-06.md): the frozen training path normalizes in-prefix observations with a scale fitted on later bars, so obligation 17 stays open. Evaluation observations are unaffected. The rejection of the frozen configurations stands.
