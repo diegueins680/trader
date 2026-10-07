@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Close obligation 7 (bounded values) for the delivered offline path under the explicit assumption A-GAP-BOUND: realized-state invariant, solvent flat liquidation and post-cost target bounds, with SMT lemmas and a stress probe. The unconditional capital floor stays refuted; no source or data change. Counts become 14 scoped closures / 23 partial / 1 open.
+
 - Preserve CE-RL-025: the frozen screen's prefix-wide training scale makes in-prefix training observations depend on later bars (obligation 17 stays open). Add an executable witness and a fixed-scale Replay causality probe; no source or data change.
 
 - Close obligation 2 (split isolation) for the delivered offline screen under the owner-approved standard purge/embargo definition: source-bound fold-loop data uses, SMT region lemmas, registered fold/holdout arithmetic and a metamorphic future-rewrite probe. No source, registration or data change; counts become 13 scoped closures / 24 partial / 1 open.

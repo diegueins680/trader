@@ -549,6 +549,37 @@
       "status": "exhaustively_checked"
     }
   },
+  "boundedValues": {
+    "conformance": {
+      "breachTerminations": 224,
+      "episodes": 288,
+      "flatTerminals": 253,
+      "nonterminalChecks": 2037,
+      "seed": 20261012,
+      "status": "property_tested"
+    },
+    "propagation": {
+      "afterLiquidationRatio": 0.9966691710493362,
+      "afterTradeRatio": 0.9982499999999964,
+      "checks": 11,
+      "detectionExposure": 0.652985074626866,
+      "entryExposure": 0.2504382669671937,
+      "equityAfterBarRatio": 0.8039999999999998,
+      "largestMagnitudeLog2": 799.9285263465853,
+      "liquidationEquityFloor": 0.6431999999999999,
+      "postTradeInventory": 0.9516654144753357,
+      "realizedDrawdownBound": 0.1500000000000001
+    },
+    "smt": {
+      "F-RL-BOUNDS-COMPOSE": "unsat"
+    },
+    "source": {
+      "riskClauses": 5,
+      "scope": "unchanged frozen Replay step, risk, trade, shield and runner stress source; interpreter semantics assumed",
+      "status": "exhaustively_checked",
+      "stresses": 9
+    }
+  },
   "capabilityIsolation": {
     "effects": {
       "functions": {
@@ -1862,10 +1893,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 13,
+    "closedMissionObligations": 14,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 25
+    "openMissionObligations": 24
   },
   "observationCausality": {
     "replayCausal": {
@@ -3495,6 +3526,7 @@
     "F-RL-ARTIFACT-METADATA": "unsat",
     "F-RL-ARTIFACT-V4-GUARD": "unsat",
     "F-RL-AUTH": "unsat",
+    "F-RL-BOUNDS-COMPOSE": "unsat",
     "F-RL-BRIDGE-V3-CODEC": "unsat",
     "F-RL-BUNDLE-ARITH": "unsat",
     "F-RL-CAUSAL-SLICE": "unsat",
@@ -3648,7 +3680,7 @@
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "104045d2f1e2d03f5a8fa1ea0fa195fd95a8e069b31ed191b6baf2f1c85fbbb6",
+    "formal/research/admission-progress-source.json": "28a8fe97a9010b2e688301eca71cd1638a998fa31c1c8eb873d312052197ac6f",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -3666,6 +3698,7 @@
     "formal/research/bot-worker-publication-contract.md": "af42fbb7b0edd88bda0a610d37313c43e8cad801abca2b6dedf264aa5d5e9cf4",
     "formal/research/bot-worker-publication-legacy.json": "9958775abab9f15de1b58201771232467644404839e0799ae153f1fd1e5b5f46",
     "formal/research/bot-worker-publication-source.json": "80e6f414ff4a7558fbb80fcc75cbad36e7d917fbcba297d7d1fa83eba1cf5867",
+    "formal/research/bounded-values-contract.md": "19c39c7728d1f6c1bb0ce46043afea5a96b91ed012abc2c0b2ce6fed3a500125",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
     "formal/research/capability-source-contract.json": "a84e4893c5c68a2f45a6248da5acdde0538eb9d221a7a83349e65781918f9c79",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
@@ -3718,8 +3751,8 @@
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "d041ff4fea0096e49a53e8162637b9d335c07719edc541ae0c442765e21c94ad",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
-    "formal/research/obligation-closure-audit.md": "da12ca7253565b699521e01a327f34471a0394d0769c05de243eb27ef442b5d6",
-    "formal/research/obligation-contracts.json": "c50c57f688abf5847281678ba0d78d962ebb992e02cdd005c507a13921b422ef",
+    "formal/research/obligation-closure-audit.md": "357d13720a08153509310a325f06625a14479f05f1dc5a73beff803914c44da2",
+    "formal/research/obligation-contracts.json": "790253d8e9ff41356880bf7a6b96a51805b47fdbe47e6166ad06b883d53f2a24",
     "formal/research/observation-causality-contract.md": "32b3587b36e68e7f54cf406d0ab488bc4503f322e4faa45ef6141bbf90462a76",
     "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
@@ -3746,7 +3779,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "bf89b7cefc906eb3aeb5bc45ad426dfdb0f746337f4a1b2ff868df8254b195bc",
-    "formal/research/proof-ledger.json": "3a97cbfaf171a2ba5d798c33330aead1a4ab991fcbd2acebcffa2c9e551e6a9b",
+    "formal/research/proof-ledger.json": "9ea02a32bdadfb50dc536179a9f00cb4d4271138d17c8614c487515eda057d49",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -3773,7 +3806,7 @@
     "formal/research/sizing-input-source.json": "f2462ceeb5280e19db80889d4e750681fd44b945e0978bbcc907bc60ac8cf954",
     "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
     "formal/research/snapshot-v2-source.json": "24bcfa01d029c9067d899ab080d523ba6d3bcc9eda5de21cd9ab217f1d98415b",
-    "formal/research/split-isolation-contract.md": "edfa988b46f2d893fcd88b8df6a43caef9146ce8bad7f712bf62cd439fbab2a9",
+    "formal/research/split-isolation-contract.md": "48f5c82fb031378fd0a3b933a3c3610956a4e77661ff0caa277778da4bb1e7c9",
     "formal/research/target-v2-contract.md": "cbeab3fe92efb895b1f2038c926fe098acc1cbfb02a79e17cf2377306639e42e",
     "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
     "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
@@ -3793,7 +3826,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "90ac85c25698e22c5a37ebe936474d11c8a237062017f75742ba4d1c06818878",
-    "formal/specifications.json": "64b9df3dd4415ecc8dbd37b4b06522185b7029fddf6c2d0854e141e23266071c",
+    "formal/specifications.json": "853ab6830b8a16c8510844ff21f6a65236e5be30ba3f3f53076411f6bf3d1c6b",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
@@ -3934,6 +3967,7 @@
     "research-notes/registrations/async-shutdown-seal-engineering.json": "7a00d9dc56e5e23f5c0bde996cbb2323ea5305142d29c14e49cec6d2a226b896",
     "research-notes/registrations/backtest-gate-engineering.json": "8982091af1f7b9590e461c6118f2229c9b8d300d4a03b111beb3749b9491e6a4",
     "research-notes/registrations/bot-worker-publication-engineering.json": "77846ffc265249da2354459fc23eebebd9da357e2e92c0b5d0ed7df7330a1bf5",
+    "research-notes/registrations/bounded-values-engineering.json": "810539526ecc24f5a1d686f2a965f5aa9ebf9229604dedc6c7525d40589306d0",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
     "research-notes/registrations/champion-archive-engineering.json": "c85ffe9f4f1dcca1bc02a83784bbe4e18278a587fced36cd417242d95eef0a00",
     "research-notes/registrations/closed-trade-recovery-engineering.json": "aab2981fb719834652e837f7801fdb1a5a606bf40093ca6be8f252631e26ab52",
@@ -3988,6 +4022,7 @@
     "scripts/formal/async_shutdown_seal.py": "27d3ea78b02790e39f06f577f608fef24393068ca934b5cbab8a37ad0d9f5083",
     "scripts/formal/backtest_gate.py": "ca59d6c12d70fbe4c350aeeb622993c5cb522ab47092c4b5467b0492c83d6c09",
     "scripts/formal/bot_worker_publication.py": "353c3548ce505523d76fbe4ab6f2caab4d9277d9e48d573d6e641e7ca74e2113",
+    "scripts/formal/bounded_values.py": "96cb8b4ba6056c3d5f1ba62890784224ac95558cdf992d89b1846f6716ca2360",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/champion_archive.py": "2ccd38fd305f7cb55cf4a75b97b4ea1f79dfe3b2b1ce624cb97e51c8f96d91f4",
@@ -4032,13 +4067,13 @@
     "scripts/formal/split_isolation.py": "2bce1d85906d338f0f198db03f44361025438687042446fd81cabdfb43106d85",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "ec229f53fb040c46ca6fb52f77988e0d01aa3d814e251cab52f93c4197b3504c",
+    "scripts/formal/test_integrity.py": "c4b44aa931c06852b41349c5f662ded77819c3ebfab90529684ce79ab0b35fd7",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
     "scripts/formal/value_objective_successor.py": "2d4f24e07f15feeff3a3b6433bedf8aa8d1461a0298f138371ecd1d62bce1620",
-    "scripts/formal/verify.py": "5dd10625d416efcab110e7b81b906d2e7f69cfb4ee5719b03f1c907dde348a99",
+    "scripts/formal/verify.py": "b52dd1f5ad5584d628aefed289c3b6c79cbd23dd2aa0ae2f2ce3315a800a7a4d",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",

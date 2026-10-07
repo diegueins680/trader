@@ -117,7 +117,9 @@
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
         "formal/research/observation-counterexamples.json",
-        "scripts/formal/observation_causality.py"
+        "scripts/formal/observation_causality.py",
+        "formal/research/bounded-values-contract.md",
+        "scripts/formal/bounded_values.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -877,6 +879,18 @@
         {
           "id": "F-RL-OBS-REPLAY-CAUSAL",
           "statement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes."
+        },
+        {
+          "id": "F-RL-BOUNDS-SOURCE",
+          "statement": "The unchanged frozen Replay checks the registered floor, drawdown and exposure bounds after every mark-to-market and after every admitted trade, makes every risk failure terminal with liquidation when equity is positive, exits early only on non-finite/non-positive market data or inadmissible features, ends a rejected proposal without any order, rejects turnover above one half, uses the registered cost terms and shield action set, and the runner's stress configurations are exactly the registered maxima."
+        },
+        {
+          "id": "F-RL-BOUNDS-COMPOSE",
+          "statement": "Every non-terminal state satisfies the registered floor and computed exposure bounds on the stored doubles, and its passing rounded drawdown check fl(1-fl(eq/peak)) <= 0.15 implies an exact peak-relative drawdown below 3/20 + 2^-50; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, range premise prices and equity in [2^-400, 2^400] so every intermediate stays below 2^1000) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, post-trade inventory <= 0.952 of post-trade equity, equity after an admitted trade or a terminal liquidation (of carried or post-trade inventory) above 0.998 and 0.996 of its prior value, and computed post-cost full-fill (fresh or rebalance) target exposure fl(fl(new*p)/e) < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity."
+        },
+        {
+          "id": "F-RL-BOUNDS-CONFORMANCE",
+          "statement": "Across 288 seeded episodes covering all nine registered stress configurations and gaps up to one half, every non-terminal actual Replay state satisfies the realized bounds, every risk- or horizon-triggered termination ends flat with positive equity, every proposal rejection leaves an in-bounds position unchanged, and the preserved floor witnesses lie outside A-GAP-BOUND."
         }
       ],
       "invariants": [

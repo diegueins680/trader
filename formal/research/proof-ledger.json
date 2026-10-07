@@ -373,6 +373,12 @@
       "status": "assumption",
       "statement": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-GAP-BOUND",
+      "status": "assumption",
+      "statement": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -586,7 +592,10 @@
     "scripts/formal/observation_causality.py",
     "formal/research/observation-causality-contract.md",
     "research-notes/registrations/observation-causality-audit-engineering.json",
-    "formal/research/observation-counterexamples.json"
+    "formal/research/observation-counterexamples.json",
+    "scripts/formal/bounded_values.py",
+    "formal/research/bounded-values-contract.md",
+    "research-notes/registrations/bounded-values-engineering.json"
   ],
   "entries": [
     {
@@ -7161,6 +7170,93 @@
       "limitations": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-BOUNDS-SOURCE",
+      "claim": "The unchanged frozen Replay checks the registered floor, drawdown and exposure bounds after every mark-to-market and after every admitted trade, makes every risk failure terminal with liquidation when equity is positive, exits early only on non-finite/non-positive market data or inadmissible features, ends a rejected proposal without any order, rejects turnover above one half, uses the registered cost terms and shield action set, and the runner's stress configurations are exactly the registered maxima.",
+      "formalStatement": "The unchanged frozen Replay checks the registered floor, drawdown and exposure bounds after every mark-to-market and after every admitted trade, makes every risk failure terminal with liquidation when equity is positive, exits early only on non-finite/non-positive market data or inadmissible features, ends a rejected proposal without any order, rejects turnover above one half, uses the registered cost terms and shield action set, and the runner's stress configurations are exactly the registered maxima.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-GAP-BOUND",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding, Z3-certified generic rounding/product/sum/inversion lemmas, exact-rational per-operation binary64 propagation and seeded stress probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/bounded_values.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py",
+        "formal/research/bounded-values-contract.md",
+        "research-notes/registrations/bounded-values-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (5 risk clauses, step order, modeled operations, 2 data exits, rejection branch, 9 stresses), six SAT-premise/UNSAT-violation generic and predicate queries, the exact-rational per-operation propagation (11 checks) and 288 seeded stress episodes must reproduce.",
+      "bounds": "Per-bar |r| <= 1/2; funding <= 3/100 x multiplier 2; cost multiplier <= 5/2; impact <= 10 bp; u = 2^-53; 288 episodes, 2037 non-terminal checks, 224 breach terminations, 35 rejections.",
+      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-BOUNDS-COMPOSE",
+      "claim": "Every non-terminal state satisfies the registered floor and computed exposure bounds on the stored doubles, and its passing rounded drawdown check fl(1-fl(eq/peak)) <= 0.15 implies an exact peak-relative drawdown below 3/20 + 2^-50; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, range premise prices and equity in [2^-400, 2^400] so every intermediate stays below 2^1000) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, post-trade inventory <= 0.952 of post-trade equity, equity after an admitted trade or a terminal liquidation (of carried or post-trade inventory) above 0.998 and 0.996 of its prior value, and computed post-cost full-fill (fresh or rebalance) target exposure fl(fl(new*p)/e) < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity.",
+      "formalStatement": "Every non-terminal state satisfies the registered floor and computed exposure bounds on the stored doubles, and its passing rounded drawdown check fl(1-fl(eq/peak)) <= 0.15 implies an exact peak-relative drawdown below 3/20 + 2^-50; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, range premise prices and equity in [2^-400, 2^400] so every intermediate stays below 2^1000) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, post-trade inventory <= 0.952 of post-trade equity, equity after an admitted trade or a terminal liquidation (of carried or post-trade inventory) above 0.998 and 0.996 of its prior value, and computed post-cost full-fill (fresh or rebalance) target exposure fl(fl(new*p)/e) < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-GAP-BOUND",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding, Z3-certified generic rounding/product/sum/inversion lemmas, exact-rational per-operation binary64 propagation and seeded stress probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/bounded_values.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py",
+        "formal/research/bounded-values-contract.md",
+        "research-notes/registrations/bounded-values-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (5 risk clauses, step order, modeled operations, 2 data exits, rejection branch, 9 stresses), six SAT-premise/UNSAT-violation generic and predicate queries, the exact-rational per-operation propagation (11 checks) and 288 seeded stress episodes must reproduce.",
+      "bounds": "Per-bar |r| <= 1/2; funding <= 3/100 x multiplier 2; cost multiplier <= 5/2; impact <= 10 bp; u = 2^-53; 288 episodes, 2037 non-terminal checks, 224 breach terminations, 35 rejections.",
+      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-BOUNDS-CONFORMANCE",
+      "claim": "Across 288 seeded episodes covering all nine registered stress configurations and gaps up to one half, every non-terminal actual Replay state satisfies the realized bounds, every risk- or horizon-triggered termination ends flat with positive equity, every proposal rejection leaves an in-bounds position unchanged, and the preserved floor witnesses lie outside A-GAP-BOUND.",
+      "formalStatement": "Across 288 seeded episodes covering all nine registered stress configurations and gaps up to one half, every non-terminal actual Replay state satisfies the realized bounds, every risk- or horizon-triggered termination ends flat with positive equity, every proposal rejection leaves an in-bounds position unchanged, and the preserved floor witnesses lie outside A-GAP-BOUND.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-GAP-BOUND",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding, Z3-certified generic rounding/product/sum/inversion lemmas, exact-rational per-operation binary64 propagation and seeded stress probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/bounded_values.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/run_sequential_screen.py",
+        "formal/research/bounded-values-contract.md",
+        "research-notes/registrations/bounded-values-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (5 risk clauses, step order, modeled operations, 2 data exits, rejection branch, 9 stresses), six SAT-premise/UNSAT-violation generic and predicate queries, the exact-rational per-operation propagation (11 checks) and 288 seeded stress episodes must reproduce.",
+      "bounds": "Per-bar |r| <= 1/2; funding <= 3/100 x multiplier 2; cost multiplier <= 5/2; impact <= 10 bp; u = 2^-53; 288 episodes, 2037 non-terminal checks, 224 breach terminations, 35 rejections.",
+      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -7493,7 +7589,7 @@
     {
       "number": 7,
       "claim": "Bounded values",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-SHIELD-BOUNDS",
         "F-RL-GAP-BOUND",
@@ -7508,20 +7604,72 @@
         "F-SIZING-PUBLISH",
         "F-SIZING-RETRY",
         "F-SIZING-FLOW",
-        "F-SIZING-CONFORMANCE"
+        "F-SIZING-CONFORMANCE",
+        "F-RL-BOUNDS-SOURCE",
+        "F-RL-BOUNDS-COMPOSE",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-BOUNDS-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
+      "limitations": "Scoped closure (2026-10-06) for the delivered offline path under the explicit assumption A-GAP-BOUND, following the obligation's recorded reading (separate proposal bounds from realized exposure; specify rejection/liquidation under loss; quantify gap assumptions). A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed. Fresh source binding, SMT bounds, the Haskell shield bound and the complete research-surface certificates reproduce; a stress probe adds tested evidence.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Shielded targets and post-cost positions respect registered hard bounds under explicit gap/solvency assumptions.",
-      "nextAction": "Separate proposal bounds from realized exposure; specify rejection/liquidation under loss and quantify admissible gap assumptions.",
+      "nextAction": "None for the delivered path under A-GAP-BOUND. Any change to Replay risk/trade/termination, the shield, the stress maxima or the assumption requires a fresh certificate.",
       "implementationFiles": [
         "haskell/app/Trader/Research/PolicyProposalV1.hs",
-        "scripts/research/sequential_env.py"
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
-      "blockers": [
-        "Unconditional capital-floor claim is refuted; bounded targets alone do not bound realized exposure after gaps."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-BOUNDS-SOURCE",
+        "F-RL-BOUNDS-COMPOSE",
+        "F-RL-SHIELD-BOUNDS",
+        "F-RL-GAP-BOUND",
+        "F-RL-POSTCOST-EXPOSURE",
+        "F-RL-DRAWDOWN-COMPOSE",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
+      ]
     },
     {
       "number": 8,
