@@ -68,7 +68,7 @@ def bind(sources=None):
     _only_reviewed_writes(step, 'costs', {"costs = dict.fromkeys(('turnover', 'fee', 'spread', 'slippage', 'impact'), 0.0)",
                                           'costs = self._trade(self.pending[1])',
                                           'costs = {k: costs[k] + liquidation[k] for k in costs}'},
-                          allowed_reads={'costs[k] + liquidation[k]', 'costs[k]', 'costs'})
+                          allowed_reads={'costs[k]', 'comprehension-iter', 'dict-unpack'})
     appends = [n for n in ast.walk(replay) if isinstance(n, ast.Call) and ast.unparse(n.func) == 'self.rows.append']
     row_writes = [ast.unparse(n) for n in ast.walk(replay) if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)) and
                   any(ast.unparse(x).startswith('self.rows') for x in ast.walk(n) if isinstance(x, (ast.Attribute, ast.Subscript))
@@ -80,7 +80,7 @@ def bind(sources=None):
     terms = next(s for s in ast.walk(trade) if isinstance(s, ast.Assign) and ast.unparse(s.targets[0]) == 'terms')
     require(ast.unparse(terms.value) == "{'turnover': cash, 'fee': cash * 0.0005 * cfg.cost_multiplier, 'spread': cash * 5e-05 * cfg.cost_multiplier, "
             "'slippage': cash * 0.00045 * cfg.cost_multiplier, 'impact': cash * cfg.impact_bps * 0.0001 * np.sqrt(turnover)}", 'cost formulas')
-    _only_reviewed_writes(trade, 'terms', {ast.unparse(terms)}, allowed_reads=None)
+    _only_reviewed_writes(trade, 'terms', {ast.unparse(terms)}, allowed_reads={'terms[k]', 'return terms'})
     rejected = [ast.unparse(r) for r in ast.walk(trade) if isinstance(r, ast.Return)]
     require("return {'turnover': 0.0, 'fee': 0.0, 'spread': 0.0, 'slippage': 0.0, 'impact': 0.0}" in rejected, 'turnover rejection debits nothing')
     loop = next(n for n in ast.walk(step) if isinstance(n, ast.While))
@@ -92,20 +92,29 @@ def bind(sources=None):
 
 
 def _only_reviewed_writes(scope, name, allowed, allowed_reads):
-    """Reject every write rooted at `name` other than the reviewed assignments: subscript/attribute stores,
-    augmented assignment, deletion, mutating method calls, and passing the object to any call other than
-    the reviewed row record (`**name`) or `sum(...)` over its values."""
+    """Every occurrence of `name` must be reviewed. Stores: only the reviewed assignments. Loads: only the
+    reviewed read contexts (value subscripts, the merge comprehension iterable, the row-record **unpack, the
+    debit sum, the return). Any alias, call argument, method call or other exposure fails closed."""
+    parents = {c: p for p in ast.walk(scope) for c in ast.iter_child_nodes(p)}
     for node in ast.walk(scope):
-        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
-            targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
-            rooted = [t for t in targets for x in ast.walk(t) if isinstance(x, ast.Name) and x.id == name]
-            if rooted:
-                require(isinstance(node, ast.Assign) and ast.unparse(node) in allowed, f'unreviewed write to {name}: ' + ast.unparse(node))
-        if isinstance(node, ast.Call):
-            func = ast.unparse(node.func)
-            require(not func.startswith(name + '.'), f'unreviewed method call on {name}: ' + func)
-            passed = [a for a in node.args if isinstance(a, ast.Name) and a.id == name]
-            require(not passed, f'{name} passed to a call: ' + func)
+        if not (isinstance(node, ast.Name) and node.id == name):
+            continue
+        parent = parents[node]
+        if isinstance(node.ctx, ast.Store):
+            stmt = parent
+            while not isinstance(stmt, ast.stmt):
+                stmt = parents[stmt]
+            require(isinstance(stmt, ast.Assign) and stmt.targets == [node] and ast.unparse(stmt) in allowed,
+                    f'unreviewed write to {name}: ' + ast.unparse(stmt))
+            continue
+        require(not isinstance(node.ctx, ast.Del), f'deletion of {name}')
+        if isinstance(parent, ast.comprehension) and parent.iter is node:
+            context = 'comprehension-iter'
+        elif isinstance(parent, ast.Dict) and any(k is None and v is node for k, v in zip(parent.keys, parent.values)):
+            context = 'dict-unpack'
+        else:
+            context = ast.unparse(parent)
+        require(context in allowed_reads, f'unreviewed use of {name}: ' + context)
     return True
 
 

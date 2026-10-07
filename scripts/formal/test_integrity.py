@@ -4777,7 +4777,9 @@ class AccountingReconciliationTests(unittest.TestCase):
                         ('"equity": self.equity, "gross": gross','"equity": self.equity + 0.0, "gross": gross'),
                         ("            if self.done:\n                break\n","            self.equity -= 0.0\n            if self.done:\n                break\n"),
                         ("            terminal = self.failure is not None","            costs['fee'] = 0.0\n            terminal = self.failure is not None"),
-                        ("            terminal = self.failure is not None","            costs.update(fee=0.0)\n            terminal = self.failure is not None")]:
+                        ("            terminal = self.failure is not None","            costs.update(fee=0.0)\n            terminal = self.failure is not None"),
+                        ("            terminal = self.failure is not None","            if self.t % 7 == 0:\n                alias = costs\n                alias['fee'] = 0.0\n            terminal = self.failure is not None"),
+                        ("        self.units = new\n","        view = terms\n        view['fee'] = 0.0\n        self.units = new\n")]:
             self.assertIn(old,env)
             with self.subTest(old=old), self.assertRaises(ValueError):
                 a.bind({a.ENV:env.replace(old,new)})

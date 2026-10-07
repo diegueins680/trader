@@ -159,3 +159,16 @@ yielded "unsat". The certificate is now generated from the source AST:
   augmented assignment, deletion, mutating method calls, and passing the dict to
   another call. It also requires a single row-record call and no other row
   mutation, so a pre-record `costs['fee'] = 0.0` now fails the certificate.
+
+## Fifth review correction (before merge)
+
+Write checks alone did not cover aliasing (`alias = costs; alias['fee'] = 0.0`).
+The source check now whitelists every **use** of the reviewed dictionaries:
+- `costs` may be stored only by the three reviewed assignments. It may be read
+  only as `costs[k]` values, as the merge comprehension's iterable, and as the
+  `**costs` unpack in the single row record;
+- `terms` may be stored only at construction. It may be read only as
+  `terms[k]` inside the debit `sum` and in `return terms`.
+
+Aliases, call arguments, method calls and deletions fail the certificate.
+Conditional alias mutants for both dictionaries are kept as regressions.
