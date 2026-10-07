@@ -1867,6 +1867,23 @@
     "missionComplete": false,
     "openMissionObligations": 25
   },
+  "observationCausality": {
+    "replayCausal": {
+      "decisionChecks": 250,
+      "episodes": 24,
+      "seed": 20261011,
+      "status": "property_tested"
+    },
+    "source": {
+      "scaleFits": 1,
+      "scope": "unchanged frozen runner, collect and Replay.observation source"
+    },
+    "trainScale": {
+      "counterexample": "CE-RL-025",
+      "maxAbsObservationDifference": 1.050554799,
+      "status": "refuted"
+    }
+  },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
     "counterexample": {
@@ -3703,6 +3720,8 @@
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
     "formal/research/obligation-closure-audit.md": "da12ca7253565b699521e01a327f34471a0394d0769c05de243eb27ef442b5d6",
     "formal/research/obligation-contracts.json": "c50c57f688abf5847281678ba0d78d962ebb992e02cdd005c507a13921b422ef",
+    "formal/research/observation-causality-contract.md": "32b3587b36e68e7f54cf406d0ab488bc4503f322e4faa45ef6141bbf90462a76",
+    "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/ope-rational-contract.md": "9c9aca05ea87fba9c3f3f1b9c9a558e3fd80a85de5f25859b28b4db6014c8642",
@@ -3929,6 +3948,7 @@
     "research-notes/registrations/lifecycle-stage-engineering.json": "1900f299af00ea4b3e337e5853ddec3774a6fab3672952a2c2dac0eeab7595ed",
     "research-notes/registrations/numerical-query-isolation-engineering.json": "fa70b6d59e461b2b2b337a55f911c5541891783edd5e8e79b7f37ea7c63e9af5",
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
+    "research-notes/registrations/observation-causality-audit-engineering.json": "d5c9f6fa7ea88175cb42788a2d1b63560b4327590cfd28f1bcfe89482ad6b31c",
     "research-notes/registrations/ope-algebra-audit-engineering.json": "7c9b5f1c5b03888f8fbd7705c70a03e6b949fb227ff52e60d2f78a6e9e6c097c",
     "research-notes/registrations/ope-rational-engineering.json": "4c96b08b1b44748de2b8e5f119b6c01787098b01d8c235534a7522421e049ca8",
     "research-notes/registrations/optimizer-publication-audit-engineering.json": "53818517bb3294667608dd84c291869e4a6d589254b70e38924603156388af6e",
@@ -3986,6 +4006,7 @@
     "scripts/formal/inventory_readiness.py": "b22bc96bdedd30c0057f399521e419b8ef2c37706ac16d3bd68bd03e94cdee1a",
     "scripts/formal/lifecycle.py": "c294af048d1ee713fc848fc1602a85846de8970d8d72670ad7148bc8420e853b",
     "scripts/formal/lifecycle_stage.py": "d1dd10649a1c4d4a08a6f3e75dcba748363f865db16d87e3cada52e40e7ad32b",
+    "scripts/formal/observation_causality.py": "f9ffaa4578966f935a4d5d5d86d119b727ccbc01b86b56d14ae529b17ebedecb",
     "scripts/formal/ope_algebra.py": "3e7eeae7e52732464e34d15210c0d479e1414eae05e945b69b7a18ef4483413e",
     "scripts/formal/ope_rational.py": "bd2d38101051c5042ce0a336ccede2dce9a6da7257e0864815c1d955462705a1",
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
