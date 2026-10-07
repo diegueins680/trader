@@ -139,7 +139,7 @@ def bind(sources=None):
     require(re.search(r'placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty \(Just True\)', bodies['handleBinanceClosePosition']),
             'close-position is no longer reduce-only')
     # Helper module: admission and release under the lock, release uninterruptible.
-    for fragment in ('modifyMVar lock $ \\runtime ->\n            case manualTradeConflict (owned runtime) key of',
+    for fragment in ('modifyMVarMasked lock $ \\runtime ->\n            case manualTradeConflict (owned runtime) key of',
                      "modifyIORef' ref (Map.insertWith (+) key 1)", 'uninterruptibleMask_ $\n                    modifyMVar_ lock',
                      'bracket acquire release (either (throwIO . ManualTradeOwnershipConflict) (const action))',
                      '| key `elem` owners ='):

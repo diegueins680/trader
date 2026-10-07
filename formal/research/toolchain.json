@@ -539,8 +539,8 @@
     "formal/research/causal-replay-v3-contract.md": "7c4d1a5cc5086b17d164f82b101b470a13ce8c9e61fc1d7fdaf9824db01e51a6",
     "formal/research/causal-replay-v3-source.json": "7da0614db25217ed9a7f168ee4c99b4058bf937411bc98656f550857ca224457",
     "research-notes/registrations/causal-replay-v3-engineering.json": "335a9d54944381d491e28b5278a395bf766a74a4f68b3f413e79ee4d050ef11d",
-    "scripts/formal/position_ownership.py": "186e3861dc724152e6a074d4edf862c4591854b34288344325850e40ab0165ba",
-    "haskell/app/Trader/App/ManualTradeOwnership.hs": "0bf1e8a9ffcf539140f5e674eb4abe1fb36f6cf081a44b5f5519b1c93e3b3fc2",
+    "scripts/formal/position_ownership.py": "33a56f81ef901a4dae04551dda87bc28d104f587a9df702d79ea9087beba8d3d",
+    "haskell/app/Trader/App/ManualTradeOwnership.hs": "682b9902d590e7a5734cb771a4fed49271444ddec08da7c2d3ab5d2b0506f115",
     "formal/research/position-ownership-counterexamples.json": "3f804a3d2d32493708d3ce5285952d98c21bf8cf13c5128b410b6518d4ba32ca"
   },
   "numpy": "2.3.5",

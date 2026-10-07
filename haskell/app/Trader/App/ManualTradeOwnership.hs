@@ -26,7 +26,7 @@ module Trader.App.ManualTradeOwnership (
     withManualTradeClaim,
 ) where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
+import Control.Concurrent.MVar (MVar, modifyMVarMasked, modifyMVar_)
 import Control.Exception (Exception, bracket, throwIO, uninterruptibleMask_)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
@@ -65,8 +65,9 @@ withManualTradeClaim :: MVar runtime -> (runtime -> [OwnershipKey]) -> ManualTra
 withManualTradeClaim lock owned (ManualTradeClaims ref) key action =
     bracket acquire release (either (throwIO . ManualTradeOwnershipConflict) (const action))
   where
+    -- Masked even outside 'bracket': once the claim is recorded nothing can interrupt before acquisition returns it.
     acquire =
-        modifyMVar lock $ \runtime ->
+        modifyMVarMasked lock $ \runtime ->
             case manualTradeConflict (owned runtime) key of
                 Just msg -> pure (runtime, Left msg)
                 Nothing -> do
