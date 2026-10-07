@@ -119,7 +119,9 @@
         "formal/research/observation-counterexamples.json",
         "scripts/formal/observation_causality.py",
         "formal/research/bounded-values-contract.md",
-        "scripts/formal/bounded_values.py"
+        "scripts/formal/bounded_values.py",
+        "formal/research/accounting-reconciliation-contract.md",
+        "scripts/formal/accounting_reconciliation.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -891,6 +893,18 @@
         {
           "id": "F-RL-BOUNDS-CONFORMANCE",
           "statement": "Across 288 seeded episodes covering all nine registered stress configurations and gaps up to one half, every non-terminal actual Replay state satisfies the realized bounds, every risk- or horizon-triggered termination ends flat with positive equity, every proposal rejection leaves an in-bounds position unchanged, and the preserved floor witnesses lie outside A-GAP-BOUND."
+        },
+        {
+          "id": "F-RL-RECON-SOURCE",
+          "statement": "The unchanged frozen Replay writes equity only at initialization, in the mark-to-market update and in the trade/liquidation cost debit; the mark-to-market, cost-term, cost-sum, terminal merge and row-record expressions are bound to their reviewed forms; a rejected turnover debits nothing; and invalid market data rejects before any row is recorded."
+        },
+        {
+          "id": "F-RL-RECON-ERROR",
+          "statement": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise: the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound."
+        },
+        {
+          "id": "F-RL-RECON-CONFORMANCE",
+          "statement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's recorded rows satisfies the stated roll-forward bound exactly in rationals, horizon-one rows satisfy the gross and funding bounds against units captured before the bar, and every fee, spread and slippage term matches its formula on the recorded cash."
         }
       ],
       "invariants": [

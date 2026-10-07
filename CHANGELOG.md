@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Close obligation 8 (accounting) for the delivered offline path: per-row binary64 reconciliation of the frozen `Replay` ledger (roll-forward, gross, funding, fee/spread/slippage/impact) within exactly derived error bounds, with SMT lemmas and a 5,578-row probe. No source or data change. Counts become 15 scoped closures / 22 partial / 1 open.
+
 - Close obligation 7 (bounded values) for the delivered offline path under the explicit assumption A-GAP-BOUND: realized-state invariant, solvent flat liquidation and post-cost target bounds, with SMT lemmas and a stress probe. The unconditional capital floor stays refuted; no source or data change. Counts become 14 scoped closures / 23 partial / 1 open.
 
 - Preserve CE-RL-025: the frozen screen's prefix-wide training scale makes in-prefix training observations depend on later bars (obligation 17 stays open). Add an executable witness and a fixed-scale Replay causality probe; no source or data change.

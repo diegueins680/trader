@@ -5,16 +5,30 @@
   "baseCommit": "2b1ad4e9be1a09a9da3b0d29e064e04112ca66f6",
   "kind": "engineering_not_financial_experiment",
   "contract": "formal/research/accounting-reconciliation-contract.md",
-  "requirements": ["F-RL-RECON-SOURCE", "F-RL-RECON-ERROR", "F-RL-RECON-CONFORMANCE"],
+  "requirements": [
+    "F-RL-RECON-SOURCE",
+    "F-RL-RECON-ERROR",
+    "F-RL-RECON-CONFORMANCE"
+  ],
   "obligation": 8,
   "reading": "Per-row reconciliation: each recorded debit against its stated formula on the executed binary64 inputs, and the recorded wealth roll-forward, each within a stated binary64 error bound, or the bar rejects. Fill calibration against real venues is empirical and belongs to the economic gate.",
-  "statedBounds": {"rollForwardUnits": 14, "grossUnits": 2, "fundingUnits": 2, "feeTermUnits": 4, "impactUnits": 6},
+  "statedBounds": {
+    "rollForward": "15u*M + 15H",
+    "gross": "3u*|U(p1-p0)| + 2^-600*E + 2H",
+    "funding": "3u*|U*f*m| + 4H",
+    "feeSpreadSlippage": "4u relative + 10H",
+    "impact": "6u relative + 10H",
+    "correction": "constants revised before any certificate; see contract"
+  },
   "financialTrials": 0,
   "historicalDataReads": 0,
   "holdoutOpened": false,
   "sourceChanges": 0,
   "probeSeed": 20261013,
   "probeEpisodes": 216,
-  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "verification": [
+    "bash scripts/verify.sh formal",
+    "bash scripts/verify.sh full"
+  ],
   "closure": "Obligation 8 closes for the delivered offline path only if fresh source, SMT and existing exact-identity certificates reproduce."
 }

@@ -61,3 +61,21 @@ Closure requires F-RL-RECON-SOURCE and F-RL-RECON-ERROR, plus the existing
 exact identities F-RL-ACCOUNT, F-RL-ROW-RECONCILE and F-RL-WEALTH-FOLD, plus the
 complete research-surface certificates. Conformance is supporting tested
 evidence, not a closure certificate.
+
+## Correction before any certificate (constants)
+
+Deriving the preregistered constants exactly showed three were slightly too tight:
+
+- **Roll-forward:** n = 14 roundings with accumulated error give
+  (u·M + H)·((1 + u)ⁿ − 1)/u, which exceeds 14·(u·M + H). The stated bound is
+  **15·u·M + 15·H**.
+- **Gross:** without relying on Sterbenz's lemma, rounding `p₁ − p₀` contributes
+  an absolute term up to |U|·H, with |U| ≤ 0.35·E·2⁴⁰⁰. The stated bound is
+  **3·u·|U(p₁ − p₀)| + 2⁻⁶⁰⁰·E + 2·H**.
+- **Cost terms:** each product's absolute term is scaled by the cost multiplier
+  (≤ 5/2), and the trade/liquidation merge adds one more. The stated bounds are
+  **fee, spread, slippage: 4·u relative + 10·H** and **impact: 6·u relative +
+  10·H**. **Funding** is **3·u relative + 4·H**.
+
+The checker derives the minimal rigorous constants in exact rationals and
+requires every stated bound to be at least the derived one.

@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 24)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,11,12,23,24,25,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 23)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,23,24,25,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -4757,6 +4757,49 @@ class BoundedValuesTests(unittest.TestCase):
         with patch.object(env.Replay,'_risk',lambda self: None if math.isfinite(self.equity) and self.equity > 0 else 'equity_exhausted'):
             with self.assertRaisesRegex(ValueError,'outside realized bounds|not liquidated flat'):
                 b.conformance()
+
+
+class AccountingReconciliationTests(unittest.TestCase):
+    def test_source_lemmas_constants_and_ledger_probe(self):
+        import accounting_reconciliation as a
+        r=a.check_reconciliation()
+        self.assertEqual(r['smt'],{'F-RL-RECON-ERROR':'unsat'})
+        self.assertLessEqual(r['constants']['rollForward'][0],15)
+        self.assertGreater(r['constants']['rollForward'][0],14)   # 14 alone would be too tight
+        self.assertGreater(r['conformance']['rows'],1000)
+
+    def test_source_mutants_and_bad_constants_fail_closed(self):
+        import accounting_reconciliation as a
+        env=(ROOT/a.ENV).read_text()
+        for old,new in [("self.equity += gross + funding","self.equity += gross"),
+                        ("costs = {k: costs[k] + liquidation[k] for k in costs}","costs = liquidation"),
+                        ('"spread": cash * 0.00005 * cfg.cost_multiplier','"spread": cash * 0.0 * cfg.cost_multiplier'),
+                        ('"equity": self.equity, "gross": gross','"equity": self.equity + 0.0, "gross": gross')]:
+            self.assertIn(old,env)
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                a.bind({a.ENV:env.replace(old,new)})
+        with patch.object(a,'STATED',dict(a.STATED,rollForward=(a.Q(14),a.Q(14)))):
+            with self.assertRaisesRegex(ValueError,'stated bound below derived constant'):
+                a.derive()
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    a.lemmas()
+
+    def test_probe_detects_unrecorded_debit(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_env as env
+        import accounting_reconciliation as a
+        original=env.Replay._trade
+        def leaky(self,target,terminal=False):
+            terms=original(self,target,terminal)
+            self.equity-=1e-6   # an unrecorded debit
+            return terms
+        with patch.object(env.Replay,'_trade',leaky):
+            with self.assertRaisesRegex(ValueError,'roll-forward outside the stated bound'):
+                a.conformance()
 
 
 if __name__ == '__main__':

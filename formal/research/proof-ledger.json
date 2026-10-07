@@ -379,6 +379,12 @@
       "status": "assumption",
       "statement": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ACCOUNTING-RECON",
+      "status": "assumption",
+      "statement": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -595,7 +601,10 @@
     "formal/research/observation-counterexamples.json",
     "scripts/formal/bounded_values.py",
     "formal/research/bounded-values-contract.md",
-    "research-notes/registrations/bounded-values-engineering.json"
+    "research-notes/registrations/bounded-values-engineering.json",
+    "scripts/formal/accounting_reconciliation.py",
+    "formal/research/accounting-reconciliation-contract.md",
+    "research-notes/registrations/accounting-reconciliation-engineering.json"
   ],
   "entries": [
     {
@@ -7257,6 +7266,96 @@
       "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-RECON-SOURCE",
+      "claim": "The unchanged frozen Replay writes equity only at initialization, in the mark-to-market update and in the trade/liquidation cost debit; the mark-to-market, cost-term, cost-sum, terminal merge and row-record expressions are bound to their reviewed forms; a rejected turnover debits nothing; and invalid market data rejects before any row is recorded.",
+      "formalStatement": "The unchanged frozen Replay writes equity only at initialization, in the mark-to-market update and in the trade/liquidation cost debit; the mark-to-market, cost-term, cost-sum, terminal merge and row-record expressions are bound to their reviewed forms; a rejected turnover debits nothing; and invalid market data rejects before any row is recorded.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ACCOUNTING-RECON",
+        "A-GAP-BOUND",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding, Z3 single-rounding/product-chain/accumulation/identity/gross lemmas, exact-rational constant derivation and seeded ledger probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/accounting_reconciliation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "formal/research/accounting-reconciliation-contract.md",
+        "research-notes/registrations/accounting-reconciliation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (3 equity writes, mark-to-market, costs, merge, row record, rejecting exit), five SAT-premise/UNSAT-violation lemmas, exact derivation of all five constants against the stated bounds, and the 216-episode ledger probe must reproduce.",
+      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks.",
+      "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-RECON-ERROR",
+      "claim": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise: the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound.",
+      "formalStatement": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise: the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ACCOUNTING-RECON",
+        "A-GAP-BOUND",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding, Z3 single-rounding/product-chain/accumulation/identity/gross lemmas, exact-rational constant derivation and seeded ledger probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/accounting_reconciliation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "formal/research/accounting-reconciliation-contract.md",
+        "research-notes/registrations/accounting-reconciliation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (3 equity writes, mark-to-market, costs, merge, row record, rejecting exit), five SAT-premise/UNSAT-violation lemmas, exact derivation of all five constants against the stated bounds, and the 216-episode ledger probe must reproduce.",
+      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks.",
+      "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-RECON-CONFORMANCE",
+      "claim": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's recorded rows satisfies the stated roll-forward bound exactly in rationals, horizon-one rows satisfy the gross and funding bounds against units captured before the bar, and every fee, spread and slippage term matches its formula on the recorded cash.",
+      "formalStatement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's recorded rows satisfies the stated roll-forward bound exactly in rationals, horizon-one rows satisfy the gross and funding bounds against units captured before the bar, and every fee, spread and slippage term matches its formula on the recorded cash.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ACCOUNTING-RECON",
+        "A-GAP-BOUND",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding, Z3 single-rounding/product-chain/accumulation/identity/gross lemmas, exact-rational constant derivation and seeded ledger probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/accounting_reconciliation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "formal/research/accounting-reconciliation-contract.md",
+        "research-notes/registrations/accounting-reconciliation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (3 equity writes, mark-to-market, costs, merge, row record, rejecting exit), five SAT-premise/UNSAT-violation lemmas, exact derivation of all five constants against the stated bounds, and the 216-episode ledger probe must reproduce.",
+      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks.",
+      "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -7674,7 +7773,7 @@
     {
       "number": 8,
       "claim": "Accounting",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-ACCOUNT",
         "F-RL-GAP-BOUND",
@@ -7696,20 +7795,68 @@
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-RUNNER-V2-ARITH",
         "F-RL-RUNNER-V2-FLOW",
-        "F-RL-RUNNER-V2-CONFORMANCE"
+        "F-RL-RUNNER-V2-CONFORMANCE",
+        "F-RL-RECON-SOURCE",
+        "F-RL-RECON-ERROR",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-RECON-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
+      "limitations": "Scoped closure (2026-10-07) for the delivered offline path. Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row. Fresh source binding, the SMT error lemmas with exact constant derivation, the existing exact identities and the complete research-surface certificates reproduce; a ledger probe adds tested evidence.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every wealth, fee, funding and liquidation debit reconciles actual binary64 execution within a stated error bound or rejects.",
-      "nextAction": "Prove bounded arithmetic error and failure rules for a versioned replay accounting core.",
+      "nextAction": "None for the delivered path. Any change to Replay ledger operations, cost formulas, the range premise or array dtype requires a fresh certificate; fill calibration remains an economic-gate question.",
       "implementationFiles": [
         "scripts/research/sequential_env.py",
-        "scripts/research/sequential_evaluation.py"
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
-      "blockers": [
-        "Exact-real row identities lack full binary64 error/refinement bounds and calibrated fill semantics."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-RECON-SOURCE",
+        "F-RL-RECON-ERROR",
+        "F-RL-ACCOUNT",
+        "F-RL-ROW-RECONCILE",
+        "F-RL-WEALTH-FOLD",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
+      ]
     },
     {
       "number": 9,
