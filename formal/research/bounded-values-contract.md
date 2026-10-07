@@ -38,11 +38,16 @@ the refuted unconditional floor still records that they can breach any bound.
 
 ## Claims
 
-**(I) Realized-state invariant.** Every non-terminal `Replay` state satisfies
-all three realized bounds (floor, drawdown, exposure). The step order is
-mark-to-market → `_risk` → pending trade → `_risk` → terminal check, and any
-failure ends the step in a terminal state. This holds as evaluated in binary64,
-because the bound check is the source predicate itself.
+**(I) Realized-state invariant** (as revised by the corrections below). In every
+non-terminal `Replay` state:
+- the stored equity is ≥ dbl(0.8), an exact comparison;
+- the computed exposure |fl(fl(units·p)/equity)| is ≤ dbl(0.35);
+- the passing rounded drawdown check fl(1 − fl(equity/peak)) ≤ dbl(0.15) implies
+  an exact drawdown below 3/20 + 2⁻⁵⁰ (computed 3/20 + 1.06·10⁻¹⁶). It does not
+  imply the exact 3/20 bound.
+
+The step order is mark-to-market → `_risk` → pending trade → `_risk` → terminal
+check, and any failure ends the step in a terminal state.
 
 **(II) Proposal bounds.** Shielded targets are in {−1/4, 0, 1/4}
 (F-RL-SHIELD-BOUNDS, Haskell boundary). A fresh full-fill target has post-cost
@@ -52,11 +57,13 @@ exposure below 0.2505 ≤ 7/20.
 non-terminal state:
 - one bar keeps equity above 0.80 × its previous value;
 - an admitted trade costs at most 0.18% of equity;
-- exposure at detection is at most 0.66;
-- the terminal liquidation costs at most 0.24% of equity.
+- exposure at detection is at most 0.66, and post-trade inventory at most 0.952;
+- the terminal liquidation costs at most 0.34% of equity (certified ratio
+  ≥ 0.99667, revised from an earlier 0.24% that omitted the post-trade path).
 
-So equity stays strictly positive and every terminal path liquidates to **flat**
-inventory, never a failed liquidation.
+So equity stays strictly positive, and every risk- or horizon-triggered
+termination liquidates to **flat** inventory, never a failed liquidation.
+Proposal rejections are covered in the corrections below.
 
 ## Obligations / methods
 

@@ -519,7 +519,7 @@
     "research-notes/registrations/observation-causality-audit-engineering.json": "d5c9f6fa7ea88175cb42788a2d1b63560b4327590cfd28f1bcfe89482ad6b31c",
     "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
     "scripts/formal/bounded_values.py": "dd828e8c9424c147f9b670b8dfae80a1e84b29b1a1bd56df4a1ffacb02a3f688",
-    "formal/research/bounded-values-contract.md": "f213d334c1be0d03275d0defb3511c0d78044b5452a2354af0925b93d5028fc4",
+    "formal/research/bounded-values-contract.md": "244c012bbfca3a023d2f045a425e3cebac96e5d39d615cbb5906f8bc381b8797",
     "research-notes/registrations/bounded-values-engineering.json": "810539526ecc24f5a1d686f2a965f5aa9ebf9229604dedc6c7525d40589306d0"
   },
   "numpy": "2.3.5",
