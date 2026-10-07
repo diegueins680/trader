@@ -385,7 +385,7 @@
     "helperSha256": "1ae24956613e289ac1436d7f489bded541d72f6bd56b44681dafab84d85bddbb",
     "source": {
       "forwardingSites": 5,
-      "modules": 122,
+      "modules": 123,
       "scope": "every Haskell module under haskell/app: no exception-capturing combinator is imported outside Trader.App.AsyncSafe and the async-filtering BacktestGate; the compiler rejects any other capture",
       "sites": {
         "catchSync": 4,
@@ -679,8 +679,8 @@
       "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
     },
     "graph": {
-      "localEdges": 313,
-      "moduleFiles": 122,
+      "localEdges": 314,
+      "moduleFiles": 123,
       "requirement": "F-RL-COMPONENT-ISOLATION",
       "roots": {
         "analyze-close-timing": {
@@ -764,7 +764,7 @@
           "states": 2
         },
         "trader-hs": {
-          "edges": 273,
+          "edges": 274,
           "maxShortestDepth": 3,
           "reachableFiles": [
             "haskell/app/Main.hs",
@@ -778,6 +778,7 @@
             "haskell/app/Trader/App/Csv.hs",
             "haskell/app/Trader/App/Env.hs",
             "haskell/app/Trader/App/GracefulShutdown.hs",
+            "haskell/app/Trader/App/ManualTradeOwnership.hs",
             "haskell/app/Trader/App/Observability.hs",
             "haskell/app/Trader/App/Runtime.hs",
             "haskell/app/Trader/App/WorkerPublication.hs",
@@ -867,7 +868,7 @@
             "haskell/app/Trader/Trading.hs",
             "haskell/app/Trader/VolConfGate.hs"
           ],
-          "states": 99
+          "states": 100
         }
       },
       "search": "reachable_fixed_point"
@@ -938,6 +939,7 @@
       "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
       "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
       "haskell/app/Trader/App/GracefulShutdown.hs": "dfc7c4fec0d43936a186c01d0ae31141b32e009b0bd5c0f03bc6524a8ab68fcf",
+      "haskell/app/Trader/App/ManualTradeOwnership.hs": "0bf1e8a9ffcf539140f5e674eb4abe1fb36f6cf081a44b5f5519b1c93e3b3fc2",
       "haskell/app/Trader/App/Observability.hs": "afac73c02bda45811616deb4c89e6e7bd64bf7c586066d62005ed200e31badf4",
       "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
       "haskell/app/Trader/App/WorkerPublication.hs": "bd7c41c91fc7ab3cbf8acca4105ee17a6ad1de5a8594d11a29d4e8e2dfcf485b",
@@ -1929,7 +1931,7 @@
     "smt": {
       "F-INVENTORY-READINESS-PREDICATE": "unsat"
     },
-    "sourceHash": "cac5bf9fb1b4ede1f5be310a9c7617d3ffab848e145df51fe0ea96b26bacb983"
+    "sourceHash": "d2cdf4b34b3070ba45b3924679bfc425f365a99b297aed6f9ce7ea07880669bd"
   },
   "lifecycleStage": {
     "conformance": {
@@ -2204,6 +2206,56 @@
       "scope": "complete reviewed source, extracted admission/selection/publication transfers; trusted Python/NumPy primitives",
       "status": "exhaustively_checked",
       "trainingCalls": 1
+    }
+  },
+  "positionOwnership": {
+    "conformance": {
+      "observed": "(True,False,True,\"refused\",False,False,0)",
+      "status": "property_tested"
+    },
+    "model": {
+      "counterexamples": {
+        "CE-LIVE-002": {
+          "account": "A",
+          "state": "((True, False, False), ('acting', 'idle', 'idle'))"
+        },
+        "CE-LIVE-003": {
+          "account": "A",
+          "state": "((True, True, False), ('idle', 'idle', 'idle'))"
+        },
+        "no-bot-claim-check": {
+          "account": "A",
+          "state": "((True, False, False), ('acting', 'idle', 'idle'))"
+        }
+      },
+      "fixed": {
+        "edges": 299,
+        "states": 85,
+        "violation": null
+      },
+      "states": 85,
+      "status": "model_checked",
+      "transitions": 299
+    },
+    "source": {
+      "orderCapableDefinitions": 32,
+      "roles": [
+        "bot-publication",
+        "bot-worker",
+        "manual-trade",
+        "manual-trade-claimed",
+        "process-root",
+        "reduce-only-operator-override",
+        "separate-cli-process",
+        "server-root",
+        "shared-order-path",
+        "test-order-probe"
+      ],
+      "sha256": {
+        "haskell/app/Main.hs": "d2cdf4b34b3070ba45b3924679bfc425f365a99b297aed6f9ce7ea07880669bd",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs": "0bf1e8a9ffcf539140f5e674eb4abe1fb36f6cf081a44b5f5519b1c93e3b3fc2"
+      },
+      "status": "exhaustively_checked"
     }
   },
   "ppoObjective": {
@@ -3880,6 +3932,7 @@
     "formal/research/order-wire-counterexamples.json": "cbb47e0115de1535b4d390973e7d8e77da05e434cde93821d40917542ee70b3d",
     "formal/research/point-in-time-contract.md": "da8c71a6a8efb61ac4e7d7551a409397a222e90397a79ccefcd949380264dda6",
     "formal/research/point-in-time-source.json": "538213555a6ba6a6831d4a527d178d54cda051f9734933cd6b24fb8f795e0d22",
+    "formal/research/position-ownership-counterexamples.json": "cc870b14c1b03e417d841ee3871766b8c1f6ca68fa1fe25de02eb0c6ddc9c954",
     "formal/research/ppo-artifact-v4-contract.md": "b1cb9ee7f0b60bc27d46f3c5c5e75741ef2bd89b760a8a04b2f12132507eceb6",
     "formal/research/ppo-artifact-v4-source.json": "9f8134e1005ebf2325645da7c5dac1e724741ae4f19221bbbcdbc1b74b3f2c2a",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
@@ -3955,6 +4008,7 @@
     "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
     "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
     "haskell/app/Trader/App/GracefulShutdown.hs": "dfc7c4fec0d43936a186c01d0ae31141b32e009b0bd5c0f03bc6524a8ab68fcf",
+    "haskell/app/Trader/App/ManualTradeOwnership.hs": "0bf1e8a9ffcf539140f5e674eb4abe1fb36f6cf081a44b5f5519b1c93e3b3fc2",
     "haskell/app/Trader/App/Observability.hs": "afac73c02bda45811616deb4c89e6e7bd64bf7c586066d62005ed200e31badf4",
     "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
     "haskell/app/Trader/App/WorkerPublication.hs": "bd7c41c91fc7ab3cbf8acca4105ee17a6ad1de5a8594d11a29d4e8e2dfcf485b",
@@ -4165,6 +4219,7 @@
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
     "scripts/formal/order_numbers.py": "a412190f7c01fa0ba375da38becd49dc693bca64fc08dfbe0e6f6ce648808324",
     "scripts/formal/point_in_time.py": "35d739aa6d24340d2db381b636130caa8915b23de465f02e4b86064429063f64",
+    "scripts/formal/position_ownership.py": "ffd764e45efda8d3e96f21931b47314bc20cb90d8fffa66cfca2799b78a22585",
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
