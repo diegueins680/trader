@@ -72,3 +72,23 @@ The [ordering audit](replay-order-followup-2026-10-01.md) distinguishes delayed 
 The [cutoff audit](replay-cutoff-followup-2026-10-01.md) extends the ordering abstraction to a seven-or-more-bars class. Integer SMT and finite graph/conformance evidence preserve the distinction between a six-bar call and a later episode endpoint. A false-terminal trace-matcher counterexample was corrected and retained. Actual observations/rewards, multi-call runtime behavior and all broader promotion requirements remain unresolved; no adoption follows.
 
 The [reward accounting audit](reward-accounting-followup-2026-10-03.md) verifies scoped real-arithmetic identities and preserves a synthetic zero-summed-reward path with a -0.0625% economic return. The existing reporter correctly records that loss. Reward, simulator and financial evidence are unchanged; no policy-objective equivalence, universal floating-point bound or new adoption evidence follows.
+
+## Exact funding events (2026-10-06)
+
+The [funding-events-v2 continuation](funding-events-2026-10-06.md) adds a disabled, disconnected exact-decimal funding loader successor. CE-RL-019 inputs reject before arithmetic, and admitted coefficients are exact under source-bound SMT size/endpoint lemmas, an exhaustive small-grid sweep, a publication model and Haskell oracle tests. The frozen loader stays refuted and unchanged; obligation 10 stays open and no adoption follows.
+
+## Exact replay runner (2026-10-06)
+
+The [replay-runner-v2 continuation](replay-runner-2026-10-06.md) composes the exact funding and replay kernels into a disabled episode runner over a fixed target schedule. SMT index, telescoping and funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests provide scoped evidence. It contains no policy, so no economic or adoption claim follows; obligation 10 stays open.
+
+## Value objective (2026-10-06)
+
+The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disabled, disconnected conservative Double-DQN objective that rejects CE-RL-014 inputs, removes the CE-RL-015 shift defect, and preserves and resolves CE-RL-024 (a signed-zero counterexample found during proof). The frozen learner is unchanged; obligation 10 stays open and no adoption follows.
+
+## Split isolation closure (2026-10-06)
+
+[Obligation 2 closes](split-isolation-2026-10-06.md) for the delivered offline screen under the owner-approved standard purge/embargo definition. Counts are now 13 scoped closures / 24 partial / 1 open. This is a formal data-handling result, not economic evidence; the recommendation is unchanged.
+
+## Observation causality audit (2026-10-06)
+
+[CE-RL-025](observation-causality-2026-10-06.md): the frozen training path normalizes in-prefix observations with a scale fitted on later bars, so obligation 17 stays open. Evaluation observations are unaffected. The rejection of the frozen configurations stands.

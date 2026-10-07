@@ -337,6 +337,42 @@
       "status": "assumption",
       "statement": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-FUNDING-EVENTS-V2",
+      "status": "assumption",
+      "statement": "Pinned CPython3.13.3 re/int/Fraction/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle and sufficient resources. Bit bounds are not allocation recovery or physical timing guarantees. The canonical decimal domain is a numeric admission contract, not evidence that any provider emits it or that a record is causally available. Endpoint lemmas are quantifier-free over unbounded integers and use explicit sortedness instances rather than a quantified grid axiom; the exhaustive sweep check covers only the registered small grid. The frozen development loader and CE-RL-019 there remain unchanged and refuted; runner/learner composition, actual release/first-seen timing, revisions, symbol scoping and original38 remain unresolved.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-REPLAY-RUNNER-V2",
+      "status": "assumption",
+      "statement": "Inherits A-REPLAY-ACCOUNT-V2 and A-FUNDING-EVENTS-V2. Treats a settlement's grid time as its availability time; this is an assumption, not a provider release or first-seen proof. Replays a fixed caller-supplied target schedule: no policy, observation causality, learning, OPE, shield precedence or economic claim follows. Index and telescoping lemmas are over unbounded integers and exact reals with explicit per-step premises; the finite model abstracts numeric values and covers horizons 1..8; metamorphic and oracle checks are seeded tests, not proofs. Frozen sequential_replay_v1, its loader and original38 remain unresolved.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-VALUE-OBJECTIVE-V2",
+      "status": "assumption",
+      "statement": "Pinned CPython3.13.3 float/math exp, log and fsum semantics on IEEE binary64 RNE hardware; primitive bounds 0 <= exp(x) <= 1 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3; A-FP-ROUNDING (each basic operation returns the rounding of its exact real result) and the standard model |fl(x)-x| <= 2^-53|x|, neither machine-proved for the CPython build. Full binary64 bit-blasting returned unknown within 120 s, so the binary64 shift claim rests on the named rounding assumption; the bitwise draft claim was refuted by CE-RL-024 and resolved by zero canonicalization. The kernel is disconnected: frozen bellman_gradient/train_q, F-RL-Q-FINITE and F-RL-CQL-SHIFT stay refuted and unchanged; no learner composition, convergence, conservative-value guarantee, support or economic claim follows; original38 remain unresolved.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-FP-ROUNDING",
+      "status": "assumption",
+      "statement": "Each IEEE binary64 basic operation (add, subtract, multiply, divide) in the pinned CPython build returns the round-to-nearest-even rounding of its exact real result, with signed-zero results as specified by IEEE 754; not machine-proved for the interpreter, compiler or hardware.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SPLIT-ISOLATION",
+      "status": "assumption",
+      "statement": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-OBSERVATION-AUDIT",
+      "status": "assumption",
+      "statement": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -526,7 +562,31 @@
     "scripts/research/replay_accounting_v2.py",
     "formal/research/replay-accounting-v2-contract.md",
     "research-notes/registrations/replay-accounting-v2-engineering.json",
-    "formal/research/replay-accounting-v2-source.json"
+    "formal/research/replay-accounting-v2-source.json",
+    "scripts/formal/funding_events.py",
+    "formal/research/FundingEventsV2.hs",
+    "scripts/research/funding_events_v2.py",
+    "formal/research/funding-events-v2-contract.md",
+    "research-notes/registrations/funding-events-v2-engineering.json",
+    "formal/research/funding-events-v2-source.json",
+    "scripts/formal/replay_runner.py",
+    "scripts/research/replay_runner_v2.py",
+    "formal/research/replay-runner-v2-contract.md",
+    "research-notes/registrations/replay-runner-v2-engineering.json",
+    "formal/research/replay-runner-v2-source.json",
+    "scripts/formal/value_objective_successor.py",
+    "scripts/research/value_objective_v2.py",
+    "formal/research/value-objective-v2-contract.md",
+    "research-notes/registrations/value-objective-v2-engineering.json",
+    "formal/research/value-objective-v2-source.json",
+    "formal/research/value-v2-counterexamples.json",
+    "scripts/formal/split_isolation.py",
+    "formal/research/split-isolation-contract.md",
+    "research-notes/registrations/split-isolation-engineering.json",
+    "scripts/formal/observation_causality.py",
+    "formal/research/observation-causality-contract.md",
+    "research-notes/registrations/observation-causality-audit-engineering.json",
+    "formal/research/observation-counterexamples.json"
   ],
   "entries": [
     {
@@ -6589,6 +6649,518 @@
       "limitations": "Pinned CPython3.13.3 Fraction/int/isqrt/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle, sufficient resources and truthful complete per-bar funding inputs. Integer size bounds are not allocation recovery or physical timing guarantees. No binary64 conversion, whole-interpreter refinement, realistic fills or causal data provenance is established. Funding events and numeric values are abstracted in the state model. Extracted algebra plus tests is not full transition refinement. Old replay, policy/observation/training/loader composition and original38 remain unresolved.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-V2-SOURCE",
+      "claim": "Exact funding events v2 has a completely reviewed pure source boundary, a canonical ASCII fixed-point decimal and integer-time admission domain, an immutable all-or-nothing published value, activation-first default rejection and checked rational primitives; it introduces no float, file, network, policy, promotion or order effect.",
+      "formalStatement": "Exact funding events v2 has a completely reviewed pure source boundary, a canonical ASCII fixed-point decimal and integer-time admission domain, an immutable all-or-nothing published value, activation-first default rejection and checked rational primitives; it introduces no float, file, network, policy, promotion or order effect.",
+      "criticality": "high",
+      "assumptions": [
+        "A-FUNDING-EVENTS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 size/endpoint lemmas, exhaustive sweep enumeration, finite stage checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/funding_events.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "research-notes/registrations/funding-events-v2-engineering.json",
+        "formal/research/funding-events-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/FundingEventsV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, eleven SAT-premise/UNSAT-violation size and endpoint queries, 256 exhaustive sweep cases, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit guard; admitted decimals at most 20 whole and 20 fraction digits; times below 2^63; at most 8192 closes, 65536 records and 128 events per bucket; accumulated coefficient below 128*10^120 over 10^40; exhaustive grid (1,3,5,7), times 0..8, up to 4 events (256 cases); 8 abstract states, 12 transitions, max shortest depth 6; 146 Haskell oracle loads (128 seeded, 18 registered edge).",
+      "limitations": "Pinned CPython3.13.3 re/int/Fraction/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle and sufficient resources. Bit bounds are not allocation recovery or physical timing guarantees. The canonical decimal domain is a numeric admission contract, not evidence that any provider emits it or that a record is causally available. Endpoint lemmas are quantifier-free over unbounded integers and use explicit sortedness instances rather than a quantified grid axiom; the exhaustive sweep check covers only the registered small grid. The frozen development loader and CE-RL-019 there remain unchanged and refuted; runner/learner composition, actual release/first-seen timing, revisions, symbol scoping and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-V2-ARITH",
+      "claim": "On the admitted decimal domain, decoded, product, 128-term accumulated and reduced funding coefficients and every Fraction primitive intermediate stay far below the 8192-bit guard, so admitted settlements publish exact coefficients without overflow, underflow or rounding while out-of-domain text rejects before arithmetic; the sweep assigns each event to the unique first close no earlier than its time.",
+      "formalStatement": "On the admitted decimal domain, decoded, product, 128-term accumulated and reduced funding coefficients and every Fraction primitive intermediate stay far below the 8192-bit guard, so admitted settlements publish exact coefficients without overflow, underflow or rounding while out-of-domain text rejects before arithmetic; the sweep assigns each event to the unique first close no earlier than its time.",
+      "criticality": "high",
+      "assumptions": [
+        "A-FUNDING-EVENTS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 size/endpoint lemmas, exhaustive sweep enumeration, finite stage checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/funding_events.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "research-notes/registrations/funding-events-v2-engineering.json",
+        "formal/research/funding-events-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/FundingEventsV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, eleven SAT-premise/UNSAT-violation size and endpoint queries, 256 exhaustive sweep cases, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit guard; admitted decimals at most 20 whole and 20 fraction digits; times below 2^63; at most 8192 closes, 65536 records and 128 events per bucket; accumulated coefficient below 128*10^120 over 10^40; exhaustive grid (1,3,5,7), times 0..8, up to 4 events (256 cases); 8 abstract states, 12 transitions, max shortest depth 6; 146 Haskell oracle loads (128 seeded, 18 registered edge).",
+      "limitations": "Pinned CPython3.13.3 re/int/Fraction/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle and sufficient resources. Bit bounds are not allocation recovery or physical timing guarantees. The canonical decimal domain is a numeric admission contract, not evidence that any provider emits it or that a record is causally available. Endpoint lemmas are quantifier-free over unbounded integers and use explicit sortedness instances rather than a quantified grid axiom; the exhaustive sweep check covers only the registered small grid. The frozen development loader and CE-RL-019 there remain unchanged and refuted; runner/learner composition, actual release/first-seen timing, revisions, symbol scoping and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-V2-FLOW",
+      "claim": "The finite funding-load publication abstraction publishes a value only after activation, grid, record, bucket and arithmetic stages all succeed; any stage failure is terminal with no partial publication and no order transition.",
+      "formalStatement": "The finite funding-load publication abstraction publishes a value only after activation, grid, record, bucket and arithmetic stages all succeed; any stage failure is terminal with no partial publication and no order transition.",
+      "criticality": "high",
+      "assumptions": [
+        "A-FUNDING-EVENTS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 size/endpoint lemmas, exhaustive sweep enumeration, finite stage checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/funding_events.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "research-notes/registrations/funding-events-v2-engineering.json",
+        "formal/research/funding-events-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/FundingEventsV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, eleven SAT-premise/UNSAT-violation size and endpoint queries, 256 exhaustive sweep cases, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit guard; admitted decimals at most 20 whole and 20 fraction digits; times below 2^63; at most 8192 closes, 65536 records and 128 events per bucket; accumulated coefficient below 128*10^120 over 10^40; exhaustive grid (1,3,5,7), times 0..8, up to 4 events (256 cases); 8 abstract states, 12 transitions, max shortest depth 6; 146 Haskell oracle loads (128 seeded, 18 registered edge).",
+      "limitations": "Pinned CPython3.13.3 re/int/Fraction/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle and sufficient resources. Bit bounds are not allocation recovery or physical timing guarantees. The canonical decimal domain is a numeric admission contract, not evidence that any provider emits it or that a record is causally available. Endpoint lemmas are quantifier-free over unbounded integers and use explicit sortedness instances rather than a quantified grid axiom; the exhaustive sweep check covers only the registered small grid. The frozen development loader and CE-RL-019 there remain unchanged and refuted; runner/learner composition, actual release/first-seen timing, revisions, symbol scoping and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-FUNDING-V2-CONFORMANCE",
+      "claim": "Exact funding v2 seeded synthetic loads and registered edge cases, including both CE-RL-019 witnesses as decimal text, agree with an independent compiled Haskell Rational oracle, repeat deterministically, reject by default, and compose with replay-accounting-v2 so that exact funding equals minus units times the published coefficient.",
+      "formalStatement": "Exact funding v2 seeded synthetic loads and registered edge cases, including both CE-RL-019 witnesses as decimal text, agree with an independent compiled Haskell Rational oracle, repeat deterministically, reject by default, and compose with replay-accounting-v2 so that exact funding equals minus units times the published coefficient.",
+      "criticality": "high",
+      "assumptions": [
+        "A-FUNDING-EVENTS-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 size/endpoint lemmas, exhaustive sweep enumeration, finite stage checker and Haskell Rational conformance",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/funding_events.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "research-notes/registrations/funding-events-v2-engineering.json",
+        "formal/research/funding-events-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/FundingEventsV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, eleven SAT-premise/UNSAT-violation size and endpoint queries, 256 exhaustive sweep cases, finite publication model and exact Haskell conformance must reproduce.",
+      "bounds": "8192-bit guard; admitted decimals at most 20 whole and 20 fraction digits; times below 2^63; at most 8192 closes, 65536 records and 128 events per bucket; accumulated coefficient below 128*10^120 over 10^40; exhaustive grid (1,3,5,7), times 0..8, up to 4 events (256 cases); 8 abstract states, 12 transitions, max shortest depth 6; 146 Haskell oracle loads (128 seeded, 18 registered edge).",
+      "limitations": "Pinned CPython3.13.3 re/int/Fraction/dataclass semantics, ordinary immutable native values and stable bindings, Z3 and reviewed AST translation, GHC9.4.8 Rational oracle and sufficient resources. Bit bounds are not allocation recovery or physical timing guarantees. The canonical decimal domain is a numeric admission contract, not evidence that any provider emits it or that a record is causally available. Endpoint lemmas are quantifier-free over unbounded integers and use explicit sortedness instances rather than a quantified grid axiom; the exhaustive sweep check covers only the registered small grid. The frozen development loader and CE-RL-019 there remain unchanged and refuted; runner/learner composition, actual release/first-seen timing, revisions, symbol scoping and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-RUNNER-V2-SOURCE",
+      "claim": "Exact replay runner v2 has a completely reviewed pure source boundary that imports only the two exact v2 kernels, admits only matching funding buckets, prices and a bounded fixed target schedule, reads only prices[left], prices[left+k], buckets.events[left+k] and targets[k-1], forces the final step terminal, publishes an immutable episode or nothing, and has activation-first default rejection with no policy, file, promotion or order effect.",
+      "formalStatement": "Exact replay runner v2 has a completely reviewed pure source boundary that imports only the two exact v2 kernels, admits only matching funding buckets, prices and a bounded fixed target schedule, reads only prices[left], prices[left+k], buckets.events[left+k] and targets[k-1], forces the final step terminal, publishes an immutable episode or nothing, and has activation-first default rejection with no policy, file, promotion or order effect.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-RUNNER-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 index/telescoping/causality lemmas, finite step checker, Haskell Rational oracle and metamorphic future-rewrite tests",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_runner.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "research-notes/registrations/replay-runner-v2-engineering.json",
+        "formal/research/replay-runner-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, seven SAT-premise/UNSAT-violation index, telescoping and funding-causality queries, a horizon-1..8 step model, 64 oracle episodes and 64 metamorphic episodes must reproduce.",
+      "bounds": "At most 4096 steps and 8192 bars; four reviewed indexed reads; model horizons 1..8 (180 states, 172 transitions); 64 seeded episodes with 157 Haskell-reconciled receipt rows; 64 metamorphic episodes; two leaky-variant regressions.",
+      "limitations": "Inherits A-REPLAY-ACCOUNT-V2 and A-FUNDING-EVENTS-V2. Treats a settlement's grid time as its availability time; this is an assumption, not a provider release or first-seen proof. Replays a fixed caller-supplied target schedule: no policy, observation causality, learning, OPE, shield precedence or economic claim follows. Index and telescoping lemmas are over unbounded integers and exact reals with explicit per-step premises; the finite model abstracts numeric values and covers horizons 1..8; metamorphic and oracle checks are seeded tests, not proofs. Frozen sequential_replay_v1, its loader and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-RUNNER-V2-ARITH",
+      "claim": "For every admitted start, horizon and grid, each runner read index is in bounds and step k reads no bar after left+k; the final step alone is forced terminal; final equity telescopes to one plus summed gross and funding minus summed debits from the per-step identity; and every charged funding bucket has index at least one, so an event charged at step k lies in (close[left+k-1], close[left+k]] and the bucket-0 prehistory exception is never charged.",
+      "formalStatement": "For every admitted start, horizon and grid, each runner read index is in bounds and step k reads no bar after left+k; the final step alone is forced terminal; final equity telescopes to one plus summed gross and funding minus summed debits from the per-step identity; and every charged funding bucket has index at least one, so an event charged at step k lies in (close[left+k-1], close[left+k]] and the bucket-0 prehistory exception is never charged.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-RUNNER-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 index/telescoping/causality lemmas, finite step checker, Haskell Rational oracle and metamorphic future-rewrite tests",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_runner.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "research-notes/registrations/replay-runner-v2-engineering.json",
+        "formal/research/replay-runner-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, seven SAT-premise/UNSAT-violation index, telescoping and funding-causality queries, a horizon-1..8 step model, 64 oracle episodes and 64 metamorphic episodes must reproduce.",
+      "bounds": "At most 4096 steps and 8192 bars; four reviewed indexed reads; model horizons 1..8 (180 states, 172 transitions); 64 seeded episodes with 157 Haskell-reconciled receipt rows; 64 metamorphic episodes; two leaky-variant regressions.",
+      "limitations": "Inherits A-REPLAY-ACCOUNT-V2 and A-FUNDING-EVENTS-V2. Treats a settlement's grid time as its availability time; this is an assumption, not a provider release or first-seen proof. Replays a fixed caller-supplied target schedule: no policy, observation causality, learning, OPE, shield precedence or economic claim follows. Index and telescoping lemmas are over unbounded integers and exact reals with explicit per-step premises; the finite model abstracts numeric values and covers horizons 1..8; metamorphic and oracle checks are seeded tests, not proofs. Frozen sequential_replay_v1, its loader and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-RUNNER-V2-FLOW",
+      "claim": "The finite runner abstraction for horizons 1..8 publishes only terminal episodes with between one and H receipts, never steps beyond H, rejects without publication at any step, and has no continuation or order transition after publication.",
+      "formalStatement": "The finite runner abstraction for horizons 1..8 publishes only terminal episodes with between one and H receipts, never steps beyond H, rejects without publication at any step, and has no continuation or order transition after publication.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-RUNNER-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 index/telescoping/causality lemmas, finite step checker, Haskell Rational oracle and metamorphic future-rewrite tests",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_runner.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "research-notes/registrations/replay-runner-v2-engineering.json",
+        "formal/research/replay-runner-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, seven SAT-premise/UNSAT-violation index, telescoping and funding-causality queries, a horizon-1..8 step model, 64 oracle episodes and 64 metamorphic episodes must reproduce.",
+      "bounds": "At most 4096 steps and 8192 bars; four reviewed indexed reads; model horizons 1..8 (180 states, 172 transitions); 64 seeded episodes with 157 Haskell-reconciled receipt rows; 64 metamorphic episodes; two leaky-variant regressions.",
+      "limitations": "Inherits A-REPLAY-ACCOUNT-V2 and A-FUNDING-EVENTS-V2. Treats a settlement's grid time as its availability time; this is an assumption, not a provider release or first-seen proof. Replays a fixed caller-supplied target schedule: no policy, observation causality, learning, OPE, shield precedence or economic claim follows. Index and telescoping lemmas are over unbounded integers and exact reals with explicit per-step premises; the finite model abstracts numeric values and covers horizons 1..8; metamorphic and oracle checks are seeded tests, not proofs. Frozen sequential_replay_v1, its loader and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-RUNNER-V2-CONFORMANCE",
+      "claim": "Seeded synthetic episodes satisfy deterministic repetition, default rejection, exact telescoping, funding and price alignment and per-row agreement with the compiled Haskell Rational wealth oracle; rewriting every price and settlement after the step-k close leaves receipts 1..k unchanged, and this metamorphic check rejects deliberately leaky future-price and future-funding variants.",
+      "formalStatement": "Seeded synthetic episodes satisfy deterministic repetition, default rejection, exact telescoping, funding and price alignment and per-row agreement with the compiled Haskell Rational wealth oracle; rewriting every price and settlement after the step-k close leaves receipts 1..k unchanged, and this metamorphic check rejects deliberately leaky future-price and future-funding variants.",
+      "criticality": "high",
+      "assumptions": [
+        "A-REPLAY-RUNNER-V2",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 index/telescoping/causality lemmas, finite step checker, Haskell Rational oracle and metamorphic future-rewrite tests",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/replay_runner.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "research-notes/registrations/replay-runner-v2-engineering.json",
+        "formal/research/replay-runner-v2-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, seven SAT-premise/UNSAT-violation index, telescoping and funding-causality queries, a horizon-1..8 step model, 64 oracle episodes and 64 metamorphic episodes must reproduce.",
+      "bounds": "At most 4096 steps and 8192 bars; four reviewed indexed reads; model horizons 1..8 (180 states, 172 transitions); 64 seeded episodes with 157 Haskell-reconciled receipt rows; 64 metamorphic episodes; two leaky-variant regressions.",
+      "limitations": "Inherits A-REPLAY-ACCOUNT-V2 and A-FUNDING-EVENTS-V2. Treats a settlement's grid time as its availability time; this is an assumption, not a provider release or first-seen proof. Replays a fixed caller-supplied target schedule: no policy, observation causality, learning, OPE, shield precedence or economic claim follows. Index and telescoping lemmas are over unbounded integers and exact reals with explicit per-step premises; the finite model abstracts numeric values and covers horizons 1..8; metamorphic and oracle checks are seeded tests, not proofs. Frozen sequential_replay_v1, its loader and original38 remain unresolved.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-VALUE-V2-SOURCE",
+      "claim": "Value objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain, activation-first default rejection, a conservative penalty evaluated only when alpha is positive and computed from differences only, fsum reductions, zero canonicalization and a final finiteness guard before immutable publication; it has no learner, data, policy or order effect.",
+      "formalStatement": "Value objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain, activation-first default rejection, a conservative penalty evaluated only when alpha is positive and computed from differences only, fsum reductions, zero canonicalization and a final finiteness guard before immutable publication; it has no learner, data, policy or order effect.",
+      "criticality": "high",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE-V2",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 congruence/maximum/bound lemmas, exact rational rounding-chain, finite stage checker, 60-digit decimal oracle and frozen-helper differential",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective_successor.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "research-notes/registrations/value-objective-v2-engineering.json",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, six SAT-premise/UNSAT-violation congruence, maximum, simplex and probability-bound queries, a concrete Z3 evaluation of the CE-RL-024 binary32 witness, the exact rounding chain, a 6-state publication model, 96 decimal-oracle and 96 frozen-differential batches must reproduce.",
+      "bounds": "Three actions; at most 256 rows; |q|,|y| <= 2^100; 0 <= alpha <= 1; loss < 2^201 and gradient < 2^101 versus a 2^220 check limit; 6 states, 9 transitions; 96 oracle batches at scales 1, 50, 2^40, 2^90; 16 finite-difference checks; 96 frozen differential batches.",
+      "limitations": "Pinned CPython3.13.3 float/math exp, log and fsum semantics on IEEE binary64 RNE hardware; primitive bounds 0 <= exp(x) <= 1 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3; A-FP-ROUNDING (each basic operation returns the rounding of its exact real result) and the standard model |fl(x)-x| <= 2^-53|x|, neither machine-proved for the CPython build. Full binary64 bit-blasting returned unknown within 120 s, so the binary64 shift claim rests on the named rounding assumption; the bitwise draft claim was refuted by CE-RL-024 and resolved by zero canonicalization. The kernel is disconnected: frozen bellman_gradient/train_q, F-RL-Q-FINITE and F-RL-CQL-SHIFT stay refuted and unchanged; no learner composition, convergence, conservative-value guarantee, support or economic claim follows; original38 remain unresolved.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-VALUE-V2-ARITH",
+      "claim": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^201 and gradients below 2^101, so admitted inputs never overflow and alpha = 0 cannot produce NaN.",
+      "formalStatement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^201 and gradients below 2^101, so admitted inputs never overflow and alpha = 0 cannot produce NaN.",
+      "criticality": "high",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE-V2",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 congruence/maximum/bound lemmas, exact rational rounding-chain, finite stage checker, 60-digit decimal oracle and frozen-helper differential",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective_successor.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "research-notes/registrations/value-objective-v2-engineering.json",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, six SAT-premise/UNSAT-violation congruence, maximum, simplex and probability-bound queries, a concrete Z3 evaluation of the CE-RL-024 binary32 witness, the exact rounding chain, a 6-state publication model, 96 decimal-oracle and 96 frozen-differential batches must reproduce.",
+      "bounds": "Three actions; at most 256 rows; |q|,|y| <= 2^100; 0 <= alpha <= 1; loss < 2^201 and gradient < 2^101 versus a 2^220 check limit; 6 states, 9 transitions; 96 oracle batches at scales 1, 50, 2^40, 2^90; 16 finite-difference checks; 96 frozen differential batches.",
+      "limitations": "Pinned CPython3.13.3 float/math exp, log and fsum semantics on IEEE binary64 RNE hardware; primitive bounds 0 <= exp(x) <= 1 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3; A-FP-ROUNDING (each basic operation returns the rounding of its exact real result) and the standard model |fl(x)-x| <= 2^-53|x|, neither machine-proved for the CPython build. Full binary64 bit-blasting returned unknown within 120 s, so the binary64 shift claim rests on the named rounding assumption; the bitwise draft claim was refuted by CE-RL-024 and resolved by zero canonicalization. The kernel is disconnected: frozen bellman_gradient/train_q, F-RL-Q-FINITE and F-RL-CQL-SHIFT stay refuted and unchanged; no learner composition, convergence, conservative-value guarantee, support or economic claim follows; original38 remain unresolved.",
+      "counterexample": "CE-RL-024",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-VALUE-V2-FLOW",
+      "claim": "The finite value-objective publication abstraction publishes only after activation, admission, computation with or without the penalty and the finite guard; any failure is terminal and publishes nothing.",
+      "formalStatement": "The finite value-objective publication abstraction publishes only after activation, admission, computation with or without the penalty and the finite guard; any failure is terminal and publishes nothing.",
+      "criticality": "high",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE-V2",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 congruence/maximum/bound lemmas, exact rational rounding-chain, finite stage checker, 60-digit decimal oracle and frozen-helper differential",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective_successor.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "research-notes/registrations/value-objective-v2-engineering.json",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, six SAT-premise/UNSAT-violation congruence, maximum, simplex and probability-bound queries, a concrete Z3 evaluation of the CE-RL-024 binary32 witness, the exact rounding chain, a 6-state publication model, 96 decimal-oracle and 96 frozen-differential batches must reproduce.",
+      "bounds": "Three actions; at most 256 rows; |q|,|y| <= 2^100; 0 <= alpha <= 1; loss < 2^201 and gradient < 2^101 versus a 2^220 check limit; 6 states, 9 transitions; 96 oracle batches at scales 1, 50, 2^40, 2^90; 16 finite-difference checks; 96 frozen differential batches.",
+      "limitations": "Pinned CPython3.13.3 float/math exp, log and fsum semantics on IEEE binary64 RNE hardware; primitive bounds 0 <= exp(x) <= 1 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3; A-FP-ROUNDING (each basic operation returns the rounding of its exact real result) and the standard model |fl(x)-x| <= 2^-53|x|, neither machine-proved for the CPython build. Full binary64 bit-blasting returned unknown within 120 s, so the binary64 shift claim rests on the named rounding assumption; the bitwise draft claim was refuted by CE-RL-024 and resolved by zero canonicalization. The kernel is disconnected: frozen bellman_gradient/train_q, F-RL-Q-FINITE and F-RL-CQL-SHIFT stay refuted and unchanged; no learner composition, convergence, conservative-value guarantee, support or economic claim follows; original38 remain unresolved.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-VALUE-V2-CONFORMANCE",
+      "claim": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values.",
+      "formalStatement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values.",
+      "criticality": "high",
+      "assumptions": [
+        "A-VALUE-OBJECTIVE-V2",
+        "A-FP-ROUNDING",
+        "A-SOLVER"
+      ],
+      "tool": "Source-extracted Z3 congruence/maximum/bound lemmas, exact rational rounding-chain, finite stage checker, 60-digit decimal oracle and frozen-helper differential",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4",
+      "sourceModel": "scripts/formal/value_objective_successor.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "research-notes/registrations/value-objective-v2-engineering.json",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source review, six SAT-premise/UNSAT-violation congruence, maximum, simplex and probability-bound queries, a concrete Z3 evaluation of the CE-RL-024 binary32 witness, the exact rounding chain, a 6-state publication model, 96 decimal-oracle and 96 frozen-differential batches must reproduce.",
+      "bounds": "Three actions; at most 256 rows; |q|,|y| <= 2^100; 0 <= alpha <= 1; loss < 2^201 and gradient < 2^101 versus a 2^220 check limit; 6 states, 9 transitions; 96 oracle batches at scales 1, 50, 2^40, 2^90; 16 finite-difference checks; 96 frozen differential batches.",
+      "limitations": "Pinned CPython3.13.3 float/math exp, log and fsum semantics on IEEE binary64 RNE hardware; primitive bounds 0 <= exp(x) <= 1 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3; A-FP-ROUNDING (each basic operation returns the rounding of its exact real result) and the standard model |fl(x)-x| <= 2^-53|x|, neither machine-proved for the CPython build. Full binary64 bit-blasting returned unknown within 120 s, so the binary64 shift claim rests on the named rounding assumption; the bitwise draft claim was refuted by CE-RL-024 and resolved by zero canonicalization. The kernel is disconnected: frozen bellman_gradient/train_q, F-RL-Q-FINITE and F-RL-CQL-SHIFT stay refuted and unchanged; no learner composition, convergence, conservative-value guarantee, support or economic claim follows; original38 remain unresolved.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-SPLIT-SOURCE",
+      "claim": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms.",
+      "formalStatement": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SPLIT-ISOLATION",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding of the unchanged runner/helpers, Z3 integer region lemmas, registration arithmetic and metamorphic future-rewrite probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/split_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "formal/research/split-isolation-contract.md",
+        "research-notes/registrations/split-isolation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (9 fold statements, 5 reviewed full-panel uses, 6 Replay reads), six SAT-premise/UNSAT-violation region queries, registered fold/holdout arithmetic and 18 metamorphic checks must reproduce.",
+      "bounds": "Horizons 1, 3, 6; three registered folds over 4,910 bars; holdout gap of 1 ms after the last development close; synthetic 400-bar probe with folds (150,156,250) and (250,256,350).",
+      "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-SPLIT-REGIONS",
+      "claim": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout.",
+      "formalStatement": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SPLIT-ISOLATION",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding of the unchanged runner/helpers, Z3 integer region lemmas, registration arithmetic and metamorphic future-rewrite probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/split_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "formal/research/split-isolation-contract.md",
+        "research-notes/registrations/split-isolation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (9 fold statements, 5 reviewed full-panel uses, 6 Replay reads), six SAT-premise/UNSAT-violation region queries, registered fold/holdout arithmetic and 18 metamorphic checks must reproduce.",
+      "bounds": "Horizons 1, 3, 6; three registered folds over 4,910 bars; holdout gap of 1 ms after the last development close; synthetic 400-bar probe with folds (150,156,250) and (250,256,350).",
+      "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SPLIT-CONFORMANCE",
+      "claim": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6.",
+      "formalStatement": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SPLIT-ISOLATION",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding of the unchanged runner/helpers, Z3 integer region lemmas, registration arithmetic and metamorphic future-rewrite probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/split_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "formal/research/split-isolation-contract.md",
+        "research-notes/registrations/split-isolation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (9 fold statements, 5 reviewed full-panel uses, 6 Replay reads), six SAT-premise/UNSAT-violation region queries, registered fold/holdout arithmetic and 18 metamorphic checks must reproduce.",
+      "bounds": "Horizons 1, 3, 6; three registered folds over 4,910 bars; holdout gap of 1 ms after the last development close; synthetic 400-bar probe with folds (150,156,250) and (250,256,350).",
+      "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-OBS-TRAIN-SCALE",
+      "claim": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision.",
+      "formalStatement": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-OBSERVATION-AUDIT"
+      ],
+      "tool": "AST source binding, executable counterexample witness and seeded metamorphic fixed-scale probe",
+      "toolVersion": "CPython3.13.3; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/observation_causality.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "formal/research/observation-causality-contract.md",
+        "research-notes/registrations/observation-causality-audit-engineering.json",
+        "formal/research/observation-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "CE-RL-025 must reproduce (observation change 1.050554799 on the registered witness).",
+      "bounds": "Witness: 300 bars, decision 100, future log-sigma 0.05; probe: 24 episodes of 260 bars, scale fitted on bars 0..119, episodes 130..199, horizons 1/3/6.",
+      "limitations": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
+      "counterexample": "CE-RL-025",
+      "status": "refuted"
+    },
+    {
+      "requirementId": "F-RL-OBS-REPLAY-CAUSAL",
+      "claim": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes.",
+      "formalStatement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-OBSERVATION-AUDIT"
+      ],
+      "tool": "AST source binding, executable counterexample witness and seeded metamorphic fixed-scale probe",
+      "toolVersion": "CPython3.13.3; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/observation_causality.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "formal/research/observation-causality-contract.md",
+        "research-notes/registrations/observation-causality-audit-engineering.json",
+        "formal/research/observation-counterexamples.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "250 per-decision fixed-scale checks over 24 seeded episodes must reproduce.",
+      "bounds": "Witness: 300 bars, decision 100, future log-sigma 0.05; probe: 24 episodes of 260 bars, scale fitted on bars 0..119, episodes 130..199, horizons 1/3/6.",
+      "limitations": "Executable synthetic witness and seeded fixed-scale probe on unchanged source; trusts the Python interpreter, NumPy and the AST binding. The refutation concerns training-time observations of the frozen screen; evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established. Frozen code is not edited; a causal-scale successor needs a new registration.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -6603,9 +7175,13 @@
         "F-RL-COLLECT-PREFIX",
         "F-RL-FUNDING-GRID",
         "F-RL-FUNDING-ENDPOINT",
-        "F-RL-FUNDING-FINITE"
+        "F-RL-FUNDING-FINITE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-RUNNER-V2-ARITH",
+        "F-RL-RUNNER-V2-FLOW",
+        "F-RL-RUNNER-V2-CONFORMANCE"
       ],
-      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established.",
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted observation uses event/release/first-seen/revision times <= decision and preprocessing respects the registered fold.",
       "nextAction": "Specify an availability-bearing dataset record and prove its admission-to-feature composition before a new data campaign.",
@@ -6621,24 +7197,72 @@
     {
       "number": 2,
       "claim": "Split isolation",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-SPLIT",
         "F-RL-FIT-PREFIX",
-        "F-RL-COLLECT-PREFIX"
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-SPLIT-SOURCE",
+        "F-RL-SPLIT-REGIONS",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-SPLIT-CONFORMANCE"
       ],
-      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open.",
+      "limitations": "Scoped closure (2026-10-06) for the delivered offline research path under the owner-approved standard purge/embargo definition: fresh source binding, SMT region lemmas, registered fold/holdout arithmetic and the complete research-module surface certificates reproduce; a metamorphic probe adds tested evidence. Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope. Prior history: earlier audits left the purge/embargo relation open; that is now explicitly resolved, not silently reinterpreted.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every training/calibration/validation/holdout access lies in its disjoint registered region after purge and embargo.",
-      "nextAction": "Verify runner dataset selection and split-manifest validation against all registered regions.",
+      "nextAction": "None for the delivered path. Any new runner, loader, fold design or caller of a v2 kernel requires a fresh split certificate before evidence is reported.",
       "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_learning.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
-      "blockers": [
-        "Index lemmas do not cover file selection and full dataset admission."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-SPLIT",
+        "F-RL-SPLIT-SOURCE",
+        "F-RL-SPLIT-REGIONS",
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
+      ]
     },
     {
       "number": 3,
@@ -6657,7 +7281,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6675,7 +7302,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6690,7 +7320,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -6733,7 +7366,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -6751,7 +7387,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -6766,7 +7405,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -6822,9 +7464,17 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-ACCOUNT-V2-ARITH",
         "F-RL-ACCOUNT-V2-FLOW",
-        "F-RL-ACCOUNT-V2-CONFORMANCE"
+        "F-RL-ACCOUNT-V2-CONFORMANCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-FUNDING-V2-ARITH",
+        "F-RL-FUNDING-V2-FLOW",
+        "F-RL-FUNDING-V2-CONFORMANCE",
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-VALUE-V2-ARITH",
+        "F-RL-VALUE-V2-FLOW",
+        "F-RL-VALUE-V2-CONFORMANCE"
       ],
-      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact funding events v2 (2026-10-06) adds a disconnected disabled canonical-decimal funding loader successor with SMT size/endpoint lemmas, exhaustive sweep, publication model and Haskell oracle: CE-RL-019 text witnesses reject before arithmetic and admitted coefficients are exact. The frozen loader and F-RL-FUNDING-FINITE stay refuted; runner composition and release timing remain open. No broad closure. Value objective v2 (2026-10-06) adds a disconnected scalar-only conservative Double-DQN objective: the alpha=0 penalty is skipped, the penalty uses differences only, admitted magnitudes are bounded so loss < 2^201, and underflow is counted and published. CE-RL-014 rejects, CE-RL-015 is shift-invariant and new CE-RL-024 (bitwise signed-zero) is resolved by canonicalization. The frozen helper stays refuted; no learner composition. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
       "nextAction": "Extend the composed PPO successor through checked artifact/process inference and full numeric replay/accounting; separately repair Q/CQL/OPE paths without changing frozen v1.",
@@ -6894,9 +7544,13 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-ACCOUNT-V2-ARITH",
         "F-RL-ACCOUNT-V2-FLOW",
-        "F-RL-ACCOUNT-V2-CONFORMANCE"
+        "F-RL-ACCOUNT-V2-CONFORMANCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-RUNNER-V2-ARITH",
+        "F-RL-RUNNER-V2-FLOW",
+        "F-RL-RUNNER-V2-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every wealth, fee, funding and liquidation debit reconciles actual binary64 execution within a stated error bound or rejects.",
       "nextAction": "Prove bounded arithmetic error and failure rules for a versioned replay accounting core.",
@@ -6995,12 +7649,24 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-ACCOUNT-V2-ARITH",
         "F-RL-ACCOUNT-V2-FLOW",
-        "F-RL-ACCOUNT-V2-CONFORMANCE"
+        "F-RL-ACCOUNT-V2-CONFORMANCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-FUNDING-V2-ARITH",
+        "F-RL-FUNDING-V2-FLOW",
+        "F-RL-FUNDING-V2-CONFORMANCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-RUNNER-V2-ARITH",
+        "F-RL-RUNNER-V2-FLOW",
+        "F-RL-RUNNER-V2-CONFORMANCE",
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-VALUE-V2-ARITH",
+        "F-RL-VALUE-V2-FLOW",
+        "F-RL-VALUE-V2-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact funding events v2 (2026-10-06) adds a disconnected disabled canonical-decimal funding loader successor with SMT size/endpoint lemmas, exhaustive sweep, publication model and Haskell oracle: CE-RL-019 text witnesses reject before arithmetic and admitted coefficients are exact. The frozen loader and F-RL-FUNDING-FINITE stay refuted; runner composition and release timing remain open. No broad closure. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Value objective v2 (2026-10-06) adds a disconnected scalar-only conservative Double-DQN objective: the alpha=0 penalty is skipped, the penalty uses differences only, admitted magnitudes are bounded so loss < 2^201, and underflow is counted and published. CE-RL-014 rejects, CE-RL-015 is shift-invariant and new CE-RL-024 (bitwise signed-zero) is resolved by canonicalization. The frozen helper stays refuted; no learner composition. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
-      "nextAction": "Extend bounded exact or checked arithmetic through replay/accounting, funding and Q/CQL successor paths; eliminate silent BLAS underflow. OPE v2 now composes raw probability ratios through descriptive estimates and ESS, but frozen v1 evidence stays invalid and numeric admission cannot establish empirical support.",
+      "nextAction": "Compose value-objective-v2, gae-targets-v2 and the exact replay runner into registered successor learners so no frozen training path is needed; then decide, under a new preregistration, whether frozen CE-RL-010/011/012/014/018/019 paths are retired. Frozen v1 learner/OPE evidence stays invalid and numeric admission cannot establish empirical support.",
       "implementationFiles": [
         "scripts/research/sequential_learning.py",
         "scripts/research/sequential_evaluation.py",
@@ -7009,7 +7675,7 @@
         "scripts/research/ope_rational_v2.py"
       ],
       "blockers": [
-        "CE-RL-010/011/012/014/018/019 remain in frozen training, OPE or loading paths."
+        "CE-RL-010/011/012/014/018/019 remain in frozen training, OPE or loading paths; exact or checked successors (gae-targets-v2, ess/ope-rational-v2, funding-events-v2, replay-accounting/runner-v2, value-objective-v2) are not yet composed into a registered successor learner."
       ],
       "requiredCertificates": []
     },
@@ -7033,7 +7699,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -7056,7 +7725,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7075,7 +7747,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -7112,7 +7787,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7144,7 +7822,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7176,7 +7857,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -7295,18 +7979,21 @@
         "F-RL-REPLAY-DUE",
         "F-RL-REPLAY-ORDER",
         "F-RL-REPLAY-CUTOFF",
-        "F-RL-REPLAY-QUOTIENT"
+        "F-RL-REPLAY-QUOTIENT",
+        "F-RL-OBS-TRAIN-SCALE",
+        "F-RL-OBS-REPLAY-CAUSAL"
       ],
-      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement.",
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Observation causality audit (2026-10-06): CE-RL-025 refutes training-time invariance in the frozen path because of the prefix-wide scale; a fixed-scale probe shows the Replay observation itself is causal. Evaluation observations are unaffected. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Current policy observation is invariant under changes to data first available after the decision.",
-      "nextAction": "Compose availability admission, feature footprint and complete replay-state observation projection.",
+      "nextAction": "Register a causal-scale successor (burn-in-only or expanding-window fit) composed with the exact replay runner, then compose availability admission; the frozen path stays refuted.",
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
       ],
       "blockers": [
-        "Feature/index lemmas do not cover all state/history inputs and actual availability."
+        "CE-RL-025: the frozen training path normalizes in-prefix observations (and supported() gating) with a scale fitted on later in-prefix bars, so training-time observations are not invariant to later data.",
+        "Actual provider availability is assumed, not witnessed."
       ],
       "requiredCertificates": []
     },
@@ -7332,9 +8019,13 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-ACCOUNT-V2-ARITH",
         "F-RL-ACCOUNT-V2-FLOW",
-        "F-RL-ACCOUNT-V2-CONFORMANCE"
+        "F-RL-ACCOUNT-V2-CONFORMANCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-RUNNER-V2-ARITH",
+        "F-RL-RUNNER-V2-FLOW",
+        "F-RL-RUNNER-V2-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every replay transition preserves state/ledger invariants or terminates in a specified failure state.",
       "nextAction": "Verify full transition composition with a bounded numeric core and preserved counterexample fixtures.",
@@ -7368,9 +8059,13 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-ACCOUNT-V2-ARITH",
         "F-RL-ACCOUNT-V2-FLOW",
-        "F-RL-ACCOUNT-V2-CONFORMANCE"
+        "F-RL-ACCOUNT-V2-CONFORMANCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-RUNNER-V2-ARITH",
+        "F-RL-RUNNER-V2-FLOW",
+        "F-RL-RUNNER-V2-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every terminal path records flat inventory or explicit failed liquidation and accounts all terminal costs exactly as specified.",
       "nextAction": "Prove each terminal branch, including insolvency, unavailable prices and rejected liquidation, against ledger publication.",
@@ -7503,9 +8198,13 @@
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
         "F-RL-ARTIFACT-V4-BOUNDARY",
-        "F-RL-ARTIFACT-V4-CONFORMANCE"
+        "F-RL-ARTIFACT-V4-CONFORMANCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-RUNNER-V2-ARITH",
+        "F-RL-RUNNER-V2-FLOW",
+        "F-RL-RUNNER-V2-CONFORMANCE"
       ],
-      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open.",
+      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Pinned data, configuration, seed and artifact yield the same replay transitions and economic report.",
       "nextAction": "Specify deterministic evaluation without wall-clock-dependent selection; compare complete reproducible archives on pinned runtime.",
@@ -7547,7 +8246,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7576,7 +8278,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7598,7 +8303,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -7622,7 +8330,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -7643,7 +8354,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7662,7 +8376,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -7717,7 +8434,10 @@
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
         "F-RL-DEFAULT",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Conditional delivered-stage safety closure. The pre-implementation consistency resolution in lifecycle-stage-contract.md replaces the unnecessary demand for an absent promotion service with source-bound preservation of Research eligibility. All original scope and criteria are unchanged; ordinary research inference remains possible, but every eligibility advancement is refused. This proves no future promotion-service liveness or implementation, gate satisfaction, production authorization, deployed-image behavior or economic acceptance. Every composed certificate must reproduce in the same invocation.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7767,7 +8487,10 @@
         "scripts/formal/lifecycle_stage.py",
         "formal/research/lifecycle-stage-contract.md",
         "research-notes/registrations/lifecycle-stage-engineering.json",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7816,7 +8539,10 @@
         "F-RL-ARTIFACT-V4-GUARD",
         "F-RL-ARTIFACT-V4-FLOW",
         "F-RL-DEFAULT",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -7844,7 +8570,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7873,7 +8602,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7895,7 +8627,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -7953,7 +8688,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7978,7 +8716,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8004,7 +8745,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -8040,7 +8784,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8060,7 +8807,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8084,7 +8834,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -8116,7 +8869,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8136,7 +8892,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8160,7 +8919,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {
@@ -8181,7 +8943,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ],
       "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
@@ -8201,7 +8966,10 @@
         "scripts/research/point_in_time_v3.py",
         "scripts/research/ope_rational_v2.py",
         "scripts/research/report_bundle_v2.py",
-        "scripts/research/replay_accounting_v2.py"
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8218,7 +8986,10 @@
         "F-RL-BUNDLE-SOURCE",
         "F-RL-BUNDLE-ARITH",
         "F-RL-BUNDLE-FLOW",
-        "F-RL-ACCOUNT-V2-SOURCE"
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
       ]
     },
     {

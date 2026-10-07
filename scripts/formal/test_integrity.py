@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 26)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,12,23,24,25,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 25)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,11,12,23,24,25,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -3452,7 +3452,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(16,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(19,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3562,7 +3562,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':16}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':19}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3828,7 +3828,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],16)
+        self.assertEqual(result['surface']['modules'],19)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 16)
+        self.assertEqual(r['surface']['researchModules'], 19)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
@@ -4337,6 +4337,376 @@ class ReplayAccountingTests(unittest.TestCase):
         self.assertEqual(got.after.units,F(1,800))
         got=a.advance_v2(s,F(100),(),F(1,4),multiplier=F(5000),enabled=True)
         self.assertEqual((got.reason,got.liquidation),('equity_exhausted','failed'))
+
+
+class FundingEventsTests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import funding_events_v2 as impl
+        import funding_events as proof
+        from fractions import Fraction
+        return impl, proof, Fraction
+
+    def test_source_smt_exhaustive_model_and_haskell(self):
+        a,p,F=self.modules()
+        r=p.check_funding_events()
+        self.assertEqual(r['smt'],{'F-RL-FUNDING-V2-ARITH':'unsat'})
+        self.assertEqual(r['exhaustive']['cases'],256)
+        self.assertEqual((r['model']['states'],r['model']['transitions']),(8,12))
+        self.assertEqual(r['conformance']['haskellRows'],146)
+
+    def test_mutants_and_solver_fail_closed(self):
+        a,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('closes[j] < time','closes[j] <= time'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('total = _add(total, _mul(mark, rate))','total = total + mark * rate'),
+                        ('{0,19}','{0,400}'),
+                        ('if mark <= 0:','if mark < 0:'),
+                        ('if parsed and time <= parsed[-1][0]:','if parsed and time < parsed[-1][0]:'),
+                        ('import re','import re\nimport os')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'publication without every stage'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_default_domain_and_atomic_rejection(self):
+        a,p,F=self.modules()
+        grid=(9,19,29)
+        self.assertIsNone(a.load_v2(grid,(('10','1','1'),)))
+        for kw in ({'enabled':1},{'version':'funding-events-v1'}):
+            self.assertIsNone(a.load_v2(grid,(),**{'enabled':True,**kw}))
+        bad=[('10',1.0,'1'),('10','1',True),(10,'1','1'),('10','+1','1'),('10',' 1','1'),('10','1 ','1'),
+             ('10','nan','1'),('10','inf','1'),('10','1e3','1'),('10','٣','1'),('10','01','1'),
+             ('10','1.','1'),('10','.5','1'),('10','1','0'),('10','1','-0.5'),('-1','1','1'),('010','1','1'),
+             ('9223372036854775808','1','1'),('10','1'*21,'1'),('10','0.'+'1'*21,'1')]
+        for row in bad:
+            with self.subTest(row=row):
+                self.assertIsNone(a.load_v2(grid,(row,),enabled=True))
+        for closes in ((),[9],(9,9),(9,8),(9.0,),(True,),(-1,),(2**63,)):
+            self.assertIsNone(a.load_v2(closes,(),enabled=True))
+        self.assertIsNone(a.load_v2(grid,[('10','1','1')],enabled=True))
+        self.assertIsNone(a.load_v2(grid,(('10','1','1'),('10','1','1')),enabled=True))
+        self.assertIsNone(a.load_v2(grid,(('30','1','1'),),enabled=True))
+        with patch.object(a,'_per_unit',side_effect=MemoryError):
+            self.assertIsNone(a.load_v2(grid,(('10','1','1'),),enabled=True))
+
+    def test_endpoint_semantics_and_bucket_limit(self):
+        a,p,F=self.modules()
+        got=a.load_v2((9,19,29),(('0','1','1'),('9','1','2'),('10','1','3'),('19','1','4'),('29','1','5')),enabled=True)
+        self.assertEqual(tuple(len(b) for b in got.events),(2,2,1))
+        self.assertEqual(got.per_unit,(F(3),F(7),F(5)))
+        self.assertEqual(got.events[0],((F(1),F(1)),(F(2),F(1))))
+        ok=a.load_v2((1000,),tuple((str(k),'1','1') for k in range(128)),enabled=True)
+        self.assertEqual(ok.per_unit,(F(128),))
+        self.assertIsNone(a.load_v2((1000,),tuple((str(k),'1','1') for k in range(129)),enabled=True))
+        self.assertEqual(a.load_v2((9,),(),enabled=True).events,((),))
+
+    def test_ce_rl_019_witnesses_reject_or_stay_exact(self):
+        a,p,F=self.modules()
+        huge='%.0f' % 1.7976931348623157e308
+        self.assertIsNone(a.load_v2((9,19,29),(('10','2',huge),),enabled=True))
+        self.assertIsNone(a.load_v2((9,19,29),(('10','0.75',huge),('11','0.75',huge)),enabled=True))
+        top='99999999999999999999.99999999999999999999'
+        got=a.load_v2((9,1000),tuple((str(10+k),'-'+top,top) for k in range(128)),enabled=True)
+        exact=F(top)
+        self.assertEqual(got.per_unit[1],-128*exact*exact)
+        self.assertGreater(float(abs(got.per_unit[1])),1e40)
+        tiny=a.load_v2((9,),(('1','0.00000000000000000001','0.00000000000000000001'),),enabled=True)
+        self.assertEqual(tiny.per_unit,(F(1,10**40),))
+
+    def test_published_value_is_immutable_and_composes_with_replay(self):
+        a,p,F=self.modules()
+        import replay_accounting_v2 as replay
+        got=a.load_v2((9,19),(('10','0.0001','100'),('11','-0.0003','101')),enabled=True)
+        with self.assertRaises(Exception):
+            got.per_unit=()
+        self.assertIsInstance(got.events,tuple)
+        state=replay.initial_v2(F(100),enabled=True)
+        entry=replay.advance_v2(state,F(100),(),F(1,4),multiplier=F(0),enabled=True)
+        step=replay.advance_v2(entry.after,F(100),got.events[1],F(0),terminal=True,multiplier=F(0),enabled=True)
+        self.assertEqual(step.funding,-entry.after.units*got.per_unit[1])
+        self.assertEqual(got.per_unit[1],F(100)*F(1,10000)+F(101)*F(-3,10000))
+
+
+class ReplayRunnerTests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import replay_runner_v2 as impl
+        import funding_events_v2 as fe
+        import replay_runner as proof
+        from fractions import Fraction
+        return impl, fe, proof, Fraction
+
+    def test_source_smt_model_oracle_and_metamorphic(self):
+        r,fe,p,F=self.modules()
+        got=p.check_runner()
+        self.assertEqual(got['smt'],{'F-RL-RUNNER-V2-ARITH':'unsat'})
+        self.assertEqual((got['model']['states'],got['model']['transitions']),(180,172))
+        self.assertEqual((got['conformance']['episodes'],got['conformance']['haskellRows']),(64,157))
+        self.assertGreater(got['conformance']['earlyTerminations'],0)
+        self.assertEqual(got['metamorphic']['episodes'],64)
+
+    def test_source_mutants_model_mutant_and_solver_fail_closed(self):
+        r,fe,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('prices[left + k], buckets','prices[left + k + 1], buckets'),
+                        ('buckets.events[left + k]','buckets.events[left + k - 1]'),
+                        ('terminal=k == len(targets)','terminal=False'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('        if state.terminal:\n            break\n',''),
+                        ('left + len(targets) >= len(prices)','left + len(targets) > len(prices)')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'publication without terminal episode'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_metamorphic_detects_lookahead_variants(self):
+        import types
+        r,fe,p,F=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('prices[left + k], buckets','prices[min(left + k + 1, len(prices) - 1)], buckets'),
+                        ('buckets.events[left + k]','buckets.events[min(left + k + 1, len(prices) - 1)]')]:
+            import sys
+            leaky=types.ModuleType('leaky_runner')
+            with patch.dict(sys.modules,{'leaky_runner':leaky}):
+                exec(compile(source.replace(old,new),'leaky_runner',"exec"),leaky.__dict__)
+                with self.subTest(old=old), self.assertRaisesRegex(ValueError,'future data changed'):
+                    p.metamorphic(leaky.run_v2)
+
+    def test_default_admission_and_atomic_rejection(self):
+        r,fe,p,F=self.modules()
+        b=fe.load_v2((9,19,29,39),(('10','0.0001','100'),),enabled=True)
+        prices=(F(100),F(101),F(99),F(100))
+        t=(F(1,4),F(0),F(0))
+        self.assertIsNone(r.run_v2(prices,b,0,t))
+        for kw in ({'enabled':1},{'version':'replay-runner-v1'}):
+            self.assertIsNone(r.run_v2(prices,b,0,t,**{'enabled':True,**kw}))
+        bad=[(prices[:3],b,0,t),(list(prices),b,0,t),(prices,None,0,t),(prices,b,-1,t),(prices,b,True,t),
+             (prices,b,1,t),(prices,b,0,()),(prices,b,0,list(t)),(prices,b,0,(F(1,2),F(0),F(0))),
+             ((F(100),F(0),F(99),F(100)),b,0,t),((100.0,F(101),F(99),F(100)),b,0,t)]
+        for args in bad:
+            with self.subTest(args=args):
+                self.assertIsNone(r.run_v2(*args,enabled=True))
+        forged=fe.Buckets('funding-events-v1',b.closes,b.events,b.per_unit)
+        self.assertIsNone(r.run_v2(prices,forged,0,t,enabled=True))
+        import replay_accounting_v2 as acc
+        with patch.object(acc,'advance_v2',side_effect=[acc.advance_v2(acc.initial_v2(F(100),enabled=True),F(101),(),F(1,4),enabled=True),None]):
+            self.assertIsNone(r.run_v2(prices,b,0,t,enabled=True))
+        with patch.object(acc,'advance_v2',side_effect=MemoryError):
+            self.assertIsNone(r.run_v2(prices,b,0,t,enabled=True))
+
+    def test_bucket_alignment_terminal_and_early_stop(self):
+        r,fe,p,F=self.modules()
+        b=fe.load_v2((9,19,29,39),(('5','1','1'),('10','0.0001','100'),('25','-0.0002','101')),enabled=True)
+        prices=(F(100),F(101),F(99),F(100))
+        ep=r.run_v2(prices,b,0,(F(1,4),F(1,4),F(0)),enabled=True)
+        self.assertEqual(len(ep.receipts),3)
+        self.assertEqual(ep.receipts[0].funding,0)  # bucket 0 prehistory never charged; flat at step 1
+        self.assertEqual(ep.receipts[1].funding,-ep.receipts[0].after.units*F(-101,5000))
+        self.assertTrue(ep.final.terminal and ep.final.units==0 and ep.receipts[-1].liquidation=='flat')
+        with self.assertRaises(Exception):
+            ep.receipts=()
+        stop=r.run_v2((F(100),F(100),F(1000),F(1000)),b,0,(F(-1,4),F(0),F(0)),enabled=True)
+        self.assertEqual(len(stop.receipts),2)
+        self.assertEqual(stop.receipts[-1].reason,'equity_exhausted')
+        self.assertEqual(stop.receipts[-1].liquidation,'failed')
+
+
+class ValueObjectiveV2Tests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import value_objective_v2 as impl
+        import value_objective_successor as proof
+        return impl, proof
+
+    def test_source_smt_bounds_model_and_oracles(self):
+        v,p=self.modules()
+        r=p.check_value_objective()
+        self.assertEqual(r['smt'],{'F-RL-VALUE-V2-ARITH':'unsat'})
+        self.assertEqual((r['bounds']['lossBoundLog2'],r['bounds']['gradientBoundLog2']),(201,101))
+        self.assertEqual((r['model']['states'],r['model']['transitions']),(6,9))
+        self.assertEqual((r['conformance']['oracleBatches'],r['conformance']['frozenDifferential']),(96,96))
+        self.assertGreater(r['conformance']['finiteDifferenceChecks'],0)
+
+    def test_mutants_and_solver_fail_closed(self):
+        v,p=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        for old,new in [('if alpha > 0.0:','if alpha >= 0.0:'),
+                        ('gap = (m - row[action]) + math.log(total)','gap = m + math.log(total) - row[action]'),
+                        ('    loss += 0.0\n',''),
+                        ('tuple(g + 0.0 for g in r)','tuple(g for g in r)'),
+                        ('abs(x) <= BOUND','abs(x) <= BOUND * 2'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('import math','import math\nimport numpy as np'),
+                        ('math.fsum(e * e for e in residuals)','sum(e * e for e in residuals)')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                p.extract(source.replace(old,new))
+        with self.assertRaisesRegex(ValueError,'publication without finite guard'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove(p.extract()[0])
+
+    def test_oracle_rejects_frozen_style_penalty(self):
+        import math
+        v,p=self.modules()
+        def frozen_style(row, action):
+            m=max(row); t=[math.exp(x-m) for x in row]; total=math.fsum(t)
+            return (m+math.log(total))-row[action], tuple(x/total for x in t), 0
+        S=2.0**54
+        with patch.object(v,'_penalty',side_effect=frozen_style):
+            shifted=v.objective_v2(((S,S,S),),(0,),(S,),0.1,enabled=True)
+        self.assertEqual(shifted.loss,0.0)  # the CE-RL-015 defect reappears
+        with patch.object(v,'_penalty',side_effect=frozen_style):
+            with self.assertRaisesRegex(ValueError,'CE-RL-015'):
+                p.witnesses()
+
+    def test_domain_default_and_atomic_rejection(self):
+        import math
+        v,p=self.modules()
+        ok=(((0.0,1.0,2.0),),(1,),(0.5,),0.1)
+        self.assertIsNone(v.objective_v2(*ok))
+        for kw in ({'enabled':1},{'version':'value-objective-v1'}):
+            self.assertIsNone(v.objective_v2(*ok,**{'enabled':True,**kw}))
+        B=2.0**100
+        bad=[(((0.0,1.0),),(1,),(0.5,),0.1),(((0.0,1.0,2.0),),(3,),(0.5,),0.1),(((0.0,1.0,2.0),),(True,),(0.5,),0.1),
+             (((0.0,1.0,2.0),),(1,),(0.5,),1.5),(((0.0,1.0,2.0),),(1,),(0.5,),-0.0-1e-300),(((0.0,1.0,2.0),),(1,),(0.5,),1),
+             (((0.0,1.0,math.nan),),(1,),(0.5,),0.1),(((0.0,1.0,math.inf),),(1,),(0.5,),0.1),(((0.0,1.0,B*2),),(1,),(0.5,),0.1),
+             (((0,1.0,2.0),),(1,),(0.5,),0.1),([(0.0,1.0,2.0)],(1,),(0.5,),0.1),((),(),(),0.1),
+             (((0.0,1.0,2.0),)*257,(1,)*257,(0.5,)*257,0.1),(((0.0,1.0,2.0),),(1,),(0.5,0.5),0.1)]
+        for args in bad:
+            with self.subTest(args=str(args)[:60]):
+                self.assertIsNone(v.objective_v2(*args,enabled=True))
+        self.assertIsNotNone(v.objective_v2(((B,-B,0.0),),(1,),(B,),1.0,enabled=True))
+        with patch.object(v,'_penalty',side_effect=MemoryError):
+            self.assertIsNone(v.objective_v2(*ok,enabled=True))
+        with patch.object(v.math,'fsum',return_value=math.inf):
+            self.assertIsNone(v.objective_v2(*ok,enabled=True))
+
+    def test_alpha_zero_skips_penalty_and_underflow_is_reported(self):
+        v,p=self.modules()
+        with patch.object(v,'_penalty',side_effect=AssertionError('evaluated')):
+            got=v.objective_v2(((1.0,2.0,3.0),),(0,),(0.0,),0.0,enabled=True)
+        self.assertEqual((got.loss,got.underflow),(0.5,0))
+        far=v.objective_v2(((0.0,-1000.0,-2000.0),),(0,),(0.0,),0.5,enabled=True)
+        self.assertEqual(far.underflow,2)
+        self.assertEqual(far.loss,0.0)
+        with self.assertRaises(Exception):
+            far.loss=1.0
+
+
+class SplitIsolationTests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import split_isolation as proof
+        return proof
+
+    def test_source_regions_registered_and_conformance(self):
+        p=self.proof()
+        r=p.check_split()
+        self.assertEqual(r['smt'],{'F-RL-SPLIT-REGIONS':'unsat'})
+        self.assertEqual((r['source']['foldBindings'],r['source']['fullPanelUses'],r['source']['replayReads']),(9,5,6))
+        self.assertEqual(r['registered']['holdoutStartOpenTime']-r['registered']['lastDevelopmentClose'],1)
+        self.assertEqual(r['conformance']['checks'],18)
+
+    def test_source_mutants_fail_closed(self):
+        p=self.proof()
+        cases={p.RUNNER:[('p[:split["trainStop"]] for s, p in prices.items()','p[:split["testStart"]] for s, p in prices.items()'),
+                         ('split["testStart"], split["testStop"], h, scale, choose, cfg','split["testStart"], split["testStop"] + 1, h, scale, choose, cfg'),
+                         ("controls = Baselines(train, funds, scale, h)","controls = Baselines(prices, funding, scale, h)"),
+                         ("net = None\n","net = net\n")],
+               p.ENV:[("end = min(self.t + self.horizon, self.stop - 1)","end = min(self.t + self.horizon, self.stop)"),
+                      ("f = self.funding[left + 1]","f = self.funding[left + 2]")],
+               p.EVAL:[("t = int(rng.integers(start, stop - 6 * horizon))","t = int(rng.integers(start, stop))"),
+                       ("y.append(p[t + 1 + horizon] / p[t + 1] - 1)","y.append(p[t + 2 + horizon] / p[t + 1] - 1)")]}
+        for path,pairs in cases.items():
+            source=(ROOT/path).read_text()
+            for old,new in pairs:
+                self.assertIn(old,source)
+                with self.subTest(path=path,old=old), self.assertRaises(ValueError):
+                    p.bind({path:source.replace(old,new)})
+
+    def test_solver_and_registration_fail_closed(self):
+        p=self.proof()
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.regions()
+        real=p.json.loads
+        def overlap(text):
+            value=real(text)
+            if isinstance(value,dict) and 'validation' in value and 'outerFolds' in value['validation']:
+                value['validation']['outerFolds'][0]['testStop']=5000
+            return value
+        with patch.object(p.json,'loads',side_effect=overlap):
+            with self.assertRaisesRegex(ValueError,'fold inside panel'):
+                p.registered()
+
+    def test_conformance_detects_future_read(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_evaluation as ev
+        p=self.proof()
+        original=ev.Replay
+        class Leaky(original):
+            def __init__(self,prices,funding,start,stop,*a,**k):
+                super().__init__(prices,funding,start,min(stop+3,len(prices)),*a,**k)
+        with patch.object(ev,'Replay',Leaky):
+            with self.assertRaisesRegex(ValueError,'after testStop|outside validation region'):
+                p.conformance()
+
+
+class ObservationCausalityTests(unittest.TestCase):
+    def test_witness_and_fixed_scale_probe(self):
+        import observation_causality as o
+        r=o.check_observation()
+        self.assertEqual(r['trainScale']['counterexample'],'CE-RL-025')
+        self.assertGreater(r['trainScale']['maxAbsObservationDifference'],1.0)
+        self.assertEqual(r['replayCausal']['decisionChecks'],250)
+
+    def test_source_drift_fails_closed(self):
+        import observation_causality as o
+        runner=(ROOT/o.RUNNER).read_text(); env=(ROOT/o.ENV).read_text()
+        for path,old,new in [(o.RUNNER,'scale = Scale.fit(list(train.values()))','scale = Scale.fit(list(train.values())[:1])'),
+                             (o.ENV,'start = int(rng.integers(24, len(p) - 96))','start = int(rng.integers(30, len(p) - 96))'),
+                             (o.ENV,'normalized = self.scale.transform(x)','normalized = x')]:
+            source=runner if path==o.RUNNER else env
+            self.assertIn(old,source)
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                o.bind({path:source.replace(old,new)})
+
+    def test_probe_detects_lookahead(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_env as env
+        import observation_causality as o
+        original=env.market_features
+        def peek(prices,t):
+            x=original(prices,t)
+            return None if x is None else x+0*prices[min(t+1,len(prices)-1)]+1e-3*prices[min(t+1,len(prices)-1)]
+        with patch.object(env,'market_features',peek):
+            with self.assertRaisesRegex(ValueError,'depends on data after t'):
+                o.replay_causal()
 
 
 if __name__ == '__main__':

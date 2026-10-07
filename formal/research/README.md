@@ -1,5 +1,9 @@
 # Offline research verification runbook
 
+Observation causality audit (2026-10-06): obligation 17 **stays open** with a new counterexample, CE-RL-025. The frozen runner fits `Scale` on the whole training prefix, and `collect` normalizes in-prefix training observations (and `supported()` gating) with it, so a training-time observation at t changes when only bars after t change (witness: max change 1.05). A fixed-scale probe (250 per-decision checks) shows `Replay` itself is causal, and evaluation observations are unaffected. Frozen code is not edited; a causal-scale successor needs a new registration. Counts stay **13 scoped closures / 24 partial / 1 open**. [Contract](observation-causality-contract.md).
+
+Split isolation (2026-10-06): obligation 2 **closes** for the delivered offline research path. The owner resolved the long-open purge/embargo question in favor of the standard definition (embargo applies only to training rows after a fold's test window, so it is vacuous for these forward folds; the six-bar gap is still not described as two additive regions). Fresh AST binding of every fold-loop data use, six SMT region lemmas, registered fold and holdout arithmetic, and the complete research-module certificates reproduce; a metamorphic probe shows evaluation results ignore every value at or after `testStop`. Counts are now **13 scoped closures / 24 partial / 1 open**. [Contract](split-isolation-contract.md).
+
 FIFO progress (2026-10-06): **12 scoped closures /25 partial /1 open**, still26 unresolved. Original38 gains source-bound FIFO, eight SMT queries, an838-state/3356-edge weak-fairness model and compiled conformance; it does not close. A-ADMISSION-PROGRESS assumes finite resources, terminating callback/cleanup and weak scheduler fairness, with no latency or whole-server guarantee. CE-BACKTEST-STARVATION preserves a fair polling-starvation cycle. No learned candidate or live authorization is introduced. See the [contract](admission-progress-contract.md). Earlier counts below are historical.
 
 
@@ -538,5 +542,11 @@ are not claimed.
 
 Point-in-time follow-up (2026-10-06): [contract](point-in-time-contract.md), [registration](../../research-notes/registrations/point-in-time-engineering.json), and [report](../../research-notes/sequential-control-2026-09-17/point-in-time-2026-10-06.md) add F-RL-PIT-TIME/BOUNDARY/FLOW/CONFORMANCE. Both wrappers reproduce integer availability, the126-state protocol and synthetic actual training. Totals at the point-in-time revision were11 scoped/24 partial/3 open. Timestamp authenticity and old CSV history remain unresolved; no financial trial or new dependency.
 
+
+Value objective v2: `value_objective_v2.objective_v2(q, actions, targets, alpha, enabled=True)` takes tuples of float rows and returns an immutable `Objective` (loss, gradient, underflow count) or `None`. It has no learner, data or order interface. See the [contract](value-objective-v2-contract.md) and [CE-RL-024](value-v2-counterexamples.json).
+
+Exact replay runner v2: `replay_runner_v2.run_v2(prices, buckets, left, targets, enabled=True)` replays a fixed target schedule from bar `left`, reading only bar `left+k` and its funding bucket at step k, and returns an immutable `Episode` or `None`. It has no policy, data or order interface. See the [contract](replay-runner-v2-contract.md).
+
+Exact funding events v2: `funding_events_v2.load_v2(closes, rows, enabled=True)` takes a strictly increasing int close grid and `(time, rate, mark)` text triples and returns immutable exact `Buckets` (per-bar `(mark, rate)` events and `per_unit` coefficients) or `None`. It has no file, data, runner or order interface. Run `bash scripts/verify.sh formal` for SMT, exhaustive, model and compiled Haskell oracle checks. The [contract](funding-events-v2-contract.md) specifies the decimal domain and endpoint semantics.
 
 Exact replay accounting v2: `replay_accounting_v2.initial_v2` and `advance_v2` require `enabled=True`, the exact version and native `fractions.Fraction` inputs. They publish immutable exact receipts or `None`; they have no runner/learner, data or order interface. Run `bash scripts/verify.sh formal` for arithmetic, model and compiled Haskell oracle checks. The [contract](replay-accounting-v2-contract.md) specifies bounds, units, costs and failure semantics.

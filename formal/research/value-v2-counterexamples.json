@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-RL-024",
+  "requirement": "F-RL-VALUE-V2-ARITH",
+  "claim": "Preregistered draft claim: if a+s and b+s are exact, fl(fl(a+s)-fl(b+s)) is bitwise equal to fl(a-b).",
+  "status": "refuted",
+  "discoveredBy": "Z3 4.15.4 bit-blasted IEEE binary32 query (SAT in about 30 s); binary64 queries returned unknown at 120 s",
+  "witness": {
+    "a": "-0.0",
+    "b": "+0.0",
+    "s": "-1.05073225498199462890625*2**72",
+    "shiftedDifference": "+0.0",
+    "originalDifference": "-0.0"
+  },
+  "binary64": "The same values are exact in binary64 and reproduce the sign difference with CPython floats.",
+  "explanation": "Value equality holds; only the sign of an exact-zero result differs, because an exact zero difference of equal shifted operands is +0 under RNE while -0 - +0 is -0.",
+  "resolution": "value-objective-v2 canonicalizes every published float with x + 0.0 (maps -0 to +0 under RNE, identity otherwise), so published loss and gradient are bitwise shift-invariant; intermediate claims are restated as IEEE value equality.",
+  "regression": "scripts/formal/value_objective_successor.py:witnesses and test_integrity.py:ValueObjectiveV2Tests"
+}

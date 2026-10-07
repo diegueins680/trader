@@ -98,7 +98,26 @@
         "formal/research/replay-accounting-v2-contract.md",
         "formal/research/replay-accounting-v2-source.json",
         "scripts/formal/replay_accounting.py",
-        "formal/research/ReplayAccountingV2.hs"
+        "formal/research/ReplayAccountingV2.hs",
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "formal/research/funding-events-v2-source.json",
+        "scripts/formal/funding_events.py",
+        "formal/research/FundingEventsV2.hs",
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "formal/research/replay-runner-v2-source.json",
+        "scripts/formal/replay_runner.py",
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json",
+        "scripts/formal/value_objective_successor.py",
+        "formal/research/split-isolation-contract.md",
+        "scripts/formal/split_isolation.py",
+        "formal/research/observation-causality-contract.md",
+        "formal/research/observation-counterexamples.json",
+        "scripts/formal/observation_causality.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -790,6 +809,74 @@
         {
           "id": "F-RL-ACCOUNT-V2-CONFORMANCE",
           "statement": "Exact replay v2 generated traces satisfy an independent compiled Haskell Rational wealth oracle, deterministic repetition and terminal refusal; extreme funding, subnormal-sized debits, insolvency and interrupted computation have explicit regression coverage."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-SOURCE",
+          "statement": "Exact funding events v2 has a completely reviewed pure source boundary, a canonical ASCII fixed-point decimal and integer-time admission domain, an immutable all-or-nothing published value, activation-first default rejection and checked rational primitives; it introduces no float, file, network, policy, promotion or order effect."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-ARITH",
+          "statement": "On the admitted decimal domain, decoded, product, 128-term accumulated and reduced funding coefficients and every Fraction primitive intermediate stay far below the 8192-bit guard, so admitted settlements publish exact coefficients without overflow, underflow or rounding while out-of-domain text rejects before arithmetic; the sweep assigns each event to the unique first close no earlier than its time."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-FLOW",
+          "statement": "The finite funding-load publication abstraction publishes a value only after activation, grid, record, bucket and arithmetic stages all succeed; any stage failure is terminal with no partial publication and no order transition."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-CONFORMANCE",
+          "statement": "Exact funding v2 seeded synthetic loads and registered edge cases, including both CE-RL-019 witnesses as decimal text, agree with an independent compiled Haskell Rational oracle, repeat deterministically, reject by default, and compose with replay-accounting-v2 so that exact funding equals minus units times the published coefficient."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-SOURCE",
+          "statement": "Exact replay runner v2 has a completely reviewed pure source boundary that imports only the two exact v2 kernels, admits only matching funding buckets, prices and a bounded fixed target schedule, reads only prices[left], prices[left+k], buckets.events[left+k] and targets[k-1], forces the final step terminal, publishes an immutable episode or nothing, and has activation-first default rejection with no policy, file, promotion or order effect."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-ARITH",
+          "statement": "For every admitted start, horizon and grid, each runner read index is in bounds and step k reads no bar after left+k; the final step alone is forced terminal; final equity telescopes to one plus summed gross and funding minus summed debits from the per-step identity; and every charged funding bucket has index at least one, so an event charged at step k lies in (close[left+k-1], close[left+k]] and the bucket-0 prehistory exception is never charged."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-FLOW",
+          "statement": "The finite runner abstraction for horizons 1..8 publishes only terminal episodes with between one and H receipts, never steps beyond H, rejects without publication at any step, and has no continuation or order transition after publication."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-CONFORMANCE",
+          "statement": "Seeded synthetic episodes satisfy deterministic repetition, default rejection, exact telescoping, funding and price alignment and per-row agreement with the compiled Haskell Rational wealth oracle; rewriting every price and settlement after the step-k close leaves receipts 1..k unchanged, and this metamorphic check rejects deliberately leaky future-price and future-funding variants."
+        },
+        {
+          "id": "F-RL-VALUE-V2-SOURCE",
+          "statement": "Value objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain, activation-first default rejection, a conservative penalty evaluated only when alpha is positive and computed from differences only, fsum reductions, zero canonicalization and a final finiteness guard before immutable publication; it has no learner, data, policy or order effect."
+        },
+        {
+          "id": "F-RL-VALUE-V2-ARITH",
+          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^201 and gradients below 2^101, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
+        },
+        {
+          "id": "F-RL-VALUE-V2-FLOW",
+          "statement": "The finite value-objective publication abstraction publishes only after activation, admission, computation with or without the penalty and the finite guard; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-VALUE-V2-CONFORMANCE",
+          "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values."
+        },
+        {
+          "id": "F-RL-SPLIT-SOURCE",
+          "statement": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms."
+        },
+        {
+          "id": "F-RL-SPLIT-REGIONS",
+          "statement": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout."
+        },
+        {
+          "id": "F-RL-SPLIT-CONFORMANCE",
+          "statement": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6."
+        },
+        {
+          "id": "F-RL-OBS-TRAIN-SCALE",
+          "statement": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision."
+        },
+        {
+          "id": "F-RL-OBS-REPLAY-CAUSAL",
+          "statement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes."
         }
       ],
       "invariants": [

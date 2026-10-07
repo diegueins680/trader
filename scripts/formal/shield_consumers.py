@@ -339,7 +339,7 @@ def check_consumers(promotion=None):
     if promotion is None:
         from promotion_boundary import check_promotion
         promotion=check_promotion()
-    require(promotion['surface']['moduleCount']==surface['modules']==16,'complete consumer composition')
+    require(promotion['surface']['moduleCount']==surface['modules']==19,'complete consumer composition')
     require(promotion['composition']['productionRoots']==['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs'],'production boundary composition')
     return json.loads(json.dumps({'surface':surface,'smt':origins(surface),'model':model(),'conformance':conformance()},allow_nan=False))
 
