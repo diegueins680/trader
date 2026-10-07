@@ -77,3 +77,31 @@ Closure requires these three certificates plus the existing F-RL-SHIELD-BOUNDS,
 F-RL-GAP-BOUND, F-RL-POSTCOST-EXPOSURE, F-RL-DRAWDOWN-COMPOSE and the complete
 research-surface certificates. The production order adapter's sizing and
 rounding are obligation 9, not this obligation, and are not claimed here.
+
+## Correction during audit (before any certificate was recorded)
+
+Binding the source exposed three terminations that skip liquidation.
+
+1. `invalid_market_transition`, when p₀, p₁ or funding is non-finite or
+   non-positive.
+2. `invalid_observation`, when `market_features` returns `None`.
+3. A rejected proposal: an invalid action, timeout, invalid ownership or
+   observation. It places no order and ends the episode, leaving the last
+   checked position unchanged ("incomplete path" by design).
+
+A-GAP-BOUND is extended with finite positive prices and finite funding. The
+frozen loader enforces finite positive prices. It does **not** guarantee finite
+funding (CE-RL-019), so funding finiteness is part of the assumption. Under it,
+(1) and (2) are unreachable:
+- p₀ and p₁ stay positive because |r| ≤ 1/2;
+- every feature window lies in [24, len), as the `Replay` guard ensures;
+- every 24-bar price ratio lies in [2⁻²⁴, (3/2)²⁴], so the features are finite.
+
+Claim (III) is restated:
+- every **risk- or horizon-triggered** termination liquidates to flat with
+  positive equity;
+- a **proposal rejection** places no order and leaves the last checked,
+  in-bounds position unchanged.
+
+Claim (I) is unaffected, because rejection does not move the position. The
+conformance probe adds rejection episodes.

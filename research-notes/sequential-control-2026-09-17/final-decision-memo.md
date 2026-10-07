@@ -92,3 +92,7 @@ The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disa
 ## Observation causality audit (2026-10-06)
 
 [CE-RL-025](observation-causality-2026-10-06.md): the frozen training path normalizes in-prefix observations with a scale fitted on later bars, so obligation 17 stays open. Evaluation observations are unaffected. The rejection of the frozen configurations stands.
+
+## Bounded values closure (2026-10-06)
+
+[Obligation 7 closes](bounded-values-2026-10-06.md) for the offline path under the explicit assumption A-GAP-BOUND. Counts: 14 scoped closures / 23 partial / 1 open. This is a conditional safety property of the simulator, not economic evidence; the recommendation is unchanged.

@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 25)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,11,12,23,24,25,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 24)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,11,12,23,24,25,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -4707,6 +4707,47 @@ class ObservationCausalityTests(unittest.TestCase):
         with patch.object(env,'market_features',peek):
             with self.assertRaisesRegex(ValueError,'depends on data after t'):
                 o.replay_causal()
+
+
+class BoundedValuesTests(unittest.TestCase):
+    def test_source_smt_and_stress_probe(self):
+        import bounded_values as b
+        r=b.check_bounds()
+        self.assertEqual(r['smt'],{'F-RL-BOUNDS-COMPOSE':'unsat'})
+        self.assertEqual((r['source']['riskClauses'],r['source']['stresses']),(5,9))
+        c=r['conformance']
+        self.assertEqual(c['episodes'],288)
+        self.assertGreater(c['breachTerminations'],0)
+        self.assertLess(c['flatTerminals'],c['episodes'])
+
+    def test_source_mutants_fail_closed(self):
+        import bounded_values as b
+        env=(ROOT/b.ENV).read_text(); runner=(ROOT/b.RUNNER).read_text()
+        for path,old,new in [(b.ENV,'if self.equity < 0.8:','if self.equity < 0.7:'),
+                             (b.ENV,'> 0.35:','> 0.5:'),
+                             (b.ENV,'if isfinite(self.equity) and self.equity > 0:\n                    liquidation','if False:\n                    liquidation'),
+                             (b.ENV,'if not terminal and turnover > 0.50 + 1e-12:','if not terminal and turnover > 0.90:'),
+                             (b.ENV,'action not in (-0.25, 0.0, 0.25)','action not in (-0.5, 0.0, 0.5)'),
+                             (b.RUNNER,'Execution(cost_multiplier=2.5)','Execution(cost_multiplier=4)')]:
+            source=env if path==b.ENV else runner
+            self.assertIn(old,source)
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                b.bind({path:source.replace(old,new)})
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    b.prove()
+
+    def test_probe_detects_out_of_bounds_state(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_env as env
+        import bounded_values as b
+        import math
+        with patch.object(env.Replay,'_risk',lambda self: None if math.isfinite(self.equity) and self.equity > 0 else 'equity_exhausted'):
+            with self.assertRaisesRegex(ValueError,'outside realized bounds|not liquidated flat'):
+                b.conformance()
 
 
 if __name__ == '__main__':

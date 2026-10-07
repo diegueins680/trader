@@ -117,7 +117,9 @@
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
         "formal/research/observation-counterexamples.json",
-        "scripts/formal/observation_causality.py"
+        "scripts/formal/observation_causality.py",
+        "formal/research/bounded-values-contract.md",
+        "scripts/formal/bounded_values.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -877,6 +879,18 @@
         {
           "id": "F-RL-OBS-REPLAY-CAUSAL",
           "statement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes."
+        },
+        {
+          "id": "F-RL-BOUNDS-SOURCE",
+          "statement": "The unchanged frozen Replay checks the registered floor, drawdown and exposure bounds after every mark-to-market and after every admitted trade, makes every risk failure terminal with liquidation when equity is positive, exits early only on non-finite/non-positive market data or inadmissible features, ends a rejected proposal without any order, rejects turnover above one half, uses the registered cost terms and shield action set, and the runner's stress configurations are exactly the registered maxima."
+        },
+        {
+          "id": "F-RL-BOUNDS-COMPOSE",
+          "statement": "Every non-terminal state satisfies equity >= 4/5, drawdown <= 3/20 and |exposure| <= 7/20; under A-GAP-BOUND one bar keeps equity above 0.80 of its prior value with binary64 rounding, exposure at detection is at most 0.66, admitted trades and terminal liquidations cost under 0.18% and 0.24% of equity, data early exits are unreachable, and a fresh shielded target has post-cost exposure below 0.2505, so every risk- or horizon-triggered termination liquidates to flat with positive equity."
+        },
+        {
+          "id": "F-RL-BOUNDS-CONFORMANCE",
+          "statement": "Across 288 seeded episodes covering all nine registered stress configurations and gaps up to one half, every non-terminal actual Replay state satisfies the realized bounds, every risk- or horizon-triggered termination ends flat with positive equity, every proposal rejection leaves an in-bounds position unchanged, and the preserved floor witnesses lie outside A-GAP-BOUND."
         }
       ],
       "invariants": [
