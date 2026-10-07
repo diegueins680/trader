@@ -7292,15 +7292,15 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Fresh source binding (3 equity writes, mark-to-market, costs, merge, row record, rejecting exit), five SAT-premise/UNSAT-violation lemmas, exact derivation of all five constants against the stated bounds, and the 216-episode ledger probe must reproduce.",
-      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks.",
+      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks and 5578 impact checks over 2872 spied trade calls.",
       "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
       "counterexample": null,
       "status": "exhaustively_checked"
     },
     {
       "requirementId": "F-RL-RECON-ERROR",
-      "claim": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise: the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound.",
-      "formalStatement": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise: the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound.",
+      "claim": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise, with the carried inventory satisfying the non-terminal exposure bound |U*p0| <= x0*E certified by F-RL-BOUNDS-COMPOSE (every bar starts from a state whose risk check passed): the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound.",
+      "formalStatement": "For every recorded Replay row under A-GAP-BOUND's binary64 range premise, with the carried inventory satisfying the non-terminal exposure bound |U*p0| <= x0*E certified by F-RL-BOUNDS-COMPOSE (every bar starts from a state whose risk check passed): the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, with each constant derived exactly and checked against the stated bound.",
       "criticality": "critical",
       "assumptions": [
         "A-ACCOUNTING-RECON",
@@ -7322,15 +7322,15 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Fresh source binding (3 equity writes, mark-to-market, costs, merge, row record, rejecting exit), five SAT-premise/UNSAT-violation lemmas, exact derivation of all five constants against the stated bounds, and the 216-episode ledger probe must reproduce.",
-      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks.",
+      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks and 5578 impact checks over 2872 spied trade calls.",
       "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
       "counterexample": null,
       "status": "smt_verified"
     },
     {
       "requirementId": "F-RL-RECON-CONFORMANCE",
-      "claim": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's recorded rows satisfies the stated roll-forward bound exactly in rationals, horizon-one rows satisfy the gross and funding bounds against units captured before the bar, and every fee, spread and slippage term matches its formula on the recorded cash.",
-      "formalStatement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's recorded rows satisfies the stated roll-forward bound exactly in rationals, horizon-one rows satisfy the gross and funding bounds against units captured before the bar, and every fee, spread and slippage term matches its formula on the recorded cash.",
+      "claim": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's 5578 recorded rows satisfies the stated roll-forward bound exactly in rationals; horizon-one rows satisfy the gross and funding bounds against units captured before the bar; and, using a pass-through spy on the actual _trade that records each call's executed cash, equity and turnover, every row's fee, spread and slippage satisfy the stated 4u+10H bound and every impact satisfies the stated 6u+10H bound against rigorous exact-square-root enclosures.",
+      "formalStatement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's 5578 recorded rows satisfies the stated roll-forward bound exactly in rationals; horizon-one rows satisfy the gross and funding bounds against units captured before the bar; and, using a pass-through spy on the actual _trade that records each call's executed cash, equity and turnover, every row's fee, spread and slippage satisfy the stated 4u+10H bound and every impact satisfies the stated 6u+10H bound against rigorous exact-square-root enclosures.",
       "criticality": "critical",
       "assumptions": [
         "A-ACCOUNTING-RECON",
@@ -7352,7 +7352,7 @@
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Fresh source binding (3 equity writes, mark-to-market, costs, merge, row record, rejecting exit), five SAT-premise/UNSAT-violation lemmas, exact derivation of all five constants against the stated bounds, and the 216-episode ledger probe must reproduce.",
-      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks.",
+      "bounds": "u=2^-53, H=2^-1075; 14 roundings per row (derived roll-forward constant 14.00000000000001 <= 15); 216 episodes, 5578 rows, 1817 gross/funding checks, 16734 cost-term checks and 5578 impact checks over 2872 spied trade calls.",
       "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
       "counterexample": null,
       "status": "property_tested"
@@ -7811,7 +7811,9 @@
         "F-RL-BUNDLE-FLOW",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-VALUE-V2-SOURCE",
-        "F-RL-RECON-CONFORMANCE"
+        "F-RL-RECON-CONFORMANCE",
+        "F-RL-BOUNDS-SOURCE",
+        "F-RL-BOUNDS-COMPOSE"
       ],
       "limitations": "Scoped closure (2026-10-07) for the delivered offline path. Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's range premise (prices and equity in [2^-400, 2^400]) and binary64 arrays from the delivered loader, A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row. Fresh source binding, the SMT error lemmas with exact constant derivation, the existing exact identities and the complete research-surface certificates reproduce; a ledger probe adds tested evidence.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7838,6 +7840,8 @@
       "requiredCertificates": [
         "F-RL-RECON-SOURCE",
         "F-RL-RECON-ERROR",
+        "F-RL-BOUNDS-COMPOSE",
+        "F-RL-BOUNDS-SOURCE",
         "F-RL-ACCOUNT",
         "F-RL-ROW-RECONCILE",
         "F-RL-WEALTH-FOLD",

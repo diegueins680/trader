@@ -57,9 +57,10 @@ intermediate finite and make the H terms negligible.
   and funding are checked against units captured before each bar. Fee, spread
   and slippage are checked against the recorded merged cash.
 
-Closure requires F-RL-RECON-SOURCE and F-RL-RECON-ERROR, plus the existing
-exact identities F-RL-ACCOUNT, F-RL-ROW-RECONCILE and F-RL-WEALTH-FOLD, plus the
-complete research-surface certificates. Conformance is supporting tested
+Closure requires F-RL-RECON-SOURCE and F-RL-RECON-ERROR, the bounded-values
+certificates F-RL-BOUNDS-SOURCE and F-RL-BOUNDS-COMPOSE (see below), the
+existing exact identities F-RL-ACCOUNT, F-RL-ROW-RECONCILE and F-RL-WEALTH-FOLD,
+and the complete research-surface certificates. Conformance is supporting tested
 evidence, not a closure certificate.
 
 ## Correction before any certificate (constants)
@@ -79,3 +80,19 @@ Deriving the preregistered constants exactly showed three were slightly too tigh
 
 The checker derives the minimal rigorous constants in exact rationals and
 requires every stated bound to be at least the derived one.
+
+## Review corrections (before merge)
+
+- **Inventory premise composed.** The gross bound's absolute term |U|·H ≤
+  2⁻⁶⁰⁰·E needs the carried inventory to satisfy |U·p₀| ≤ x₀·E. That premise
+  is not local to this audit. F-RL-BOUNDS-COMPOSE certifies it for every
+  non-terminal state, and every bar starts from a state whose risk check passed.
+  Both bounded-values certificates are therefore required for this closure, and
+  the F-RL-RECON-ERROR statement names the premise.
+- **Probe now tests the stated bounds exactly.** The first probe compared
+  fee/spread/slippage against the recorded merged cash with a looser tolerance,
+  and it never checked impact. A pass-through spy on the actual `_trade` now
+  records each call's executed cash, equity and turnover. Every row's terms are
+  checked against the exact stated bounds (4u + 10H), and impact against 6u + 10H
+  using rigorous exact-square-root enclosures. Episode-scoped call logs avoid
+  object-id reuse across episodes.

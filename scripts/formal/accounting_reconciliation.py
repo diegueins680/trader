@@ -116,48 +116,85 @@ def _replay():
     return Execution, Replay, Scale
 
 
+def _sqrt_interval(x, bits=200):
+    """Rigorous rational enclosure [lo, hi] of sqrt(x) for a nonnegative rational x."""
+    from math import isqrt
+    scale = 2 ** bits
+    n = isqrt(x.numerator * scale * scale // x.denominator)
+    return Q(n, scale), Q(n + 1, scale)
+
+
 def conformance():
     Execution, Replay, Scale = _replay()
     reg = json.loads((ROOT / REGISTRATION).read_text())
     rng = np.random.default_rng(reg['probeSeed'])
-    rows = gross_checks = cost_checks = 0
+    rows = gross_checks = cost_checks = impact_checks = 0
     c = {'fee': dbl(0.0005), 'spread': dbl(5e-05), 'slippage': dbl(0.00045)}
-    for k in range(reg['probeEpisodes']):
-        stress = list(STRESSES)[k % len(STRESSES)]
-        cfg = Execution(**STRESSES[stress])
-        n = 140
-        gaps = np.clip(rng.uniform(-0.5, 0.5, n) * (rng.random(n) < 0.1) + rng.normal(0, 0.01, n), -0.5, 0.5)
-        p = 100 * np.cumprod(1 + gaps)
-        f = np.r_[0.0, p[:-1] * rng.uniform(-0.03, 0.03, n - 1)]
-        horizon = 1 if k % 2 == 0 else (3, 6)[k % 4 // 2]
-        env = Replay(p, f, 60, 130, horizon, Scale.fit([p[:50]]), cfg, enabled=True)
-        previous = Q(env.equity)
-        while not env.done:
-            units, t0, seen, before = env.units, env.t, len(env.rows), previous
-            env.step(float(rng.choice([-0.25, 0.0, 0.25])))
-            for row in env.rows[seen:]:
-                g, fu = Q(row['gross']), Q(row['funding'])
-                costs = [Q(row[key]) for key in ('fee', 'spread', 'slippage', 'impact')]
-                M = previous + abs(g) + abs(fu) + sum(costs)
-                ledger = previous + g + fu - sum(costs)
-                require(abs(Q(row['equity']) - ledger) <= STATED['rollForward'][0] * U * M + STATED['rollForward'][1] * H,
-                        'roll-forward outside the stated bound')
-                cash = Q(row['turnover'])
-                for key, lit in c.items():
-                    exact = cash * lit * Q(cfg.cost_multiplier)
-                    require(abs(Q(row[key]) - exact) <= 5 * U * exact + 12 * H, 'cost term outside tolerance: ' + key)
-                    cost_checks += 1
-                previous = Q(row['equity']); rows += 1
-            if horizon == 1 and len(env.rows) > seen:
-                row = env.rows[seen]
-                exact_g = Q(units) * (Q(p[t0 + 1]) - Q(p[t0]))
-                exact_f = -Q(units) * Q(f[t0 + 1]) * Q(cfg.funding_multiplier)
-                require(abs(Q(row['gross']) - exact_g) <= 3 * U * abs(exact_g) + GROSS_E * before + 2 * H, 'gross outside stated bound')
-                require(abs(Q(row['funding']) - exact_f) <= 3 * U * abs(exact_f) + 4 * H, 'funding outside stated bound')
-                gross_checks += 1
-    require(rows > 1000 and gross_checks > 100, 'vacuous probe')
+    (term_rel, term_abs), (imp_rel, imp_abs) = STATED['costTerm'], STATED['impact']
+    calls, trade_calls, impact_seen = [], 0, False
+    original = Replay._trade
+    def spy(self, target, terminal=False):
+        # Pass-through instrumentation: record the executed inputs of each actual _trade call.
+        equity, index = self.equity, len(self.rows)
+        terms = original(self, target, terminal)
+        calls.append((id(self), index, equity, terms))
+        return terms
+    Replay._trade = spy
+    try:
+        for k in range(reg['probeEpisodes']):
+            stress = list(STRESSES)[k % len(STRESSES)]
+            cfg = Execution(**STRESSES[stress])
+            n = 140
+            gaps = np.clip(rng.uniform(-0.5, 0.5, n) * (rng.random(n) < 0.1) + rng.normal(0, 0.01, n), -0.5, 0.5)
+            p = 100 * np.cumprod(1 + gaps)
+            f = np.r_[0.0, p[:-1] * rng.uniform(-0.03, 0.03, n - 1)]
+            horizon = 1 if k % 2 == 0 else (3, 6)[k % 4 // 2]
+            env = Replay(p, f, 60, 130, horizon, Scale.fit([p[:50]]), cfg, enabled=True)
+            trade_calls += len(calls)
+            calls.clear()   # object ids can be reused across episodes; scope the log to this episode
+            previous = Q(env.equity)
+            while not env.done:
+                units, t0, seen, before = env.units, env.t, len(env.rows), previous
+                env.step(float(rng.choice([-0.25, 0.0, 0.25])))
+                for index in range(seen, len(env.rows)):
+                    row = env.rows[index]
+                    g, fu = Q(row['gross']), Q(row['funding'])
+                    costs = [Q(row[key]) for key in ('fee', 'spread', 'slippage', 'impact')]
+                    M = previous + abs(g) + abs(fu) + sum(costs)
+                    ledger = previous + g + fu - sum(costs)
+                    require(abs(Q(row['equity']) - ledger) <= STATED['rollForward'][0] * U * M + STATED['rollForward'][1] * H,
+                            'roll-forward outside the stated bound')
+                    executed = [(Q(e), terms) for owner, i, e, terms in calls if owner == id(env) and i == index]
+                    for key, lit in c.items():
+                        exact = sum((Q(t['turnover']) * lit * Q(cfg.cost_multiplier) for _, t in executed), Q(0))
+                        require(abs(Q(row[key]) - exact) <= term_rel * U * exact + term_abs * H, 'cost term outside the stated bound: ' + key)
+                        cost_checks += 1
+                    lo = hi = Q(0)
+                    for e, t in executed:
+                        cash = Q(t['turnover'])
+                        if cash:
+                            s_lo, s_hi = _sqrt_interval(Q(float(t['turnover']) / float(e)))
+                            factor = cash * Q(cfg.impact_bps) * dbl(0.0001)
+                            lo, hi = lo + factor * s_lo, hi + factor * s_hi
+                    require(Q(row['impact']) >= lo * (1 - imp_rel * U) - imp_abs * H and Q(row['impact']) <= hi * (1 + imp_rel * U) + imp_abs * H,
+                            'impact outside the stated bound')
+                    impact_checks += 1
+                    impact_seen = impact_seen or Q(row['impact']) > 0
+                    previous = Q(row['equity']); rows += 1
+                if horizon == 1 and len(env.rows) > seen:
+                    row = env.rows[seen]
+                    exact_g = Q(units) * (Q(p[t0 + 1]) - Q(p[t0]))
+                    exact_f = -Q(units) * Q(f[t0 + 1]) * Q(cfg.funding_multiplier)
+                    require(abs(Q(row['gross']) - exact_g) <= 3 * U * abs(exact_g) + GROSS_E * before + 2 * H, 'gross outside stated bound')
+                    require(abs(Q(row['funding']) - exact_f) <= STATED['funding'][0] * U * abs(exact_f) + STATED['funding'][1] * H,
+                            'funding outside stated bound')
+                    gross_checks += 1
+    finally:
+        Replay._trade = original
+    trade_calls += len(calls)
+    require(rows > 1000 and gross_checks > 100 and impact_seen, 'vacuous probe')
     return {'status': 'property_tested', 'episodes': reg['probeEpisodes'], 'rows': rows, 'grossFundingChecks': gross_checks,
-            'costTermChecks': cost_checks, 'seed': reg['probeSeed']}
+            'costTermChecks': cost_checks, 'impactChecks': impact_checks, 'tradeCalls': trade_calls, 'seed': reg['probeSeed']}
 
 
 def check_reconciliation():

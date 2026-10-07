@@ -225,6 +225,8 @@
       "requiredCertificates": [
         "F-RL-RECON-SOURCE",
         "F-RL-RECON-ERROR",
+        "F-RL-BOUNDS-COMPOSE",
+        "F-RL-BOUNDS-SOURCE",
         "F-RL-ACCOUNT",
         "F-RL-ROW-RECONCILE",
         "F-RL-WEALTH-FOLD",

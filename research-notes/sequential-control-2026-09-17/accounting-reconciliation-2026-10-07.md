@@ -43,8 +43,16 @@ claimed. The bound is per row: global trajectory error growth is not bounded.
   roll-forward needs 14.00000000000001, so the preregistered 14 was a hair too
   tight; 15 was recorded before any certificate.
 - **F-RL-RECON-CONFORMANCE** (property tested): 216 episodes, all 5,578 rows,
-  1,817 gross/funding checks and 16,734 cost-term checks. A deliberately
-  unrecorded debit is caught.
+  1,817 gross/funding checks, 16,734 cost-term checks and 5,578 impact checks.
+  A pass-through spy captures every `_trade` call's executed inputs (2,872
+  calls), so the exact stated bounds are tested. A deliberately unrecorded
+  debit is caught.
+
+## Composition
+
+The gross bound relies on the carried-inventory exposure premise certified by
+obligation 7 (F-RL-BOUNDS-COMPOSE), so both bounded-values certificates are
+required here.
 
 ## Self-caught errors
 
