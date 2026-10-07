@@ -35,6 +35,7 @@
       "rows": 5578,
       "seed": 20261013,
       "status": "property_tested",
+      "sumPathChecks": 2450,
       "tradeCalls": 2872
     },
     "smt": {
@@ -42,7 +43,7 @@
     },
     "source": {
       "equityWrites": 3,
-      "lockedDefinitions": 4,
+      "lockedDefinitions": 5,
       "scope": "complete AST lock of the reviewed Replay class and helpers plus structural checks; interpreter semantics assumed",
       "status": "exhaustively_checked"
     }
@@ -622,7 +623,7 @@
       "F-RL-BOUNDS-COMPOSE": "unsat"
     },
     "source": {
-      "lockedDefinitions": 4,
+      "lockedDefinitions": 5,
       "riskClauses": 5,
       "scope": "unchanged frozen Replay step, risk, trade, shield and runner stress source; interpreter semantics assumed",
       "status": "exhaustively_checked",
