@@ -476,7 +476,8 @@
       "implementationFiles": [
         "haskell/app/Main.hs",
         "haskell/app/Trader/BotStartSemantics.hs",
-        "haskell/app/Trader/App/WorkerPublication.hs"
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs"
       ],
       "closureClass": null
     },

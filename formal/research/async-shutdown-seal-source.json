@@ -3,7 +3,7 @@
   "baselineCommit": "d56b4d83f963121cc26eac5dfa47bc17379aa1a0",
   "baselineShutdown": " Int -> AsyncStores -> IO Bool\nstopAsyncStoresBounded timeoutUs stores = do\n    signalEntries <- asyncJobWaiters (asSignal stores)\n    backtestEntries <- asyncJobWaiters (asBacktest stores)\n    tradeEntries <- asyncJobWaiters (asTrade stores)\n    let entries = signalEntries ++ backtestEntries ++ tradeEntries\n    let killBudgetUs = max 1 (timeoutUs `div` 2)\n        finishBudgetUs = max 1 (timeoutUs - killBudgetUs)\n    delivered <- stopThreadIdsBounded killBudgetUs (map fst entries)\n    finished <- timeout finishBudgetUs (mapM_ snd entries)\n    pure (delivered && isJust finished)\n\nasyncJobWaiters :: JobStore a -> IO [(ThreadId, IO ())]\nasyncJobWaiters store = do\n    entries <- HM.elems <$> readMVar (jsJobs store)\n    pure [(jeThreadId entry, void (readMVar (jeResult entry))) | entry <- entries]\n\n",
   "hashes": {
-    "haskell/app/Main.hs": "cac5bf9fb1b4ede1f5be310a9c7617d3ffab848e145df51fe0ea96b26bacb983",
+    "haskell/app/Main.hs": "b1797e92e8d186569e320922b82a9988b0d5a2ecbaed600c49c8b7f6c011c70b",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
     "haskell/test/Trader/Test/AsyncJobAdmission.hs": "fdc49dec38a4805b18a993c6b3858e073bcad163d53340fb84b889a8d80c5a48",
     "scripts/formal/async_shutdown_seal.py": "27d3ea78b02790e39f06f577f608fef24393068ca934b5cbab8a37ad0d9f5083",

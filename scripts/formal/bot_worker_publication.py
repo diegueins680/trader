@@ -36,7 +36,10 @@ def extract(core=None,main=None,registry=None):
     require(core.index('`onException` void (tryPutMVar gate False)')<core.index('void (tryPutMVar gate True)'),'commit gate order')
     require(core.count('evaluate ')==3,'publication WHNF cuts')
     require(body.count('publishWorker (bcRuntime ctrl)')==1 and 'forkIO' not in body,'unguarded application fork')
-    require(body.count('HM.lookup sym tenantMap')==2 and body.count('Retain ')==3,'duplicate check coverage')
+    require(body.count('HM.lookup sym tenantMap')==2 and body.count('Retain ')==4,'duplicate check coverage')
+    # The fourth Retain is the CE-LIVE-002/003 ownership refusal, decided under the same transaction before any fork.
+    require(body.count('Just err -> pure (Retain (Left err))')==1 and
+            body.index('ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey')<body.index('pure $ Launch '),'ownership refusal before launch')
     require(body.index('now <- getTimestampMs')<body.index('pure $ Launch '),'prepare metadata before fork')
     require(body.count('bsrThreadId = tid')==1 and body.count('HM.insert sym st tenantMap')==1,'identity/map binding')
     require(main.count('publishWorker (bcRuntime ctrl)')==1 and main.count('botStartWorker')==3,'application call coverage')
