@@ -36,7 +36,8 @@ and the unconditional floor stays refuted.
 - **(III)** Under A-GAP-BOUND:
   - one bar keeps equity above 0.80 × its prior value;
   - exposure at detection is ≤ 0.66;
-  - a trade costs < 0.18% and a liquidation < 0.24% of equity;
+  - post-trade inventory is ≤ 0.952 of equity;
+  - a trade costs < 0.18% and a liquidation < 0.34% of equity;
   - the data early exits are unreachable.
 
   So every risk- or horizon-triggered termination liquidates **flat** with
@@ -50,7 +51,8 @@ Evidence:
 - **F-RL-BOUNDS-COMPOSE** (SMT verified): Z3-certified generic lemmas
   instantiated in exact rationals along every source operation (6 queries, 8
   propagation checks). Review caught that a first version modeled too few
-  roundings; the faithful model replaced it before merge (see the contract).
+  roundings, and a second review found the post-trade liquidation path and the
+  stored-cash rounding missing; both were fixed before merge (see the contract).
 - **F-RL-BOUNDS-CONFORMANCE** (property tested): 288 episodes, 2,037
   non-terminal checks, 224 breach terminations (all flat), 35 rejections.
 - **Existing certificates reused:** the shield, gap, post-cost and drawdown

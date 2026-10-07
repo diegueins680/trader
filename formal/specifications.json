@@ -886,7 +886,7 @@
         },
         {
           "id": "F-RL-BOUNDS-COMPOSE",
-          "statement": "Every non-terminal state satisfies the registered floor, drawdown and exposure bounds as evaluated on the stored doubles; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, normal-range premise) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, equity after an admitted trade or a terminal liquidation above 0.998 and 0.997 of its prior value, and post-cost fresh-target exposure < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity."
+          "statement": "Every non-terminal state satisfies the registered floor, drawdown and exposure bounds as evaluated on the stored doubles; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, normal-range premise) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, post-trade inventory <= 0.952 of post-trade equity, equity after an admitted trade or a terminal liquidation (of carried or post-trade inventory) above 0.998 and 0.996 of its prior value, and post-cost fresh-target exposure < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity."
         },
         {
           "id": "F-RL-BOUNDS-CONFORMANCE",

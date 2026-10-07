@@ -151,3 +151,23 @@ source. It is replaced as follows.
 
 The instantiation is a computation, not a solver query, so F-RL-BOUNDS-COMPOSE
 records both. `numpy.sqrt` is assumed monotone and ≤ 1 on [0, 1].
+
+## Second review correction (before merge)
+
+- **Liquidation of post-trade inventory.** When a pending trade succeeds and the
+  following risk check fails in the same bar, liquidation closes the post-trade
+  inventory `new`, not the inventory carried into the bar. That inventory is now
+  bounded through every rounded step:
+  `desired = fl(fl(w·e)/p)` → `fl(desired − old)` → `fl(fill·diff)` →
+  `fl(old + ·)`. The bound is ≤ 0.952 of post-trade equity. Liquidation uses
+  the larger of that bound and the detection exposure.
+- **Stored cash.** Lemma I bounds the exact product |new − old|·p. `_trade`
+  stores `cash = fl(|new − old|·p)`, so `cost()` now rounds the product once more
+  before every fee and impact term.
+
+Revised margins:
+- equity after an admitted trade ≥ 0.99825·e;
+- equity after a liquidation ≥ 0.99667·e (the earlier 0.9977 omitted the
+  post-trade path);
+- every risk- or horizon-triggered termination still liquidates flat with
+  positive equity.
