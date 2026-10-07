@@ -1,0 +1,63 @@
+# Accounting reconciliation (obligation 8)
+
+Engineering preregistration, 2026-10-07. Read-only audit of unchanged source.
+
+## Criterion and reading
+
+Obligation 8: "Every wealth, fee, funding and liquidation debit reconciles actual
+binary64 execution within a stated error bound or rejects." The obligation's
+recorded next action: "prove bounded arithmetic error and failure rules for a
+versioned replay accounting core".
+
+**Reading: per-row reconciliation.** For every row the frozen `Replay`
+records, each recorded debit is compared with its stated formula evaluated
+exactly on the executed binary64 inputs. The recorded wealth roll-forward is
+compared with the exact ledger identity on the recorded values. Each must lie
+within a stated binary64 error bound. Bars with non-finite or non-positive market
+data reject (`invalid_market_transition`) and record no row.
+
+The earlier blocker also named "calibrated fill semantics", meaning whether the
+simulated fills match real venue fills. That is an empirical question for the
+economic gate, not a property of the binary64 accounting. It is not claimed or
+discharged here.
+
+## Stated bounds (u = 2⁻⁵³, H = 2⁻¹⁰⁷⁵)
+
+For a row with prior equity E, recorded gross g, funding f and costs
+(fee, spread, slippage, impact), with M = E + |g| + |f| + Σ costs:
+
+- **Roll-forward:** |E_row − (E + g + f − fee − spread − slippage − impact)|
+  ≤ 14·u·M + 14·H. This covers up to 13 roundings: gross+funding, equity+,
+  three trade-cost additions, equity−, three liquidation-cost additions,
+  equity−, and the per-key cost merges.
+- **Gross:** |g − U·(p₁ − p₀)| ≤ 2·u·|U·(p₁ − p₀)| + 2·H.
+- **Funding:** |f − (−U·f_t·m)| ≤ 2·u·|U·f_t·m| + 2·H.
+- **Fee, spread, slippage:** each recorded term is within 4·u relative (+4·H)
+  of `cash·c·cost_multiplier`, summed over trade and liquidation, where c is the
+  exact binary64 literal value.
+- **Impact:** within 6·u relative (+6·H) of `cash·impact_bps·c₄·sqrt(turnover)`,
+  using the exact square root of the computed turnover.
+
+The premises are A-GAP-BOUND's range premise (prices and equity in
+[2⁻⁴⁰⁰, 2⁴⁰⁰]) and binary64 arrays from the delivered loader. They keep every
+intermediate finite and make the H terms negligible.
+
+## Obligations / methods
+
+- **F-RL-RECON-SOURCE (exhaustively checked):** AST binding of the
+  mark-to-market expressions, both equity updates, the trade cost terms, the
+  `sum` order, the terminal cost merge, the row record and the rejecting early
+  exit.
+- **F-RL-RECON-ERROR (SMT):** Z3 certifies the single-rounding accumulation
+  lemma |rnd(x) − x| ≤ u·|x| + H and the composition step. The per-bound
+  operation counts are instantiated exactly along the AST-bound sequences.
+- **F-RL-RECON-CONFORMANCE (property tested):** 216 seeded episodes over all
+  nine stresses on the actual `Replay`. Every row's roll-forward is checked
+  exactly with Fractions against its stated bound. On horizon-1 episodes, gross
+  and funding are checked against units captured before each bar. Fee, spread
+  and slippage are checked against the recorded merged cash.
+
+Closure requires F-RL-RECON-SOURCE and F-RL-RECON-ERROR, plus the existing
+exact identities F-RL-ACCOUNT, F-RL-ROW-RECONCILE and F-RL-WEALTH-FOLD, plus the
+complete research-surface certificates. Conformance is supporting tested
+evidence, not a closure certificate.
