@@ -4739,6 +4739,15 @@ class BoundedValuesTests(unittest.TestCase):
                 with self.assertRaises(Exception):
                     b.prove()
 
+    def test_propagation_fails_closed_on_weaker_arithmetic(self):
+        import bounded_values as b
+        with patch.object(b,'U',b.Q(1,100)):
+            with self.assertRaisesRegex(ValueError,'exact bound propagation failed'):
+                b.propagate()
+        r=b.propagate()
+        self.assertGreater(r['equityAfterBarRatio'],0.8)
+        self.assertLess(r['detectionExposure'],0.66)
+
     def test_probe_detects_out_of_bounds_state(self):
         import sys
         sys.path.insert(0,str(ROOT/'scripts/research'))

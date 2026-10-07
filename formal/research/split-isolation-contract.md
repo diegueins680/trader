@@ -73,10 +73,19 @@ no information about values at or after `testStop` reaches any estimate. The
 conformance probe rewrites those values with finite numbers and requires
 identical results.
 
-Closure of obligation 2 requires the fresh certificates above plus the existing
+Closure of obligation 2 requires F-RL-SPLIT-SOURCE and F-RL-SPLIT-REGIONS plus the existing
 F-RL-SPLIT, F-RL-FIT-PREFIX, F-RL-COLLECT-PREFIX and F-RL-DATA-COMPOSITION, and
 the complete research-module source certificates used by the obligation 3/5
 closures. Disconnected v2 kernels take caller-supplied arrays, have no region
 access of their own and have no caller. A-SPLIT-ISOLATION trusts the Python
 interpreter, NumPy slicing/indexing semantics, the AST translation and Z3.
 Production ingestion is outside the scope and is not claimed.
+
+## Closure certificates versus tested evidence (review correction, 2026-10-06)
+
+The conformance requirement is reproduced on every formal run as supporting
+tested evidence. It is **not** a closure certificate. The verifier admits only
+proof-class statuses (proved, model/SMT/refinement-verified, exhaustively
+checked) as closure certificates, because tests are not proofs. Earlier wording
+said closure required all three certificates. That is corrected here, and the
+ledger was already consistent with this.

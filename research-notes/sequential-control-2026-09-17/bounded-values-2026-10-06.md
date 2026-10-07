@@ -19,7 +19,8 @@ recorded next action fixed the reading:
 - execution within the registered stress maxima (cost ≤ 2.5×, impact ≤ 10 bp,
   funding ≤ 2×);
 - monotone `sqrt` on [0, 1];
-- the binary64 standard rounding model.
+- the binary64 rounding model fl(x) = x(1+δ)+η, including underflow;
+- prices in [2⁻⁹⁰⁰, 2⁹⁰⁰] and equity ≤ 2⁹⁰⁰ (no overflow).
 
 This is an assumption about markets, not a fact. Paths outside it, such as the
 preserved −87.5% and +300% witnesses CE-RL-002/003, can still breach any bound,
@@ -46,7 +47,10 @@ Evidence:
 - **F-RL-BOUNDS-SOURCE** (exhaustively checked): binding of the risk
   predicate, step order, early exits, rejection branch, cost terms, shield and
   the nine stress configurations.
-- **F-RL-BOUNDS-COMPOSE** (SMT verified): seven pairs.
+- **F-RL-BOUNDS-COMPOSE** (SMT verified): Z3-certified generic lemmas
+  instantiated in exact rationals along every source operation (6 queries, 8
+  propagation checks). Review caught that a first version modeled too few
+  roundings; the faithful model replaced it before merge (see the contract).
 - **F-RL-BOUNDS-CONFORMANCE** (property tested): 288 episodes, 2,037
   non-terminal checks, 224 breach terminations (all flat), 35 rejections.
 - **Existing certificates reused:** the shield, gap, post-cost and drawdown

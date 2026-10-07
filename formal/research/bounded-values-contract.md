@@ -73,7 +73,7 @@ inventory, never a failed liquidation.
   preserved unconditional-floor witnesses still breach the floor and remain
   outside A-GAP-BOUND.
 
-Closure requires these three certificates plus the existing F-RL-SHIELD-BOUNDS,
+Closure requires F-RL-BOUNDS-SOURCE and F-RL-BOUNDS-COMPOSE plus the existing F-RL-SHIELD-BOUNDS,
 F-RL-GAP-BOUND, F-RL-POSTCOST-EXPOSURE, F-RL-DRAWDOWN-COMPOSE and the complete
 research-surface certificates. The production order adapter's sizing and
 rounding are obligation 9, not this obligation, and are not claimed here.
@@ -105,3 +105,49 @@ Claim (III) is restated:
 
 Claim (I) is unaffected, because rejection does not move the position. The
 conformance probe adds rejection episodes.
+
+## Closure certificates versus tested evidence (review correction, 2026-10-06)
+
+The conformance requirement is reproduced on every formal run as supporting
+tested evidence. It is **not** a closure certificate. The verifier admits only
+proof-class statuses (proved, model/SMT/refinement-verified, exhaustively
+checked) as closure certificates, because tests are not proofs. Earlier wording
+said closure required all three certificates. That is corrected here, and the
+ledger was already consistent with this.
+
+## Faithful binary64 model (review correction, before merge)
+
+Review found that the first COMPOSE lemma modeled the equity update with three
+rounding factors. It treated `units·(p1 − p0)` and the funding products as
+exact, and it ignored underflow. That certified a different expression from the
+source. It is replaced as follows.
+
+- **Z3-certified generic lemmas:**
+  - R1: one rounding of a bounded value;
+  - R2: one rounding with a lower bound;
+  - P: products of bounded magnitudes;
+  - S: sums of bounded magnitudes;
+  - I: the exact numerator bound implied by a computed comparison
+    |fl(fl(n)/m)| ≤ t.
+
+  Each rounding is fl(x) = x(1 + δ) + η with |δ| ≤ 2⁻⁵³ and |η| ≤ 2⁻¹⁰⁷⁵, so
+  subnormal results are included.
+- **Instantiation along the source sequence:** the lemmas are applied, in exact
+  rationals, along the AST-bound operation sequence:
+  - `p1 − p0`, `units·d`, `(−units)·f`, `·m`, `gross + funding`, `equity + ·`;
+  - in `_trade`, `|new − old|·p`, `/e`, each `cash·c·cm`, the impact product,
+    the left-to-right `sum`, and `e − total`.
+
+  Source literals use their exact binary64 values (for example
+  `0.35 = 3152519739159347/2⁵³`).
+- **Range premise added to A-GAP-BOUND:** prices lie in [2⁻⁹⁰⁰, 2⁹⁰⁰] and equity
+  ≤ 2⁹⁰⁰, so no operation overflows.
+- **Resulting margins:**
+  - equity after a bar ≥ 0.8040·E;
+  - exposure at detection ≤ 0.6530;
+  - equity after a trade ≥ 0.99825·e;
+  - equity after a liquidation ≥ 0.99771·e;
+  - post-cost entry exposure ≤ 0.2505.
+
+The instantiation is a computation, not a solver query, so F-RL-BOUNDS-COMPOSE
+records both. `numpy.sqrt` is assumed monotone and ≤ 1 on [0, 1].

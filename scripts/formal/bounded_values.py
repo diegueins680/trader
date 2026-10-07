@@ -53,6 +53,10 @@ def bind(sources=None):
     loop = [n for n in ast.walk(step) if isinstance(n, ast.While) and ast.unparse(n.test) == 'self.t < end']
     require(len(loop) == 1, 'single bar loop')
     body = [ast.unparse(s) for s in loop[0].body]
+    # The exact operation sequence modeled by propagate(): one subtraction, three multiplications, two additions.
+    require({'p0, p1 = (self.prices[left], self.prices[left + 1])', 'f = self.funding[left + 1]',
+             'gross, funding = (self.units * (p1 - p0), -self.units * f * self.execution.funding_multiplier)'} <= set(body),
+            'modeled mark-to-market operations')
     positions = [next((i for i, s in enumerate(body) if s == want), -1) for want in STEP_ORDER]
     require(all(p >= 0 for p in positions) and positions == sorted(positions), 'mark-to-market then risk order')
     trade = next(s for s in loop[0].body if isinstance(s, ast.If) and 'self.pending[0] <= self.t' in ast.unparse(s.test))
@@ -94,39 +98,103 @@ def bind(sources=None):
             'scope': 'unchanged frozen Replay step, risk, trade, shield and runner stress source; interpreter semantics assumed'}
 
 
+U = Q(1, 2**53)            # unit roundoff, round to nearest
+H = Q(1, 2**1075)          # largest absolute error of a rounded (subnormal/zero) result
+LOW_PRICE = Q(1, 2**900)   # A-GAP-BOUND range premise: prices and equity stay in the normal range
+
+
+def dbl(x):
+    """Exact rational value of a binary64 source literal."""
+    return Q(float(x))
+
+
+def generic_lemmas():
+    """Z3 certificates for the only reasoning steps used by the propagation below."""
+    u, h = z.RealVal(str(U)), z.RealVal(str(H))
+    x, b, d, e, a, c, l = z.Reals('bv_x bv_b bv_d bv_e bv_a bv_c bv_l')
+    rounding = z.And(d >= -u, d <= u, e >= -h, e <= h)
+    # R1: one rounding of a bounded value.
+    certify(z.And(rounding, b >= 0, x >= -b, x <= b), z.And(x * (1 + d) + e <= b * (1 + u) + h, x * (1 + d) + e >= -(b * (1 + u) + h)))
+    # R2: one rounding of a value bounded below by l >= 0.
+    certify(z.And(rounding, l >= 0, x >= l), x * (1 + d) + e >= l * (1 - u) - h)
+    # P: product of bounded magnitudes.
+    certify(z.And(a >= 0, b >= 0, x >= -a, x <= a, c >= -b, c <= b), z.And(x * c <= a * b, x * c >= -a * b))
+    # S: sum of bounded magnitudes.
+    certify(z.And(a >= 0, b >= 0, x >= -a, x <= a, c >= -b, c <= b), z.And(x + c <= a + b, x + c >= -(a + b)))
+    # I: a computed comparison |fl(fl(n)/m)| <= t with m > 0 bounds the exact |n| (inversion of R1 twice).
+    n, m, t, d2, e2 = z.Reals('bv_n bv_m bv_t bv_d2 bv_e2')
+    q = (n * (1 + d) + e) / m * (1 + d2) + e2
+    certify(z.And(rounding, d2 >= -u, d2 <= u, e2 >= -h, e2 <= h, m >= z.RealVal('4/5'), t >= 0, q <= t, q >= -t),
+            z.And(n * (1 - u) * (1 - u) <= (t + 3 * h) * m, n * (1 - u) * (1 - u) >= -(t + 3 * h) * m))
+
+
+class Bound:
+    """|value| <= rel * E + abs, with E the reference equity (E >= 4/5)."""
+    def __init__(self, rel, abs_=Q(0)):
+        self.rel, self.abs = Q(rel), Q(abs_)
+
+    def rounded(self):                          # R1
+        return Bound(self.rel * (1 + U), self.abs * (1 + U) + H)
+
+    def scaled(self, k):                         # P with a constant bound k
+        return Bound(self.rel * k, self.abs * k)
+
+    def plus(self, other):                       # S
+        return Bound(self.rel + other.rel, self.abs + other.abs)
+
+    def relative(self):                          # abs <= abs/(4/5) * E since E >= 4/5
+        return self.rel + self.abs * Q(5, 4)
+
+
+def propagate():
+    floor, cap, half = dbl(0.8), dbl(0.35), dbl(0.5)
+    turnover_cap = Q(float(0.50 + 1e-12))       # the source compares against the rounded sum
+    fee, spread, slip, unit_bp = dbl(0.0005), dbl(5e-05), dbl(0.00045), dbl(0.0001)
+    cost_mult, impact_bps, fund_mult = Q(5, 2), Q(10), Q(2)
+    # Prior non-terminal state: computed exposure <= 0.35 bounds the exact |U*p0| (lemma I).
+    x0 = (cap + 3 * H) / ((1 - U) * (1 - U))
+    # gross = units * (p1 - p0): d = rnd(p1 - p0) with |p1 - p0| <= p0/2, then rnd(units * d).
+    # |units| * H <= x0 * E * H / p0 <= x0 * E * H * 2^900, folded into the relative term.
+    tiny = x0 * H / LOW_PRICE
+    gross = Bound(x0 * Q(1, 2) * (1 + U) + tiny, Q(0)).rounded()
+    # funding = -units * f * m: |units * f| <= x0 * E * 3/100, then two roundings.
+    funding = Bound(x0 * Q(3, 100) + tiny).rounded().scaled(fund_mult).rounded()
+    change = gross.plus(funding).rounded()      # rnd(gross + funding)
+    # E1 = rnd(E + change) >= (E - |change|)(1 - u) - H     (lemma R2)
+    e1_ratio = (1 - change.relative()) * (1 - U) - H * Q(5, 4)
+    # Exposure at detection: |units * p1| <= 3/2 * x0 * E (exact), over E1 >= e1_ratio * E.
+    detect = Q(3, 2) * x0 / e1_ratio
+    # Accepted trade: computed turnover <= turnover_cap bounds cash by (cap + 3H)/(1-u)^2 * e (lemma I).
+    def cost(cash_rel, sqrt_bound):
+        cash = Bound(cash_rel)
+        terms = [cash.scaled(c).rounded().scaled(cost_mult).rounded() for c in (fee, spread, slip)]
+        impact = cash.scaled(impact_bps).rounded().scaled(unit_bp).rounded().scaled(sqrt_bound).rounded()
+        total = terms[0].plus(terms[1]).rounded().plus(terms[2]).rounded().plus(impact).rounded()
+        return (1 - total.relative()) * (1 - U) - H * Q(5, 4)   # equity ratio after rnd(e - total)
+    trade_cash = (turnover_cap + 3 * H) / ((1 - U) * (1 - U))
+    after_trade = cost(trade_cash, Q(1))
+    # Liquidation: new = 0 exactly, cash = rnd(|old| * p) with |old * p| <= detect * e.
+    liquidation_cash = detect * (1 + U) + H * Q(5, 4)
+    after_liquidation = cost(liquidation_cash, Q(1))
+    # Fresh full-fill target |w| = 1/4: |new * p| <= rnd(rnd(w * e) / p) * p, then post-cost equity.
+    entry = Q(1, 4) * (1 + U) * (1 + U) + 3 * H * Q(5, 4)
+    entry_exposure = entry / after_trade
+    checks = {'equityAfterBar': e1_ratio > Q(4, 5), 'detectionExposure': detect < Q(66, 100), 'turnoverSqrtArgument': liquidation_cash < 1,
+              'afterTrade': after_trade > Q(998, 1000), 'afterLiquidation': after_liquidation > Q(997, 1000),
+              'entryExposure': entry_exposure < Q(2506, 10000) < cap, 'floorLiteral': floor > Q(4, 5), 'halfLiteral': half == Q(1, 2)}
+    require(all(checks.values()), 'exact bound propagation failed: ' + str([k for k, v in checks.items() if not v]))
+    return {'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'afterTradeRatio': float(after_trade),
+            'afterLiquidationRatio': float(after_liquidation), 'entryExposure': float(entry_exposure), 'checks': len(checks)}
+
+
 def prove():
-    u = z.RealVal('1/9007199254740992')
-    d = z.Reals('bv_d1 bv_d2 bv_d3 bv_d4 bv_d5')
-    small = z.And(*[z.And(x >= -u, x <= u) for x in d])
-    E, x, r, psi, E1 = z.Reals('bv_E bv_x bv_r bv_psi bv_E1')
-    # (I) The negated source predicate is exactly the registered realized bounds.
-    eq, peak, units_px = z.Reals('bv_eq bv_peak bv_upx')
-    clear = z.And(eq > 0, z.Not(eq < z.RealVal('4/5')), z.Not(1 - eq / peak > z.RealVal('3/20')), z.Not(z.Or(units_px / eq > z.RealVal('7/20'), units_px / eq < -z.RealVal('7/20'))), peak >= eq)
-    certify(clear, z.And(eq >= z.RealVal('4/5'), eq >= z.RealVal('17/20') * peak, units_px <= z.RealVal('7/20') * eq, units_px >= -z.RealVal('7/20') * eq))
-    # (III-a) One bar under A-GAP-BOUND keeps equity above 0.80x (gross and funding each rounded, sum rounded).
-    bar = z.And(E > 0, x >= -z.RealVal('7/20'), x <= z.RealVal('7/20'), r >= -z.RealVal('1/2'), r <= z.RealVal('1/2'),
-                psi >= -z.RealVal('6/100'), psi <= z.RealVal('6/100'), small,
-                E1 == (E + E * x * r * (1 + d[0]) - E * x * psi * (1 + d[1])) * (1 + d[2]))
-    certify(bar, E1 > z.RealVal('4/5') * E)
-    # Exposure at detection is at most 0.66: |x|(1+|r|) E / E1 with E1 > 0.8 E; post-trade targets are smaller.
-    xd = z.Real('bv_xd')
-    certify(z.And(bar, xd * E1 == x * (1 + r) * E), z.And(xd <= z.RealVal('66/100'), xd >= -z.RealVal('66/100')))
-    # (III-b) An admitted trade (turnover <= 1/2) and (III-c) a terminal liquidation (turnover <= 0.66) cost little.
-    tau, s, cost, after = z.Reals('bv_tau bv_s bv_cost bv_after')
-    m = z.RealVal('5/2') * (z.RealVal('5/10000') + z.RealVal('5/100000') + z.RealVal('45/100000'))
-    trade = lambda limit: z.And(E1 > 0, tau >= 0, tau <= limit, s >= 0, s <= 1, small,
-                                cost == (E1 * tau * m * (1 + d[3]) + E1 * tau * z.RealVal('10') / 10000 * s * (1 + d[4])),
-                                after == (E1 - cost) * (1 + d[2]))
-    certify(trade(z.RealVal('1/2')), after > z.RealVal('9982/10000') * E1)
-    certify(trade(z.RealVal('66/100')), after > z.RealVal('9976/10000') * E1)
-    # (II) Fresh full-fill target |w| <= 1/4 with admitted entry costs: post-cost exposure < 0.2505 <= 7/20.
-    w, e2 = z.Reals('bv_w bv_e2')
-    certify(z.And(E1 > 0, w >= -z.RealVal('1/4'), w <= z.RealVal('1/4'), e2 >= z.RealVal('9982/10000') * E1, e2 <= E1),
-            z.And(w * E1 <= z.RealVal('2505/10000') * e2, w * E1 >= -z.RealVal('2505/10000') * e2))
-    # Feature finiteness under |r| <= 1/2: every ratio over <= 24 bars lies in [2^-24, (3/2)^24].
-    lo, hi = Q(1, 2) ** 24, Q(3, 2) ** 24
-    require(lo > 0 and hi < Q(10) ** 300, 'bounded feature ratios')
-    return {'F-RL-BOUNDS-COMPOSE': 'unsat'}
+    generic_lemmas()
+    # (I) the negated source predicate, evaluated on the stored doubles, is the registered realized bound.
+    eq, peak, v = z.Reals('bv_eq bv_peak bv_v')
+    floor, cap, dd = (z.RealVal(str(dbl(x))) for x in (0.8, 0.35, 0.15))
+    certify(z.And(eq > 0, peak >= eq, z.Not(eq < floor), z.Not(1 - eq / peak > dd), z.Not(z.Or(v > cap, v < -cap))),
+            z.And(eq >= floor, eq >= (1 - dd) * peak, v <= cap, v >= -cap))
+    return {'F-RL-BOUNDS-COMPOSE': 'unsat'}, propagate()
 
 
 def _replay():
@@ -180,4 +248,5 @@ def check_bounds():
     reg = json.loads((ROOT / REGISTRATION).read_text())
     require(reg['sourceChanges'] == 0 and reg['hardBounds']['maxAbsExposure'] == '7/20' and
             reg['gapAssumption']['maxAbsBarReturn'] == '1/2', 'registration')
-    return {'source': bind(), 'smt': prove(), 'conformance': conformance()}
+    smt, propagation = prove()
+    return {'source': bind(), 'smt': smt, 'propagation': propagation, 'conformance': conformance()}

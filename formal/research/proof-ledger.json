@@ -377,7 +377,7 @@
     {
       "id": "A-GAP-BOUND",
       "status": "assumption",
-      "statement": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "statement": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, prices in [2^-900, 2^900] and equity <= 2^900 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
       "risk": "RL-OFFLINE-001"
     }
   ],
@@ -7180,7 +7180,7 @@
         "A-GAP-BOUND",
         "A-SOLVER"
       ],
-      "tool": "AST source binding, Z3 real lemmas with explicit rounding factors, exact feature-ratio bound and seeded stress probe",
+      "tool": "AST source binding, Z3-certified generic rounding/product/sum/inversion lemmas, exact-rational per-operation binary64 propagation and seeded stress probe",
       "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
       "sourceModel": "scripts/formal/bounded_values.py",
       "artifact": "formal/research/results.json",
@@ -7194,22 +7194,22 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Fresh source binding (5 risk clauses, step order, 2 data exits, rejection branch, 9 stresses), seven SAT-premise/UNSAT-violation bound queries and 288 seeded stress episodes must reproduce.",
+      "result": "Fresh source binding (5 risk clauses, step order, modeled operations, 2 data exits, rejection branch, 9 stresses), six SAT-premise/UNSAT-violation generic and predicate queries, the exact-rational per-operation propagation (8 checks) and 288 seeded stress episodes must reproduce.",
       "bounds": "Per-bar |r| <= 1/2; funding <= 3/100 x multiplier 2; cost multiplier <= 5/2; impact <= 10 bp; u = 2^-53; 288 episodes, 2037 non-terminal checks, 224 breach terminations, 35 rejections.",
-      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, prices in [2^-900, 2^900] and equity <= 2^900 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
       "counterexample": null,
       "status": "exhaustively_checked"
     },
     {
       "requirementId": "F-RL-BOUNDS-COMPOSE",
-      "claim": "Every non-terminal state satisfies equity >= 4/5, drawdown <= 3/20 and |exposure| <= 7/20; under A-GAP-BOUND one bar keeps equity above 0.80 of its prior value with binary64 rounding, exposure at detection is at most 0.66, admitted trades and terminal liquidations cost under 0.18% and 0.24% of equity, data early exits are unreachable, and a fresh shielded target has post-cost exposure below 0.2505, so every risk- or horizon-triggered termination liquidates to flat with positive equity.",
-      "formalStatement": "Every non-terminal state satisfies equity >= 4/5, drawdown <= 3/20 and |exposure| <= 7/20; under A-GAP-BOUND one bar keeps equity above 0.80 of its prior value with binary64 rounding, exposure at detection is at most 0.66, admitted trades and terminal liquidations cost under 0.18% and 0.24% of equity, data early exits are unreachable, and a fresh shielded target has post-cost exposure below 0.2505, so every risk- or horizon-triggered termination liquidates to flat with positive equity.",
+      "claim": "Every non-terminal state satisfies the registered floor, drawdown and exposure bounds as evaluated on the stored doubles; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, normal-range premise) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, equity after an admitted trade or a terminal liquidation above 0.998 and 0.997 of its prior value, and post-cost fresh-target exposure < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity.",
+      "formalStatement": "Every non-terminal state satisfies the registered floor, drawdown and exposure bounds as evaluated on the stored doubles; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, normal-range premise) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, equity after an admitted trade or a terminal liquidation above 0.998 and 0.997 of its prior value, and post-cost fresh-target exposure < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity.",
       "criticality": "critical",
       "assumptions": [
         "A-GAP-BOUND",
         "A-SOLVER"
       ],
-      "tool": "AST source binding, Z3 real lemmas with explicit rounding factors, exact feature-ratio bound and seeded stress probe",
+      "tool": "AST source binding, Z3-certified generic rounding/product/sum/inversion lemmas, exact-rational per-operation binary64 propagation and seeded stress probe",
       "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
       "sourceModel": "scripts/formal/bounded_values.py",
       "artifact": "formal/research/results.json",
@@ -7223,9 +7223,9 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Fresh source binding (5 risk clauses, step order, 2 data exits, rejection branch, 9 stresses), seven SAT-premise/UNSAT-violation bound queries and 288 seeded stress episodes must reproduce.",
+      "result": "Fresh source binding (5 risk clauses, step order, modeled operations, 2 data exits, rejection branch, 9 stresses), six SAT-premise/UNSAT-violation generic and predicate queries, the exact-rational per-operation propagation (8 checks) and 288 seeded stress episodes must reproduce.",
       "bounds": "Per-bar |r| <= 1/2; funding <= 3/100 x multiplier 2; cost multiplier <= 5/2; impact <= 10 bp; u = 2^-53; 288 episodes, 2037 non-terminal checks, 224 breach terminations, 35 rejections.",
-      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, prices in [2^-900, 2^900] and equity <= 2^900 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
       "counterexample": null,
       "status": "smt_verified"
     },
@@ -7238,7 +7238,7 @@
         "A-GAP-BOUND",
         "A-SOLVER"
       ],
-      "tool": "AST source binding, Z3 real lemmas with explicit rounding factors, exact feature-ratio bound and seeded stress probe",
+      "tool": "AST source binding, Z3-certified generic rounding/product/sum/inversion lemmas, exact-rational per-operation binary64 propagation and seeded stress probe",
       "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
       "sourceModel": "scripts/formal/bounded_values.py",
       "artifact": "formal/research/results.json",
@@ -7252,9 +7252,9 @@
         "scripts/formal/test_integrity.py"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Fresh source binding (5 risk clauses, step order, 2 data exits, rejection branch, 9 stresses), seven SAT-premise/UNSAT-violation bound queries and 288 seeded stress episodes must reproduce.",
+      "result": "Fresh source binding (5 risk clauses, step order, modeled operations, 2 data exits, rejection branch, 9 stresses), six SAT-premise/UNSAT-violation generic and predicate queries, the exact-rational per-operation propagation (8 checks) and 288 seeded stress episodes must reproduce.",
       "bounds": "Per-bar |r| <= 1/2; funding <= 3/100 x multiplier 2; cost multiplier <= 5/2; impact <= 10 bp; u = 2^-53; 288 episodes, 2037 non-terminal checks, 224 breach terminations, 35 rejections.",
-      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
+      "limitations": "A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, prices in [2^-900, 2^900] and equity <= 2^900 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed.",
       "counterexample": null,
       "status": "property_tested"
     }
@@ -7624,7 +7624,7 @@
         "F-RL-VALUE-V2-SOURCE",
         "F-RL-BOUNDS-CONFORMANCE"
       ],
-      "limitations": "Scoped closure (2026-10-06) for the delivered offline path under the explicit assumption A-GAP-BOUND, following the obligation's recorded reading (separate proposal bounds from realized exposure; specify rejection/liquidation under loss; quantify gap assumptions). A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed. Fresh source binding, SMT bounds, the Haskell shield bound and the complete research-surface certificates reproduce; a stress probe adds tested evidence.",
+      "limitations": "Scoped closure (2026-10-06) for the delivered offline path under the explicit assumption A-GAP-BOUND, following the obligation's recorded reading (separate proposal bounds from realized exposure; specify rejection/liquidation under loss; quantify gap assumptions). A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding, prices in [2^-900, 2^900] and equity <= 2^900 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed. Fresh source binding, SMT bounds, the Haskell shield bound and the complete research-surface certificates reproduce; a stress probe adds tested evidence.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Shielded targets and post-cost positions respect registered hard bounds under explicit gap/solvency assumptions.",
       "nextAction": "None for the delivered path under A-GAP-BOUND. Any change to Replay risk/trade/termination, the shield, the stress maxima or the assumption requires a fresh certificate.",
