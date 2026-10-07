@@ -257,3 +257,5 @@ repository's established source-lock practice. Any edit fails the source
 certificate. The structural checks remain as machine-checked documentation of
 what the reviewed source does. The same lock is applied to the obligation-7
 bounded-values certificate, which binds the same class.
+
+The source lock was extended to the whole `sequential_env.py` module (eighth review of the accounting PR), covering transitive admission helpers.

@@ -4800,6 +4800,16 @@ class AccountingReconciliationTests(unittest.TestCase):
                 with self.assertRaises(Exception):
                     a.lemmas()
 
+    def test_transitive_helper_edit_and_sum_semantics(self):
+        import accounting_reconciliation as a
+        env=(ROOT/a.ENV).read_text()
+        old='def _finite_real(value) -> bool:\n'
+        self.assertIn(old,env)
+        mutated=env.replace(old,old+'    return True\n',1)
+        with self.assertRaisesRegex(ValueError,'reviewed source lock drift: module'):
+            a.bind({a.ENV:mutated})
+        self.assertTrue(a.sum_semantics())
+
     def test_probe_detects_unrecorded_debit(self):
         import sys
         sys.path.insert(0,str(ROOT/'scripts/research'))

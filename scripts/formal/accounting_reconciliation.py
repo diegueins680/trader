@@ -273,6 +273,14 @@ def _roll_forward():
     return len(ops), len(ops) + 1
 
 
+def sum_semantics():
+    """Pinned-runtime regression: CPython's compensated float sum applies only to exact floats; numpy
+    float64 scalars use generic left-to-right addition, which the roll-forward model counts."""
+    require(sum([1e16, 1.0, -1e16]) == 1.0, 'expected compensated summation for exact floats on this runtime')
+    require(sum([np.float64(1e16), np.float64(1.0), np.float64(-1e16)]) == 0.0, 'np.float64 sum must be left-to-right')
+    return True
+
+
 def lemmas():
     queries = _direct('gross') + _direct('funding')
     term_bounds = {'0.0005': dbl(0.0005), '5e-05': dbl(5e-05), '0.00045': dbl(0.00045), 'cfg.cost_multiplier': Q(5, 2),
@@ -313,11 +321,21 @@ def conformance():
     (term_rel, term_abs), (imp_rel, imp_abs) = STATED['costTerm'], STATED['impact']
     calls, trade_calls, impact_seen = [], 0, False
     original = Replay._trade
+    sum_paths = [0]
     def spy(self, target, terminal=False):
         # Pass-through instrumentation: record the executed inputs of each actual _trade call.
         equity, index = self.equity, len(self.rows)
         terms = original(self, target, terminal)
         calls.append((id(self), index, equity, terms))
+        if terms['turnover']:
+            # The debit's sum() runs over np.float64 scalars, so CPython uses generic left-to-right
+            # addition (its compensated fast path needs exact floats): the modeled 3-rounding fold.
+            values = [terms[k] for k in ('fee', 'spread', 'slippage', 'impact')]
+            require(all(type(v) is np.float64 for v in values), 'cost terms are np.float64 scalars')
+            fold = ((values[0] + values[1]) + values[2]) + values[3]
+            total = sum(values)
+            require(total.hex() == fold.hex() and self.equity == equity - total, 'debit equals the left-to-right fold')
+            sum_paths[0] += 1
         return terms
     Replay._trade = spy
     try:
@@ -374,11 +392,13 @@ def conformance():
     trade_calls += len(calls)
     require(rows > 1000 and gross_checks > 100 and impact_seen, 'vacuous probe')
     return {'status': 'property_tested', 'episodes': reg['probeEpisodes'], 'rows': rows, 'grossFundingChecks': gross_checks,
-            'costTermChecks': cost_checks, 'impactChecks': impact_checks, 'tradeCalls': trade_calls, 'seed': reg['probeSeed']}
+            'costTermChecks': cost_checks, 'impactChecks': impact_checks, 'tradeCalls': trade_calls, 'sumPathChecks': sum_paths[0],
+            'seed': reg['probeSeed']}
 
 
 def check_reconciliation():
     reg = json.loads((ROOT / REGISTRATION).read_text())
     require(reg['sourceChanges'] == 0 and reg['holdoutOpened'] is False, 'registration')
+    sum_semantics()
     certified = lemmas()
     return {'source': bind(), 'smt': {'F-RL-RECON-ERROR': 'unsat'}, 'certified': certified, 'conformance': conformance()}

@@ -197,3 +197,20 @@ repository's established source-lock practice. Any edit fails the source
 certificate. The structural checks remain as machine-checked documentation of
 what the reviewed source does. The same lock is applied to the obligation-7
 bounded-values certificate, which binds the same class.
+
+## Eighth review correction (before merge)
+
+- **Whole-module lock.** The source lock now also pins the entire
+  `sequential_env.py` module AST. Transitive admission helpers such as
+  `_finite_real`, `_real_series` and `_integer`, and module bindings, cannot
+  change without failing the certificate.
+- **`sum()` semantics bound to the runtime.** CPython 3.12+ uses compensated
+  summation for floats, but only for exact `float` items. The delivered cost terms
+  are `np.float64` scalars (prices come from float64 arrays), so `sum()` takes
+  the generic left-to-right addition path the roll-forward model counts. This is
+  now checked three ways:
+  - a pinned-runtime regression: `[1e16, 1.0, -1e16]` sums to 1.0 for exact
+    floats and to 0.0 for `np.float64`;
+  - per actual debit in the probe: every term is `np.float64`, and the debit
+    equals the left-to-right fold bit for bit (2,450 debits);
+  - the assumption is stated explicitly.
