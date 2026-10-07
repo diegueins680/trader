@@ -377,6 +377,19 @@
       "F-ASYNC-SEAL-INVARIANTS": "unsat"
     }
   },
+  "asyncStop": {
+    "conformance": {
+      "observed": "([\"entry failed\",\"follow-up order\"],[])",
+      "status": "property_tested"
+    },
+    "helperSha256": "67102cef95221c1980e7c0ff135fe045a18014a2f6e3536f20dcf3010f3f68c2",
+    "source": {
+      "binanceSites": 2,
+      "scope": "botStartWorker..reconcileBotPositionWithExchange (worker, autostart, optimizer and bot loops) and placeOrderForSignal..computeBacktestFromArgs (Binance and Coinbase order paths) bodies, Binance signing/cancel helpers",
+      "status": "exhaustively_checked",
+      "workerAndOrderSites": 32
+    }
+  },
   "backtestGate": {
     "conformance": {
       "concurrentCases": 32,
@@ -662,8 +675,8 @@
       "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
     },
     "graph": {
-      "localEdges": 296,
-      "moduleFiles": 121,
+      "localEdges": 298,
+      "moduleFiles": 122,
       "requirement": "F-RL-COMPONENT-ISOLATION",
       "roots": {
         "analyze-close-timing": {
@@ -744,13 +757,14 @@
           "states": 1
         },
         "trader-hs": {
-          "edges": 258,
+          "edges": 260,
           "maxShortestDepth": 3,
           "reachableFiles": [
             "haskell/app/Main.hs",
             "haskell/app/Trader/Api/Routes.hs",
             "haskell/app/Trader/App/Args.hs",
             "haskell/app/Trader/App/AsyncJobAdmission.hs",
+            "haskell/app/Trader/App/AsyncSafe.hs",
             "haskell/app/Trader/App/AutoStartBackoff.hs",
             "haskell/app/Trader/App/BacktestGate.hs",
             "haskell/app/Trader/App/BinanceProbe.hs",
@@ -846,7 +860,7 @@
             "haskell/app/Trader/Trading.hs",
             "haskell/app/Trader/VolConfGate.hs"
           ],
-          "states": 98
+          "states": 99
         }
       },
       "search": "reachable_fixed_point"
@@ -910,6 +924,7 @@
       "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
       "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
       "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
+      "haskell/app/Trader/App/AsyncSafe.hs": "67102cef95221c1980e7c0ff135fe045a18014a2f6e3536f20dcf3010f3f68c2",
       "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
       "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
       "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
@@ -1879,7 +1894,7 @@
     "smt": {
       "F-INVENTORY-READINESS-PREDICATE": "unsat"
     },
-    "sourceHash": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab"
+    "sourceHash": "5322ed965cee53a34dcb95e0c1756f886a895e83baf2a8a21b439cd00e8bc9ce"
   },
   "lifecycleStage": {
     "conformance": {
@@ -3744,6 +3759,7 @@
     "formal/research/async-shutdown-seal-contract.md": "bc67d02e844bf3bfeac2e6ec245fa5459ff0bb6cc0617a011d31efb039fb4fcc",
     "formal/research/async-shutdown-seal-counterexamples.json": "e061d5e9b3a88ec53059cc0a76b6b24f66f9bde1b105ee346dccad7a0bed6dff",
     "formal/research/async-shutdown-seal-source.json": "bd37c4bade784e70f0756ef87bd6de652217f15553d4953a44d8f071f0f8f18c",
+    "formal/research/async-stop-counterexample.json": "82026938e76d8b24f61da46d6e381240540e0900d4549cfb49ac927fefdc8d3a",
     "formal/research/backtest-gate-contract.md": "c775f0b2cb1f12e4283dba625a5b13fb061de41132e5af4fe2285014baa45e26",
     "formal/research/backtest-gate-counterexamples.json": "659172cc22fc4a2120d6d3024b689e55f88a93751440cb78ffa7641a58a12f85",
     "formal/research/backtest-gate-source.json": "da86ecc26282e8db98ad97830d186173439f20fce6630611a3e7f8031ac8d2d6",
@@ -3752,7 +3768,7 @@
     "formal/research/bot-worker-publication-source.json": "8358dcd2cafe6c905e4aac77737f85dfad31ef19db82dda1a9908d607ffbe1ba",
     "formal/research/bounded-values-contract.md": "24b4fe4612eca150aaec5a27751cbacc413067af4e9fbb78c558e7bd06707cbb",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
-    "formal/research/capability-source-contract.json": "073b2ab9896ab404d45f735c9a71fcd12a5d75e3ad3c95f84e1bb8a34caa0011",
+    "formal/research/capability-source-contract.json": "0158218044bf7fde2cecf456fcd108767a7c6a8c86c1e6f488fe4bc4166b40e4",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/champion-archive-contract.md": "7f184d931a68f620707b532cb93c76158bd2978a190cf74b8f3a05f36a2098b7",
@@ -3889,6 +3905,7 @@
     "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
     "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
+    "haskell/app/Trader/App/AsyncSafe.hs": "67102cef95221c1980e7c0ff135fe045a18014a2f6e3536f20dcf3010f3f68c2",
     "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
     "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
     "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
@@ -4075,6 +4092,7 @@
     "scripts/formal/artifact_v4.py": "c763874bcd83869f3ebaac11f019a1119b268121d1498cb1ce15811e76294e8b",
     "scripts/formal/async_job_admission.py": "392c8e4557956ee49ae66a0ab6bc40689b378c3b509ceca2155798ee01d3f61a",
     "scripts/formal/async_shutdown_seal.py": "27d3ea78b02790e39f06f577f608fef24393068ca934b5cbab8a37ad0d9f5083",
+    "scripts/formal/async_stop.py": "bb63c443b1b48ae49b385b6ededd29ed7b93f5882340820c2898223bc3e9b3d2",
     "scripts/formal/backtest_gate.py": "ca59d6c12d70fbe4c350aeeb622993c5cb522ab47092c4b5467b0492c83d6c09",
     "scripts/formal/bot_worker_publication.py": "353c3548ce505523d76fbe4ab6f2caab4d9277d9e48d573d6e641e7ca74e2113",
     "scripts/formal/bounded_values.py": "a427d268a39e194a1d2cb4c567390764ea48676cef440b3c206a971eadbacd2f",

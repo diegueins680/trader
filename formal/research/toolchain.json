@@ -184,7 +184,7 @@
     "research-notes/registrations/obligation-closure-engineering.json": "076102d649f6b1e759c2ed0b00260fd43f85c4e8ca9e667a1272876244bc5825",
     "formal/research/obligation-contracts.json": "59835a5809bd837cb7596ec75454005902ede2ee6a7b3dbcd52f86284505d7eb",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
-    "formal/research/capability-source-contract.json": "073b2ab9896ab404d45f735c9a71fcd12a5d75e3ad3c95f84e1bb8a34caa0011",
+    "formal/research/capability-source-contract.json": "0158218044bf7fde2cecf456fcd108767a7c6a8c86c1e6f488fe4bc4166b40e4",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "formal/research/ComponentGraph.hs": "adce2baf7f0b713dfc2835502dc5459295ac799cd208d96404d09b3a5e7a48b4",

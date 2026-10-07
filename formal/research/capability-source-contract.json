@@ -15,6 +15,7 @@
     "haskell/app/Trader/Api/Routes.hs",
     "haskell/app/Trader/App/Args.hs",
     "haskell/app/Trader/App/AsyncJobAdmission.hs",
+    "haskell/app/Trader/App/AsyncSafe.hs",
     "haskell/app/Trader/App/AutoStartBackoff.hs",
     "haskell/app/Trader/App/BacktestGate.hs",
     "haskell/app/Trader/App/BinanceProbe.hs",
