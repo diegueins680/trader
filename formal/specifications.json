@@ -916,6 +916,22 @@
         {
           "id": "F-LIVE-STOP-ASYNC-CONFORMANCE",
           "statement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-SOURCE",
+          "statement": "Causal replay v3 uses only consumed immutable bars with one explicit symbol, fits the scale strictly before the first decision, revalidates the scale against its burn-in prefix, observes the old state before consuming a new bar, neutralizes unsupported targets before exact accounting, preserves the scale and has activation-first default rejection with no policy callback, persistence or order effect."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-ARITH",
+          "statement": "For admitted initialization and step bounds, scale rows exist and precede the initial decision, every trailing feature lag lies within the consumed prefix, append stays within the history bound, consecutive availability advances strictly, symbol identity is preserved, normalized support intervals preserve order, and the shielded target remains in [-1/4,1/4] with unsupported targets zero."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-FLOW",
+          "statement": "The finite causal replay control model through eight steps keeps the scale fixed and authority absent, advances only after observing the old state, never advances beyond the bound and has no continuation from a rejected or terminal state."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-CONFORMANCE",
+          "statement": "Seeded synthetic prefix replays reproduce identical observations despite rewriting unconsumed future values, agree with the Haskell Rational observation oracle and exact accounting kernel, keep previous sessions immutable and neutralize unsupported targets; deterministic regression tests reject late, invalid, oversized and forged-scale inputs."
         }
       ],
       "invariants": [

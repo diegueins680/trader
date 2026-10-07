@@ -3452,7 +3452,7 @@ class PromotionBoundaryTests(unittest.TestCase):
     def test_promotion_conformance(self):
         trees,surface=self.p.extract();facts,meta=self.p.metadata(trees)
         result=self.p.conformance(facts);model=self.p.lifecycle(facts)
-        self.assertEqual((surface['moduleCount'],meta['queries']),(19,7))
+        self.assertEqual((surface['moduleCount'],meta['queries']),(20,7))
         self.assertEqual((result['metadataCases'],result['accepted'],result['exclusiveCreateCases']),(72,2,2))
         self.assertGreater(model['rejectedMetadataEdges'],0)
         self.assertGreater(model['states'],0)
@@ -3562,7 +3562,7 @@ class ChampionArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'counterexample'): p.preserve(False)
         with self.assertRaisesRegex(ValueError, 'unsatisfied'): p.prove(z3.BoolVal(False), z3.BoolVal(True))
         with self.assertRaisesRegex(ValueError, 'production-root composition'):
-            p.check_archive({'surface':{'moduleCount':19}, 'composition':{'productionRoots':[]}})
+            p.check_archive({'surface':{'moduleCount':20}, 'composition':{'productionRoots':[]}})
         original = p.successors
         def overwrite(state, legacy=False):
             names, data, phases, handles, keys, injected = state
@@ -3828,7 +3828,7 @@ class PointInTimeTests(unittest.TestCase):
         _,surface=extract()
         production=['analyze-close-timing','lstm-bench','merge-top-combos','optimize-equity','outbox-publisher','trader-hs']
         result=c.check_consumers({'surface':surface,'composition':{'productionRoots':production}})
-        self.assertEqual(result['surface']['modules'],19)
+        self.assertEqual(result['surface']['modules'],20)
         with self.assertRaisesRegex(ValueError,'complete consumer composition'):
             c.check_consumers({'surface':dict(surface,moduleCount=12),'composition':{'productionRoots':production}})
 
@@ -4131,7 +4131,7 @@ class LifecycleStageTests(unittest.TestCase):
 
     def test_actual_stage_composition(self):
         r = self.s.check_stages()
-        self.assertEqual(r['surface']['researchModules'], 19)
+        self.assertEqual(r['surface']['researchModules'], 20)
         self.assertEqual(r['queries'], 8)
         self.assertEqual(r['premiseChecks'], 8)
         self.assertEqual((r['model']['states'], r['model']['transitions']), (28, 168))
@@ -4852,6 +4852,93 @@ class AsyncStopTests(unittest.TestCase):
         helper = (ROOT / a.ASYNC).read_text()
         with self.assertRaisesRegex(ValueError, 'async exception|async-safe fragment'):
             a.bind({a.ASYNC: helper.replace('Left ex | isAsyncException (toException ex) -> throwIO ex', 'Left ex | False -> throwIO ex')})
+
+
+class CausalReplayV3Tests(unittest.TestCase):
+    def setUp(self):
+        import causal_replay
+        self.proof = causal_replay
+        self.c = causal_replay.modules()
+        from fractions import Fraction as F
+        self.F = F
+        self.bars = tuple(self.c.Bar("BTC", i * 1000, i * 1000 + 10, F(100 + i % 3)) for i in range(60))
+        self.session = self.c.start_v3(self.bars[:50], enabled=True)
+        self.assertIsNotNone(self.session)
+
+    def test_source_smt_and_model(self):
+        self.proof.extract()
+        self.assertEqual(self.proof.prove(), {'F-RL-CAUSAL-V3-ARITH': 'unsat'})
+        self.assertGreater(self.proof.model()['states'], 0)
+        with self.assertRaises(ValueError):
+            self.proof.model(mutant=True)
+
+    def test_future_fit_and_shield_mutants_reject(self):
+        source = (ROOT / self.proof.SOURCE).read_text()
+        for old, new in (('_fit(bars[:-1])', '_fit(bars)'),
+                         ('else F(0)', 'else target'),
+                         ('session.scale, receipt.after', '_fit(session.history), receipt.after'),
+                         ('bars[-25:]', 'bars[:25]')):
+            self.assertIn(old, source)
+            with self.assertRaises(ValueError):
+                self.proof.extract(source.replace(old, new))
+
+    def test_disabled_version_invalid_and_late_inputs(self):
+        c, F = self.c, self.F
+        self.assertIsNone(c.start_v3(self.bars[:50]))
+        self.assertIsNone(c.observe_v3(self.session))
+        self.assertIsNone(c.step_v3(self.session, self.bars[50], (), F(0)))
+        for version in ('sequential_replay_v1', None, 3, True):
+            self.assertIsNone(c.start_v3(self.bars[:50], enabled=True, version=version))
+        for bar in (None, c.Bar("BTC", 50000, 50010, F(-1)), c.Bar("BTC", 50000, 49999, F(100)),
+                    c.Bar("BTC", 50000, 50010, float('nan')), c.Bar("BTC", 49010, 50010, F(100)),
+                    c.Bar("BTC", True, 50010, F(100)), c.Bar("BTC", 50000, 2**63, F(100))):
+            self.assertIsNone(c.step_v3(self.session, bar, (), F(0), enabled=True))
+        for action in (True, float('nan'), float('inf'), F(1), 0.25):
+            self.assertIsNone(c.step_v3(self.session, self.bars[50], (), action, enabled=True))
+        self.assertEqual(self.session.history, self.bars[:50])
+
+    def test_symbol_isolation(self):
+        c, F = self.c, self.F
+        other = c.Bar("ETH", 50000, 50010, F(100))
+        self.assertIsNone(c.start_v3(self.bars[:49] + (other,), enabled=True))
+        self.assertIsNone(c.step_v3(self.session, other, (), F(0), enabled=True))
+        self.assertEqual(self.session.history[-1].symbol, "BTC")
+
+    def test_scale_cannot_be_injected_or_refitted_from_later_rows(self):
+        from dataclasses import replace
+        c, F = self.c, self.F
+        modified = self.bars[:50] + tuple(c.Bar("BTC", b.close, b.available, F(500)) for b in self.bars[50:])
+        self.assertEqual(c.start_v3(modified[:50], enabled=True), self.session)
+        contaminated = c._fit(modified)
+        self.assertNotEqual(contaminated, self.session.scale)
+        self.assertIsNone(c.observe_v3(replace(self.session, scale=contaminated), enabled=True))
+        self.assertIsNone(c.observe_v3(replace(self.session, burn=26), enabled=True))
+        # The initial decision bar also does not enter the fitted scale.
+        changed = self.bars[:49] + (c.Bar("BTC", 49000, 49010, F(103)),)
+        other = c.start_v3(changed, enabled=True)
+        self.assertEqual(other.scale, self.session.scale)
+        self.assertNotEqual(c.observe_v3(other, enabled=True).values, c.observe_v3(self.session, enabled=True).values)
+
+    def test_neutralization_and_terminal_accounting(self):
+        c, F = self.c, self.F
+        flat = tuple(c.Bar("BTC", i*1000, i*1000+10, F(100)) for i in range(50))
+        s = c.start_v3(flat, enabled=True)
+        s, first = c.step_v3(s, c.Bar("BTC", 50000,50010,F(101)), (), F(1,4), enabled=True)
+        self.assertNotEqual(first.after.units,F(0))
+        self.assertFalse(c.observe_v3(s,enabled=True).supported)
+        s, second = c.step_v3(s,c.Bar("BTC", 51000,51010,F(101)),(),F(1,4),enabled=True)
+        self.assertEqual(second.after.units,F(0))
+        s, terminal = c.step_v3(s,c.Bar("BTC", 52000,52010,F(101)),(),F(0),terminal=True,enabled=True)
+        self.assertTrue(s.state.terminal)
+        self.assertIsNone(c.step_v3(s,c.Bar("BTC", 53000,53010,F(101)),(),F(0),enabled=True))
+        self.assertIsNone(c.observe_v3(s,enabled=True))
+
+    def test_bounded_arithmetic_and_missing_history(self):
+        c, F = self.c, self.F
+        for bars in ((), self.bars[:25], list(self.bars), self.bars[:49] + (c.Bar("BTC", 49000,49010,F(2**8192)),)):
+            self.assertIsNone(c.start_v3(bars,enabled=True))
+        self.assertIsNone(c.step_v3(self.session,self.bars[50],((F(2**8191),F(2**8191)),),F(0),enabled=True))
+        self.assertEqual(self.session.state.tick,0)
 
 
 if __name__ == '__main__':

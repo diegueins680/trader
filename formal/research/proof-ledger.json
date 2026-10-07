@@ -391,6 +391,12 @@
       "status": "assumption",
       "statement": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-CAUSAL-REPLAY-V3",
+      "status": "assumption",
+      "statement": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -614,7 +620,10 @@
     "formal/research/replay-source-lock.json",
     "scripts/formal/async_stop.py",
     "haskell/app/Trader/App/AsyncSafe.hs",
-    "formal/research/async-stop-counterexample.json"
+    "formal/research/async-stop-counterexample.json",
+    "scripts/research/causal_replay_v3.py",
+    "scripts/formal/causal_replay.py",
+    "formal/research/CausalReplayV3.hs"
   ],
   "entries": [
     {
@@ -7433,6 +7442,126 @@
       "limitations": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "counterexample": "CE-LIVE-001",
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-CAUSAL-V3-SOURCE",
+      "claim": "Causal replay v3 uses only consumed immutable bars with one explicit symbol, fits the scale strictly before the first decision, revalidates the scale against its burn-in prefix, observes the old state before consuming a new bar, neutralizes unsupported targets before exact accounting, preserves the scale and has activation-first default rejection with no policy callback, persistence or order effect.",
+      "formalStatement": "Causal replay v3 uses only consumed immutable bars with one explicit symbol, fits the scale strictly before the first decision, revalidates the scale against its burn-in prefix, observes the old state before consuming a new bar, neutralizes unsupported targets before exact accounting, preserves the scale and has activation-first default rejection with no policy callback, persistence or order effect.",
+      "criticality": "high",
+      "assumptions": [
+        "A-CAUSAL-REPLAY-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed AST footprint; Z3 index and action lemmas; finite control checker; Haskell Rational oracle",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/causal_replay.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/causal_replay_v3.py",
+        "formal/research/causal-replay-v3-contract.md",
+        "research-notes/registrations/causal-replay-v3-engineering.json",
+        "formal/research/causal-replay-v3-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/CausalReplayV3.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source, eight SAT-premise/UNSAT-violation queries, 32-state/39-transition model, 32 seeded episodes and 512 Haskell oracle rows must reproduce.",
+      "bounds": "Initialization 26..4096 bars; history at most 8192; ticks at most 4096; per-result rational numerator/denominator 8192 bits; model 8 steps, 32 states, 39 transitions; seed 20261007, 32 episodes, 512 transitions.",
+      "limitations": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim. Exact new nine-component observation schema differs intentionally from frozen twelve-component observations; no trained artifact compatibility or learner integration. CE-RL-025 remains refuted on frozen code. Properties over all admitted indices are SMT lemmas; replay/oracle cases are tests, not proofs.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-CAUSAL-V3-ARITH",
+      "claim": "For admitted initialization and step bounds, scale rows exist and precede the initial decision, every trailing feature lag lies within the consumed prefix, append stays within the history bound, consecutive availability advances strictly, symbol identity is preserved, normalized support intervals preserve order, and the shielded target remains in [-1/4,1/4] with unsupported targets zero.",
+      "formalStatement": "For admitted initialization and step bounds, scale rows exist and precede the initial decision, every trailing feature lag lies within the consumed prefix, append stays within the history bound, consecutive availability advances strictly, symbol identity is preserved, normalized support intervals preserve order, and the shielded target remains in [-1/4,1/4] with unsupported targets zero.",
+      "criticality": "high",
+      "assumptions": [
+        "A-CAUSAL-REPLAY-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed AST footprint; Z3 index and action lemmas; finite control checker; Haskell Rational oracle",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/causal_replay.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/causal_replay_v3.py",
+        "formal/research/causal-replay-v3-contract.md",
+        "research-notes/registrations/causal-replay-v3-engineering.json",
+        "formal/research/causal-replay-v3-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/CausalReplayV3.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source, eight SAT-premise/UNSAT-violation queries, 32-state/39-transition model, 32 seeded episodes and 512 Haskell oracle rows must reproduce.",
+      "bounds": "Initialization 26..4096 bars; history at most 8192; ticks at most 4096; per-result rational numerator/denominator 8192 bits; model 8 steps, 32 states, 39 transitions; seed 20261007, 32 episodes, 512 transitions.",
+      "limitations": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim. Exact new nine-component observation schema differs intentionally from frozen twelve-component observations; no trained artifact compatibility or learner integration. CE-RL-025 remains refuted on frozen code. Properties over all admitted indices are SMT lemmas; replay/oracle cases are tests, not proofs.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-CAUSAL-V3-FLOW",
+      "claim": "The finite causal replay control model through eight steps keeps the scale fixed and authority absent, advances only after observing the old state, never advances beyond the bound and has no continuation from a rejected or terminal state.",
+      "formalStatement": "The finite causal replay control model through eight steps keeps the scale fixed and authority absent, advances only after observing the old state, never advances beyond the bound and has no continuation from a rejected or terminal state.",
+      "criticality": "high",
+      "assumptions": [
+        "A-CAUSAL-REPLAY-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed AST footprint; Z3 index and action lemmas; finite control checker; Haskell Rational oracle",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/causal_replay.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/causal_replay_v3.py",
+        "formal/research/causal-replay-v3-contract.md",
+        "research-notes/registrations/causal-replay-v3-engineering.json",
+        "formal/research/causal-replay-v3-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/CausalReplayV3.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source, eight SAT-premise/UNSAT-violation queries, 32-state/39-transition model, 32 seeded episodes and 512 Haskell oracle rows must reproduce.",
+      "bounds": "Initialization 26..4096 bars; history at most 8192; ticks at most 4096; per-result rational numerator/denominator 8192 bits; model 8 steps, 32 states, 39 transitions; seed 20261007, 32 episodes, 512 transitions.",
+      "limitations": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim. Exact new nine-component observation schema differs intentionally from frozen twelve-component observations; no trained artifact compatibility or learner integration. CE-RL-025 remains refuted on frozen code. Properties over all admitted indices are SMT lemmas; replay/oracle cases are tests, not proofs.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-CAUSAL-V3-CONFORMANCE",
+      "claim": "Seeded synthetic prefix replays reproduce identical observations despite rewriting unconsumed future values, agree with the Haskell Rational observation oracle and exact accounting kernel, keep previous sessions immutable and neutralize unsupported targets; deterministic regression tests reject late, invalid, oversized and forged-scale inputs.",
+      "formalStatement": "Seeded synthetic prefix replays reproduce identical observations despite rewriting unconsumed future values, agree with the Haskell Rational observation oracle and exact accounting kernel, keep previous sessions immutable and neutralize unsupported targets; deterministic regression tests reject late, invalid, oversized and forged-scale inputs.",
+      "criticality": "high",
+      "assumptions": [
+        "A-CAUSAL-REPLAY-V3",
+        "A-SOLVER"
+      ],
+      "tool": "Reviewed AST footprint; Z3 index and action lemmas; finite control checker; Haskell Rational oracle",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; GHC9.4.8",
+      "sourceModel": "scripts/formal/causal_replay.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/causal_replay_v3.py",
+        "formal/research/causal-replay-v3-contract.md",
+        "research-notes/registrations/causal-replay-v3-engineering.json",
+        "formal/research/causal-replay-v3-source.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "formal/research/CausalReplayV3.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Source, eight SAT-premise/UNSAT-violation queries, 32-state/39-transition model, 32 seeded episodes and 512 Haskell oracle rows must reproduce.",
+      "bounds": "Initialization 26..4096 bars; history at most 8192; ticks at most 4096; per-result rational numerator/denominator 8192 bits; model 8 steps, 32 states, 39 transitions; seed 20261007, 32 episodes, 512 transitions.",
+      "limitations": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim. Exact new nine-component observation schema differs intentionally from frozen twelve-component observations; no trained artifact compatibility or learner integration. CE-RL-025 remains refuted on frozen code. Properties over all admitted indices are SMT lemmas; replay/oracle cases are tests, not proofs.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -7451,9 +7580,13 @@
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-RUNNER-V2-ARITH",
         "F-RL-RUNNER-V2-FLOW",
-        "F-RL-RUNNER-V2-CONFORMANCE"
+        "F-RL-RUNNER-V2-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted observation uses event/release/first-seen/revision times <= decision and preprocessing respects the registered fold.",
       "nextAction": "Specify an availability-bearing dataset record and prove its admission-to-feature composition before a new data campaign.",
@@ -7490,7 +7623,11 @@
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-VALUE-V2-SOURCE",
-        "F-RL-SPLIT-CONFORMANCE"
+        "F-RL-SPLIT-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Scoped closure (2026-10-06) for the delivered offline research path under the owner-approved standard purge/embargo definition: fresh source binding, SMT region lemmas, registered fold/holdout arithmetic and the complete research-module surface certificates reproduce; a metamorphic probe adds tested evidence. Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope. Prior history: earlier audits left the purge/embargo relation open; that is now explicitly resolved, not silently reinterpreted.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7511,7 +7648,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7533,7 +7671,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -7556,7 +7697,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7577,7 +7722,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7595,7 +7741,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -7641,7 +7790,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Source-level composition under trusted Python/pandas/NumPy semantics, unchanged admitted input identity and no concurrent mutation. Shared training scales/policies are explicitly global. Publication/revision timing, online admission causality and inherited production behavior are not certified. The separate PPO successor adds no dataset loader or held-out input: it copies externally selected training prefixes by matching symbol keys, fits only those copies, and calls the same checked collector; this new source boundary is required under A-PPO-SUCCESSOR. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7662,7 +7815,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7680,7 +7834,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -7744,9 +7901,13 @@
         "F-RL-VALUE-V2-SOURCE",
         "F-RL-VALUE-V2-ARITH",
         "F-RL-VALUE-V2-FLOW",
-        "F-RL-VALUE-V2-CONFORMANCE"
+        "F-RL-VALUE-V2-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact funding events v2 (2026-10-06) adds a disconnected disabled canonical-decimal funding loader successor with SMT size/endpoint lemmas, exhaustive sweep, publication model and Haskell oracle: CE-RL-019 text witnesses reject before arithmetic and admitted coefficients are exact. The frozen loader and F-RL-FUNDING-FINITE stay refuted; runner composition and release timing remain open. No broad closure. Value objective v2 (2026-10-06) adds a disconnected scalar-only conservative Double-DQN objective: the alpha=0 penalty is skipped, the penalty uses differences only, admitted magnitudes are bounded so loss < 2^201, and underflow is counted and published. CE-RL-014 rejects, CE-RL-015 is shift-invariant and new CE-RL-024 (bitwise signed-zero) is resolved by canonicalization. The frozen helper stays refuted; no learner composition. No broad closure.",
+      "limitations": "Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. Source-bound inference admission adds conditional guard/selection evidence only; timeout preemption, runtime refinement and observation meaning remain open. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact funding events v2 (2026-10-06) adds a disconnected disabled canonical-decimal funding loader successor with SMT size/endpoint lemmas, exhaustive sweep, publication model and Haskell oracle: CE-RL-019 text witnesses reject before arithmetic and admitted coefficients are exact. The frozen loader and F-RL-FUNDING-FINITE stay refuted; runner composition and release timing remain open. No broad closure. Value objective v2 (2026-10-06) adds a disconnected scalar-only conservative Double-DQN objective: the alpha=0 penalty is skipped, the penalty uses differences only, admitted magnitudes are bounded so loss < 2^201, and underflow is counted and published. CE-RL-014 rejects, CE-RL-015 is shift-invariant and new CE-RL-024 (bitwise signed-zero) is resolved by canonicalization. The frozen helper stays refuted; no learner composition. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every admitted predictor/policy/reward output is finite or absent on every supported numeric input.",
       "nextAction": "Extend the composed PPO successor through checked artifact/process inference and full numeric replay/accounting; separately repair Q/CQL/OPE paths without changing frozen v1.",
@@ -7798,7 +7959,11 @@
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-VALUE-V2-SOURCE",
-        "F-RL-BOUNDS-CONFORMANCE"
+        "F-RL-BOUNDS-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Scoped closure (2026-10-06) for the delivered offline path under the explicit assumption A-GAP-BOUND, following the obligation's recorded reading (separate proposal bounds from realized exposure; specify rejection/liquidation under loss; quantify gap assumptions). A-GAP-BOUND: per-bar |return| <= 1/2, |funding per unit| <= 3/100 of the prior price, finite positive prices and finite funding held in binary64 (float64) arrays as the delivered loader builds them (other dtypes admitted by Replay are outside the certificate), prices and equity in [2^-400, 2^400] so every product and quotient, including e/p on the missed-fill branch, stays below 2^1000 (no overflow), execution within the registered stress maxima, monotone numpy.sqrt on [0,1], and the binary64 standard rounding model. This is an assumption about market data, not a fact; paths outside it can breach any bound (CE-RL-002/003 stay refuted). Proposal rejections end episodes without an order and leave the last in-bounds position unliquidated by design. Production order sizing and rounding belong to obligation 9 and are not claimed. Fresh source binding, SMT bounds, the Haskell shield bound and the complete research-surface certificates reproduce; a stress probe adds tested evidence.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7820,7 +7985,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7844,7 +8010,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -7890,7 +8059,11 @@
         "F-RL-VALUE-V2-SOURCE",
         "F-RL-RECON-CONFORMANCE",
         "F-RL-BOUNDS-SOURCE",
-        "F-RL-BOUNDS-COMPOSE"
+        "F-RL-BOUNDS-COMPOSE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Scoped closure (2026-10-07) for the delivered offline path. Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's market limits (per-bar |p1/p0 - 1| <= 1/2 and |funding per unit| <= 3/100 of the prior price), its range premise (prices and equity in [2^-400, 2^400]), its execution maxima (cost multiplier <= 5/2, impact_bps <= 10, funding multiplier <= 2, as bound to the runner's registered stresses by F-RL-BOUNDS-SOURCE; Execution itself accepts larger values, which are outside the certificate) and binary64 arrays from the delivered loader (so cost terms are np.float64 scalars and CPython's sum() uses left-to-right addition, not its exact-float compensated path; checked per debit), A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row. Fresh source binding, the SMT error lemmas with exact constant derivation, the existing exact identities and the complete research-surface certificates reproduce; a ledger probe adds tested evidence.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -7911,7 +8084,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -7936,7 +8110,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -8037,9 +8214,13 @@
         "F-RL-VALUE-V2-SOURCE",
         "F-RL-VALUE-V2-ARITH",
         "F-RL-VALUE-V2-FLOW",
-        "F-RL-VALUE-V2-CONFORMANCE"
+        "F-RL-VALUE-V2-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact funding events v2 (2026-10-06) adds a disconnected disabled canonical-decimal funding loader successor with SMT size/endpoint lemmas, exhaustive sweep, publication model and Haskell oracle: CE-RL-019 text witnesses reject before arithmetic and admitted coefficients are exact. The frozen loader and F-RL-FUNDING-FINITE stay refuted; runner composition and release timing remain open. No broad closure. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Value objective v2 (2026-10-06) adds a disconnected scalar-only conservative Double-DQN objective: the alpha=0 penalty is skipped, the penalty uses differences only, admitted magnitudes are bounded so loss < 2^201, and underflow is counted and published. CE-RL-014 rejects, CE-RL-015 is shift-invariant and new CE-RL-024 (bitwise signed-zero) is resolved by canonicalization. The frozen helper stays refuted; no learner composition. No broad closure.",
+      "limitations": "Current-source CE-RL-010/011 expose terminal reconstruction cancellation and overflow/NaN carry despite finite inputs; these unresolved numerical blockers do not establish historical-market prevalence. Scoped exact-real and finite-product proofs do not repair them. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. CE-RL-012 additionally refutes PPO gradient finiteness under finite inputs; downstream optimizer refusal is tested, not an end-to-end repair. Value-based helper CE-RL-014/015 additionally refute finite-loss and exact-shift claims; no historical prevalence or training reachability is established. CE-RL-018 preserves ESS moment underflow outside the current deterministic short-OPE weight domain; finite-algebra checks do not discharge numeric or statistical reliability. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Conditional funding endpoint/grid evidence and synthetic CE-RL-019 added; neither actual release timing nor universal finite loader outputs is established. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Closed-trade recovery now has scoped numeric/index admission and pure-helper conformance under A-RECOVERY-NUMERIC; durable recovery, parser refinement, authenticity/freshness and whole-system composition remain unresolved. No broad closure. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact funding events v2 (2026-10-06) adds a disconnected disabled canonical-decimal funding loader successor with SMT size/endpoint lemmas, exhaustive sweep, publication model and Haskell oracle: CE-RL-019 text witnesses reject before arithmetic and admitted coefficients are exact. The frozen loader and F-RL-FUNDING-FINITE stay refuted; runner composition and release timing remain open. No broad closure. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Value objective v2 (2026-10-06) adds a disconnected scalar-only conservative Double-DQN objective: the alpha=0 penalty is skipped, the penalty uses differences only, admitted magnitudes are bounded so loss < 2^201, and underflow is counted and published. CE-RL-014 rejects, CE-RL-015 is shift-invariant and new CE-RL-024 (bitwise signed-zero) is resolved by canonicalization. The frozen helper stays refuted; no learner composition. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "All critical arithmetic is bounded or detects overflow/underflow before publication.",
       "nextAction": "Compose value-objective-v2, gae-targets-v2 and the exact replay runner into registered successor learners so no frozen training path is needed; then decide, under a new preregistration, whether frozen CE-RL-010/011/012/014/018/019 paths are retired. Frozen v1 learner/OPE evidence stays invalid and numeric admission cannot establish empirical support.",
@@ -8078,7 +8259,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -8104,7 +8289,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8126,7 +8312,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -8166,7 +8355,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "A-SHIELD-COMPOSITION: pinned Python3.13.3/NumPy2.3.5 ordinary objects, sequential control flow, fresh object identity, array-copy and reviewed primitive effects; fixed registered callbacks and complete source inventory. No hostile monkeypatching/subclasses, reflective caller mutation, asynchronous injected callbacks or direct external private-helper invocation. Local receiver ownership is source-checked, not merely assumed. Reviewed effect/source-model correspondence is not whole-language refinement. Numeric solvency, all hard constraints, truthful evidence/provider timing, asynchronous revocation, crash recovery, inherited production races and deployed images remain uncertified.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8201,7 +8394,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8236,7 +8430,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -8359,12 +8556,16 @@
         "F-RL-REPLAY-CUTOFF",
         "F-RL-REPLAY-QUOTIENT",
         "F-RL-OBS-TRAIN-SCALE",
-        "F-RL-OBS-REPLAY-CAUSAL"
+        "F-RL-OBS-REPLAY-CAUSAL",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Observation causality audit (2026-10-06): CE-RL-025 refutes training-time invariance in the frozen path because of the prefix-wide scale; a fixed-scale probe shows the Replay observation itself is causal. Evaluation observations are unaffected. No broad closure.",
+      "limitations": "Source-linked market_features footprint is now checked, assuming base arrays and trusted primitives; caller selection, timing and full replay-history refinement remain open. Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Observation causality audit (2026-10-06): CE-RL-025 refutes training-time invariance in the frozen path because of the prefix-wide scale; a fixed-scale probe shows the Replay observation itself is causal. Evaluation observations are unaffected. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Current policy observation is invariant under changes to data first available after the decision.",
-      "nextAction": "Register a causal-scale successor (burn-in-only or expanding-window fit) composed with the exact replay runner, then compose availability admission; the frozen path stays refuted.",
+      "nextAction": "Compose causal-replay-v3 into newly registered successor learners and actual availability-bearing dataset admission; frozen CE-RL-025 remains refuted. Do not reuse frozen evidence as confirmation.",
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py"
@@ -8401,9 +8602,13 @@
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-RUNNER-V2-ARITH",
         "F-RL-RUNNER-V2-FLOW",
-        "F-RL-RUNNER-V2-CONFORMANCE"
+        "F-RL-RUNNER-V2-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every replay transition preserves state/ledger invariants or terminates in a specified failure state.",
       "nextAction": "Verify full transition composition with a bounded numeric core and preserved counterexample fixtures.",
@@ -8441,9 +8646,13 @@
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-RUNNER-V2-ARITH",
         "F-RL-RUNNER-V2-FLOW",
-        "F-RL-RUNNER-V2-CONFORMANCE"
+        "F-RL-RUNNER-V2-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
+      "limitations": "Gap-risk lemmas are conditional real arithmetic; CE-RL-002/003 refute an unconditional capital floor even for accepted targets. Source-derived admission predicates add conditional finite reward/equity, endpoint and terminal-flatness evidence; complete transitions, cash accounting and runtime refinement remain open. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. Source-derived real row/reward identities and wealth-fold induction obligations add evidence; full binary64 accounting/refinement and policy-objective equivalence remain unproved. Summed reward is not compounded economic return. Exact replay-accounting-v2 now supplies bounded rational funding/debit and explicit terminal receipt evidence. It is not composed into the frozen runner/learner and does not close this criterion. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every terminal path records flat inventory or explicit failed liquidation and accounts all terminal costs exactly as specified.",
       "nextAction": "Prove each terminal branch, including insolvency, unavailable prices and rejected liquidation, against ledger publication.",
@@ -8580,9 +8789,13 @@
         "F-RL-RUNNER-V2-SOURCE",
         "F-RL-RUNNER-V2-ARITH",
         "F-RL-RUNNER-V2-FLOW",
-        "F-RL-RUNNER-V2-CONFORMANCE"
+        "F-RL-RUNNER-V2-CONFORMANCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
-      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure.",
+      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open. The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. The isolated ess-rational-v2 diagnostic supplies exact-weight algebra and bounded publication evidence only; frozen OPE, upstream weight formation and statistical reliability remain unchanged and unproved. Source-bound one-call event ordering and due-time evidence added; abstraction assumptions, numeric accounting and full runtime/production refinement remain open. Integer cutoff and class-seven ordering evidence extend single-call ordering coverage; no observation/reward or multi-call runtime refinement. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. V4 immutable byte serialization now composes digest/provenance/shape checks with the existing v3 request. Trust-anchor authenticity, file lifecycle and Haskell-side artifact admission remain open. Exact replay runner v2 (2026-10-06) composes funding-events-v2 and replay-accounting-v2 over a fixed target schedule with SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell oracle rows and metamorphic future-rewrite tests. It assumes grid time is availability time and has no policy; frozen v1 is unchanged. No broad closure. Causal replay v3 (2026-10-07) composes prefix-only rational observations, a pre-decision burn-in scale and exact replay accounting. It rejects forged scales and late bars, defaults disabled, and has no future-array or policy callback. Source/SMT/finite-model and Haskell differential evidence do not repair frozen training or prove truthful provider timestamps; no broader closure.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Pinned data, configuration, seed and artifact yield the same replay transitions and economic report.",
       "nextAction": "Specify deterministic evaluation without wall-clock-dependent selection; compare complete reproducible archives on pinned runtime.",
@@ -8627,7 +8840,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8659,7 +8876,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8684,7 +8902,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -8711,7 +8932,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Conditional affected-scope closure only; trusted primitive/binary/packaging assumptions and no injected code or manual artifact conversion. Whole-production lifecycle/authorization and OS sandboxing remain unproved; obligations 13/28 remain unresolved;23/26 require the separate promotion-boundary composition. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline research proposals, ordinary admitted policy inference and their exclusion from the six pinned production executables under A-CAPABILITY-BUILD. Existing production model learning, live authority and actual deployed images are not certified.",
@@ -8735,7 +8960,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8757,7 +8983,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -8815,7 +9044,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Conditional delivered-stage safety closure. The pre-implementation consistency resolution in lifecycle-stage-contract.md replaces the unnecessary demand for an absent promotion service with source-bound preservation of Research eligibility. All original scope and criteria are unchanged; ordinary research inference remains possible, but every eligibility advancement is refused. This proves no future promotion-service liveness or implementation, gate satisfaction, production authorization, deployed-image behavior or economic acceptance. Every composed certificate must reproduce in the same invocation.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8868,7 +9101,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -8920,7 +9154,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -8951,7 +9188,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Fixed reviewed code, registered scalar identifiers and ordinary built-in/numeric objects; pinned compiler/runtime/library and primitive-effect semantics. No monkeypatching, hostile subclasses, replaced helper binaries/PATH or manual artifact conversion. Fresh exclusive-create directories and stable filesystem namespace are assumed. Source-to-model correspondence is reviewed, not whole-language refinement; no OS sandbox, deployed-image guarantee, cryptographic authenticity, crash atomicity, full champion filesystem isolation or inherited production authorization/ownership theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -8983,7 +9224,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -9008,7 +9250,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -9069,7 +9314,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Pinned CPython 3.13.3/pathlib/io and filesystem exclusive-create semantics; ordinary built-in objects and registered scalar identifiers, fixed reviewed code and trusted dependency/helper effects. Parent-directory and open-object identities are stable; leaf insertion and collisions before open are explicitly modeled. No malicious parent replacement, privileged filesystem mutation, external champion deletion/recreation, code injection or manual adoption of unfinished output. Source/model correspondence is reviewed and conformance-tested, not whole-language/kernel refinement. No crash durability, whole-archive atomicity, deployed-image or inherited production selection-correctness guarantee.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -9097,7 +9346,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -9126,7 +9376,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -9165,7 +9418,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -9188,7 +9445,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -9215,7 +9473,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -9250,7 +9511,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "A-ARTIFACT-COMPOSITION: pinned CPython3.13.3 ordinary builtin JSON values under its GIL/C encoder, immutable strings/bytes, NumPy/hashlib/JSON and GHC/base primitive semantics; fixed reviewed code, no hostile subclasses, monkeypatching, replaced helpers or manual artifact conversion. Expected identity is a caller trust anchor, not a truth/authenticity theorem. Reviewed source-to-primitive correspondence and equality-class abstraction are assumptions, supplemented by actual-code conformance, not whole-interpreter refinement. Torn/replaced files are allowed: only the returned read bytes are compared. No OS sandbox, crash-atomic persistence, provenance authenticity or whole-production authorization theorem.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
@@ -9273,7 +9538,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -9300,7 +9566,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
@@ -9324,7 +9593,11 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW",
+        "F-RL-CAUSAL-V3-CONFORMANCE"
       ],
       "limitations": "Closed only for the enumerated delivered offline defaults under A-DEFAULT-PATH. No production-wide configuration or compiler-correctness proof; any new entry point or integration requires re-audit. The standalone default-disabled process fixture is additionally checked under A-INFERENCE-PROCESS. The new default-disabled offline PPO successor is additionally source-audited under A-PPO-SUCCESSOR; no production consumer or persistence interface is added. The v3 pure transient bridge cannot mutate training scales, select dataset rows, update parameters or authorize orders; its complete source boundary is also required. Supplied observation validity/availability is outside this scoped closure.",
       "scope": "Delivered offline proposal/inference and isolated numeric boundaries; no production selector integration.",
@@ -9347,7 +9620,8 @@
         "scripts/research/replay_accounting_v2.py",
         "scripts/research/funding_events_v2.py",
         "scripts/research/replay_runner_v2.py",
-        "scripts/research/value_objective_v2.py"
+        "scripts/research/value_objective_v2.py",
+        "scripts/research/causal_replay_v3.py"
       ],
       "blockers": [],
       "requiredCertificates": [
@@ -9367,7 +9641,10 @@
         "F-RL-ACCOUNT-V2-SOURCE",
         "F-RL-FUNDING-V2-SOURCE",
         "F-RL-RUNNER-V2-SOURCE",
-        "F-RL-VALUE-V2-SOURCE"
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-CAUSAL-V3-SOURCE",
+        "F-RL-CAUSAL-V3-ARITH",
+        "F-RL-CAUSAL-V3-FLOW"
       ]
     },
     {
