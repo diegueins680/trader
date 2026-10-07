@@ -911,11 +911,11 @@
         },
         {
           "id": "F-LIVE-STOP-ASYNC-SOURCE",
-          "statement": "Every exception capture in the live bot worker, autostart, optimizer and bot loops (botStartWorker through reconcileBotPositionWithExchange) and in the Binance and Coinbase order paths (placeOrderForSignal through computeBacktestFromArgs), plus the Binance signing-timestamp and cancel-by-prefix captures, uses trySync, which rethrows every asynchronous exception; no bare try, catch or handle remains there, so a killed worker cannot convert ThreadKilled into an order error and continue to further exchange steps."
+          "statement": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting."
         },
         {
           "id": "F-LIVE-STOP-ASYNC-CONFORMANCE",
-          "statement": "A compiled program built against the actual Trader.App.AsyncSafe module reproduces CE-LIVE-001 with the legacy capture (the killed routine records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell test suite additionally checks synchronous capture and that System.Timeout.timeout still fires through trySync."
+          "statement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync."
         }
       ],
       "invariants": [

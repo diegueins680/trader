@@ -2,18 +2,19 @@ module Trader.LstmPersistence (
     lstmModelKey,
 ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Data.Either (fromRight)
 import Data.List (intercalate)
 import System.Directory (canonicalizePath)
 
 import Trader.App.Args (Args (..), argBinanceMarket)
+import Trader.App.AsyncSafe (trySync)
 import Trader.Binance (BinanceMarket (..))
 import Trader.Platform (Platform (..), platformCode)
 
 safeCanonicalizePath :: FilePath -> IO FilePath
 safeCanonicalizePath path = do
-    r <- try (canonicalizePath path) :: IO (Either SomeException FilePath)
+    r <- trySync (canonicalizePath path) :: IO (Either SomeException FilePath)
     pure (fromRight path r)
 
 binanceMarketKey :: BinanceMarket -> String

@@ -6,7 +6,7 @@ module Trader.App.Env (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (IOException, SomeException, displayException, try)
+import Control.Exception (IOException, SomeException, displayException)
 import Control.Monad (forM_, when)
 import Data.Char (isSpace)
 import Data.List (isPrefixOf, stripPrefix)
@@ -22,6 +22,7 @@ import System.FilePath (isAbsolute, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.Process (proc, readCreateProcessWithExitCode)
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.Text (dedupeStable, trim)
 
 {- | Parse UUID-valued environment entries and retain only their canonical
@@ -85,7 +86,7 @@ readFirstBuildCommitFile paths =
             if not exists
                 then readFirstBuildCommitFile rest
                 else do
-                    contentsResult <- try (readFile path) :: IO (Either IOException String)
+                    contentsResult <- trySync (readFile path) :: IO (Either IOException String)
                     case contentsResult of
                         Left _ -> readFirstBuildCommitFile rest
                         Right contents ->
@@ -118,7 +119,7 @@ loadEnvFile resolveRepoRoot = do
                     when (isJust mEnvFileRaw) $
                         hPutStrLn stderr ("WARN: TRADER_ENV_FILE not found: " ++ envFileName)
                 Just path -> do
-                    contentsResult <- try (readFile path) :: IO (Either IOException String)
+                    contentsResult <- trySync (readFile path) :: IO (Either IOException String)
                     case contentsResult of
                         Left err ->
                             hPutStrLn stderr ("WARN: failed to read TRADER_ENV_FILE (" ++ path ++ "): " ++ displayException err)
@@ -157,7 +158,7 @@ resolveEnvFilePath resolveRepoRoot raw = do
                                     case gitExe of
                                         Nothing -> pure Nothing
                                         Just _ -> do
-                                            rootResult <- try resolveRepoRoot :: IO (Either SomeException (Either String FilePath))
+                                            rootResult <- trySync resolveRepoRoot :: IO (Either SomeException (Either String FilePath))
                                             case rootResult of
                                                 Left _ -> pure Nothing
                                                 Right (Right root) -> do

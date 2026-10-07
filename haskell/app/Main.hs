@@ -11,7 +11,7 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, bracket, catch, displayException, finally, fromException, throwIO, try)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, displayException, finally, fromException, throwIO)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -104,7 +104,7 @@ import Trader.App.Args (
     validateArgs,
  )
 import Trader.App.AsyncJobAdmission (JobAdmissionFailure (..), JobSlots, closeJobSlots, newJobSlotsWithDrain, runningJobSlots, startBoundedJob, waitJobSlots)
-import Trader.App.AsyncSafe (trySync)
+import Trader.App.AsyncSafe (catchForwardingAll, catchSync, trySync)
 import Trader.App.AutoStartBackoff (
     BackoffPolicy (..),
     CircuitPolicy (..),
@@ -977,7 +977,7 @@ main = do
                 then runTopCombosBackfillCloseTiming args'
                 else do
                     mWebhook <- newWebhookFromEnv
-                    r <- try $ do
+                    r <- trySync $ do
                         if argServe args'
                             then runRestApi args' mWebhook
                             else do
@@ -2107,7 +2107,7 @@ newStateSyncTargetFromEnv = do
                     pure Nothing
                 Just tenantKey -> do
                     let url' = normalizeStateSyncUrl url
-                    reqOrErr <- try (parseRequest url') :: IO (Either SomeException Request)
+                    reqOrErr <- trySync (parseRequest url') :: IO (Either SomeException Request)
                     case reqOrErr of
                         Left ex -> do
                             hPutStrLn stderr ("WARN: TRADER_STATE_SYNC_URL is invalid (" ++ show ex ++ ").")
@@ -2199,7 +2199,7 @@ mkStateSyncTopCombosPayload val =
 sendStateSyncPayload :: StateSyncTarget -> StateSyncPayload -> IO (Either String ())
 sendStateSyncPayload target payload = do
     let req = (sstRequest target){requestBody = RequestBodyLBS (encode payload)}
-    respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
     pure $
         case respOrErr of
             Left ex -> Left (show ex)
@@ -2216,7 +2216,7 @@ fetchStateSyncPayload target = do
                 { method = "GET"
                 , requestBody = RequestBodyLBS BL.empty
                 }
-    respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left ex -> do
             let err = show ex
@@ -2772,7 +2772,7 @@ data OpsStore = OpsStore
     }
 
 tryAny :: IO a -> IO (Either SomeException a)
-tryAny = try
+tryAny = trySync
 
 isOpsConnectionFailure :: SomeException -> Bool
 isOpsConnectionFailure e =
@@ -4060,13 +4060,13 @@ newOpsStoreFromEnv = do
             hPutStrLn stderr ("WARN: ops persistence disabled (" ++ err ++ ")")
             pure Nothing
         Right url -> do
-            connResult <- try (connectPostgreSQL url) :: IO (Either SomeException Connection)
+            connResult <- trySync (connectPostgreSQL url) :: IO (Either SomeException Connection)
             case connResult of
                 Left e -> do
                     hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
                     pure Nothing
                 Right conn -> do
-                    schemaResult <- try (ensureOpsDbSchema conn >> seedStrategies conn >> seedPlatforms conn) :: IO (Either SomeException ())
+                    schemaResult <- trySync (ensureOpsDbSchema conn >> seedStrategies conn >> seedPlatforms conn) :: IO (Either SomeException ())
                     case schemaResult of
                         Left e -> do
                             hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
@@ -4079,7 +4079,7 @@ newOpsStoreFromEnv = do
                                 case mCommitText of
                                     Nothing -> pure Nothing
                                     Just commitHash -> do
-                                        commitResult <- try (resolveGitCommitId conn commitHash mVersionText Nothing) :: IO (Either SomeException (Maybe Int64))
+                                        commitResult <- trySync (resolveGitCommitId conn commitHash mVersionText Nothing) :: IO (Either SomeException (Maybe Int64))
                                         case commitResult of
                                             Left e -> do
                                                 hPutStrLn stderr ("WARN: unable to persist git commit metadata (" ++ show e ++ ")")
@@ -4181,11 +4181,11 @@ runOpsBackfillCommits = do
     case dbUrlOrErr of
         Left err -> die ("Ops backfill requires TRADER_DB_URL or DATABASE_URL (" ++ err ++ ")")
         Right url -> do
-            connResult <- try (connectPostgreSQL url) :: IO (Either SomeException Connection)
+            connResult <- trySync (connectPostgreSQL url) :: IO (Either SomeException Connection)
             case connResult of
                 Left e -> die ("Ops backfill failed to connect to Postgres (" ++ show e ++ ")")
                 Right conn -> do
-                    schemaResult <- try (ensureOpsDbSchema conn) :: IO (Either SomeException ())
+                    schemaResult <- trySync (ensureOpsDbSchema conn) :: IO (Either SomeException ())
                     case schemaResult of
                         Left e -> die ("Ops backfill failed to ensure schema (" ++ show e ++ ")")
                         Right _ -> do
@@ -4397,7 +4397,7 @@ backfillTopComboCloseTiming mOps baseArgs comboVal =
 
 runTopComboCloseTimingBacktest :: Maybe OpsStore -> TopCombo -> Args -> IO (Either String TopComboCloseTimingBacktest)
 runTopComboCloseTimingBacktest mOps combo args = do
-    backtestResult <- try (computeBacktestFromArgs mOps args) :: IO (Either SomeException Aeson.Value)
+    backtestResult <- trySync (computeBacktestFromArgs mOps args) :: IO (Either SomeException Aeson.Value)
     pure $
         case backtestResult of
             Left err -> Left (displayException err)
@@ -4756,7 +4756,7 @@ opsAppendMaybe mStore mTenantKey kind mParams mArgs mResult mEquity mComboUuid m
         Just store
             | Set.member kind (opcDisabledKinds (osPersistenceConfig store)) -> pure ()
             | otherwise -> do
-                _ <- try (opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
+                _ <- trySync (opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
                 pure ()
 
 outboxEnqueue ::
@@ -4791,7 +4791,7 @@ outboxEnqueueMaybe mStore mTenantKey topic mEventKey payload =
     case mStore of
         Nothing -> pure ()
         Just store -> do
-            _ <- try (outboxEnqueue store mTenantKey topic mEventKey payload) :: IO (Either SomeException ())
+            _ <- trySync (outboxEnqueue store mTenantKey topic mEventKey payload) :: IO (Either SomeException ())
             pure ()
 
 ownerKeyFromArgs :: Maybe TenantKey -> Args -> Text
@@ -5473,7 +5473,7 @@ attachBinanceTradeMaxPnlFromKlines env interval trades = do
         else do
             let klineConcurrency = 4
                 fetchRange (sym, (startTime, endTime)) = do
-                    r <- try (fetchKlinesBetween env sym interval startTime endTime) :: IO (Either SomeException [Kline])
+                    r <- trySync (fetchKlinesBetween env sym interval startTime endTime) :: IO (Either SomeException [Kline])
                     pure $
                         case r of
                             Left _ -> Nothing
@@ -5531,7 +5531,7 @@ persistBotSnapshotMaybe mOps running st statusJson =
     case mOps of
         Nothing -> pure ()
         Just store -> do
-            _ <- try (persistBotSnapshot store running st statusJson) :: IO (Either SomeException ())
+            _ <- trySync (persistBotSnapshot store running st statusJson) :: IO (Either SomeException ())
             pure ()
 
 persistBotSnapshot :: OpsStore -> Bool -> BotState -> Aeson.Value -> IO ()
@@ -5807,7 +5807,7 @@ persistBinancePositionsMaybe mOps market positions =
     case mOps of
         Nothing -> pure ()
         Just store -> do
-            _ <- try (persistBinancePositions store market positions) :: IO (Either SomeException ())
+            _ <- trySync (persistBinancePositions store market positions) :: IO (Either SomeException ())
             pure ()
 
 persistBinancePositions :: OpsStore -> BinanceMarket -> [FuturesPositionRisk] -> IO ()
@@ -5896,7 +5896,7 @@ loadPersistedPositionOwnersMaybe mOps mTenantKey market =
     case mOps of
         Nothing -> pure M.empty
         Just store -> do
-            result <- try $ withIndependentOpsConnection store $ \conn -> do
+            result <- trySync $ withIndependentOpsConnection store $ \conn -> do
                 let marketText = normalizeMarketText (T.pack (marketCode market))
                 query
                     conn
@@ -5989,7 +5989,7 @@ cachedBinancePositionsResponse mOps mTenantKey market testnet interval limitSafe
     case mOps of
         Nothing -> pure Nothing
         Just store -> do
-            result <- try $ withIndependentOpsConnection store $ \conn -> do
+            result <- trySync $ withIndependentOpsConnection store $ \conn -> do
                 let marketText = normalizeMarketText (T.pack (marketCode market))
                 query
                     conn
@@ -8299,12 +8299,12 @@ writeBotStatusSnapshot path snap = do
     let tmpPath = path ++ ".tmp-" ++ show randId
     BL.writeFile tmpPath (encode snap)
     -- Atomic on POSIX when within the same filesystem; on Windows, fall back to replace.
-    r1 <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+    r1 <- trySync (renameFile tmpPath path) :: IO (Either SomeException ())
     case r1 of
         Right _ -> pure ()
         Left _ -> do
-            _ <- try (removeFile path) :: IO (Either SomeException ())
-            _ <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+            _ <- trySync (removeFile path) :: IO (Either SomeException ())
+            _ <- trySync (renameFile tmpPath path) :: IO (Either SomeException ())
             pure ()
 
 writeBotStatusSnapshotMaybe :: Maybe FilePath -> TenantKey -> String -> BotStatusSnapshot -> IO ()
@@ -8313,15 +8313,15 @@ writeBotStatusSnapshotMaybe mDir tenantKey sym snap = do
         Nothing -> pure ()
         Just dir -> do
             let path = botStatePathFor dir tenantKey sym
-            _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+            _ <- trySync (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
             pure ()
     mS3 <- resolveS3State
     case mS3 of
         Nothing -> pure ()
         Just st -> do
             let key = s3BotSnapshotKey st tenantKey sym
-            _ <- try (s3PutObject st key (encode snap)) :: IO (Either SomeException (Either String ()))
-            _ <- try (updateBotSnapshotIndex st tenantKey sym) :: IO (Either SomeException ())
+            _ <- trySync (s3PutObject st key (encode snap)) :: IO (Either SomeException (Either String ()))
+            _ <- trySync (updateBotSnapshotIndex st tenantKey sym) :: IO (Either SomeException ())
             pure ()
 
 persistBotStatusMaybe :: Maybe FilePath -> BotState -> IO ()
@@ -8343,7 +8343,7 @@ readBotStatusSnapshotAtPath path = do
     if not exists
         then pure Nothing
         else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            contentsOrErr <- (trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left _ -> pure Nothing
                 Right contents ->
@@ -8370,7 +8370,7 @@ readBotStatusSnapshotMaybe mDir tenantKey sym = do
             case (s3Snap, mDir) of
                 (Just snap, Just dir) -> do
                     let path = botStatePathFor dir tenantKey sym
-                    _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+                    _ <- trySync (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
                     pure (Just snap)
                 (Just snap, _) -> pure (Just snap)
                 (Nothing, _) -> pure Nothing
@@ -8414,7 +8414,7 @@ readBotStatusSnapshotsMaybe mDir tenantKey = do
                             Nothing -> pure ()
                             Just sym -> do
                                 let path = botStatePathFor dir tenantKey sym
-                                _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+                                _ <- trySync (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
                                 pure ()
             pure (mergeBotSnapshots s3Snaps)
 
@@ -8859,7 +8859,7 @@ fetchLongFlatAccountPos args env sym =
   where
     tryFetchFilters :: IO (Maybe SymbolFilters)
     tryFetchFilters = do
-        r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
+        r <- trySync (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
         pure $
             case r of
                 Left _ -> Nothing
@@ -8933,7 +8933,7 @@ fetchAdoptedPositionSize args env sym price =
                                 then pure Nothing
                                 else pure (Just (notional / quoteBal))
             r <-
-                try
+                trySync
                     ( case argBinanceMarket args of
                         MarketFutures -> futuresSizing
                         _ -> spotSizing
@@ -8970,7 +8970,7 @@ preflightBotStart mOps args settings sym =
     if not (bsTradeEnabled settings)
         then pure (Right ())
         else do
-            r <- try $ do
+            r <- trySync $ do
                 env <- makeBinanceEnv mOps args
                 ensureBinanceKeysPresent env
                 pos <- fetchBotAccountPos args env sym
@@ -9224,7 +9224,7 @@ readPortfolioSelectionMaybe path = do
     if not exists
         then pure Nothing
         else do
-            decoded <- try (eitherDecode <$> BL.readFile path) :: IO (Either SomeException (Either String PortfolioSelection))
+            decoded <- trySync (eitherDecode <$> BL.readFile path) :: IO (Either SomeException (Either String PortfolioSelection))
             pure $ case decoded of
                 Right (Right selection) -> Just selection
                 _ -> Nothing
@@ -9245,7 +9245,7 @@ readPortfolioGraduationReviewMaybe path = do
     if not exists
         then pure Nothing
         else do
-            decoded <- try (eitherDecode <$> BL.readFile path) :: IO (Either SomeException (Either String PortfolioGraduationReview))
+            decoded <- trySync (eitherDecode <$> BL.readFile path) :: IO (Either SomeException (Either String PortfolioGraduationReview))
             pure $ case decoded of
                 Right (Right review) -> Just review
                 _ -> Nothing
@@ -9662,7 +9662,7 @@ deleteTopComboFromDbMaybe (Just store) comboUuidText =
         Nothing -> pure ()
         Just comboUuid -> do
             result <-
-                try
+                trySync
                     ( withOpsConnection store $ \conn ->
                         void $ execute conn "DELETE FROM combos WHERE combo_uuid = ?" (Only comboUuid)
                     ) ::
@@ -9818,7 +9818,7 @@ clearPositionOriginIfFlatMaybe mOps tenantKey args sym =
     case mOps of
         Nothing -> pure ()
         Just store -> do
-            delRes <- (try (deletePositionOrigin store tenantKey args sym) :: IO (Either SomeException ()))
+            delRes <- (trySync (deletePositionOrigin store tenantKey args sym) :: IO (Either SomeException ()))
             case delRes of
                 Left ex ->
                     putStrLn
@@ -9852,7 +9852,7 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                         Nothing -> pure (baseArgs, Nothing)
                         Just comboUuid -> do
                             posOrErr <-
-                                ( try $ do
+                                ( trySync $ do
                                     env <- makeBinanceEnv mOps baseArgs
                                     ensureBinanceKeysPresent env
                                     fetchAdoptableAccountPos baseArgs env sym
@@ -10003,7 +10003,7 @@ resolveOrphanOpenPositionSymbols mOps _limits args requested =
         then pure []
         else do
             positionsOrErr <-
-                ( try $ do
+                ( trySync $ do
                     env <- makeBinanceEnv mOps args
                     ensureBinanceKeysPresent env
                     fetchFuturesPositionRisks env
@@ -10059,7 +10059,7 @@ runtimeAdoptionInfo rtState =
                     , raiSide = Nothing
                     }
         BotRunning rt -> do
-            stOrErr <- try (readMVar (brStateVar rt)) :: IO (Either SomeException BotState)
+            stOrErr <- trySync (readMVar (brStateVar rt)) :: IO (Either SomeException BotState)
             pure $
                 case stOrErr of
                     Left _ ->
@@ -10127,7 +10127,7 @@ resolveOrphanOpenPositionActions mOps args tenantMap =
                         , argBinanceMargin = False
                         }
             positionsOrErr <-
-                ( try $ do
+                ( trySync $ do
                     env <- makeBinanceEnv mOps argsFutures
                     ensureBinanceKeysPresent env
                     fetchFuturesPositionRisks env
@@ -10184,7 +10184,7 @@ resolveOrphanOpenPositionActions mOps args tenantMap =
 
 resolveAdoptionRequirement :: Maybe OpsStore -> Args -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirement mOps args sym = do
-    r <- try $ do
+    r <- trySync $ do
         env <- makeBinanceEnv mOps args
         resolveAdoptionRequirementWithEnv args env sym
     pure $
@@ -10194,7 +10194,7 @@ resolveAdoptionRequirement mOps args sym = do
 
 resolveAdoptionRequirementWithEnv :: Args -> BinanceEnv -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirementWithEnv args env sym = do
-    r <- try $ do
+    r <- trySync $ do
         ensureBinanceKeysPresent env
         pos <- fetchAdoptableAccountPos args env sym
         orders <- fetchOpenOrders env sym
@@ -10306,7 +10306,7 @@ runQueuedBotStarts mOps mJournal tenantKey params botCtrl symbols startOne = do
                         putStrLn ("Queued bot start failed for " ++ queuedSym ++ ": " ++ msg)
                         recordQueuedBotStartFailure mOps mJournal tenantKey params queuedSym msg
                 Right () -> do
-                    startedOrErr <- try (startOne sym) :: IO (Either SomeException (String, Either String BotStartOutcome))
+                    startedOrErr <- trySync (startOne sym) :: IO (Either SomeException (String, Either String BotStartOutcome))
                     case startedOrErr of
                         Left ex -> do
                             let msg = displayException ex
@@ -14634,7 +14634,7 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
     if not liveFutures || not barFresh || n <= 0
         then pure st
         else do
-            r <- try (fetchFuturesPositionSummary (botEnv st) sym) :: IO (Either SomeException FuturesPositionSummary)
+            r <- trySync (fetchFuturesPositionSummary (botEnv st) sym) :: IO (Either SomeException FuturesPositionSummary)
             case r of
                 Left _ -> pure st
                 Right summary
@@ -14753,7 +14753,7 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
 
 botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
 botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
-    r <- try (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
+    r <- trySync (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
     case r of
         Right st' -> pure st'
         Left ex -> do
@@ -16910,7 +16910,7 @@ runRestApi cliArgs mWebhook = do
     requestProgressStore <- newRequestProgressStore
     hFlush stdout
     res <-
-        ( try
+        ( trySync
                 (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
@@ -17705,7 +17705,7 @@ csvCacheMeta path = do
         then pure (object ["path" .= path, "missing" .= True])
         else do
             metaOrErr <-
-                ( try $ do
+                ( trySync $ do
                     size <- getFileSize path
                     mtime <- getModificationTime path
                     let mtimeMs = floor (utcTimeToPOSIXSeconds mtime * 1000) :: Int64
@@ -17914,7 +17914,7 @@ validateWritableDir dir = do
     now <- getTimestampMs
     r <- (randomIO :: IO Word64)
     let probe = dir </> (".probe-" ++ show now ++ "-" ++ printf "%016x" r)
-    e <- try (BS.writeFile probe (BS.pack "ok")) :: IO (Either SomeException ())
+    e <- trySync (BS.writeFile probe (BS.pack "ok")) :: IO (Either SomeException ())
     case e of
         Left ex ->
             die
@@ -17924,7 +17924,7 @@ validateWritableDir dir = do
                     ++ show ex
                 )
         Right _ -> do
-            _ <- try (removeFile probe) :: IO (Either SomeException ())
+            _ <- trySync (removeFile probe) :: IO (Either SomeException ())
             pure ()
 
 pruneJobStore :: JobStore a -> Int64 -> IO ()
@@ -17969,7 +17969,7 @@ forkBackground :: IO () -> IO ()
 forkBackground action =
     void $
         forkIO $ do
-            _ <- try action :: IO (Either SomeException ())
+            _ <- trySync action :: IO (Either SomeException ())
             pure ()
 
 putConcurrentException :: MVar (Either SomeException b) -> SomeException -> IO ()
@@ -17990,7 +17990,7 @@ mapConcurrentlyBounded maxConcurrent action items =
                 resultVar <- newEmptyMVar
                 void $
                     forkIO $
-                        catch
+                        catchForwardingAll
                             (action item >>= putMVar resultVar . Right)
                             (putConcurrentException resultVar)
                 pure resultVar
@@ -18035,7 +18035,7 @@ writeJobFile store jobId payload =
         Just path -> do
             let tmp = path ++ ".tmp"
             e <-
-                try
+                trySync
                     ( do
                         createDirectoryIfMissing True (takeDirectory path)
                         BL.writeFile tmp (encode payload)
@@ -18052,7 +18052,7 @@ persistAsyncJobState mOps store jobId payload = do
     case mOps of
         Nothing -> pure ()
         Just opsStore -> do
-            e <- try (writeAsyncJobDb opsStore (jsPrefix store) jobId payload) :: IO (Either SomeException ())
+            e <- trySync (writeAsyncJobDb opsStore (jsPrefix store) jobId payload) :: IO (Either SomeException ())
             case e of
                 Left ex ->
                     hPutStrLn stderr (printf "WARN: failed to persist async job %s to ops DB: %s" (T.unpack jobId) (show ex))
@@ -18067,7 +18067,7 @@ readJobFile store jobId =
             if not exists
                 then pure Nothing
                 else do
-                    eBs <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+                    eBs <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
                     case eBs of
                         Left _ -> pure Nothing
                         Right bs ->
@@ -18080,7 +18080,7 @@ pruneJobStoreDisk store now =
     case jsDir store of
         Nothing -> pure ()
         Just dir -> do
-            eNames <- try (listDirectory dir) :: IO (Either SomeException [FilePath])
+            eNames <- trySync (listDirectory dir) :: IO (Either SomeException [FilePath])
             case eNames of
                 Left _ -> pure ()
                 Right names0 -> do
@@ -18089,7 +18089,7 @@ pruneJobStoreDisk store now =
                         mapM
                             ( \name -> do
                                 let path = dir </> name
-                                eBs <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+                                eBs <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
                                 case eBs of
                                     Left _ -> pure Nothing
                                     Right bs ->
@@ -18122,7 +18122,7 @@ pruneJobStoreDisk store now =
                             mapM_ (removeFileSafe . fst) (take dropCount doneSorted)
   where
     removeFileSafe path = do
-        _ <- try (removeFile path) :: IO (Either SomeException ())
+        _ <- trySync (removeFile path) :: IO (Either SomeException ())
         pure ()
 
 startJob :: (ToJSON a) => Maybe OpsStore -> JobStore a -> IO a -> IO (Either String Text)
@@ -18147,7 +18147,7 @@ startJob mOps store action = do
             persistAsyncJobState mOps store jobId runningPayload
             pure (jobId, out)
         execute (jobId, out) = do
-            result <- try action
+            result <- trySync action
             case result of
                 Right v -> do
                     doneAt <- getTimestampMs
@@ -18701,9 +18701,9 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
 
     let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
         handleIoException _ = pure WaiInternal.ResponseReceived
-        respondQuiet resp = respond resp `catch` handleIoException
+        respondQuiet resp = respond resp `catchSync` handleIoException
         respondCorsQuiet = respondQuiet . withCors corsConfig req
-    handleRequest `catch` \ex ->
+    handleRequest `catchSync` \ex ->
         case fromException ex :: Maybe AsyncException of
             Just asyncEx -> throwIO asyncEx
             Nothing -> do
@@ -19123,7 +19123,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
             OptimizerSourceCsv ->
                 case fmap trim (arrData req) of
                     Just raw | not (null raw) -> do
-                        resolved <- (try (canonicalizePath raw) :: IO (Either SomeException FilePath))
+                        resolved <- (trySync (canonicalizePath raw) :: IO (Either SomeException FilePath))
                         case resolved of
                             Left e -> pure (Left ("Failed to resolve CSV path: " ++ show e))
                             Right path -> do
@@ -20138,7 +20138,7 @@ resolveOptimizerExecutable projectRoot name = do
                         Nothing -> pure (Left ("Optimizer executable not found: " ++ name))
                         Just dir -> do
                             let proc' = (proc "cabal" ["list-bin", name]){cwd = Just dir}
-                            r <- try (readCreateProcessWithExitCode proc' "") :: IO (Either SomeException (ExitCode, String, String))
+                            r <- trySync (readCreateProcessWithExitCode proc' "") :: IO (Either SomeException (ExitCode, String, String))
                             case r of
                                 Left e -> pure (Left ("Failed to discover " ++ name ++ " via cabal: " ++ show e))
                                 Right (ExitFailure _, out, err) ->
@@ -20229,7 +20229,7 @@ runMergeTopCombos ::
     Int ->
     IO (Either (String, String, String) ())
 runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxItems = do
-    dirResult <- try (createDirectoryIfMissing True (takeDirectory topJsonPath)) :: IO (Either SomeException ())
+    dirResult <- trySync (createDirectoryIfMissing True (takeDirectory topJsonPath)) :: IO (Either SomeException ())
     case dirResult of
         Left e -> pure (Left ("Failed to create top combos directory: " ++ show e, "", ""))
         Right _ -> do
@@ -20292,12 +20292,12 @@ writeS3TopCombosTemp topJsonPath = do
 writeTopCombosTempFile :: FilePath -> String -> BL.ByteString -> IO (Maybe FilePath)
 writeTopCombosTempFile topJsonPath fileName contents = do
     let dir = takeDirectory topJsonPath
-    tempResult <- try (openTempFile dir fileName) :: IO (Either SomeException (FilePath, Handle))
+    tempResult <- trySync (openTempFile dir fileName) :: IO (Either SomeException (FilePath, Handle))
     case tempResult of
         Left _ -> pure Nothing
         Right (path, handle) -> do
-            writeResult <- try (BL.hPut handle contents) :: IO (Either SomeException ())
-            closeResult <- try (hClose handle) :: IO (Either SomeException ())
+            writeResult <- trySync (BL.hPut handle contents) :: IO (Either SomeException ())
+            closeResult <- trySync (hClose handle) :: IO (Either SomeException ())
             case (writeResult, closeResult) of
                 (Right _, Right _) -> pure (Just path)
                 _ -> do
@@ -20306,7 +20306,7 @@ writeTopCombosTempFile topJsonPath fileName contents = do
 
 removeTempTopCombo :: FilePath -> IO ()
 removeTempTopCombo path = do
-    _ <- try (removeFile path) :: IO (Either SomeException ())
+    _ <- trySync (removeFile path) :: IO (Either SomeException ())
     pure ()
 
 readLastOptimizerRecord :: FilePath -> IO (Either String Aeson.Value)
@@ -20315,7 +20315,7 @@ readLastOptimizerRecord path = do
     if not exists
         then pure (Left "Optimizer did not emit any records.")
         else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            contentsOrErr <- (trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left e -> pure (Left ("Failed to read optimizer records: " ++ show e))
                 Right contents ->
@@ -20371,7 +20371,7 @@ persistTopCombosMaybe mSync path = do
     if not needsRead
         then pure ()
         else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            contentsOrErr <- (trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left _ -> pure ()
                 Right contents -> do
@@ -20388,7 +20388,7 @@ persistTopCombosTargets targets mSync path =
     if null targets
         then pure []
         else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            contentsOrErr <- (trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left _ -> pure []
                 Right contents -> do
@@ -20457,7 +20457,7 @@ persistTopCombosExportMaybe mOps exportOrErr =
             case exportOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
-                    result <- try (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
+                    result <- trySync (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
                     case result of
                         Right _ -> pure ()
                         Left err -> do
@@ -20543,7 +20543,7 @@ annotateTopCombosExportWithLiveStats mOps export =
         Just store -> do
             let comboUuids = mapMaybe (uuidFromText . topComboUuid) (tceCombos export)
             result <-
-                try (withOpsConnection store (`fetchComboLiveStatsMap` comboUuids)) ::
+                trySync (withOpsConnection store (`fetchComboLiveStatsMap` comboUuids)) ::
                     IO (Either SomeException (M.Map UUID.UUID ComboLiveStats))
             case result of
                 Left _ -> pure export
@@ -20575,7 +20575,7 @@ annotateTopCombosValueWithLiveStats mOps val =
             | Just (Aeson.Array combos) <- KM.lookup "combos" o -> do
                 let comboUuids = mapMaybe comboUuidFromValue (V.toList combos)
                 result <-
-                    try (withOpsConnection store (`fetchComboLiveStatsMap` comboUuids)) ::
+                    trySync (withOpsConnection store (`fetchComboLiveStatsMap` comboUuids)) ::
                         IO (Either SomeException (M.Map UUID.UUID ComboLiveStats))
                 case result of
                     Left _ -> pure val
@@ -20598,7 +20598,7 @@ annotateTopCombosValueWithLiveStats mOps val =
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
 persistTopCombosToDb conn export =
     do
-        bulkResult <- try (persistTopCombosToDbBulk conn export) :: IO (Either SomeException ())
+        bulkResult <- trySync (persistTopCombosToDbBulk conn export) :: IO (Either SomeException ())
         case bulkResult of
             Right _ -> pure ()
             Left bulkError -> do
@@ -20610,7 +20610,7 @@ persistTopCombosToDb conn export =
                 let chunks = chunkTopCombos 100 (tceCombos export)
                 chunkResults <-
                     forM chunks $ \chunk -> do
-                        result <- try (persistTopCombosToDbBulk conn (TopCombosExport chunk)) :: IO (Either SomeException ())
+                        result <- trySync (persistTopCombosToDbBulk conn (TopCombosExport chunk)) :: IO (Either SomeException ())
                         pure (chunk, result)
                 let successfulChunks = [() | (_, Right _) <- chunkResults]
                     failedChunks = [(chunk, err) | (chunk, Left err) <- chunkResults]
@@ -20619,7 +20619,7 @@ persistTopCombosToDb conn export =
                     else do
                         rowResults <-
                             forM (concatMap fst failedChunks) $ \combo ->
-                                try (persistTopCombosToDbBulk conn (TopCombosExport [combo])) :: IO (Either SomeException ())
+                                trySync (persistTopCombosToDbBulk conn (TopCombosExport [combo])) :: IO (Either SomeException ())
                         let failedRows = [displayException err | Left err <- rowResults]
                         unless (null failedRows) $
                             throwIO
@@ -20752,7 +20752,7 @@ persistTopCombosHistoryMaybe topJsonPath st contents = do
 
 readTopCombosValueFromDbRaw :: OpsStore -> IO (Either String Aeson.Value)
 readTopCombosValueFromDbRaw store = do
-    result <- try readDb :: IO (Either SomeException (Either String Aeson.Value))
+    result <- trySync readDb :: IO (Either SomeException (Either String Aeson.Value))
     case result of
         Left e -> pure (Left ("Failed to read top combos from the database: " ++ show e))
         Right out -> pure out
@@ -21329,7 +21329,7 @@ resolvePortfolioGraduationMode mOps store now tenantKey graduationConfig reviewe
                     case mOps of
                         Nothing -> pure (Left "operations database unavailable")
                         Just opsStore -> do
-                            result <- try (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String PortfolioGraduationEvidence))
+                            result <- trySync (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String PortfolioGraduationEvidence))
                             pure $
                                 case result of
                                     Left ex -> Left (displayException ex)
@@ -21353,7 +21353,7 @@ resolvePortfolioGraduationMode mOps store now tenantKey graduationConfig reviewe
                                 case selectionResult of
                                     Left err -> persistPending evidence "strict-portfolio-selection-unavailable" (Just err)
                                     Right selection -> do
-                                        writeResult <- try (writePortfolioGraduationReview path liveReview) :: IO (Either SomeException ())
+                                        writeResult <- trySync (writePortfolioGraduationReview path liveReview) :: IO (Either SomeException ())
                                         case writeResult of
                                             Left ex -> pure (PortfolioShadow, Just liveReview{pgrDecision = PortfolioGraduationPending, pgrReasons = ["graduation-state-persist-failed"]}, Just (displayException ex))
                                             Right () -> do
@@ -21388,7 +21388,7 @@ resolvePortfolioGraduationMode mOps store now tenantKey graduationConfig reviewe
                     }
          in persistReview PortfolioShadow review mErr
     persistReview mode review mErr = do
-        writeResult <- try (writePortfolioGraduationReview path review) :: IO (Either SomeException ())
+        writeResult <- trySync (writePortfolioGraduationReview path review) :: IO (Either SomeException ())
         pure $
             case writeResult of
                 Left ex -> (PortfolioShadow, Just review, Just (displayException ex))
@@ -21424,7 +21424,7 @@ resolvePortfolioSelection store now args selectorConfig mode disabledSymbols exp
         existingUsable selection = existingValid selection && incumbentAdmitted selection
         refreshDue selection = now - psGeneratedAtMs selection >= weeklyRefreshMs
         persist selection = do
-            writeResult <- try (writePortfolioSelection path selection) :: IO (Either SomeException ())
+            writeResult <- trySync (writePortfolioSelection path selection) :: IO (Either SomeException ())
             pure $
                 case writeResult of
                     Left ex -> Left ("Failed to persist portfolio selection: " ++ displayException ex)
@@ -22333,7 +22333,7 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                                             Right argsOk -> do
                                                 let noCache = requestWantsNoCache req
                                                 r <-
-                                                    try
+                                                    trySync
                                                         ( if noCache
                                                             then computeLatestSignalFromArgsWithLimits limits mOps argsOk
                                                             else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
@@ -22512,7 +22512,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                             TradeIdemBusy msg -> respond (jsonError status409 msg)
                                                             TradeIdemCached cachedValue -> respond (jsonValue status200 cachedValue)
                                                             TradeIdemAcquire -> do
-                                                                r <- try (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
+                                                                r <- trySync (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
                                                                 case r of
                                                                     Left ex -> do
                                                                         case (mOps, mIdemKey) of
@@ -22672,7 +22672,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                     startJob mOps store $ do
                                                                         let tradeTimeoutSec = arlTradeTimeoutSec reqLimits
                                                                         outResult <-
-                                                                            try
+                                                                            trySync
                                                                                 (timeout (tradeTimeoutSec * 1000000) (computeTradeFromArgsWithLimits limits mOps argsFinal)) ::
                                                                                 IO (Either SomeException (Maybe ApiTradeResponse))
                                                                         out <-
@@ -22991,7 +22991,7 @@ handleBinanceKeys requestProgressStore reqLimits mOps baseArgs req respond = do
                                 then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
                                 else do
                                     startRequestProgressMaybe mTracker "binance/keys" "egress IP" Nothing
-                                    r <- try (computeBinanceKeysStatusFromArgs mOps mTracker args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+                                    r <- trySync (computeBinanceKeysStatusFromArgs mOps mTracker args0) :: IO (Either SomeException ApiBinanceKeysStatus)
                                     case r of
                                         Left ex ->
                                             let (st, msg) = exceptionToHttp ex
@@ -23022,7 +23022,7 @@ handleCoinbaseKeys reqLimits baseArgs req respond = do
                             if argPlatform args0 /= PlatformCoinbase
                                 then respond (jsonError status400 ("Coinbase keys require platform=coinbase (got " ++ platformCode (argPlatform args0) ++ ")."))
                                 else do
-                                    r <- try (computeCoinbaseKeysStatusFromArgs args0) :: IO (Either SomeException ApiCoinbaseKeysStatus)
+                                    r <- trySync (computeCoinbaseKeysStatusFromArgs args0) :: IO (Either SomeException ApiCoinbaseKeysStatus)
                                     case r of
                                         Left ex ->
                                             let (st, msg) = exceptionToHttp ex
@@ -23260,7 +23260,7 @@ retryListenKey label action = go 0 500000
   where
     maxRetries = 3 :: Int
     go n delayUs = do
-        result <- try action
+        result <- trySync action
         case result of
             Right v -> pure (Right v)
             Left ex ->
@@ -23295,7 +23295,7 @@ stopListenKeyStreamInternal stream = do
     killThread (lksKeepAliveThread stream)
     case lksStreamMode st of
         ListenKeyRestListenKey -> do
-            _ <- try (closeListenKey (lksEnv st) (lksListenKey st)) :: IO (Either SomeException ())
+            _ <- trySync (closeListenKey (lksEnv st) (lksListenKey st)) :: IO (Either SomeException ())
             pure ()
         ListenKeySpotWsApi -> pure ()
     pure ()
@@ -23500,7 +23500,7 @@ listenKeyWsWorker st =
                             emitListenKeyStatus st "connecting" Nothing
                             loop
                 loop = do
-                    result <- try connectOnce :: IO (Either SomeException ())
+                    result <- trySync connectOnce :: IO (Either SomeException ())
                     case result of
                         Left ex -> handleDisconnect (Just ex)
                         Right _ -> handleDisconnect Nothing
@@ -23557,7 +23557,7 @@ handleBinanceListenKeyStream manager req respond =
                                     pure False
                                 send payload =
                                     (write (byteString payload) >> flush >> pure True)
-                                        `catch` handleSendError
+                                        `catchSync` handleSendError
                                 sendMaybeEvent eventName payload =
                                     case payload of
                                         Nothing -> pure True
@@ -23762,7 +23762,7 @@ handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond
                                                                     urls <- resolveBinanceBaseUrls
                                                                     let baseUrl = selectBinanceBaseUrl urls testnet market
                                                                     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                                                                    r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
+                                                                    r <- trySync (closeListenKey env listenKey) :: IO (Either SomeException ())
                                                                     case r of
                                                                         Left ex ->
                                                                             let (st, msg) = listenKeyExceptionToHttp market ex
@@ -23817,7 +23817,7 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                     let tradesTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
                                                         fetchSymbolTrades sym = fetchAccountTrades env (Just sym) limit startTime endTime fromId
                                                     result <-
-                                                        try
+                                                        trySync
                                                             ( timeout
                                                                 (tradesTimeoutSec * 1000000)
                                                                 ( do
@@ -23915,7 +23915,7 @@ handleBinanceRevenue reqLimits mOps baseArgs req respond = do
                                                 env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                                                 let revenueTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
                                                 result <-
-                                                    try
+                                                    trySync
                                                         ( timeout
                                                             (revenueTimeoutSec * 1000000)
                                                             ( do
@@ -23976,7 +23976,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
     advanceRequestProgressMaybe mTracker "positions" (Just ("positionRisk timeout " ++ show positionsTimeoutSec ++ "s"))
     let positionRiskHttpTimeoutMicros = binancePositionsOverallTimeoutMicros positionsTimeoutSec
     r <-
-        try
+        trySync
             ( timeout
                 (positionsTimeoutSec * 1000000)
                 (timeBinancePositionsStep "positionRisk" (fetchFuturesPositionRisksWithResponseTimeout positionRiskHttpTimeoutMicros env))
@@ -24012,7 +24012,7 @@ computeBinancePositionsResponse mTracker mOps baseArgs market testnet params pos
                 fetchPositionChart (idx, pos) = do
                     let sym = fprSymbol pos
                     advanceRequestProgressMaybe mTracker "klines" (Just (formatKlineDetail idx sym))
-                    kr <- try (timeBinancePositionsStep ("klines " ++ sym) (fetchKlines env sym interval limitSafe)) :: IO (Either SomeException [Kline])
+                    kr <- trySync (timeBinancePositionsStep ("klines " ++ sym) (fetchKlines env sym interval limitSafe)) :: IO (Either SomeException [Kline])
                     pure $
                         case kr of
                             Left _ -> Nothing
@@ -24092,7 +24092,7 @@ handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respond 
                                         else do
                                             startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
                                             result <-
-                                                try
+                                                trySync
                                                     ( computeBinancePositionsResponseWithDeadline
                                                         mTracker
                                                         mOps
@@ -24144,7 +24144,7 @@ handleBinancePositionsGet requestProgressStore reqLimits mOps baseArgs req respo
                                 else do
                                     startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
                                     result <-
-                                        try
+                                        trySync
                                             ( computeBinancePositionsResponseWithDeadline
                                                 mTracker
                                                 mOps
@@ -24200,7 +24200,7 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                                             let baseUrl = selectBinanceBaseUrl urls testnet market
                                                                 mOpsTenant = mReqTenant <|> tenantKeyFromBinanceKeys apiKey apiSecret
                                                             env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                                                            r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+                                                            r <- trySync (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
                                                             case r of
                                                                 Left ex ->
                                                                     let (st, msg) = exceptionToHttp ex
@@ -24275,7 +24275,7 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                                                                                 Just s | s /= "BOTH" -> Just s
                                                                                                 _ -> Nothing
                                                                                 baseOut = (baseResult sideLabel qty){aorReduceOnly = True}
-                                                                            r2 <- try (placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty (Just True) Nothing posSideParam) :: IO (Either SomeException BL.ByteString)
+                                                                            r2 <- trySync (placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty (Just True) Nothing posSideParam) :: IO (Either SomeException BL.ByteString)
                                                                             case r2 of
                                                                                 Left ex ->
                                                                                     respond (jsonValue status200 baseOut{aorMessage = "Order failed: " ++ shortErr ex})
@@ -25113,7 +25113,7 @@ applyPredictionMarketHerdMaybe args mSymbol sig
             Nothing -> pure sig
             Just sym -> do
                 r <-
-                    try
+                    trySync
                         ( fetchPolymarketHerdSignal
                             (predictionMarketFetchConfigFromArgs args)
                             sym
@@ -25294,7 +25294,7 @@ prepareOrderSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO (Ei
 prepareOrderSignalPlatform args sig mBinanceEnv =
     case (argPlatform args, argBinanceSymbol args, mBinanceEnv) of
         (PlatformBinance, Just sym, Just env) -> do
-            r <- try (fetchBotAccountPos args env sym) :: IO (Either SomeException Int)
+            r <- trySync (fetchBotAccountPos args env sym) :: IO (Either SomeException Int)
             case r of
                 Left ex -> pure (Left ("No order: failed to read current Binance position: " ++ take 240 (show ex)))
                 Right currentPos -> do
@@ -25339,7 +25339,7 @@ placeOrderForSignalPlatform args sig mBinanceEnv =
                                     case argBinanceSymbol args of
                                         Nothing -> pure (noOrderResult "No order: missing symbol.")
                                         Just sym -> do
-                                            envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                                            envOrErr <- trySync (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
                                             case envOrErr of
                                                 Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
                                                 Right env -> placeCoinbaseOrderForSignal args sym sigForOrderSized env
@@ -25610,7 +25610,7 @@ parseCoinbaseError raw =
 
 probeBinance :: String -> IO a -> IO ApiBinanceProbe
 probeBinance step action = do
-    r <- try action
+    r <- trySync action
     case r of
         Right _ -> pure (ApiBinanceProbe True False step Nothing Nothing "OK")
         Left ex -> do
@@ -25630,7 +25630,7 @@ probeBinance step action = do
 
 probeCoinbase :: String -> IO a -> IO ApiBinanceProbe
 probeCoinbase step action = do
-    r <- try action
+    r <- trySync action
     case r of
         Right _ -> pure (ApiBinanceProbe True False step Nothing Nothing "OK")
         Left ex -> do
@@ -25685,7 +25685,7 @@ resolveBinanceEgressIp = do
   where
     probeUrls _ [] = pure Nothing
     probeUrls manager (url : rest) = do
-        r <- try (fetchPublicIpFromUrl manager url) :: IO (Either SomeException (Maybe String))
+        r <- trySync (fetchPublicIpFromUrl manager url) :: IO (Either SomeException (Maybe String))
         case r of
             Right (Just ip) -> pure (Just ip)
             _ -> probeUrls manager rest
@@ -25994,7 +25994,7 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
         ApiBinanceProbe False True step Nothing Nothing ("Trade test skipped: " ++ reason)
 
     fetchFilters env sym = do
-        r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
+        r <- trySync (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
         pure $
             case r of
                 Right sf -> (Just sf, Nothing)
@@ -26011,13 +26011,13 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
 
     fetchPriceMaybe env sym = do
         let attempt action = do
-                r <- try action :: IO (Either SomeException Double)
+                r <- trySync action :: IO (Either SomeException Double)
                 pure $
                     case r of
                         Right price | price > 0 -> Just price
                         _ -> Nothing
             attemptKlineClose = do
-                r <- try (fetchKlines env sym "1m" 1) :: IO (Either SomeException [Kline])
+                r <- trySync (fetchKlines env sym "1m" 1) :: IO (Either SomeException [Kline])
                 pure $
                     case r of
                         Right (k : _) | kClose k > 0 -> Just (kClose k)
@@ -30676,7 +30676,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym)
                 | platformSupportsMarketContext (argPlatform args) -> do
-                    r <- try (buildMarketModel args env sym n pricesV (V.fromList <$> psOpenTimes series) mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
+                    r <- trySync (buildMarketModel args env sym n pricesV (V.fromList <$> psOpenTimes series) mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
                     case r of
                         Right model -> pure model
                         Left ex -> do
@@ -30881,7 +30881,7 @@ loadPersistedLstmModel path hidden trainBars = do
     if not exists
         then pure Nothing
         else do
-            eBs <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            eBs <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
             case eBs of
                 Left _ -> pure Nothing
                 Right bs ->
@@ -30903,7 +30903,7 @@ savePersistedLstmModelMaybe mPath trainBars model =
         Nothing -> pure ()
         Just path -> do
             _ <-
-                try
+                trySync
                     ( do
                         createDirectoryIfMissing True (takeDirectory path)
                         let plm =
@@ -30917,12 +30917,12 @@ savePersistedLstmModelMaybe mPath trainBars model =
                         let tmpPath = path ++ ".tmp-" ++ show randId
                         BL.writeFile tmpPath (encode plm)
                         -- Atomic on POSIX when within the same filesystem; on Windows, fall back to replace.
-                        r1 <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+                        r1 <- trySync (renameFile tmpPath path) :: IO (Either SomeException ())
                         case r1 of
                             Right _ -> pure ()
                             Left _ -> do
-                                _ <- try (removeFile path) :: IO (Either SomeException ())
-                                _ <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+                                _ <- trySync (removeFile path) :: IO (Either SomeException ())
+                                _ <- trySync (renameFile tmpPath path) :: IO (Either SomeException ())
                                 pure ()
                     ) ::
                     IO (Either SomeException ())
@@ -31168,7 +31168,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             (MethodLstmOnly, _, _) -> pure Nothing
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym) -> do
-                r <- try (buildMarketModel args env sym predStart pricesV (V.fromList <$> openTimesAll) mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
+                r <- trySync (buildMarketModel args env sym predStart pricesV (V.fromList <$> openTimesAll) mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
                 case r of
                     Right model -> pure model
                     Left ex -> do
@@ -36835,7 +36835,7 @@ loadPricesBinanceWith fetcher mOps args sym = do
     apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
     apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
     envTrade <- newBinanceEnvWithOps mOps market tradeBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-    klinesE <- try (fetcher envTrade sym (argInterval args) bars) :: IO (Either HttpException [Kline])
+    klinesE <- trySync (fetcher envTrade sym (argInterval args) bars) :: IO (Either HttpException [Kline])
     ks <-
         case klinesE of
             Right out -> pure out
@@ -36888,7 +36888,7 @@ buildCrossExchangeCoinbase args pricesV mOpenTimes
                     -- so historical optimizer-CSV windows align correctly too.
                     let endSec = maximum openTimes `div` 1000
                     res <-
-                        try (fetchCoinbaseCandlesEndingAt product gran endSec (n + 5)) ::
+                        trySync (fetchCoinbaseCandlesEndingAt product gran endSec (n + 5)) ::
                             IO (Either SomeException [CoinbaseCandle])
                     case res of
                         Left ex -> do

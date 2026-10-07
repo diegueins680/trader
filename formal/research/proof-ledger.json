@@ -389,7 +389,7 @@
     {
       "id": "A-ASYNC-STOP",
       "status": "assumption",
-      "statement": "Source binding over the named live worker and order spans and the two Binance helpers; GHC asynchronous-exception semantics (killThread returns after delivery; SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt) are trusted. This removes the post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open, and stop still completes only after delivery to masked regions.",
+      "statement": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "risk": "RL-OFFLINE-001"
     }
   ],
@@ -7375,8 +7375,8 @@
     },
     {
       "requirementId": "F-LIVE-STOP-ASYNC-SOURCE",
-      "claim": "Every exception capture in the live bot worker, autostart, optimizer and bot loops (botStartWorker through reconcileBotPositionWithExchange) and in the Binance and Coinbase order paths (placeOrderForSignal through computeBacktestFromArgs), plus the Binance signing-timestamp and cancel-by-prefix captures, uses trySync, which rethrows every asynchronous exception; no bare try, catch or handle remains there, so a killed worker cannot convert ThreadKilled into an order error and continue to further exchange steps.",
-      "formalStatement": "Every exception capture in the live bot worker, autostart, optimizer and bot loops (botStartWorker through reconcileBotPositionWithExchange) and in the Binance and Coinbase order paths (placeOrderForSignal through computeBacktestFromArgs), plus the Binance signing-timestamp and cancel-by-prefix captures, uses trySync, which rethrows every asynchronous exception; no bare try, catch or handle remains there, so a killed worker cannot convert ThreadKilled into an order error and continue to further exchange steps.",
+      "claim": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting.",
+      "formalStatement": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting.",
       "criticality": "critical",
       "assumptions": [
         "A-ASYNC-STOP"
@@ -7386,26 +7386,29 @@
       "sourceModel": "scripts/formal/async_stop.py",
       "artifact": "formal/research/results.json",
       "implementationFiles": [
+        "formal/research/async-stop-counterexample.json",
         "haskell/app/Main.hs",
-        "haskell/app/Trader/Binance.hs",
         "haskell/app/Trader/App/AsyncSafe.hs",
-        "formal/research/async-stop-counterexample.json"
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Cache.hs"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
         "haskell/test/Trader/Test/AsyncSafe.hs"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Fresh binding of 32 worker/order trySync sites and 2 Binance sites with no bare capture remaining must reproduce.",
-      "bounds": "32 Main.hs capture sites across botStartWorker..reconcileBotPositionWithExchange and placeOrderForSignal..computeBacktestFromArgs; 2 Binance.hs helpers.",
-      "limitations": "Source binding over the named live worker and order spans and the two Binance helpers; GHC asynchronous-exception semantics (killThread returns after delivery; SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt) are trusted. This removes the post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open, and stop still completes only after delivery to masked regions.",
+      "result": "Fresh whole-tree import certificate with no unreviewed capture must reproduce; mutants (re-imported try/catch, qualified or open Control.Exception import, Control.Monad.Catch, an extra forwarding capture, a weakened trySync) must fail closed.",
+      "bounds": "All 122 Haskell modules under haskell/app; 5 reviewed forwarding threads.",
+      "limitations": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "counterexample": "CE-LIVE-001",
       "status": "exhaustively_checked"
     },
     {
       "requirementId": "F-LIVE-STOP-ASYNC-CONFORMANCE",
-      "claim": "A compiled program built against the actual Trader.App.AsyncSafe module reproduces CE-LIVE-001 with the legacy capture (the killed routine records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell test suite additionally checks synchronous capture and that System.Timeout.timeout still fires through trySync.",
-      "formalStatement": "A compiled program built against the actual Trader.App.AsyncSafe module reproduces CE-LIVE-001 with the legacy capture (the killed routine records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell test suite additionally checks synchronous capture and that System.Timeout.timeout still fires through trySync.",
+      "claim": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync.",
+      "formalStatement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync.",
       "criticality": "critical",
       "assumptions": [
         "A-ASYNC-STOP"
@@ -7427,7 +7430,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "The compiled CE-LIVE-001 witness must reproduce exactly: legacy capture keeps acting, trySync stops.",
       "bounds": "32 Main.hs capture sites across botStartWorker..reconcileBotPositionWithExchange and placeOrderForSignal..computeBacktestFromArgs; 2 Binance.hs helpers.",
-      "limitations": "Source binding over the named live worker and order spans and the two Binance helpers; GHC asynchronous-exception semantics (killThread returns after delivery; SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt) are trusted. This removes the post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open, and stop still completes only after delivery to masked regions.",
+      "limitations": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
       "counterexample": "CE-LIVE-001",
       "status": "property_tested"
     }

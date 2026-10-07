@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "coreSha256": "3c38924575b6a324a62f00bd82364e9548106d967855a8b509b8f0b277c0b563",
-  "adapterSha256": "d0cf9cde7d1f22749c355cb3848bbb65110c15e7bca97ecba388bba08a4673cb",
+  "adapterSha256": "6d0af00ca9b585ac181b450886b474dbf32f449d11885fe3f58fa791c06fc743",
   "prefixes": {
     "placeFuturesPostOnlyLimitOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesPostOnlyLimitOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite quantity > 0\" quantity)\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite price > 0\" price)\n",
     "placeMarketOrder": "    either (throwIO . userError) pure (validateMarketNumbers (beMarket env == MarketFutures) quantity quoteOrderQty)\n",

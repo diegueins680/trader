@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Control.Monad (forM_, forever, when)
 import Data.Aeson (Value (..), decode, encode, object, (.=))
 import qualified Data.ByteString.Lazy as BL
@@ -23,6 +23,7 @@ import Network.HTTP.Types (hContentType, statusCode)
 import System.Environment (lookupEnv)
 import System.Exit (die)
 import Text.Read (readMaybe)
+import Trader.App.AsyncSafe (trySync)
 
 data PublishMode
     = PublishNoop
@@ -143,7 +144,7 @@ validatePublisherConfig mode kafkaRestBaseUrl =
                 Nothing -> die "TRADER_OUTBOX_KAFKA_REST_URL is required when TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest."
                 Just baseUrl -> do
                     let probeUrl = trim baseUrl ++ "/topics/trader-healthcheck"
-                    parsed <- try (parseRequest probeUrl) :: IO (Either SomeException Request)
+                    parsed <- trySync (parseRequest probeUrl) :: IO (Either SomeException Request)
                     case parsed of
                         Left _ ->
                             die
@@ -291,7 +292,7 @@ runBatch conn ctx batchSize staleTimeoutMs publishedRetentionMs = do
                 putStrLn ("outbox.reclaim count=" <> show reclaimed)
             events <- claimOutboxBatch conn now batchSize
             forM_ events $ \event -> do
-                result <- (try (publishEvent ctx event) :: IO (Either SomeException (Either Text ())))
+                result <- (trySync (publishEvent ctx event) :: IO (Either SomeException (Either Text ())))
                 doneAt <- getTimestampMs
                 case result of
                     Left ex -> do

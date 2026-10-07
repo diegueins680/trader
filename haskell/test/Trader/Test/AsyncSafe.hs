@@ -8,7 +8,7 @@ import Data.Either (fromRight)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Maybe (isNothing)
 import System.Timeout (timeout)
-import Trader.App.AsyncSafe (isAsyncException, trySync)
+import Trader.App.AsyncSafe (catchSync, isAsyncException, trySync)
 
 asyncSafeSuite :: [(String, IO ())]
 asyncSafeSuite =
@@ -16,6 +16,7 @@ asyncSafeSuite =
     , ("trySync rethrows killThread so no later step runs", killStopsLaterSteps)
     , ("trySync still captures synchronous failures", synchronousCaptured)
     , ("trySync does not defeat System.Timeout.timeout", timeoutPropagates)
+    , ("catchSync rethrows killThread and still handles synchronous failures", catchSyncBehaves)
     ]
 
 expect :: (Eq a, Show a) => String -> a -> a -> IO ()
@@ -27,15 +28,17 @@ routine :: (IO String -> IO (Either SomeException String)) -> IO [String]
 routine capture = do
     steps <- newIORef []
     done <- newEmptyMVar
+    ready <- newEmptyMVar
     tid <-
         forkIO $
             ( do
-                r <- capture (threadDelay 500000 >> pure "entry")
+                r <- capture (putMVar ready () >> threadDelay 5000000 >> pure "entry")
                 modifyIORef' steps (fromRight "entry failed" r :)
                 modifyIORef' steps ("follow-up order" :)
             )
                 `finally` putMVar done ()
-    threadDelay 50000
+    -- Kill only once the worker is inside its exchange call, never before it.
+    takeMVar ready
     killThread tid
     takeMVar done
     reverse <$> readIORef steps
@@ -57,10 +60,17 @@ synchronousCaptured = do
     case r of
         Left ex -> expect "synchronous is not async" False (isAsyncException ex)
         Right () -> ioError (userError "synchronous failure was not captured")
-    ok <- trySync (pure (7 :: Int))
+    ok <- trySync (pure (7 :: Int)) :: IO (Either SomeException Int)
     expect "success passes through" (Right 7) (either (const (Left ())) Right ok)
 
 timeoutPropagates :: IO ()
 timeoutPropagates = do
-    r <- timeout 50000 (trySync (threadDelay 2000000))
+    r <- timeout 50000 (trySync (threadDelay 2000000) :: IO (Either SomeException ()))
     expect "timeout fires through trySync" True (isNothing r)
+
+catchSyncBehaves :: IO ()
+catchSyncBehaves = do
+    steps <- routine (\act -> (Right <$> act) `catchSync` (pure . Left))
+    expect "catchSync steps after kill" [] steps
+    handled <- throwIO (ErrorCall "venue rejected") `catchSync` \(ErrorCall msg) -> pure msg
+    expect "catchSync handles synchronous" "venue rejected" handled

@@ -17,7 +17,7 @@ module Trader.Dex (
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Control.Monad (when)
 import Data.Aeson (Value (..))
 import qualified Data.Aeson as Aeson
@@ -40,6 +40,7 @@ import System.Exit (ExitCode (..))
 import System.Process (proc, readCreateProcessWithExitCode)
 import Text.Read (readMaybe)
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 
 -- 1inch native token placeholder (used for ETH/BNB/etc.)
@@ -265,7 +266,7 @@ fetchDexTokens env = do
     req0 <- parseRequest url
     let req = applyApiKey env req0
     mgr <- getSharedManager
-    respOrErr <- try (httpLbsWithRetry defaultRetryConfig (Just "1inch.tokens") mgr req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig (Just "1inch.tokens") mgr req) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left ex -> pure (Left (show ex))
         Right resp ->
@@ -282,7 +283,7 @@ fetchDexAllowance env token = do
     req0 <- parseRequest url
     let req = applyApiKey env req0
     mgr <- getSharedManager
-    respOrErr <- try (httpLbsWithRetry defaultRetryConfig (Just "1inch.allowance") mgr req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig (Just "1inch.allowance") mgr req) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left ex -> pure (Left (show ex))
         Right resp ->
@@ -306,7 +307,7 @@ fetchDexApproveTx env token = do
     req0 <- parseRequest url
     let req = applyApiKey env req0
     mgr <- getSharedManager
-    respOrErr <- try (httpLbsWithRetry defaultRetryConfig (Just "1inch.approve") mgr req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig (Just "1inch.approve") mgr req) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left ex -> pure (Left (show ex))
         Right resp ->
@@ -334,7 +335,7 @@ fetchDexSwap env tokenIn tokenOut amountIn slippageFrac mProtocols = do
     req0 <- parseRequest url
     let req = applyApiKey env req0
     mgr <- getSharedManager
-    respOrErr <- try (httpLbsWithRetry defaultRetryConfig (Just "1inch.swap") mgr req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig (Just "1inch.swap") mgr req) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left ex -> pure (Left (show ex))
         Right resp -> do
@@ -415,7 +416,7 @@ sendDexTx env tx = do
             ]
                 ++ gasArgs tx
                 ++ [dtxTo tx]
-    result <- try (readCreateProcessWithExitCode (proc "cast" args) "") :: IO (Either SomeException (ExitCode, String, String))
+    result <- trySync (readCreateProcessWithExitCode (proc "cast" args) "") :: IO (Either SomeException (ExitCode, String, String))
     case result of
         Left ex -> pure (Left ("cast send failed: " ++ show ex))
         Right (exitCode, stdoutText, stderrText) ->
@@ -440,7 +441,7 @@ waitForReceipt env txHash = do
   where
     go 0 = pure (Left "Timed out waiting for approval transaction receipt.")
     go n = do
-        result <- try (readCreateProcessWithExitCode (proc "cast" ["receipt", "--json", "--rpc-url", deRpcUrl env, txHash]) "") :: IO (Either SomeException (ExitCode, String, String))
+        result <- trySync (readCreateProcessWithExitCode (proc "cast" ["receipt", "--json", "--rpc-url", deRpcUrl env, txHash]) "") :: IO (Either SomeException (ExitCode, String, String))
         case result of
             Left ex -> pure (Left ("cast receipt failed: " ++ show ex))
             Right (exitCode, out, _err) ->
@@ -462,7 +463,7 @@ sleepSec :: Int -> IO ()
 sleepSec n =
     when (n > 0) $ do
         let micros = n * 1000000
-        _ <- try (threadDelay micros) :: IO (Either SomeException ())
+        _ <- trySync (threadDelay micros) :: IO (Either SomeException ())
         pure ()
 
 -- Utils

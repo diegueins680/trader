@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Fix: stopping a live bot is now a hard stop. A worker killed mid-order no longer converts `ThreadKilled` into an order error and continues to place or cancel orders (CE-LIVE-001). Exception captures on the bot worker and order paths and the Binance signing/cancel helpers now use `trySync`, which rethrows asynchronous exceptions, so `timeout` also works there. Synchronous error handling is unchanged.
+- Fix: stopping a live bot is now a hard stop. A worker killed mid-order no longer converts `ThreadKilled` into an order error and continues to place or cancel orders (CE-LIVE-001). Every `try`/`catch` in `haskell/app` now goes through `trySync`/`catchSync`, which rethrow asynchronous exceptions (including the kline-step wrapper, Binance timestamp cache, request-ops logging and the TopCombosStore lock heartbeat, which previously survived `killThread`), so `timeout` also works there; other capture imports are rejected by a formal source check. Synchronous error handling is unchanged.
 
 - Close obligation 8 (accounting) for the delivered offline path: per-row binary64 reconciliation of the frozen `Replay` ledger (roll-forward, gross, funding, fee/spread/slippage/impact) within exactly derived error bounds, with SMT lemmas and a 5,578-row probe. No source or data change. Counts become 15 scoped closures / 22 partial / 1 open.
 

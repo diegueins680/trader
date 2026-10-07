@@ -24,13 +24,14 @@ module Trader.App.GracefulShutdown (
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, isEmptyMVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (STM, TVar, atomically, newTVarIO, readTVar, readTVarIO, writeTVar)
-import Control.Exception (AsyncException, SomeException, displayException, finally, fromException, mask_, throwIO, try)
+import Control.Exception (AsyncException, SomeException, displayException, finally, fromException, mask_, throwIO)
 import Control.Monad (filterM, forM, unless, void)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.IO (hPutStrLn, stderr)
 import System.Timeout (timeout)
+import Trader.App.AsyncSafe (tryForwardingAll, trySync)
 
 newtype DrainController = DrainController (TVar Bool)
 
@@ -120,7 +121,7 @@ forkSupervisedWorker (WorkerRegistry workers) name action = mask_ $
     loop restartCount = do
         closed <- registryClosed <$> readMVar workers
         unless closed $ do
-            result <- try action
+            result <- trySync action
             case result of
                 Right () -> restart "exited" restartCount Nothing
                 Left ex ->
@@ -153,7 +154,7 @@ runCleanupStepBounded timeoutUs action = do
     done <- newEmptyMVar
     tid <-
         forkIO $ do
-            result <- try action :: IO (Either SomeException ())
+            result <- tryForwardingAll action
             putMVar done result
     result <- timeout (max 1 timeoutUs) (takeMVar done)
     case result of
