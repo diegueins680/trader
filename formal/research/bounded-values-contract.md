@@ -140,7 +140,7 @@ source. It is replaced as follows.
 
   Source literals use their exact binary64 values (for example
   `0.35 = 3152519739159347/2⁵³`).
-- **Range premise added to A-GAP-BOUND:** prices lie in [2⁻⁹⁰⁰, 2⁹⁰⁰] and equity
+- **Range premise added to A-GAP-BOUND (superseded by the fourth correction below):** prices lie in [2⁻⁹⁰⁰, 2⁹⁰⁰] and equity
   ≤ 2⁹⁰⁰, so no operation overflows.
 - **Resulting margins:**
   - equity after a bar ≥ 0.8040·E;
@@ -186,3 +186,19 @@ The conversion now takes the applicable floor:
 
 The margins are unchanged at the stated precision, because the η terms are
 ≈ 2⁻¹⁰⁷⁵.
+
+## Fourth review correction (before merge)
+
+Separate endpoint bounds (equity ≤ 2⁹⁰⁰, price ≥ 2⁻⁹⁰⁰) did not bound the
+quotient `target·e/p`. It could reach 2¹⁷⁹⁸ and overflow. On the
+`missed10pct` branch, `desired` is computed and then discarded (`new = old`), so
+the overflow would not even be rejected. The range premise is now:
+
+- prices and equity both lie in [2⁻⁴⁰⁰, 2⁴⁰⁰];
+- `propagate()` checks every intermediate magnitude: w·e, e/p, units,
+  post-trade units, cash, gross and funding, turnover and equity. The largest
+  is about 2⁸⁰¹, below 2¹⁰⁰⁰.
+
+The missed-fill branch leaves `new = old`, which the post-trade inventory bound
+already covers. The registered panel is far inside this range: prices are
+roughly 10⁻² to 10⁵, and equity is at most about 2¹⁴⁰ over 600 bars.

@@ -20,7 +20,8 @@ recorded next action fixed the reading:
   funding ≤ 2×);
 - monotone `sqrt` on [0, 1];
 - the binary64 rounding model fl(x) = x(1+δ)+η, including underflow;
-- prices in [2⁻⁹⁰⁰, 2⁹⁰⁰] and equity ≤ 2⁹⁰⁰ (no overflow).
+- prices and equity in [2⁻⁴⁰⁰, 2⁴⁰⁰], so every product and quotient stays
+  below 2¹⁰⁰⁰ (no overflow).
 
 This is an assumption about markets, not a fact. Paths outside it, such as the
 preserved −87.5% and +300% witnesses CE-RL-002/003, can still breach any bound,
@@ -52,7 +53,8 @@ Evidence:
   instantiated in exact rationals along every source operation (6 queries, 8
   propagation checks). Review caught that a first version modeled too few
   roundings, and a second review found the post-trade liquidation path and the
-  stored-cash rounding missing; both were fixed before merge (see the contract).
+  stored-cash rounding missing; further rounds fixed the liquidation equity floor
+  and the range premise. All were fixed before merge (see the contract).
 - **F-RL-BOUNDS-CONFORMANCE** (property tested): 288 episodes, 2,037
   non-terminal checks, 224 breach terminations (all flat), 35 rejections.
 - **Existing certificates reused:** the shield, gap, post-cost and drawdown

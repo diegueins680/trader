@@ -2,6 +2,7 @@
 import ast
 from fractions import Fraction as Q
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -100,7 +101,8 @@ def bind(sources=None):
 
 U = Q(1, 2**53)            # unit roundoff, round to nearest
 H = Q(1, 2**1075)          # largest absolute error of a rounded (subnormal/zero) result
-LOW_PRICE = Q(1, 2**900)   # A-GAP-BOUND range premise: prices and equity stay in the normal range
+LOW_PRICE = Q(1, 2**400)   # A-GAP-BOUND range premise: prices and equity lie in [2^-400, 2^400]
+HIGH = Q(2**400)
 
 
 def dbl(x):
@@ -154,7 +156,7 @@ def propagate():
     # Prior non-terminal state: computed exposure <= 0.35 bounds the exact |U*p0| (lemma I).
     x0 = (cap + 3 * H) / ((1 - U) * (1 - U))
     # gross = units * (p1 - p0): d = rnd(p1 - p0) with |p1 - p0| <= p0/2, then rnd(units * d).
-    # |units| * H <= x0 * E * H / p0 <= x0 * E * H * 2^900, folded into the relative term.
+    # |units| * H <= x0 * E * H / p0 <= x0 * E * H * 2^400, folded into the relative term.
     tiny = x0 * H / LOW_PRICE
     gross = Bound(x0 * Q(1, 2) * (1 + U) + tiny, Q(0)).rounded()
     # funding = -units * f * m: |units * f| <= x0 * E * 3/100, then two roundings.
@@ -175,7 +177,7 @@ def propagate():
     trade_product = (turnover_cap + 3 * H) / ((1 - U) * (1 - U))
     after_trade = cost(trade_product, Q(1), Q(4, 5))   # trades run only after the mark check passed: e >= dbl(0.8)
     # Post-trade inventory (relative to the equity e at the trade, where the mark check passed: |old*p| <= x0*e).
-    # |h * p| / e <= 2^-1075 * 2^900 * 5/4 under the normal-range premise.
+    # |h * p| / e <= 2^-1075 * 2^400 * 5/4 under the range premise.
     hp = H / LOW_PRICE * Q(5, 4)
     desired = Q(1, 4) * (1 + U) * (1 + U) + hp * 2            # rnd(rnd(w * e) / p) * p
     diff = (desired + x0) * (1 + U) + hp                      # rnd(desired - old)
@@ -188,11 +190,20 @@ def propagate():
     after_liquidation = cost(liquidation_product, Q(1), liquidation_floor)
     # Fresh full-fill target |w| = 1/4: |new * p| = |rnd(rnd(w * e) / p) * p|, then post-cost equity.
     entry_exposure = desired / after_trade
+    # Range premise: every intermediate magnitude stays far below 2^1023 (no overflow) for any
+    # admitted state, including desired = rnd(rnd(w*e)/p) computed on the missed-fill branch.
+    e_max, p_min, p_max = HIGH, LOW_PRICE, HIGH
+    magnitudes = {'w*e': Q(1, 4) * e_max, 'desired=w*e/p': Q(1, 4) * e_max / p_min * (1 + U) ** 2,
+                  'units<=x0*e/p': x0 * e_max / p_min, 'post-trade units': post * e_max / p_min,
+                  'cash=|dU|*p': (post + x0 + 1) * e_max, 'gross/funding': x0 * e_max * Q(3, 2),
+                  'turnover': post + 1, 'equity': e_max * 2}
+    largest = max(magnitudes.values())
+    range_ok = largest < Q(2) ** 1000
     checks = {'equityAfterBar': e1_ratio > Q(4, 5), 'detectionExposure': detect < Q(66, 100), 'turnoverSqrtArgument': liquidation_product * (1 + U) * (1 + U) + 3 * H < 1,
               'afterTrade': after_trade > Q(998, 1000), 'afterLiquidation': after_liquidation > Q(996, 1000),
-              'entryExposure': entry_exposure < Q(2506, 10000) < cap, 'postTradeInventory': post < 1, 'floorLiteral': floor > Q(4, 5), 'halfLiteral': half == Q(1, 2)}
+              'entryExposure': entry_exposure < Q(2506, 10000) < cap, 'postTradeInventory': post < 1, 'floorLiteral': floor > Q(4, 5), 'noOverflow': range_ok, 'halfLiteral': half == Q(1, 2)}
     require(all(checks.values()), 'exact bound propagation failed: ' + str([k for k, v in checks.items() if not v]))
-    return {'liquidationEquityFloor': float(liquidation_floor), 'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'postTradeInventory': float(post), 'afterTradeRatio': float(after_trade),
+    return {'largestMagnitudeLog2': float(math.log2(largest)), 'liquidationEquityFloor': float(liquidation_floor), 'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'postTradeInventory': float(post), 'afterTradeRatio': float(after_trade),
             'afterLiquidationRatio': float(after_liquidation), 'entryExposure': float(entry_exposure), 'checks': len(checks)}
 
 
