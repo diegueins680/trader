@@ -122,7 +122,9 @@
         "scripts/formal/bounded_values.py",
         "formal/research/accounting-reconciliation-contract.md",
         "scripts/formal/accounting_reconciliation.py",
-        "formal/research/replay-source-lock.json"
+        "formal/research/replay-source-lock.json",
+        "formal/research/async-stop-counterexample.json",
+        "scripts/formal/async_stop.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -906,6 +908,14 @@
         {
           "id": "F-RL-RECON-CONFORMANCE",
           "statement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's 5578 recorded rows satisfies the stated roll-forward bound exactly in rationals; horizon-one rows satisfy the gross and funding bounds against units captured before the bar; and, using a pass-through spy on the actual _trade that records each call's executed cash, equity and turnover, every row's fee, spread and slippage satisfy the stated 4u+10H bound and every impact satisfies the stated 6u+10H bound against rigorous exact-square-root enclosures."
+        },
+        {
+          "id": "F-LIVE-STOP-ASYNC-SOURCE",
+          "statement": "Every exception capture in the live bot worker, autostart, optimizer and bot loops (botStartWorker through reconcileBotPositionWithExchange) and in the Binance and Coinbase order paths (placeOrderForSignal through computeBacktestFromArgs), plus the Binance signing-timestamp and cancel-by-prefix captures, uses trySync, which rethrows every asynchronous exception; no bare try, catch or handle remains there, so a killed worker cannot convert ThreadKilled into an order error and continue to further exchange steps."
+        },
+        {
+          "id": "F-LIVE-STOP-ASYNC-CONFORMANCE",
+          "statement": "A compiled program built against the actual Trader.App.AsyncSafe module reproduces CE-LIVE-001 with the legacy capture (the killed routine records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell test suite additionally checks synchronous capture and that System.Timeout.timeout still fires through trySync."
         }
       ],
       "invariants": [

@@ -4825,5 +4825,26 @@ class AccountingReconciliationTests(unittest.TestCase):
                 a.conformance()
 
 
+class AsyncStopTests(unittest.TestCase):
+    def test_source_and_compiled_witness(self):
+        import async_stop as a
+        r=a.check_async_stop()
+        self.assertEqual((r['source']['workerAndOrderSites'],r['source']['binanceSites']),(32,2))
+        self.assertIn('follow-up order',r['conformance']['observed'])
+
+    def test_reintroduced_capture_fails_closed(self):
+        import async_stop as a
+        main=(ROOT/a.MAIN).read_text()
+        old='r <- trySync (placeCoinbaseMarketOrder env sym sideLabel mQty mFunds clientOrderId)'
+        self.assertIn(old,main)
+        with self.assertRaisesRegex(ValueError,'bare try on the order path'):
+            a.bind({a.MAIN:main.replace(old,old.replace('trySync','try'))})
+        with self.assertRaisesRegex(ValueError,'other capture forms'):
+            a.bind({a.MAIN:main.replace('botLoop ::','handle undefined\nbotLoop ::',1)})
+        helper=(ROOT/a.ASYNC).read_text()
+        with self.assertRaisesRegex(ValueError,'rethrows every async exception'):
+            a.bind({a.ASYNC:helper.replace('Left ex | isAsyncException ex -> throwIO ex','Left ex | False -> throwIO ex')})
+
+
 if __name__ == '__main__':
     unittest.main()

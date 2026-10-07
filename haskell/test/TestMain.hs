@@ -436,6 +436,7 @@ import Trader.SignalGates (
 import Trader.Test.AdmissionProgress (admissionProgressSuite)
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.AsyncJobAdmission (asyncJobAdmissionSuite)
+import Trader.Test.AsyncSafe (asyncSafeSuite)
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BacktestGate (backtestGateSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
@@ -883,6 +884,7 @@ main = do
     runSuite "drainPool" drainPoolSuite
     runSuite "asyncJobAdmission" asyncJobAdmissionSuite
     runSuite "workerPublication" workerPublicationSuite
+    runSuite "asyncSafe" asyncSafeSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite

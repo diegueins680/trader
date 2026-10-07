@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-LIVE-001",
+  "requirement": "F-LIVE-STOP-ASYNC-SOURCE",
+  "claim": "botStop stops a live bot worker: once it reports success, the stopped worker places, cancels and fetches no further exchange orders.",
+  "status": "resolved",
+  "discovered": "2026-10-07 obligation-15 audit of the live worker and order paths",
+  "mechanism": "stopRuntime signals the stop MVar and then calls killThread, which returns once ThreadKilled is delivered. Every exchange step on the bot worker and order paths was wrapped in try at type SomeException, which also catches asynchronous exceptions. A worker killed mid-order recorded an order error and continued to its next exchange step (protection, trigger or algo order, cancel-by-prefix, status fetch), after botStop had reported success and while a replacement bot could own the symbol. The same swallowing defeated System.Timeout.timeout around those calls and the signing timestamp fetch.",
+  "witness": "Compiled GHC 9.4.8 program: a routine shaped like the order path is killed during its first exchange step. With try @SomeException it records 'entry failed' and then runs 'follow-up order'; with trySync no later step runs.",
+  "observed": "([\"entry failed\",\"follow-up order\"],[])",
+  "resolution": "Trader.App.AsyncSafe.trySync captures synchronous exceptions exactly like try @SomeException and rethrows every SomeAsyncException. It replaces all 32 captures on the worker and order paths and the 2 Binance signing/cancel captures, so a killed worker unwinds through its tid-guarded finally cleanup.",
+  "regression": "scripts/formal/async_stop.py (compiled against haskell/app) and haskell/test/Trader/Test/AsyncSafe.hs"
+}

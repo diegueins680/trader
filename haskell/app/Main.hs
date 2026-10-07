@@ -104,6 +104,7 @@ import Trader.App.Args (
     validateArgs,
  )
 import Trader.App.AsyncJobAdmission (JobAdmissionFailure (..), JobSlots, closeJobSlots, newJobSlotsWithDrain, runningJobSlots, startBoundedJob, waitJobSlots)
+import Trader.App.AsyncSafe (trySync)
 import Trader.App.AutoStartBackoff (
     BackoffPolicy (..),
     CircuitPolicy (..),
@@ -10501,7 +10502,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                             settings
                             nowStart
                     initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) sym
-    r <- try (doStart args) :: IO (Either SomeException BotState)
+    r <- trySync (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
             now <- getTimestampMs
@@ -11266,7 +11267,7 @@ botStop ctrl tenantKey mSymbol =
                 killThread (bsrThreadId rt)
                 pure Nothing
             BotRunning rt -> do
-                mSt <- try (readMVar (brStateVar rt)) :: IO (Either SomeException BotState)
+                mSt <- trySync (readMVar (brStateVar rt)) :: IO (Either SomeException BotState)
                 case brOptimizer rt of
                     Nothing -> pure ()
                     Just optRt -> do
@@ -13352,7 +13353,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                 Nothing
                                 Nothing
                         else do
-                            envOrErr <- try (makeBinanceEnv mOps baseArgs) :: IO (Either SomeException BinanceEnv)
+                            envOrErr <- trySync (makeBinanceEnv mOps baseArgs) :: IO (Either SomeException BinanceEnv)
                             case envOrErr of
                                 Left ex -> do
                                     now <- getTimestampMs
@@ -13688,7 +13689,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                     -- sampling accordingly. Fail-open to the base weights.
                                                     liveGapStatsMap <- do
                                                         valOrErr <-
-                                                            try (readTopCombosValueWithDbFallback mOps topCombosStore) ::
+                                                            trySync (readTopCombosValueWithDbFallback mOps topCombosStore) ::
                                                                 IO (Either SomeException (Either String Aeson.Value))
                                                         case valOrErr of
                                                             Right (Right v) -> do
@@ -13747,7 +13748,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                             let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
                                                                 argsSym = baseArgs{argBinanceSymbol = Just sym}
 
-                                                            ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
+                                                            ksOrErr <- trySync (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
                                                             case ksOrErr of
                                                                 Left ex -> do
                                                                     now <- getTimestampMs
@@ -14094,10 +14095,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         fst <$> runAutoAttempt "discovery-recovery" recoveryRecordsPath recoveryCliArgs
                                                                                     else pure False
                                                                             when primaryMerged $ do
-                                                                                _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
+                                                                                _ <- trySync (removeFile recordsPath) :: IO (Either SomeException ())
                                                                                 pure ()
                                                                             when recoveryMerged $ do
-                                                                                _ <- try (removeFile recoveryRecordsPath) :: IO (Either SomeException ())
+                                                                                _ <- trySync (removeFile recoveryRecordsPath) :: IO (Either SomeException ())
                                                                                 pure ()
                                                                             sleepSec everySec
                                                                             loop
@@ -14384,7 +14385,7 @@ topCombosCandleWorker ctx = do
     let loop = do
             _ <- atomically (readTBQueue (tcbcCandleQueue ctx))
             when (tcbcEnabled ctx) $ do
-                _ <- try (withTopCombosBacktestLock ctx (backtestTopCombosOnce 5 ctx)) :: IO (Either SomeException ())
+                _ <- trySync (withTopCombosBacktestLock ctx (backtestTopCombosOnce 5 ctx)) :: IO (Either SomeException ())
                 pure ()
             loop
     loop
@@ -14488,7 +14489,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                         sym = botSymbol st
                         pollSec = bsPollSeconds (botSettings st)
                     t0 <- getTimestampMs
-                    r <- try (fetchKlines env sym (argInterval (botArgs st)) 10) :: IO (Either SomeException [Kline])
+                    r <- trySync (fetchKlines env sym (argInterval (botArgs st)) 10) :: IO (Either SomeException [Kline])
                     t1 <- getTimestampMs
                     let latMs = max 0 (fromIntegral (t1 - t0) :: Int)
                     case r of
@@ -28485,7 +28486,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         Nothing -> noOrder "No order: exchangeInfo unavailable (cannot validate precision)."
                         Just _ -> do
                             let (baseAsset, quoteAsset) = splitSymbol sym
-                            r <- try (place mFilters baseAsset quoteAsset dir) :: IO (Either SomeException ApiOrderResult)
+                            r <- trySync (place mFilters baseAsset quoteAsset dir) :: IO (Either SomeException ApiOrderResult)
                             case r of
                                 Left ex -> noOrder ("Order failed: " ++ shortErr ex)
                                 Right out -> pure out
@@ -28629,7 +28630,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         start <- getPOSIXTime
                         let elapsedUs now = floor ((now - start) * 1000000)
                             loop = do
-                                pxOrErr <- try (fetchTickerPrice env sym) :: IO (Either SomeException Double)
+                                pxOrErr <- trySync (fetchTickerPrice env sym) :: IO (Either SomeException Double)
                                 case pxOrErr of
                                     Right px | not (isNaN px || isInfinite px) && isReady px -> pure (Right ())
                                     _ -> do
@@ -28646,7 +28647,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
 
     tryFetchFilters :: IO (Maybe SymbolFilters)
     tryFetchFilters = do
-        r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
+        r <- trySync (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
         case r of
             Left _ -> pure Nothing
             Right sf -> pure (Just sf)
@@ -28767,7 +28768,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         out <- sendMarketOrder sideLabel side (Just qty) mQuote mReduceOnly
                         pure out{aorMessage = aorMessage out ++ " (maker " ++ reason ++ "; market fallback)"}
                     else pure baseOut{aorMessage = "No order: maker entry " ++ reason ++ " (market fallback disabled)."}
-        bookOrErr <- try (fetchBookTickerQuote env sym) :: IO (Either SomeException BookTickerQuote)
+        bookOrErr <- trySync (fetchBookTickerQuote env sym) :: IO (Either SomeException BookTickerQuote)
         case bookOrErr of
             Left _ -> fallback "book unavailable"
             Right quote -> do
@@ -28795,7 +28796,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                             resultFrom mi msg =
                                 let out0 = baseOut{aorSent = True, aorClientOrderId = Just cid, aorMessage = msg}
                                  in pure (maybe out0 (`applyOrderInfo` out0) mi)
-                        r <- try (placeFuturesPostOnlyLimitOrder env mode sym side qty px mReduceOnly (Just cid)) :: IO (Either SomeException BL.ByteString)
+                        r <- trySync (placeFuturesPostOnlyLimitOrder env mode sym side qty px mReduceOnly (Just cid)) :: IO (Either SomeException BL.ByteString)
                         case r of
                             Left ex -> fallback ("rejected: " ++ shortErr ex)
                             Right body -> do
@@ -28807,7 +28808,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         let terminalUnfilled s = s `elem` ["canceled", "cancelled", "expired", "rejected"]
                                             poll = do
                                                 nowT <- getPOSIXTime
-                                                infoOrErr <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                                                infoOrErr <- trySync (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
                                                 let mInfo = either (const Nothing) decodeOrderInfo infoOrErr
                                                 case statusOf mInfo of
                                                     Just "filled" -> resultFrom mInfo "Maker order filled."
@@ -28819,10 +28820,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     _ ->
                                                         if floor ((nowT - start) * 1000000) >= (makerTimeoutUs :: Int)
                                                             then do
-                                                                _ <- try (cancelFuturesOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                                                                _ <- trySync (cancelFuturesOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
                                                                 -- A fill can land between cancel and this fetch; the
                                                                 -- final read captures it.
-                                                                finalOrErr <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                                                                finalOrErr <- trySync (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
                                                                 let mFinal = either (const Nothing) decodeOrderInfo finalOrErr <|> mInfo
                                                                 if filledOf mFinal > 0
                                                                     then resultFrom mFinal "Maker order partially filled at timeout; remainder canceled."
@@ -28847,7 +28848,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         let tryReconcile ex =
                 case (mode, orderClientOrderId) of
                     (OrderLive, Just cid) -> do
-                        r2 <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                        r2 <- trySync (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
                         case r2 of
                             Left _ -> pure baseOut{aorMessage = "Order failed: " ++ shortErr ex}
                             Right body ->
@@ -28860,7 +28861,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                  in pure (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body))
                     _ -> pure baseOut{aorMessage = "Order failed: " ++ shortErr ex}
 
-        r <- try (placeMarketOrder env mode sym side mQty mQuote mReduceOnly orderClientOrderId) :: IO (Either SomeException BL.ByteString)
+        r <- trySync (placeMarketOrder env mode sym side mQty mQuote mReduceOnly orderClientOrderId) :: IO (Either SomeException BL.ByteString)
         case r of
             Left ex -> tryReconcile ex
             Right body ->
@@ -29019,7 +29020,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         if qty <= 0
                             then pure (Right ())
                             else do
-                                balanceOrErr <- try (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
+                                balanceOrErr <- trySync (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
                                 pure $
                                     case balanceOrErr of
                                         Left _ -> Left "No order: futures balance unavailable."
@@ -29122,7 +29123,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         if not protectionManaged
                             then pure ()
                             else do
-                                _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
+                                _ <- trySync (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
                                 pure ()
 
                     sendFuturesEntryRiskChecked :: Int -> String -> OrderSide -> Double -> IO ApiOrderResult
@@ -29191,7 +29192,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 place1 side orderType px suffix = do
                                     let cid = mkCid suffix
                                         px1 = normalizeStopPrice px
-                                    r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
+                                    r <- trySync (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
                                     case r of
                                         Right _ -> pure (Right ())
                                         Left ex -> do
@@ -29207,7 +29208,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                         else Just "LONG"
                                                                 shouldRetryWithSide errMsg =
                                                                     "positionSide" `isInfixOf` errMsg || "Position side" `isInfixOf` errMsg
-                                                            rAlgo <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
+                                                            rAlgo <- trySync (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
                                                             case rAlgo of
                                                                 Right _ -> pure (Right ())
                                                                 Left exAlgo -> do
@@ -29217,7 +29218,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                         else
                                                                             if shouldRetryWithSide msgAlgo
                                                                                 then do
-                                                                                    rAlgo2 <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
+                                                                                    rAlgo2 <- trySync (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
                                                                                     pure $
                                                                                         case rAlgo2 of
                                                                                             Left exAlgo2 ->
@@ -29296,7 +29297,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                 let waitMax = 12 :: Int
                                                     waitDelayUs = 500000
                                                     waitLoop n = do
-                                                        amountOrErr <- try (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
+                                                        amountOrErr <- trySync (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
                                                         case amountOrErr of
                                                             Right amt
                                                                 | abs amt <= 1e-12 -> pure True
@@ -29309,7 +29310,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                 if not confirmedFlat
                                                     then pure out
                                                     else do
-                                                        algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
+                                                        algoOrdersOrErr <- trySync (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
                                                         case algoOrdersOrErr of
                                                             Left _ -> pure out
                                                             Right orders -> do
@@ -29330,7 +29331,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                     case faoClientAlgoId o of
                                                                         Nothing -> pure ()
                                                                         Just cid -> do
-                                                                            _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
+                                                                            _ <- trySync (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
                                                                             pure ()
                                                                 pure out
 
@@ -29347,7 +29348,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     confirmReversalClosed
                         | mode /= OrderLive = pure True
                         | otherwise = do
-                            amountOrErr <- try (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
+                            amountOrErr <- trySync (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
                             pure $
                                 case amountOrErr of
                                     Right amount -> abs amount <= 1e-12
@@ -29446,7 +29447,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         Nothing ->
                                             case argOrderQuoteFraction args of
                                                 Just fraction | fraction > 0 -> do
-                                                    balanceOrErr <- try (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
+                                                    balanceOrErr <- trySync (fetchFuturesAvailableBalance env quoteAsset) :: IO (Either SomeException Double)
                                                     pure $
                                                         case balanceOrErr of
                                                             Left _ -> Nothing
@@ -29591,7 +29592,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                                 baseBal <- fetchCoinbaseAvailableBalance env baseAsset
                                 quoteBal <- fetchCoinbaseAvailableBalance env quoteAsset
                                 mBaseMinQty <- do
-                                    r <- try (fetchCoinbaseBaseMinSize env sym) :: IO (Either SomeException (Maybe Double))
+                                    r <- trySync (fetchCoinbaseBaseMinSize env sym) :: IO (Either SomeException (Maybe Double))
                                     pure (fromRight Nothing r)
                                 case chosenDir of
                                     Nothing -> noOrder neutralMsg
@@ -29710,7 +29711,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                     , aorQuantity = mQty
                     , aorQuoteQuantity = mFunds
                     }
-        r <- try (placeCoinbaseMarketOrder env sym sideLabel mQty mFunds clientOrderId) :: IO (Either SomeException BL.ByteString)
+        r <- trySync (placeCoinbaseMarketOrder env sym sideLabel mQty mFunds clientOrderId) :: IO (Either SomeException BL.ByteString)
         case r of
             Left ex -> pure baseOut{aorMessage = "Order failed: " ++ take 240 (show ex)}
             Right body ->
@@ -29739,7 +29740,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                 Just orderId -> do
                     when (attempt > 0) $
                         threadDelay (attempt * 250000)
-                    r <- try (fetchCoinbaseOrderById env orderId) :: IO (Either SomeException BL.ByteString)
+                    r <- trySync (fetchCoinbaseOrderById env orderId) :: IO (Either SomeException BL.ByteString)
                     case r of
                         Left _ -> pure out
                         Right detailBody ->

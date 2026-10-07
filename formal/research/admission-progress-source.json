@@ -3,11 +3,11 @@
   "baselineCommit": "fb00a66707d2e645e15fb347833a661e044a7a77",
   "hashes": {
     "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
-    "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
+    "haskell/app/Main.hs": "5322ed965cee53a34dcb95e0c1756f886a895e83baf2a8a21b439cd00e8bc9ce",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
     "haskell/app/Trader/App/GracefulShutdown.hs": "fbd3cbd0e9a310dc4f31cf421479008689d08cc2914ef3d2a9e4c8214e91b092",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
-    "scripts/formal/test_integrity.py": "153720b1a483c543ee691603c492e5662477b876afbe9aa2d37e1882764df942",
+    "scripts/formal/test_integrity.py": "2b3a241027f948087b55b461f068a0fb5ba5f5b66bd58bf97b9c500f700385ab",
     "haskell/test/Trader/Test/AdmissionProgress.hs": "aaae04d8b6b315dc8214abd1e4b8363ee54f52159717c2577427aa0118c74451",
     "formal/research/AdmissionProgress.hs": "62bf77149e36459169414f66c9a6cec93aa48a941c1a0c6cca1868185651c0e7",
     "formal/research/fixtures/admission-progress-before.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",

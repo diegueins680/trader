@@ -116,6 +116,7 @@ import Network.URI (URI (..), URIAuth (..), parseURI)
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
+import Trader.App.AsyncSafe (trySync)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
@@ -1647,7 +1648,7 @@ getBinanceTimestampMs :: BinanceEnv -> IO Int64
 getBinanceTimestampMs env = do
     let key = binanceTimeOffsetCacheKey env
     offsetOrErr <-
-        ( try $
+        ( trySync $
             fetchWithCache binanceTimeOffsetCache binanceTimeOffsetFreshTtl binanceTimeOffsetStaleTtl key $ do
                 serverMs <- fetchBinanceServerTime env
                 localMs <- getTimestampMs
@@ -2258,7 +2259,7 @@ cancelFuturesOpenOrdersByClientPrefix env symbol prefix0 = do
                     ]
             results <-
                 mapM
-                    (\cid -> try (cancelFuturesOrderByClientId env symbol cid) :: IO (Either SomeException BL.ByteString))
+                    (\cid -> trySync (cancelFuturesOrderByClientId env symbol cid) :: IO (Either SomeException BL.ByteString))
                     targetClientIds
             pure (length [() | Right _ <- results])
 
