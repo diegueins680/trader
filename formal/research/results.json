@@ -1,4 +1,44 @@
 {
+  "accountingReconciliation": {
+    "conformance": {
+      "costTermChecks": 16734,
+      "episodes": 216,
+      "grossFundingChecks": 1817,
+      "rows": 5578,
+      "seed": 20261013,
+      "status": "property_tested"
+    },
+    "constants": {
+      "costTerm": [
+        3.0000000000000004,
+        8.000000000000002
+      ],
+      "funding": [
+        2.0,
+        3.0
+      ],
+      "gross": [
+        2.0,
+        2.0
+      ],
+      "impact": [
+        5.000000000000001,
+        5.002000000000001
+      ],
+      "rollForward": [
+        14.00000000000001,
+        14.00000000000001
+      ]
+    },
+    "smt": {
+      "F-RL-RECON-ERROR": "unsat"
+    },
+    "source": {
+      "equityWrites": 3,
+      "scope": "unchanged frozen Replay ledger source; interpreter semantics assumed",
+      "status": "exhaustively_checked"
+    }
+  },
   "admissionProgress": {
     "conformance": {
       "generatedCases": 32,
@@ -1893,10 +1933,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 14,
+    "closedMissionObligations": 15,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 24
+    "openMissionObligations": 23
   },
   "observationCausality": {
     "replayCausal": {
@@ -3560,6 +3600,7 @@
     "F-RL-PROCESS-ADMISSION": "unsat",
     "F-RL-PROMOTION-METADATA": "unsat",
     "F-RL-PROMOTION-SCHEMA": "unsat",
+    "F-RL-RECON-ERROR": "unsat",
     "F-RL-REPLAY-CUTOFF": "unsat",
     "F-RL-REPLAY-DUE": "unsat",
     "F-RL-REWARD-RECONCILE": "unsat",
@@ -3679,6 +3720,7 @@
     "formal/research/ReplayAccountingV2.hs": "cf484424ede8d6ffa163b775da200f52ae54ad5ecba5200e0e0b418dee87d87c",
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
+    "formal/research/accounting-reconciliation-contract.md": "b98ac555f7a1ef2341090891d4efd7a580fc87a757a439bfe91fedae93c0a2c1",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
     "formal/research/admission-progress-source.json": "ace4244ad2da5cfacbdf246474072709c0bbac5f493e1b78983aa0df1e96a4dd",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
@@ -3961,6 +4003,7 @@
     "haskell/test/Trader/Test/QuantityRounding.hs": "be0364bc21f0b90a8d8ac07eba2b034d23ca72ec9a12ab5163a820a5b3293900",
     "haskell/test/Trader/Test/WorkerPublication.hs": "27a9f405c1569354bfb380fcdc1e7aae0d3f42d718491d15d64176fb06a1d908",
     "haskell/trader.cabal": "641fd3c50257803d9b3d111d03aaaf2884c6df254a577e1d03be9f14a8e436bc",
+    "research-notes/registrations/accounting-reconciliation-engineering.json": "1c5fc386b44170e1714cc5b1c1f74d5680d4a9d723ec0426d3902c74547c48f7",
     "research-notes/registrations/admission-progress-engineering.json": "1ff0bf3d120c065c0bcb13b92478564221a8459cf6e8ad323a4cb2e014f61489",
     "research-notes/registrations/artifact-admission-engineering.json": "4f213bd86f2ffcda662f1c2f2a4a1f6e11bc25ef8fe92202dfed5389b79cc258",
     "research-notes/registrations/async-job-admission-engineering.json": "c0f554260134deadb6f7fb7aaa4361cfa0ec1dd5602ef123b9acbf5ae8bbef8a",
@@ -4014,6 +4057,7 @@
     "research-notes/registrations/worker-registry-engineering.json": "b953fe44a73076e465749fb4ff18e05c939ec7ef1b0c04da5ca598fac85f0eca",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
     "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
+    "scripts/formal/accounting_reconciliation.py": "02105ecb6181be367539544c0bd86980bc43a011dc2b3fc42a65810ce03833e8",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
     "scripts/formal/artifact_admission.py": "3a431db8ce7522046308af1c97375a9a96957c2a34b553ffc07fe822e2a7200e",
     "scripts/formal/artifact_composition.py": "011e213a9c445e4b325084cdd4f90aa73abad83f4c133470160a1178739426f7",
