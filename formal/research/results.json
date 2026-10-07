@@ -1,5 +1,32 @@
 {
   "accountingReconciliation": {
+    "certified": {
+      "rollForwardQueries": 15,
+      "rollForwardRoundings": 14,
+      "termQueries": 15,
+      "terms": {
+        "fee": {
+          "absolute": 8.000000000000002,
+          "multiplications": 2,
+          "relative": 3.0000000000000004
+        },
+        "impact": {
+          "absolute": 5.000200000000001,
+          "multiplications": 3,
+          "relative": 5.000000000000001
+        },
+        "slippage": {
+          "absolute": 8.000000000000002,
+          "multiplications": 2,
+          "relative": 3.0000000000000004
+        },
+        "spread": {
+          "absolute": 8.000000000000002,
+          "multiplications": 2,
+          "relative": 3.0000000000000004
+        }
+      }
+    },
     "conformance": {
       "costTermChecks": 16734,
       "episodes": 216,
@@ -9,28 +36,6 @@
       "seed": 20261013,
       "status": "property_tested",
       "tradeCalls": 2872
-    },
-    "constants": {
-      "costTerm": [
-        3.0000000000000004,
-        8.000000000000002
-      ],
-      "funding": [
-        2.0,
-        3.0
-      ],
-      "gross": [
-        2.0,
-        2.0
-      ],
-      "impact": [
-        5.000000000000001,
-        5.002000000000001
-      ],
-      "rollForward": [
-        14.00000000000001,
-        14.00000000000001
-      ]
     },
     "smt": {
       "F-RL-RECON-ERROR": "unsat"
