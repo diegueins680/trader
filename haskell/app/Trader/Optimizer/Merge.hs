@@ -6,7 +6,7 @@ module Trader.Optimizer.Merge (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Control.Monad (when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -43,6 +43,7 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStrLn, openBinaryTempFile, stderr)
 import Text.Read (readMaybe)
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
@@ -177,7 +178,7 @@ loadTopCombos path = do
     if not exists
         then pure (Right [])
         else do
-            raw <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            raw <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
             case raw of
                 Left e -> pure (Left ("Failed to read " ++ path ++ ": " ++ show e))
                 Right contents ->
@@ -199,7 +200,7 @@ loadCombosFromJsonl path = do
     if not exists
         then pure []
         else do
-            raw <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            raw <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
             case raw of
                 Left _ -> pure []
                 Right contents ->
@@ -802,13 +803,13 @@ archiveTopJson historyDir outPath =
     case historyDir of
         Nothing -> pure ()
         Just dir -> do
-            dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+            dirResult <- trySync (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
             case dirResult of
                 Left _ -> pure ()
                 Right _ -> do
                     nowMs <- fmap (floor . (* 1000)) getPOSIXTime
                     let archivePath = dir </> ("top-combos-" ++ show (nowMs :: Integer) ++ ".json")
-                    _ <- try (copyFile outPath archivePath) :: IO (Either SomeException ())
+                    _ <- trySync (copyFile outPath archivePath) :: IO (Either SomeException ())
                     pure ()
 
 copyToDist :: FilePath -> IO ()
@@ -817,7 +818,7 @@ copyToDist outPath = do
     exists <- doesDirectoryExist distDir
     when exists $ do
         let target = distDir </> "top-combos.json"
-        _ <- try (copyFile outPath target) :: IO (Either SomeException ())
+        _ <- trySync (copyFile outPath target) :: IO (Either SomeException ())
         pure ()
 
 normalizeCombo :: Value -> Maybe Combo

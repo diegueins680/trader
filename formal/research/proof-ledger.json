@@ -385,6 +385,12 @@
       "status": "assumption",
       "statement": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's market limits (per-bar |p1/p0 - 1| <= 1/2 and |funding per unit| <= 3/100 of the prior price), its range premise (prices and equity in [2^-400, 2^400]), its execution maxima (cost multiplier <= 5/2, impact_bps <= 10, funding multiplier <= 2, as bound to the runner's registered stresses by F-RL-BOUNDS-SOURCE; Execution itself accepts larger values, which are outside the certificate) and binary64 arrays from the delivered loader (so cost terms are np.float64 scalars and CPython's sum() uses left-to-right addition, not its exact-float compensated path; checked per debit), A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-ASYNC-STOP",
+      "status": "assumption",
+      "statement": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -605,7 +611,10 @@
     "scripts/formal/accounting_reconciliation.py",
     "formal/research/accounting-reconciliation-contract.md",
     "research-notes/registrations/accounting-reconciliation-engineering.json",
-    "formal/research/replay-source-lock.json"
+    "formal/research/replay-source-lock.json",
+    "scripts/formal/async_stop.py",
+    "haskell/app/Trader/App/AsyncSafe.hs",
+    "formal/research/async-stop-counterexample.json"
   ],
   "entries": [
     {
@@ -7363,6 +7372,67 @@
       "limitations": "Per-row reconciliation reading: each recorded debit against its stated formula on the executed binary64 inputs and the recorded wealth roll-forward; bars with invalid market data reject. Premises: A-GAP-BOUND's market limits (per-bar |p1/p0 - 1| <= 1/2 and |funding per unit| <= 3/100 of the prior price), its range premise (prices and equity in [2^-400, 2^400]), its execution maxima (cost multiplier <= 5/2, impact_bps <= 10, funding multiplier <= 2, as bound to the runner's registered stresses by F-RL-BOUNDS-SOURCE; Execution itself accepts larger values, which are outside the certificate) and binary64 arrays from the delivered loader (so cost terms are np.float64 scalars and CPython's sum() uses left-to-right addition, not its exact-float compensated path; checked per debit), A-FP-ROUNDING with |fl(x)-x| <= u|x| + H, correctly rounded numpy.sqrt. Fill calibration against real venues is empirical and belongs to the economic gate; it is not claimed. Global trajectory error growth is not bounded; reconciliation is per row.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-LIVE-STOP-ASYNC-SOURCE",
+      "claim": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting.",
+      "formalStatement": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-STOP"
+      ],
+      "tool": "Source binding of live worker/order spans, compiled GHC regression against Trader.App.AsyncSafe, Haskell test suite",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/async_stop.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "formal/research/async-stop-counterexample.json",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/AsyncSafe.hs",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Cache.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/AsyncSafe.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh whole-tree import certificate with no unreviewed capture must reproduce; mutants (re-imported try/catch, qualified or open Control.Exception import, Control.Monad.Catch, an extra forwarding capture, a weakened trySync) must fail closed.",
+      "bounds": "All 122 Haskell modules under haskell/app; 5 reviewed forwarding threads.",
+      "limitations": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
+      "counterexample": "CE-LIVE-001",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-LIVE-STOP-ASYNC-CONFORMANCE",
+      "claim": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync.",
+      "formalStatement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ASYNC-STOP"
+      ],
+      "tool": "Source binding of live worker/order spans, compiled GHC regression against Trader.App.AsyncSafe, Haskell test suite",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/async_stop.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/App/AsyncSafe.hs",
+        "formal/research/async-stop-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/AsyncSafe.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "The compiled CE-LIVE-001 witness must reproduce exactly: legacy capture keeps acting, trySync stops.",
+      "bounds": "32 Main.hs capture sites across botStartWorker..reconcileBotPositionWithExchange and placeOrderForSignal..computeBacktestFromArgs; 2 Binance.hs helpers.",
+      "limitations": "Source certificate over haskell/app import lists; the compiler is trusted to reject any capture combinator that is not imported, and library code (http-client, warp, postgresql-simple) is trusted not to swallow asynchronous exceptions it does not own. GHC semantics are trusted: killThread returns after delivery and SomeAsyncException covers ThreadKilled, Timeout and UserInterrupt. Stop completes only after delivery to masked regions. This removes post-stop exchange actions of a killed worker; it does not prove persistent owner-row linearization, account identity or cross-instance uniqueness, which keep obligation 15 open.",
+      "counterexample": "CE-LIVE-001",
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -8235,9 +8305,11 @@
         "F-BOT-PUBLICATION-GATES",
         "F-BOT-PUBLICATION-FLOW",
         "F-BOT-PUBLICATION-SOURCE",
-        "F-BOT-PUBLICATION-CONFORMANCE"
+        "F-BOT-PUBLICATION-CONFORMANCE",
+        "F-LIVE-STOP-ASYNC-SOURCE",
+        "F-LIVE-STOP-ASYNC-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "At most one live owner exists per protected position identity.",
       "nextAction": "Trace actual running-worker retirement, stop/replacement and persistent owner-key transactions; establish their shared identity and linearization boundary without changing production ownership.",
@@ -9412,9 +9484,11 @@
         "F-ADMISSION-PROGRESS-SOURCE",
         "F-ADMISSION-PROGRESS-NUMERIC",
         "F-ADMISSION-PROGRESS-FLOW",
-        "F-ADMISSION-PROGRESS-CONFORMANCE"
+        "F-ADMISSION-PROGRESS-CONFORMANCE",
+        "F-LIVE-STOP-ASYNC-SOURCE",
+        "F-LIVE-STOP-ASYNC-CONFORMANCE"
       ],
-      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
+      "limitations": "CE-RL-016 refutes uninterrupted-state preservation under explicit reentrant observation/injected interruption. Narrow staging evidence does not establish concurrent optimizer or production atomicity; promotion gate unchanged. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. The separately registered PPO successor now composes actual collection/training with v2 GAE and private immutable actor/critic snapshots; its finite/control checks do not repair frozen v1, complete accounting/admission or connect process inference/OPE/artifact persistence. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Concurrent start/stop/replace/reconcile operations cannot bypass ownership or safety.",
       "nextAction": "PPO now consumes private immutable snapshots. Certify inherited ownership/lifecycle races and composed artifact/process boundaries; do not infer whole-system race freedom.",
@@ -9509,9 +9583,11 @@
         "F-ADMISSION-PROGRESS-SOURCE",
         "F-ADMISSION-PROGRESS-NUMERIC",
         "F-ADMISSION-PROGRESS-FLOW",
-        "F-ADMISSION-PROGRESS-CONFORMANCE"
+        "F-ADMISSION-PROGRESS-CONFORMANCE",
+        "F-LIVE-STOP-ASYNC-SOURCE",
+        "F-LIVE-STOP-ASYNC-CONFORMANCE"
       ],
-      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness.",
+      "limitations": "Versioned Haskell process cancellation has source-bound finite control, integer admission and compiled fault evidence under A-INFERENCE-PROCESS. No full OS/IO refinement, observation-availability proof, successor replay composition or inherited server shutdown certificate. Inherited shutdown deadline arithmetic and six-stage reporting now have source-bound SMT/model/conformance evidence; this does not prove worker quiescence or route/registry race freedom. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Backtest gate now has saturating duration arithmetic, masked slot ownership and asynchronous-exception propagation evidence. Waiting fairness, callback cooperation, outer caller handling and the broader criterion remain unresolved. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. A trained PPO snapshot now reaches supervised Haskell inference through a checked bit request (F-RL-BRIDGE-V3); this does not establish persistent artifact provenance, historical causality or whole-system lifecycle correctness. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Stop reaches quiescence or explicit bounded failure under named environmental assumptions.",
       "nextAction": "Compose the offline successor and verify HTTP admission, detached/async jobs, bots/listen-key completion, bounded logging and durable recovery; supervised registry acknowledgement now has scoped evidence.",

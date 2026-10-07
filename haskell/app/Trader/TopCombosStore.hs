@@ -64,7 +64,7 @@ module Trader.TopCombosStore (
 import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (SomeException, bracket, throwIO, try)
+import Control.Exception (SomeException, bracket, throwIO)
 import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -90,6 +90,7 @@ import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
 import Text.Read (readMaybe)
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
@@ -151,14 +152,14 @@ withTopCombosProcessLock path action =
     acquireProcessLock :: FilePath -> IO FilePath
     acquireProcessLock basePath = do
         let lockPath = basePath ++ ".lock"
-        dirResult <- try (createDirectoryIfMissing True (takeDirectory lockPath)) :: IO (Either IOError ())
+        dirResult <- trySync (createDirectoryIfMissing True (takeDirectory lockPath)) :: IO (Either IOError ())
         case dirResult of
             Left err -> throwIO err
             Right _ -> pure ()
         let startDelay = 50000
             maxDelay = 1000000
             loop delay = do
-                result <- try (createDirectory lockPath) :: IO (Either IOError ())
+                result <- trySync (createDirectory lockPath) :: IO (Either IOError ())
                 case result of
                     Right _ -> pure lockPath
                     Left err ->
@@ -167,7 +168,7 @@ withTopCombosProcessLock path action =
                                 stale <- isLockStale lockPath
                                 if stale
                                     then do
-                                        _ <- try (removeDirectory lockPath) :: IO (Either IOError ())
+                                        _ <- trySync (removeDirectory lockPath) :: IO (Either IOError ())
                                         loop delay
                                     else do
                                         threadDelay delay
@@ -177,7 +178,7 @@ withTopCombosProcessLock path action =
 
     releaseProcessLock :: FilePath -> IO ()
     releaseProcessLock lockPath = do
-        _ <- try (removeDirectory lockPath) :: IO (Either IOError ())
+        _ <- trySync (removeDirectory lockPath) :: IO (Either IOError ())
         pure ()
 
     startLockHeartbeat :: FilePath -> IO ThreadId
@@ -189,7 +190,7 @@ withTopCombosProcessLock path action =
     heartbeatLoop :: FilePath -> IO ()
     heartbeatLoop lockPath = do
         now <- getCurrentTime
-        _ <- try (setModificationTime lockPath now) :: IO (Either SomeException ())
+        _ <- trySync (setModificationTime lockPath now) :: IO (Either SomeException ())
         threadDelay lockHeartbeatDelayMicros
         heartbeatLoop lockPath
 
@@ -200,7 +201,7 @@ withTopCombosProcessLock path action =
             then pure False
             else do
                 now <- getCurrentTime
-                modifiedAtResult <- try (getModificationTime lockPath) :: IO (Either SomeException UTCTime)
+                modifiedAtResult <- trySync (getModificationTime lockPath) :: IO (Either SomeException UTCTime)
                 case modifiedAtResult of
                     Left _ -> pure True
                     Right modifiedAt -> pure (diffUTCTime now modifiedAt > processLockStaleAfter)
@@ -217,7 +218,7 @@ readTopCombosValueLocal path = do
     if not exists
         then pure (Left "Top combos JSON not found.")
         else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            contentsOrErr <- (trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
                 Right contents ->
@@ -229,30 +230,30 @@ writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
 writeTopCombosValue path val = do
     let (filteredVal, _) = sanitizeTopCombosValue val
     let dir = takeDirectory path
-    dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+    dirResult <- trySync (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
     case dirResult of
         Left e -> pure (Left ("Failed to create top combos directory: " ++ show e))
         Right _ -> do
-            tempResult <- try (openTempFile dir "top-combos-backtest.json") :: IO (Either SomeException (FilePath, Handle))
+            tempResult <- trySync (openTempFile dir "top-combos-backtest.json") :: IO (Either SomeException (FilePath, Handle))
             case tempResult of
                 Left e -> pure (Left ("Failed to create temp top combos file: " ++ show e))
                 Right (tmpPath, handle) -> do
-                    writeResult <- try (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
-                    closeResult <- try (hClose handle) :: IO (Either SomeException ())
+                    writeResult <- trySync (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
+                    closeResult <- trySync (hClose handle) :: IO (Either SomeException ())
                     case writeResult of
                         Left e -> do
-                            _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                            _ <- trySync (removeFile tmpPath) :: IO (Either SomeException ())
                             pure (Left ("Failed to write top combos JSON: " ++ show e))
                         Right _ ->
                             case closeResult of
                                 Left e -> do
-                                    _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                                    _ <- trySync (removeFile tmpPath) :: IO (Either SomeException ())
                                     pure (Left ("Failed to finalize top combos JSON: " ++ show e))
                                 Right _ -> do
-                                    renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+                                    renameResult <- trySync (renameFile tmpPath path) :: IO (Either SomeException ())
                                     case renameResult of
                                         Left e -> do
-                                            _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                                            _ <- trySync (removeFile tmpPath) :: IO (Either SomeException ())
                                             pure (Left ("Failed to write top combos JSON: " ++ show e))
                                         Right _ -> pure (Right ())
 

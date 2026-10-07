@@ -82,7 +82,7 @@ module Trader.Binance (
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (MVar, ThreadId, forkIO, killThread, newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
-import Control.Exception (SomeException, displayException, fromException, throwIO, try)
+import Control.Exception (SomeException, displayException, fromException, throwIO)
 import qualified Control.Monad
 import Crypto.Hash.Algorithms (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -116,6 +116,7 @@ import Network.URI (URI (..), URIAuth (..), parseURI)
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
+import Trader.App.AsyncSafe (tryForwardingAll, trySync)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
@@ -573,7 +574,7 @@ binanceProxyHealth = do
                                         , beProxy = Just proxyCfg
                                         }
                                 req = applyBinanceProxy env req0
-                            respOrErr <- try (httpLbs req mgr) :: IO (Either SomeException (Response BL.ByteString))
+                            respOrErr <- trySync (httpLbs req mgr) :: IO (Either SomeException (Response BL.ByteString))
                             case respOrErr of
                                 Left ex ->
                                     pure
@@ -671,7 +672,7 @@ binanceHttp :: BinanceEnv -> String -> Request -> IO (Response BL.ByteString)
 binanceHttp env label req0 = do
     t0 <- getTimestampMs
     let req = applyBinanceProxy env req0
-    respOrErr <- try (httpLbsWithRetry defaultRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
     t1 <- getTimestampMs
     let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
         methodTxt = decodeUtf8With lenientDecode (method req)
@@ -1565,7 +1566,7 @@ startBestEffort :: IO a -> IO (BestEffortTask a)
 startBestEffort action = do
     resultVar <- newEmptyMVar
     threadId <- forkIO $ do
-        result <- try action
+        result <- tryForwardingAll action
         putMVar resultVar result
     pure (threadId, resultVar)
 
@@ -1647,7 +1648,7 @@ getBinanceTimestampMs :: BinanceEnv -> IO Int64
 getBinanceTimestampMs env = do
     let key = binanceTimeOffsetCacheKey env
     offsetOrErr <-
-        ( try $
+        ( trySync $
             fetchWithCache binanceTimeOffsetCache binanceTimeOffsetFreshTtl binanceTimeOffsetStaleTtl key $ do
                 serverMs <- fetchBinanceServerTime env
                 localMs <- getTimestampMs
@@ -2258,7 +2259,7 @@ cancelFuturesOpenOrdersByClientPrefix env symbol prefix0 = do
                     ]
             results <-
                 mapM
-                    (\cid -> try (cancelFuturesOrderByClientId env symbol cid) :: IO (Either SomeException BL.ByteString))
+                    (\cid -> trySync (cancelFuturesOrderByClientId env symbol cid) :: IO (Either SomeException BL.ByteString))
                     targetClientIds
             pure (length [() | Right _ <- results])
 

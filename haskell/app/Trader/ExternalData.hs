@@ -21,7 +21,7 @@ module Trader.ExternalData (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -47,6 +47,7 @@ import System.IO (hPutStrLn, stderr)
 import Text.Read (readMaybe)
 
 import Trader.App.Args (parseTimestampMs)
+import Trader.App.AsyncSafe (trySync)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 import Trader.Predictors.Exogenous (afsV2Values)
 import Trader.Predictors.ExternalFeatureSchema (
@@ -430,7 +431,7 @@ parseSecRows value =
 fetchJsonValue :: String -> [(BS.ByteString, BS.ByteString)] -> IO (Maybe Aeson.Value)
 fetchJsonValue url params0 = do
     let (headerParams, queryParams) = spanHeaderParams params0
-    result <- try $ do
+    result <- trySync $ do
         req0 <- parseRequest url
         let req =
                 (req0 :: Request)

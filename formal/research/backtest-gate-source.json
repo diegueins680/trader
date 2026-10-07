@@ -4,17 +4,17 @@
   "baselineMainSha256": "a9e04a6f2126c65e7b461c7eaa87fdb29d9f6aa60ca8c577c3168b4b20933d81",
   "baselineFunctions": "data BacktestGate = BacktestGate\n    { btRunning :: !(MVar Int)\n    , btMaxRunning :: !Int\n    , btTimeoutSec :: !Int\n    }\n\ndata BacktestFailure\n    = BacktestBusy\n    | BacktestTimedOut\n    | BacktestException SomeException\n    deriving (Show)\n\nnewBacktestGate :: Int -> Int -> IO BacktestGate\nnewBacktestGate maxRunning timeoutSec = do\n    running <- newMVar 0\n    pure BacktestGate{btRunning = running, btMaxRunning = max 1 maxRunning, btTimeoutSec = max 1 timeoutSec}\n\nrunBacktestWithGate :: BacktestGate -> IO a -> IO (Either BacktestFailure a)\nrunBacktestWithGate gate action = do\n    let maxRunning = max 1 (btMaxRunning gate)\n    acquired <-\n        modifyMVar (btRunning gate) $ \\n ->\n            if n >= maxRunning\n                then pure (n, False)\n                else pure (n + 1, True)\n    if not acquired\n        then pure (Left BacktestBusy)\n        else do\n            let release = modifyMVar_ (btRunning gate) (pure . max 0 . subtract 1)\n            result <- timeout (btTimeoutSec gate * 1000000) (try action) `finally` release\n            case result of\n                Nothing -> pure (Left BacktestTimedOut)\n                Just (Left ex) -> pure (Left (BacktestException ex))\n                Just (Right v) -> pure (Right v)\n\nrunBacktestWithGateWait :: BacktestGate -> IO a -> IO (Either BacktestFailure a)\nrunBacktestWithGateWait gate action = do\n    let maxRunning = max 1 (btMaxRunning gate)\n        tryAcquire =\n            modifyMVar (btRunning gate) $ \\n ->\n                if n >= maxRunning\n                    then pure (n, False)\n                    else pure (n + 1, True)\n        waitLoop = do\n            acquired <- tryAcquire\n            if acquired\n                then pure ()\n                else do\n                    threadDelay 1000000\n                    waitLoop\n    waitLoop\n    let release = modifyMVar_ (btRunning gate) (pure . max 0 . subtract 1)\n    result <- timeout (btTimeoutSec gate * 1000000) (try action) `finally` release\n    case result of\n        Nothing -> pure (Left BacktestTimedOut)\n        Just (Left ex) -> pure (Left (BacktestException ex))\n        Just (Right v) -> pure (Right v)\n\n",
   "hashes": {
-    "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
+    "haskell/app/Main.hs": "cac5bf9fb1b4ede1f5be310a9c7617d3ffab848e145df51fe0ea96b26bacb983",
     "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
-    "haskell/test/TestMain.hs": "2dbbcee6e178c7ea3c0d3269c4984c63239ac9ca94cf50d1653af856c48bb5f9",
+    "haskell/test/TestMain.hs": "66d0d79a5cd6329bfd73fc76cfe4a7273d08f27117ec2365d6991fd8903e6683",
     "haskell/test/Trader/Test/BacktestGate.hs": "8bd8432d6fccfa69a180f64476269c47c1a77cd0673bed21482c83c8c1ece9bf",
-    "haskell/trader.cabal": "641fd3c50257803d9b3d111d03aaaf2884c6df254a577e1d03be9f14a8e436bc",
+    "haskell/trader.cabal": "be72b96daddb5c4ac76f204bfff2e523d614b0c0caf5b39ac6ba6b9f19efc0bb",
     "scripts/formal/backtest_gate.py": "ca59d6c12d70fbe4c350aeeb622993c5cb522ab47092c4b5467b0492c83d6c09",
     "formal/research/BacktestGate.hs": "368d3dbc5b81faa42ad97d3eb0d98838de0dad34f3447ea8a9640cf53c0b5fe5",
     "formal/research/fixtures/backtest-gate-before.hs": "b5a53915036a4dc2f94d7b71e13f68147aed8fe2bd3d274de77b400ce9bb6d3c",
     "formal/research/fixtures/backtest-gate-witness.hs": "8780a8949dc9072c634430eaf74bf5ec374f8bec2c5a047e25965c5c4a8ff454",
-    "haskell/app/Trader/App/GracefulShutdown.hs": "fbd3cbd0e9a310dc4f31cf421479008689d08cc2914ef3d2a9e4c8214e91b092"
+    "haskell/app/Trader/App/GracefulShutdown.hs": "dfc7c4fec0d43936a186c01d0ae31141b32e009b0bd5c0f03bc6524a8ab68fcf"
   },
   "bodies": {
     "haskell/app/Trader/App/BacktestGate.hs": {

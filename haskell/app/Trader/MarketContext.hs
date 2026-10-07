@@ -9,7 +9,7 @@ module Trader.MarketContext (
 ) where
 
 import Control.Concurrent (QSem, forkIO, modifyMVar, newEmptyMVar, newMVar, newQSem, putMVar, signalQSem, takeMVar, threadDelay, waitQSem)
-import Control.Exception (SomeException, finally, try)
+import Control.Exception (SomeException, finally)
 import Control.Monad (forM)
 import Data.Char (isAsciiLower)
 import Data.Int (Int64)
@@ -20,6 +20,7 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 
 import Trader.App.Args (Args (..))
+import Trader.App.AsyncSafe (tryForwardingAll, trySync)
 import Trader.Binance (BinanceEnv, Kline (..), fetchKlinesBetween, fetchTopSymbolsByQuoteVolume)
 import Trader.PointInTimeUniverse (
     loadPointInTimeUniverse,
@@ -193,7 +194,7 @@ buildMarketModel args env targetSymbol fitEnd pricesV mOpenTimes mCoinbaseCloses
                     let Just openTimes = mOpenTimesAligned
                         startTime = V.head openTimes
                         endTime = V.last openTimes
-                    r <- try (fetchKlinesBetween env sym (argInterval args) startTime endTime) :: IO (Either SomeException [Kline])
+                    r <- trySync (fetchKlinesBetween env sym (argInterval args) startTime endTime) :: IO (Either SomeException [Kline])
                     case r of
                         Left _ -> pure Nothing
                         Right klines ->
@@ -232,7 +233,7 @@ mapConcurrentlyBounded limit action xs = do
         mv <- newEmptyMVar
         _ <- forkIO $ do
             waitQSem sem
-            res <- (try (action x) :: IO (Either SomeException (Maybe b))) `finally` signalQSem sem
+            res <- tryForwardingAll (action x) `finally` signalQSem sem
             case res of
                 Left _ -> putMVar mv Nothing
                 Right v -> putMVar mv v

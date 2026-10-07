@@ -122,7 +122,9 @@
         "scripts/formal/bounded_values.py",
         "formal/research/accounting-reconciliation-contract.md",
         "scripts/formal/accounting_reconciliation.py",
-        "formal/research/replay-source-lock.json"
+        "formal/research/replay-source-lock.json",
+        "formal/research/async-stop-counterexample.json",
+        "scripts/formal/async_stop.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -906,6 +908,14 @@
         {
           "id": "F-RL-RECON-CONFORMANCE",
           "statement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's 5578 recorded rows satisfies the stated roll-forward bound exactly in rationals; horizon-one rows satisfy the gross and funding bounds against units captured before the bar; and, using a pass-through spy on the actual _trade that records each call's executed cash, equity and turnover, every row's fee, spread and slippage satisfy the stated 4u+10H bound and every impact satisfies the stated 6u+10H bound against rigorous exact-square-root enclosures."
+        },
+        {
+          "id": "F-LIVE-STOP-ASYNC-SOURCE",
+          "statement": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting."
+        },
+        {
+          "id": "F-LIVE-STOP-ASYNC-CONFORMANCE",
+          "statement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync."
         }
       ],
       "invariants": [

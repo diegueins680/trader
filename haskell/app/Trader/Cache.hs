@@ -13,12 +13,13 @@ module Trader.Cache (
 ) where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
-import Control.Exception (SomeException, throwIO, try)
+import Control.Exception (SomeException, throwIO)
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
+import Trader.App.AsyncSafe (trySync)
 
 data TtlCache k v = TtlCache
     { tcMaxEntries :: !(Maybe Int)
@@ -52,7 +53,7 @@ fetchWithCache cache freshTtl staleTtl key action = do
     case mEntry of
         Just (ts, val) | diffUTCTime now ts <= freshTtl -> pure val
         _ -> do
-            res <- try action
+            res <- trySync action
             case res of
                 Right val -> do
                     insertEntry cache staleTtl key val

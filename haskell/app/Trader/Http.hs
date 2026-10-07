@@ -14,7 +14,7 @@ module Trader.Http (
 ) where
 
 import Control.Concurrent (MVar, modifyMVar, newMVar, threadDelay)
-import Control.Exception (displayException, throwIO, try)
+import Control.Exception (displayException, throwIO)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
@@ -35,6 +35,7 @@ import System.IO (hPutStrLn, stderr)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Random (randomRIO)
 import Text.Read (readMaybe)
+import Trader.App.AsyncSafe (trySync)
 
 data RetryConfig = RetryConfig
     { rcMaxRetries :: !Int
@@ -115,7 +116,7 @@ httpLbsWithRetry cfg mLabel mgr req0 = go 0
     go attempt = do
         applyRateLimit hostBs
         t0 <- getTimeMs
-        respOrErr <- try (httpLbs req mgr) :: IO (Either HttpException (Response BL.ByteString))
+        respOrErr <- trySync (httpLbs req mgr) :: IO (Either HttpException (Response BL.ByteString))
         t1 <- getTimeMs
         let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
         case respOrErr of

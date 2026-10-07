@@ -53,7 +53,7 @@ module Trader.Optimizer.Optimize (
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
-import Control.Exception (SomeException, evaluate, try)
+import Control.Exception (SomeException, evaluate)
 import Control.Monad (foldM, forM_, unless, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -116,6 +116,7 @@ import System.Process (
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
+import Trader.App.AsyncSafe (tryForwardingAll, trySync)
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.CostCalibration (venueMinEdgeFloor, venueSlippageFloor, venueSpreadFloor, venueTakerFeeFloor)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
@@ -1360,7 +1361,7 @@ parseCsvLine input =
 
 detectHighLowColumns :: FilePath -> IO (Maybe String, Maybe String)
 detectHighLowColumns path = do
-    res <- try (BS.readFile path) :: IO (Either SomeException BS.ByteString)
+    res <- trySync (BS.readFile path) :: IO (Either SomeException BS.ByteString)
     case res of
         Left _ -> pure (Nothing, Nothing)
         Right bs ->
@@ -1821,7 +1822,7 @@ readOptimizerPriorTrials rawPath = do
             if not exists
                 then pure []
                 else do
-                    contentsOrErr <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+                    contentsOrErr <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
                     case contentsOrErr of
                         Left _ -> pure []
                         Right contents ->
@@ -2332,7 +2333,7 @@ readOptimizerRecordsSummary path = do
     if not exists
         then pure emptyOptimizerRecordsSummary
         else do
-            contentsOrErr <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            contentsOrErr <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
             case contentsOrErr of
                 Left _ -> pure emptyOptimizerRecordsSummary
                 Right contents ->
@@ -4523,7 +4524,7 @@ runWithTimeout procSpec timeoutSec = do
     mExit <- waitForExit timeoutMicros pollMicros exitVar
     case mExit of
         Nothing -> do
-            _ <- try (terminateProcess ph) :: IO (Either SomeException ())
+            _ <- trySync (terminateProcess ph) :: IO (Either SomeException ())
             _ <- waitForExit terminateWaitMicros pollMicros exitVar
             closeHandle outHandle
             closeHandle errHandle
@@ -4573,12 +4574,12 @@ runWithTimeout procSpec timeoutSec = do
                         else do
                             modifyIORef' ref (<> chunk)
                             loop
-            _ <- try loop :: IO (Either SomeException ())
-            _ <- try (hClose h) :: IO (Either SomeException ())
+            _ <- tryForwardingAll loop
+            _ <- tryForwardingAll (hClose h)
             putMVar done ()
         pure (ref, done, h)
     closeHandle h = do
-        _ <- try (hClose h) :: IO (Either SomeException ())
+        _ <- trySync (hClose h) :: IO (Either SomeException ())
         pure ()
     decodeBytes bs = T.unpack (TE.decodeUtf8With TEE.lenientDecode bs)
 
@@ -7369,7 +7370,7 @@ resolveTraderBin args =
                                         , std_out = CreatePipe
                                         , std_err = CreatePipe
                                         }
-                            r <- try (readProcessOutput procSpec) :: IO (Either SomeException (ExitCode, String, String))
+                            r <- trySync (readProcessOutput procSpec) :: IO (Either SomeException (ExitCode, String, String))
                             case r of
                                 Left e -> pure (Left ("failed to discover trader-hs binary via cabal: " ++ show e))
                                 Right (ExitFailure _, out, err) ->

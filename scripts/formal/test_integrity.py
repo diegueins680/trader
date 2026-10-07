@@ -4825,5 +4825,34 @@ class AccountingReconciliationTests(unittest.TestCase):
                 a.conformance()
 
 
+class AsyncStopTests(unittest.TestCase):
+    def test_source_and_compiled_witness(self):
+        import async_stop as a
+        r = a.check_async_stop()
+        self.assertEqual(r['source']['modules'], len(list((ROOT / 'haskell/app').rglob('*.hs'))))
+        self.assertIn('follow-up order', r['conformance']['observed'])
+
+    def test_reintroduced_capture_fails_closed(self):
+        import async_stop as a
+        main = (ROOT / a.MAIN).read_text()
+        anchor = 'import Control.Exception ('
+        cases = [
+            ('imports capture', main.replace(anchor, anchor + 'try, ', 1)),
+            ('explicit unqualified list', main.replace(anchor, 'import qualified Control.Exception as E\n' + anchor, 1)),
+            ('explicit unqualified list', main.replace(anchor, 'import Control.Exception\n' + anchor, 1)),
+            ('imports capture', main.replace(anchor, 'import Control.Monad.Catch (handle)\n' + anchor, 1)),
+            ('unreviewed capture', main + '\nleak = tryForwardingAll (pure ())\n'),
+        ]
+        for reason, text in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                a.bind({a.MAIN: text})
+        cache = 'haskell/app/Trader/Cache.hs'
+        with self.assertRaisesRegex(ValueError, 'imports capture'):
+            a.bind({cache: (ROOT / cache).read_text().replace(anchor, anchor + 'catch, ', 1)})
+        helper = (ROOT / a.ASYNC).read_text()
+        with self.assertRaisesRegex(ValueError, 'async exception|async-safe fragment'):
+            a.bind({a.ASYNC: helper.replace('Left ex | isAsyncException (toException ex) -> throwIO ex', 'Left ex | False -> throwIO ex')})
+
+
 if __name__ == '__main__':
     unittest.main()

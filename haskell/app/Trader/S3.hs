@@ -10,7 +10,7 @@ module Trader.S3 (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Crypto.Hash (Digest, SHA256, hash)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (FromJSON (..), eitherDecodeStrict', withObject, (.:), (.:?))
@@ -28,6 +28,7 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Network.HTTP.Client as HTTP
+import Trader.App.AsyncSafe (trySync)
 import Trader.Http (RetryConfig (..), defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 
 data AwsCredentials = AwsCredentials
@@ -199,7 +200,7 @@ resolveContainerCredentials = do
                 case mAuthFile >>= nonEmpty of
                     Nothing -> pure Nothing
                     Just path -> do
-                        contents <- try (readFile path) :: IO (Either SomeException String)
+                        contents <- trySync (readFile path) :: IO (Either SomeException String)
                         pure (either (const Nothing) (nonEmpty . trim) contents)
             let auth = tokenFromFile <|> (mAuth >>= nonEmpty)
             manager <- getSharedManager
@@ -209,7 +210,7 @@ resolveContainerCredentials = do
                         Nothing -> requestHeaders req0
                         Just tok -> ("Authorization", BS.pack tok) : requestHeaders req0
                 req = req0{requestHeaders = headers}
-            respOrErr <- try (httpLbsWithRetry defaultRetryConfig (Just "aws.credentials") manager req) :: IO (Either SomeException (Response BL.ByteString))
+            respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig (Just "aws.credentials") manager req) :: IO (Either SomeException (Response BL.ByteString))
             case respOrErr of
                 Left e -> pure (Left ("Failed to fetch container credentials: " ++ show e))
                 Right resp ->
@@ -292,7 +293,7 @@ s3Request st reqMethod key body = do
                 , requestHeaders = headers
                 , requestBody = HTTP.RequestBodyLBS body
                 }
-    respOrErr <- try (httpLbsWithRetry s3RetryConfig (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry s3RetryConfig (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left e -> pure (Left ("S3 request failed: " ++ show e))
         Right resp -> pure (Right resp)

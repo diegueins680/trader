@@ -14,12 +14,13 @@ module Trader.Predictors.ExogenousFetch (
     fetchExogenousInputs,
 ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.List (find)
 import qualified Data.Vector as V
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.Binance (
     BinanceEnv,
     fetchBasisHistory,
@@ -74,7 +75,7 @@ fetchExogenousInputs ::
 fetchExogenousInputs env symbol period barOpenTimes intervalMs inputs = do
     let n = max 1 (V.length barOpenTimes)
         tryFetch io =
-            fromRight [] <$> (try io :: IO (Either SomeException [(Int64, Double)]))
+            fromRight [] <$> (trySync io :: IO (Either SomeException [(Int64, Double)]))
         align = alignedFeatureSeries barOpenTimes intervalMs
     funding <- align <$> tryFetch (fetchFundingRateHistory env symbol n)
     oi <- align <$> tryFetch (fetchOpenInterestHist env symbol period n)
