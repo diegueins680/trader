@@ -121,7 +121,8 @@
         "formal/research/bounded-values-contract.md",
         "scripts/formal/bounded_values.py",
         "formal/research/accounting-reconciliation-contract.md",
-        "scripts/formal/accounting_reconciliation.py"
+        "scripts/formal/accounting_reconciliation.py",
+        "formal/research/replay-source-lock.json"
       ],
       "uses": [
         "G-FAIL-CLOSED",

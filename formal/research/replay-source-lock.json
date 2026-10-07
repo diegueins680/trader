@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "source": "scripts/research/sequential_env.py",
+  "definitions": {
+    "Replay": "158bc0852e7802fb9766906d4b27f0fdf6f801436c488b38ab3d4d544309d611",
+    "shield": "a6d4e113a282ea6e2d6a99fdd1e1ee86272477be7857a70b34dd0c9f159450e3",
+    "market_features": "2bec551e8eab247d5f6a5e1ca2b72a0232b39cb73bb5b20b3fa1d807218cd715",
+    "Execution": "41a2eb6462791445b18a43d7a39be9898afabb172a5612342d1cb954c780200c"
+  }
+}

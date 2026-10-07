@@ -183,3 +183,17 @@ Conditional alias mutants for both dictionaries are kept as regressions.
   `self._trade(0.0, terminal=True)` in the terminal liquidation branch.
   `_trade` is referenced nowhere else. A conditional extra debit fails the
   certificate.
+
+## Complete AST lock (seventh review correction, before merge)
+
+Piecemeal syntactic checks kept missing adversarial edits:
+- alternative `_trade` invocation forms;
+- nested textual duplicates of whitelisted assignments;
+- an early `return terms` before the debit.
+
+The reviewed `Replay` class, `shield`, `market_features` and `Execution` are now
+pinned by AST shape hashes in `formal/research/replay-source-lock.json`, the
+repository's established source-lock practice. Any edit fails the source
+certificate. The structural checks remain as machine-checked documentation of
+what the reviewed source does. The same lock is applied to the obligation-7
+bounded-values certificate, which binds the same class.

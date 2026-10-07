@@ -604,7 +604,8 @@
     "research-notes/registrations/bounded-values-engineering.json",
     "scripts/formal/accounting_reconciliation.py",
     "formal/research/accounting-reconciliation-contract.md",
-    "research-notes/registrations/accounting-reconciliation-engineering.json"
+    "research-notes/registrations/accounting-reconciliation-engineering.json",
+    "formal/research/replay-source-lock.json"
   ],
   "entries": [
     {
@@ -7197,7 +7198,8 @@
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py",
         "formal/research/bounded-values-contract.md",
-        "research-notes/registrations/bounded-values-engineering.json"
+        "research-notes/registrations/bounded-values-engineering.json",
+        "formal/research/replay-source-lock.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
@@ -7226,7 +7228,8 @@
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py",
         "formal/research/bounded-values-contract.md",
-        "research-notes/registrations/bounded-values-engineering.json"
+        "research-notes/registrations/bounded-values-engineering.json",
+        "formal/research/replay-source-lock.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
@@ -7255,7 +7258,8 @@
         "scripts/research/sequential_env.py",
         "scripts/research/run_sequential_screen.py",
         "formal/research/bounded-values-contract.md",
-        "research-notes/registrations/bounded-values-engineering.json"
+        "research-notes/registrations/bounded-values-engineering.json",
+        "formal/research/replay-source-lock.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
@@ -7285,7 +7289,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "formal/research/accounting-reconciliation-contract.md",
-        "research-notes/registrations/accounting-reconciliation-engineering.json"
+        "research-notes/registrations/accounting-reconciliation-engineering.json",
+        "formal/research/replay-source-lock.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
@@ -7315,7 +7320,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "formal/research/accounting-reconciliation-contract.md",
-        "research-notes/registrations/accounting-reconciliation-engineering.json"
+        "research-notes/registrations/accounting-reconciliation-engineering.json",
+        "formal/research/replay-source-lock.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"
@@ -7345,7 +7351,8 @@
       "implementationFiles": [
         "scripts/research/sequential_env.py",
         "formal/research/accounting-reconciliation-contract.md",
-        "research-notes/registrations/accounting-reconciliation-engineering.json"
+        "research-notes/registrations/accounting-reconciliation-engineering.json",
+        "formal/research/replay-source-lock.json"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py"

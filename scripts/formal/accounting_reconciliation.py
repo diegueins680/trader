@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import z3 as z
 from ppo_successor import certify
-from bounded_values import ENV, H, HIGH, LOW_PRICE, STRESSES, U, _method, _named, dbl
+from bounded_values import ENV, H, HIGH, LOW_PRICE, STRESSES, U, _method, _named, dbl, replay_lock
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRATION = 'research-notes/registrations/accounting-reconciliation-engineering.json'
@@ -27,6 +27,7 @@ def require(ok, reason):
 
 def bind(sources=None):
     sources = sources or {}
+    locked = replay_lock(sources)                 # complete AST lock: any unreviewed edit fails closed
     env = ast.parse(sources.get(ENV, (ROOT / ENV).read_text()))
     replay = _named(env, 'Replay')
     writes = sorted(ast.unparse(s) for s in ast.walk(replay) if isinstance(s, (ast.Assign, ast.AugAssign)) and
@@ -98,7 +99,8 @@ def bind(sources=None):
     require(ast.unparse(first_exit.test) == 'not all((_finite_real(v) for v in (p0, p1, f))) or min(p0, p1) <= 0' and
             loop.body.index(first_exit) < next(i for i, s in enumerate(loop.body) if 'self.rows.append' in ast.unparse(s)),
             'invalid market data rejects before any row')
-    return {'status': 'exhaustively_checked', 'equityWrites': len(writes), 'scope': 'unchanged frozen Replay ledger source; interpreter semantics assumed'}
+    return {'status': 'exhaustively_checked', 'lockedDefinitions': locked, 'equityWrites': len(writes),
+            'scope': 'complete AST lock of the reviewed Replay class and helpers plus structural checks; interpreter semantics assumed'}
 
 
 def _only_reviewed_writes(scope, name, allowed, allowed_reads):
