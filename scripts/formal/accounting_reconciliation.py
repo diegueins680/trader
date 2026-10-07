@@ -42,6 +42,29 @@ def bind(sources=None):
     require({"'equity'", "'gross'", "'funding'"} <= keys and values["'equity'"] == 'self.equity' and values["'gross'"] == 'gross'
             and values["'funding'"] == 'funding' and any(k is None and ast.unparse(v) == 'costs' for k, v in zip(row.args[0].keys, row.args[0].values)),
             'row records the executed equity, gross, funding and merged costs')
+    # Control-flow order of one bar: the modeled ledger sequence must precede the row record, and nothing may
+    # debit equity after it. Only these top-level statements may touch equity, costs or the row.
+    loop = next(n for n in ast.walk(step) if isinstance(n, ast.While) and ast.unparse(n.test) == 'self.t < end')
+    order = [ast.unparse(s).split(chr(10))[0] for s in loop.body]
+    def at(text):
+        hits = [i for i, line in enumerate(order) if line == text]
+        require(len(hits) == 1, 'statement must occur exactly once in the bar loop: ' + text)
+        return hits[0]
+    mark, reset = at('self.equity += gross + funding'), at("costs = dict.fromkeys(('turnover', 'fee', 'spread', 'slippage', 'impact'), 0.0)")
+    trade_if = at('if self.failure is None and self.pending is not None and (self.pending[0] <= self.t):')
+    terminal_if, record = at('if terminal:'), next(i for i, line in enumerate(order) if line.startswith('self.rows.append('))
+    require(mark < reset < trade_if < terminal_if < record and order[record + 1:] == ['if self.done:'] and record + 2 == len(order),
+            'bar order: mark < cost reset < trade < terminal liquidation+merge < row record, then only the break')
+    term_body = [ast.unparse(s) for s in loop.body[terminal_if].body]
+    require(term_body[1].startswith('if isfinite(self.equity) and self.equity > 0:') and
+            ast.unparse(loop.body[terminal_if].body[1].body[0]) == 'liquidation = self._trade(0.0, terminal=True)' and
+            ast.unparse(loop.body[terminal_if].body[1].body[1]) == 'costs = {k: costs[k] + liquidation[k] for k in costs}',
+            'terminal liquidation precedes the merge within the terminal block')
+    require(ast.unparse(loop.body[trade_if].body[0]) == 'costs = self._trade(self.pending[1])', 'trade assigns the bar costs')
+    writers = [i for i, s in enumerate(loop.body) for n in ast.walk(s) if isinstance(n, (ast.Assign, ast.AugAssign))
+               and 'self.equity' in {ast.unparse(t) for t in ast.walk(n.targets[0] if isinstance(n, ast.Assign) else n.target)}]
+    calls = [i for i, s in enumerate(loop.body) for n in ast.walk(s) if isinstance(n, ast.Call) and ast.unparse(n.func) == 'self._trade']
+    require(all(i < record for i in writers + calls), 'no equity write or trade call after the row record')
     trade = _method(replay, '_trade')
     terms = next(s for s in ast.walk(trade) if isinstance(s, ast.Assign) and ast.unparse(s.targets[0]) == 'terms')
     require(ast.unparse(terms.value) == "{'turnover': cash, 'fee': cash * 0.0005 * cfg.cost_multiplier, 'spread': cash * 5e-05 * cfg.cost_multiplier, "
@@ -186,7 +209,8 @@ def _roll_forward():
     Ec = rnd(Eb - debit_of(l, 'r'), 'Ec')          # liquidation debit
     rows = [rnd(t[i] + l[i], f'm{i}') for i in range(len(keys))]   # merge comprehension
     ledger = E + g + f - sum(rows)
-    M = E + _abs(g) + _abs(f) + sum(t) + sum(l)
+    M = E + _abs(g) + _abs(f) + sum(t) + sum(l)                     # operand budget (unmerged)
+    M_recorded = E + _abs(g) + _abs(f) + sum(rows)                   # the advertised M uses the recorded merged costs
     base = [E > 0, *[x >= 0 for x in t + l]]
     for i, (y, _, _) in enumerate(ops):           # Stage A
         prior = [z.And(a >= 0, e >= -a, e <= a) for _, e, a in ops[:i]]
@@ -194,7 +218,7 @@ def _roll_forward():
     budget = []                                    # Stage B
     for i, (_, e, a) in enumerate(ops):
         budget.append(z.And(a >= 0, e >= -a, e <= a, a <= u * (M + sum((b for _, _, b in ops[:i]), z.RealVal(0))) + h))
-    _query(z.And(*base, *budget), _abs(Ec - ledger) <= STATED['rollForward'][0] * u * M + STATED['rollForward'][1] * h)
+    _query(z.And(*base, *budget), _abs(Ec - ledger) <= STATED['rollForward'][0] * u * M_recorded + STATED['rollForward'][1] * h)
     return len(ops), len(ops) + 1
 
 

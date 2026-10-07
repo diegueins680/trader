@@ -21,26 +21,29 @@ simulated fills match real venue fills. That is an empirical question for the
 economic gate, not a property of the binary64 accounting. It is not claimed or
 discharged here.
 
-## Stated bounds (u = 2⁻⁵³, H = 2⁻¹⁰⁷⁵)
+## Stated bounds (final; u = 2⁻⁵³, H = 2⁻¹⁰⁷⁵)
 
-For a row with prior equity E, recorded gross g, funding f and costs
-(fee, spread, slippage, impact), with M = E + |g| + |f| + Σ costs:
+For a row with prior equity E, recorded gross g, funding f and **recorded
+merged** costs (fee, spread, slippage, impact), with
+M = E + |g| + |f| + Σ recorded costs:
 
 - **Roll-forward:** |E_row − (E + g + f − fee − spread − slippage − impact)|
-  ≤ 14·u·M + 14·H. This covers up to 13 roundings: gross+funding, equity+,
-  three trade-cost additions, equity−, three liquidation-cost additions,
-  equity−, and the per-key cost merges.
-- **Gross:** |g − U·(p₁ − p₀)| ≤ 2·u·|U·(p₁ − p₀)| + 2·H.
-- **Funding:** |f − (−U·f_t·m)| ≤ 2·u·|U·f_t·m| + 2·H.
-- **Fee, spread, slippage:** each recorded term is within 4·u relative (+4·H)
-  of `cash·c·cost_multiplier`, summed over trade and liquidation, where c is the
-  exact binary64 literal value.
-- **Impact:** within 6·u relative (+6·H) of `cash·impact_bps·c₄·sqrt(turnover)`,
-  using the exact square root of the computed turnover.
+  ≤ **15·u·M + 15·H**. This covers 14 roundings: gross+funding, equity+, three
+  trade-cost additions, equity−, three liquidation-cost additions, equity−, and
+  four cost merges. The constant 14 is provably insufficient.
+- **Gross:** |g − U·(p₁ − p₀)| ≤ **3·u·|U·(p₁ − p₀)| + 2⁻⁶⁰⁰·E + 2·H**. This
+  uses the carried-inventory premise certified by F-RL-BOUNDS-COMPOSE.
+- **Funding:** |f − (−U·f_t·m)| ≤ **3·u·|U·f_t·m| + 4·H**.
+- **Fee, spread, slippage:** each recorded term is within **4·u relative +
+  10·H** of Σ over the bar's trade and liquidation calls of
+  `cash·c·cost_multiplier`, with c the exact binary64 literal.
+- **Impact:** within **6·u relative + 10·H** of Σ
+  `cash·impact_bps·c₄·sqrt(turnover)`, with the exact square root of the
+  computed turnover.
 
 The premises are A-GAP-BOUND's range premise (prices and equity in
-[2⁻⁴⁰⁰, 2⁴⁰⁰]) and binary64 arrays from the delivered loader. They keep every
-intermediate finite and make the H terms negligible.
+[2⁻⁴⁰⁰, 2⁴⁰⁰]) and binary64 arrays from the delivered loader. The sections
+below record how these final values were reached.
 
 ## Obligations / methods
 
@@ -120,3 +123,19 @@ yielded "unsat". The certificate is now generated from the source AST:
 
   With the constant 14 the generated query is satisfiable; that regression is
   kept.
+
+## Third review correction (before merge)
+
+- **Recorded M.** The roll-forward claim now uses M built from the
+  **recorded merged** costs, the quantity the contract advertises, instead of
+  the unmerged operands. The operand budgets still use the unmerged
+  magnitudes, and Z3 certifies that the stated constant absorbs the difference.
+- **Control flow bound.** The source check now asserts the bar-loop order:
+  1. mark update;
+  2. per-bar cost reset;
+  3. trade block assigning `costs`;
+  4. terminal block (liquidation, then merge);
+  5. `rows.append`, followed only by `if self.done: break`.
+
+  It also asserts that no equity write or `_trade` call follows the row record.
+  Reordering the record before liquidation now fails the source certificate.
