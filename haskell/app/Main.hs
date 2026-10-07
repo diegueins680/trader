@@ -139,7 +139,7 @@ import Trader.App.GracefulShutdown (
     stopSupervisedWorkersBounded,
     stopThreadIdsBounded,
  )
-import Trader.App.ManualTradeOwnership (ManualTradeClaims, ManualTradeOwnershipConflict (..), OwnershipKey, manualTradeClaimed, newManualTradeClaims, withManualTradeClaim)
+import Trader.App.ManualTradeOwnership (ManualTradeClaims, ManualTradeOwnershipConflict (..), OwnershipKey, manualTradeClaimed, manualTradeConflict, newManualTradeClaims, withManualTradeClaim)
 import Trader.App.Observability (
     Journal,
     Metrics,
@@ -22479,11 +22479,31 @@ orderAccountKey args =
                 <*> resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
         _ -> pure Nothing
 
--- | A bot owns a position identity only when it can trade live.
+{- | A bot owns a position identity whenever it can trade live. The bot order
+path ignores 'argDryRun' (only 'bsTradeEnabled' and 'argBinanceLive' gate it),
+so a dry-run flag does not make a live bot a non-owner.
+-}
 botOwnerKey :: Args -> BotSettings -> String -> IO (Maybe OwnershipKey)
 botOwnerKey args settings sym
-    | bsTradeEnabled settings && manualTradeMayBeLive args = fmap (,sym) <$> orderAccountKey args
+    | bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) = fmap (,sym) <$> orderAccountKey args
     | otherwise = pure Nothing
+
+{- | Advisory refusal before an async trade is queued, so the client gets 409
+instead of an accepted job that fails later. The claim taken inside the job
+remains authoritative for a bot that starts in between.
+-}
+manualTradeOwnedNow :: BotController -> Args -> IO (Maybe String)
+manualTradeOwnedNow ctrl args =
+    case argBinanceSymbol args of
+        Just symRaw
+            | manualTradeMayBeLive args -> do
+                mAccount <- orderAccountKey args
+                case mAccount of
+                    Nothing -> pure Nothing
+                    Just account -> do
+                        mrt <- readMVar (bcRuntime ctrl)
+                        pure (manualTradeConflict (ownedBotKeys mrt) (account, normalizeSymbol symRaw))
+        _ -> pure Nothing
 
 -- | Every position identity owned by a starting or running live bot, across all tenants.
 ownedBotKeys :: BotTenantMap -> [OwnershipKey]
@@ -22755,93 +22775,102 @@ handleTradeAsync botCtrl reqLimits mOps limits store metrics mJournal mWebhook b
                                                                         (object ["jobType" .= ("trade" :: String), "status" .= ("cached" :: String)])
                                                                 respond (jsonValue status200 (object ["status" .= ("done" :: String), "result" .= cachedValue]))
                                                             TradeIdemAcquire -> do
-                                                                r <-
-                                                                    startJob mOps store $ do
-                                                                        let tradeTimeoutSec = arlTradeTimeoutSec reqLimits
-                                                                        outResult <-
-                                                                            trySync
-                                                                                (timeout (tradeTimeoutSec * 1000000) (runManualTrade botCtrl argsFinal (computeTradeFromArgsWithLimits limits mOps argsFinal))) ::
-                                                                                IO (Either SomeException (Maybe ApiTradeResponse))
-                                                                        out <-
-                                                                            case outResult of
-                                                                                Right Nothing -> do
-                                                                                    let msg = tradeAsyncTimeoutMessage tradeTimeoutSec
-                                                                                    case (mOps, mIdemKey) of
-                                                                                        (Just opsStore, Just idemKey) ->
-                                                                                            completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash msg
-                                                                                        _ -> pure ()
-                                                                                    throwIO (userError msg)
-                                                                                Left ex -> do
-                                                                                    case (mOps, mIdemKey) of
-                                                                                        (Just opsStore, Just idemKey) ->
-                                                                                            completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash (snd (exceptionToHttp ex))
-                                                                                        _ -> pure ()
-                                                                                    throwIO ex
-                                                                                Right (Just out') -> do
-                                                                                    case (mOps, mIdemKey) of
-                                                                                        (Just opsStore, Just idemKey) ->
-                                                                                            completeTradeIdempotencySuccess opsStore mOpsTenant idemKey idemReqHash (toJSON out')
-                                                                                        _ -> pure ()
-                                                                                    pure out'
-                                                                        metricsRecordOrder metrics (atrOrder out)
-                                                                        now <- getTimestampMs
-                                                                        journalWriteMaybe
-                                                                            mJournal
-                                                                            ( object
-                                                                                [ "type" .= ("trade.order" :: String)
-                                                                                , "atMs" .= now
-                                                                                , "symbol" .= argBinanceSymbol argsFinal
-                                                                                , "market" .= marketCode (argBinanceMarket argsFinal)
-                                                                                , "action" .= lsAction (atrSignal out)
-                                                                                , "order" .= atrOrder out
-                                                                                , "originIp" .= originIp
-                                                                                ]
-                                                                            )
-                                                                        let outJson =
-                                                                                case toJSON out of
-                                                                                    Aeson.Object o ->
-                                                                                        Aeson.Object
-                                                                                            (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
-                                                                                    v -> v
-                                                                        opsAppendMaybe
-                                                                            mOps
-                                                                            mOpsTenant
-                                                                            "trade.order"
-                                                                            paramsJson
-                                                                            argsJson
-                                                                            (Just outJson)
-                                                                            Nothing
-                                                                            Nothing
-                                                                            (T.pack <$> argBinanceSymbol argsFinal)
-                                                                            (orderIdFromOrderResult (atrOrder out))
-                                                                        outboxEnqueueMaybe
-                                                                            mOps
-                                                                            mOpsTenant
-                                                                            "trader.v1.orders.submitted"
-                                                                            (Just (ownerKeyFromArgs mOpsTenant argsFinal))
-                                                                            ( object
-                                                                                [ "ownerKey" .= ownerKeyFromArgs mOpsTenant argsFinal
-                                                                                , "trade" .= out
-                                                                                ]
-                                                                            )
-                                                                        webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
-                                                                        pure out
-                                                                case r of
-                                                                    Left e -> do
+                                                                ownedNow <- manualTradeOwnedNow botCtrl argsFinal
+                                                                case ownedNow of
+                                                                    Just msg -> do
                                                                         case (mOps, mIdemKey) of
                                                                             (Just opsStore, Just idemKey) ->
-                                                                                completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash e
+                                                                                completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash msg
                                                                             _ -> pure ()
-                                                                        respond (jsonError status429 e)
-                                                                    Right jobId -> do
-                                                                        forkBackground $
-                                                                            outboxEnqueueMaybe
-                                                                                mOps
-                                                                                mReqTenant
-                                                                                "trader.v1.jobs.requested"
-                                                                                (Just jobId)
-                                                                                (object ["jobId" .= jobId, "jobType" .= ("trade" :: String), "status" .= ("running" :: String)])
-                                                                        respond (jsonValue status202 (object ["jobId" .= jobId]))
+                                                                        respond (jsonError status409 msg)
+                                                                    Nothing -> do
+                                                                        r <-
+                                                                            startJob mOps store $ do
+                                                                                let tradeTimeoutSec = arlTradeTimeoutSec reqLimits
+                                                                                outResult <-
+                                                                                    trySync
+                                                                                        (timeout (tradeTimeoutSec * 1000000) (runManualTrade botCtrl argsFinal (computeTradeFromArgsWithLimits limits mOps argsFinal))) ::
+                                                                                        IO (Either SomeException (Maybe ApiTradeResponse))
+                                                                                out <-
+                                                                                    case outResult of
+                                                                                        Right Nothing -> do
+                                                                                            let msg = tradeAsyncTimeoutMessage tradeTimeoutSec
+                                                                                            case (mOps, mIdemKey) of
+                                                                                                (Just opsStore, Just idemKey) ->
+                                                                                                    completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash msg
+                                                                                                _ -> pure ()
+                                                                                            throwIO (userError msg)
+                                                                                        Left ex -> do
+                                                                                            case (mOps, mIdemKey) of
+                                                                                                (Just opsStore, Just idemKey) ->
+                                                                                                    completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash (snd (exceptionToHttp ex))
+                                                                                                _ -> pure ()
+                                                                                            throwIO ex
+                                                                                        Right (Just out') -> do
+                                                                                            case (mOps, mIdemKey) of
+                                                                                                (Just opsStore, Just idemKey) ->
+                                                                                                    completeTradeIdempotencySuccess opsStore mOpsTenant idemKey idemReqHash (toJSON out')
+                                                                                                _ -> pure ()
+                                                                                            pure out'
+                                                                                metricsRecordOrder metrics (atrOrder out)
+                                                                                now <- getTimestampMs
+                                                                                journalWriteMaybe
+                                                                                    mJournal
+                                                                                    ( object
+                                                                                        [ "type" .= ("trade.order" :: String)
+                                                                                        , "atMs" .= now
+                                                                                        , "symbol" .= argBinanceSymbol argsFinal
+                                                                                        , "market" .= marketCode (argBinanceMarket argsFinal)
+                                                                                        , "action" .= lsAction (atrSignal out)
+                                                                                        , "order" .= atrOrder out
+                                                                                        , "originIp" .= originIp
+                                                                                        ]
+                                                                                    )
+                                                                                let outJson =
+                                                                                        case toJSON out of
+                                                                                            Aeson.Object o ->
+                                                                                                Aeson.Object
+                                                                                                    (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
+                                                                                            v -> v
+                                                                                opsAppendMaybe
+                                                                                    mOps
+                                                                                    mOpsTenant
+                                                                                    "trade.order"
+                                                                                    paramsJson
+                                                                                    argsJson
+                                                                                    (Just outJson)
+                                                                                    Nothing
+                                                                                    Nothing
+                                                                                    (T.pack <$> argBinanceSymbol argsFinal)
+                                                                                    (orderIdFromOrderResult (atrOrder out))
+                                                                                outboxEnqueueMaybe
+                                                                                    mOps
+                                                                                    mOpsTenant
+                                                                                    "trader.v1.orders.submitted"
+                                                                                    (Just (ownerKeyFromArgs mOpsTenant argsFinal))
+                                                                                    ( object
+                                                                                        [ "ownerKey" .= ownerKeyFromArgs mOpsTenant argsFinal
+                                                                                        , "trade" .= out
+                                                                                        ]
+                                                                                    )
+                                                                                webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
+                                                                                pure out
+                                                                        case r of
+                                                                            Left e -> do
+                                                                                case (mOps, mIdemKey) of
+                                                                                    (Just opsStore, Just idemKey) ->
+                                                                                        completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash e
+                                                                                    _ -> pure ()
+                                                                                respond (jsonError status429 e)
+                                                                            Right jobId -> do
+                                                                                forkBackground $
+                                                                                    outboxEnqueueMaybe
+                                                                                        mOps
+                                                                                        mReqTenant
+                                                                                        "trader.v1.jobs.requested"
+                                                                                        (Just jobId)
+                                                                                        (object ["jobId" .= jobId, "jobType" .= ("trade" :: String), "status" .= ("running" :: String)])
+                                                                                respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 extractBacktestFinalEquity :: Aeson.Value -> Maybe Double
 extractBacktestFinalEquity =

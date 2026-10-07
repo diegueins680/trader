@@ -4873,6 +4873,8 @@ class PositionOwnershipTests(unittest.TestCase):
             ('no longer reduce-only', main.replace('OrderLive sym side qty (Just True)', 'OrderLive sym side qty Nothing', 1)),
             ('order-capable definitions drifted', main + '\nsneakyOrder :: IO ()\nsneakyOrder = void (placeMarketOrder env OrderLive sym Buy q Nothing Nothing Nothing)\n'),
             ('account identity differs', main.replace('<$> resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)', '<$> pure (argBinanceApiKey args)', 1)),
+            ('bot owner identity changed', main.replace('bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) =', 'bsTradeEnabled settings && manualTradeMayBeLive args =', 1)),
+            ('queued before the ownership refusal', main.replace('ownedNow <- manualTradeOwnedNow botCtrl argsFinal', 'ownedNow <- pure Nothing', 1)),
         ]
         for reason, text in cases:
             with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):

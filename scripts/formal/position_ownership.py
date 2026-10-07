@@ -107,8 +107,15 @@ def bind(sources=None):
                        ('COINBASE_API_PASSPHRASE', 'argCoinbaseApiPassphrase')):
         fragment = f'resolveEnv "{var}" ({field} args)'
         require(fragment in account and fragment in env, 'account identity differs from signing credentials: ' + var)
-    require('bsTradeEnabled settings && manualTradeMayBeLive args = fmap (,sym) <$> orderAccountKey args'
-            in bodies['botOwnerKey'], 'bot owner identity changed')
+    # A bot owns its identity whenever its order path can go live; that path ignores argDryRun.
+    require('bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) = fmap (,sym) <$> orderAccountKey args'
+            in bodies['botOwnerKey'] and 'argDryRun' not in bodies['botOwnerKey'], 'bot owner identity changed')
+    for name in ('placeOrderForSignalEx', 'placeIfEnabled', 'placeBotCloseIfEnabled', 'placeBotCloseOrder', 'placeOrderForSignalBot'):
+        require('argDryRun' not in bodies[name],
+                'bot order path gained a dry-run gate; revisit the bot owner predicate: ' + name)
+    async_body = bodies['handleTradeAsync']
+    require(0 <= async_body.find('ownedNow <- manualTradeOwnedNow botCtrl argsFinal') < async_body.find('startJob mOps store') and
+            'respond (jsonError status409 msg)' in async_body, 'async trade is queued before the ownership refusal')
     # Bot start publication: the only insertion of a new owner, checked under the lock.
     require(main.count('publishWorker (bcRuntime ctrl)') == 1, 'more than one bot publication site')
     publish = bodies['botStartSymbolWithSettings']
