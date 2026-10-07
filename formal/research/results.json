@@ -559,12 +559,13 @@
       "status": "property_tested"
     },
     "propagation": {
-      "afterLiquidationRatio": 0.9977145522388059,
+      "afterLiquidationRatio": 0.9966691710493362,
       "afterTradeRatio": 0.9982499999999964,
-      "checks": 8,
+      "checks": 9,
       "detectionExposure": 0.652985074626866,
       "entryExposure": 0.25043826696719357,
-      "equityAfterBarRatio": 0.8039999999999998
+      "equityAfterBarRatio": 0.8039999999999998,
+      "postTradeInventory": 0.9516654144753357
     },
     "smt": {
       "F-RL-BOUNDS-COMPOSE": "unsat"
