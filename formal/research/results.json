@@ -561,13 +561,14 @@
     "propagation": {
       "afterLiquidationRatio": 0.9966691710493362,
       "afterTradeRatio": 0.9982499999999964,
-      "checks": 10,
+      "checks": 11,
       "detectionExposure": 0.652985074626866,
       "entryExposure": 0.25043826696719357,
       "equityAfterBarRatio": 0.8039999999999998,
       "largestMagnitudeLog2": 799.9285263465853,
       "liquidationEquityFloor": 0.6431999999999999,
-      "postTradeInventory": 0.9516654144753357
+      "postTradeInventory": 0.9516654144753357,
+      "realizedDrawdownBound": 0.1500000000000001
     },
     "smt": {
       "F-RL-BOUNDS-COMPOSE": "unsat"
