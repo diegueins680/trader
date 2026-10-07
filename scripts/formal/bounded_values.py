@@ -188,8 +188,10 @@ def propagate():
     # Liquidation equity can be below 4/5: after a breaching bar (>= e1_ratio * 4/5) or after a trade (>= after_trade * 4/5).
     liquidation_floor = Q(4, 5) * min(e1_ratio, after_trade)
     after_liquidation = cost(liquidation_product, Q(1), liquidation_floor)
-    # Fresh full-fill target |w| = 1/4: |new * p| = |rnd(rnd(w * e) / p) * p|, then post-cost equity.
-    entry_exposure = desired / after_trade
+    # Full-fill target |w| = 1/4 (fresh entry or rebalance): new = rnd(old + rnd(1 * rnd(desired - old))).
+    # The multiplication by fill_fraction = 1 is exact; |desired - old| * p <= (desired + x0) * e.
+    full_fill = (desired + U * (desired + x0) * (1 + U) + hp) * (1 + U) + hp
+    entry_exposure = full_fill / after_trade
     # Range premise: every intermediate magnitude stays far below 2^1023 (no overflow) for any
     # admitted state, including desired = rnd(rnd(w*e)/p) computed on the missed-fill branch.
     e_max, p_min, p_max = HIGH, LOW_PRICE, HIGH

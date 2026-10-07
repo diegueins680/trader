@@ -34,7 +34,7 @@ and the unconditional floor stays refuted.
   exact drawdown below 3/20 + 2⁻⁵⁰. The bound check runs after every
   mark-to-market and every admitted trade, and any failure is terminal.
 - **(II)** Shielded targets are in {−1/4, 0, 1/4}, and a fresh target's
-  post-cost exposure is < 0.2505.
+  post-cost exposure is < 0.2506, for fresh entries and full-fill rebalances.
 - **(III)** Under A-GAP-BOUND:
   - one bar keeps equity above 0.80 × its prior value;
   - exposure at detection is ≤ 0.66;

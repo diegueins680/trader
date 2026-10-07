@@ -50,8 +50,9 @@ The step order is mark-to-market → `_risk` → pending trade → `_risk` → t
 check, and any failure ends the step in a terminal state.
 
 **(II) Proposal bounds.** Shielded targets are in {−1/4, 0, 1/4}
-(F-RL-SHIELD-BOUNDS, Haskell boundary). A fresh full-fill target has post-cost
-exposure below 0.2505 ≤ 7/20.
+(F-RL-SHIELD-BOUNDS, Haskell boundary). A full-fill target, whether a fresh
+entry or a rebalance of an existing position, has post-cost exposure below
+0.2506 ≤ 7/20.
 
 **(III) Liquidation under loss (solvency).** Under A-GAP-BOUND, from any
 non-terminal state:
@@ -154,7 +155,7 @@ source. It is replaced as follows.
   - exposure at detection ≤ 0.6530;
   - equity after a trade ≥ 0.99825·e;
   - equity after a liquidation ≥ 0.99771·e;
-  - post-cost entry exposure ≤ 0.2505.
+  - post-cost entry exposure ≤ 0.2505 (superseded: ≤ 0.2506 including rebalances, see the seventh correction).
 
 The instantiation is a computation, not a solver query, so F-RL-BOUNDS-COMPOSE
 records both. `numpy.sqrt` is assumed monotone and ≤ 1 on [0, 1].
@@ -222,3 +223,11 @@ The floor compares the stored equity directly, so it needs no rounding model.
 Exposure is the computed value, whose exact meaning lemma I bounds.
 
 The recorded counts are synchronized: the propagation now runs 11 checks.
+
+## Seventh review correction (before merge)
+
+The entry-exposure bound skipped the roundings in
+`new = fl(old + fl(fill·fl(desired − old)))` for a full-fill **rebalance** from
+a nonzero position. With fill = 1 the multiplication is exact. The subtraction
+and addition are now modeled, using |desired − old|·p ≤ (desired + x0)·e. The
+bound covers both fresh entries and rebalances and stays below 0.2506.
