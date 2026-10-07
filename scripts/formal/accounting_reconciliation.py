@@ -15,6 +15,9 @@ REGISTRATION = 'research-notes/registrations/accounting-reconciliation-engineeri
 ROUNDINGS = 14   # 10 chain operations (gross+funding, equity+, 3+1 trade, 3+1 liquidation) + 4 cost merges
 STATED = {'rollForward': (Q(15), Q(15)), 'funding': (Q(3), Q(4)), 'costTerm': (Q(4), Q(10)), 'impact': (Q(6), Q(10))}
 GROSS_E = Q(1, 2**600)
+ROW_RECORD = ("self.rows.append({'t': self.t, 'net': self.equity / old_equity - 1, 'equity': self.equity, 'gross': gross, "
+              "'funding': funding, 'exposure': exposure, 'drawdown': 1 - self.equity / self.peak, "
+              "'rewardPenalty': 100 * self.execution.risk_penalty * exposure ** 2 * x[5] ** 2, **costs})")
 
 
 def require(ok, reason):
@@ -74,6 +77,13 @@ def bind(sources=None):
                   any(ast.unparse(x).startswith('self.rows') for x in ast.walk(n) if isinstance(x, (ast.Attribute, ast.Subscript))
                       and isinstance(getattr(x, 'ctx', None), (ast.Store, ast.Del)))]
     require(len(appends) == 1 and row_writes == ['self.rows: list[dict] = []'], 'single row record and no other row mutation')
+    # The row literal is pinned: no explicit cost keys and **costs is its single, final unpack.
+    require(ast.unparse(appends[0]) == ROW_RECORD, 'reviewed row-record shape')
+    # Exactly the two modeled debit call sites exist in the whole Replay class.
+    trade_calls = sorted(ast.unparse(n) for n in ast.walk(replay) if isinstance(n, ast.Call) and ast.unparse(n.func) == 'self._trade')
+    require(trade_calls == ['self._trade(0.0, terminal=True)', 'self._trade(self.pending[1])'], 'exactly the trade and liquidation call sites')
+    require(not [n for n in ast.walk(replay) if isinstance(n, ast.Attribute) and n.attr == '_trade' and
+                 not any(isinstance(c, ast.Call) and c.func is n for c in ast.walk(replay))], '_trade is never referenced except by its two calls')
     require(not [n for n in ast.walk(replay) if isinstance(n, ast.Call) and ast.unparse(n.func).startswith('self.rows.')
                  and ast.unparse(n.func) != 'self.rows.append'], 'no other row-list method calls')
     trade = _method(replay, '_trade')

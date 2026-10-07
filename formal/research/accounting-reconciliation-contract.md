@@ -172,3 +172,14 @@ The source check now whitelists every **use** of the reviewed dictionaries:
 
 Aliases, call arguments, method calls and deletions fail the certificate.
 Conditional alias mutants for both dictionaries are kept as regressions.
+
+## Sixth review correction (before merge)
+
+- **Row record pinned.** The row-record call must match the reviewed source
+  text exactly: no explicit cost keys, and `**costs` as its single, final
+  unpack. A later unpack cannot override the merged costs.
+- **Debit call sites pinned.** Exactly two `_trade` calls may exist in the whole
+  `Replay` class: `self._trade(self.pending[1])` in the trade block and
+  `self._trade(0.0, terminal=True)` in the terminal liquidation branch.
+  `_trade` is referenced nowhere else. A conditional extra debit fails the
+  certificate.
