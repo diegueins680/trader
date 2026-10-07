@@ -42,6 +42,9 @@ M = E + |g| + |f| + Σ recorded costs:
   computed turnover.
 
 The premises are:
+- A-GAP-BOUND's **market limits**: per-bar |p₁/p₀ − 1| ≤ 1/2 and |funding per
+  unit| ≤ 3/100 of the prior price. The gross query uses p₁ ∈ [p₀/2, 3p₀/2],
+  and the inherited overflow bounds use the funding limit;
 - A-GAP-BOUND's range premise: prices and equity in [2⁻⁴⁰⁰, 2⁴⁰⁰];
 - A-GAP-BOUND's **execution maxima**: cost multiplier ≤ 5/2, `impact_bps`
   ≤ 10, funding multiplier ≤ 2. F-RL-BOUNDS-SOURCE binds these to the runner's
@@ -145,3 +148,14 @@ yielded "unsat". The certificate is now generated from the source AST:
 
   It also asserts that no equity write or `_trade` call follows the row record.
   Reordering the record before liquidation now fails the source certificate.
+
+## Fourth review correction (before merge)
+
+- The full A-GAP-BOUND assumption (market limits, range premise, execution
+  maxima, binary64 arrays) is now stated wherever the bounds are, including the
+  F-RL-RECON-ERROR statement.
+- The source check now rejects every unreviewed write rooted at `costs` in
+  `step` and at `terms` in `_trade`. That covers subscript or attribute stores,
+  augmented assignment, deletion, mutating method calls, and passing the dict to
+  another call. It also requires a single row-record call and no other row
+  mutation, so a pre-record `costs['fee'] = 0.0` now fails the certificate.

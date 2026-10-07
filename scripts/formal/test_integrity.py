@@ -4775,7 +4775,9 @@ class AccountingReconciliationTests(unittest.TestCase):
                         ("costs = {k: costs[k] + liquidation[k] for k in costs}","costs = liquidation"),
                         ('"spread": cash * 0.00005 * cfg.cost_multiplier','"spread": cash * 0.0 * cfg.cost_multiplier'),
                         ('"equity": self.equity, "gross": gross','"equity": self.equity + 0.0, "gross": gross'),
-                        ("            if self.done:\n                break\n","            self.equity -= 0.0\n            if self.done:\n                break\n")]:
+                        ("            if self.done:\n                break\n","            self.equity -= 0.0\n            if self.done:\n                break\n"),
+                        ("            terminal = self.failure is not None","            costs['fee'] = 0.0\n            terminal = self.failure is not None"),
+                        ("            terminal = self.failure is not None","            costs.update(fee=0.0)\n            terminal = self.failure is not None")]:
             self.assertIn(old,env)
             with self.subTest(old=old), self.assertRaises(ValueError):
                 a.bind({a.ENV:env.replace(old,new)})

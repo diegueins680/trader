@@ -65,10 +65,22 @@ def bind(sources=None):
                and 'self.equity' in {ast.unparse(t) for t in ast.walk(n.targets[0] if isinstance(n, ast.Assign) else n.target)}]
     calls = [i for i, s in enumerate(loop.body) for n in ast.walk(s) if isinstance(n, ast.Call) and ast.unparse(n.func) == 'self._trade']
     require(all(i < record for i in writers + calls), 'no equity write or trade call after the row record')
+    _only_reviewed_writes(step, 'costs', {"costs = dict.fromkeys(('turnover', 'fee', 'spread', 'slippage', 'impact'), 0.0)",
+                                          'costs = self._trade(self.pending[1])',
+                                          'costs = {k: costs[k] + liquidation[k] for k in costs}'},
+                          allowed_reads={'costs[k] + liquidation[k]', 'costs[k]', 'costs'})
+    appends = [n for n in ast.walk(replay) if isinstance(n, ast.Call) and ast.unparse(n.func) == 'self.rows.append']
+    row_writes = [ast.unparse(n) for n in ast.walk(replay) if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)) and
+                  any(ast.unparse(x).startswith('self.rows') for x in ast.walk(n) if isinstance(x, (ast.Attribute, ast.Subscript))
+                      and isinstance(getattr(x, 'ctx', None), (ast.Store, ast.Del)))]
+    require(len(appends) == 1 and row_writes == ['self.rows: list[dict] = []'], 'single row record and no other row mutation')
+    require(not [n for n in ast.walk(replay) if isinstance(n, ast.Call) and ast.unparse(n.func).startswith('self.rows.')
+                 and ast.unparse(n.func) != 'self.rows.append'], 'no other row-list method calls')
     trade = _method(replay, '_trade')
     terms = next(s for s in ast.walk(trade) if isinstance(s, ast.Assign) and ast.unparse(s.targets[0]) == 'terms')
     require(ast.unparse(terms.value) == "{'turnover': cash, 'fee': cash * 0.0005 * cfg.cost_multiplier, 'spread': cash * 5e-05 * cfg.cost_multiplier, "
             "'slippage': cash * 0.00045 * cfg.cost_multiplier, 'impact': cash * cfg.impact_bps * 0.0001 * np.sqrt(turnover)}", 'cost formulas')
+    _only_reviewed_writes(trade, 'terms', {ast.unparse(terms)}, allowed_reads=None)
     rejected = [ast.unparse(r) for r in ast.walk(trade) if isinstance(r, ast.Return)]
     require("return {'turnover': 0.0, 'fee': 0.0, 'spread': 0.0, 'slippage': 0.0, 'impact': 0.0}" in rejected, 'turnover rejection debits nothing')
     loop = next(n for n in ast.walk(step) if isinstance(n, ast.While))
@@ -77,6 +89,24 @@ def bind(sources=None):
             loop.body.index(first_exit) < next(i for i, s in enumerate(loop.body) if 'self.rows.append' in ast.unparse(s)),
             'invalid market data rejects before any row')
     return {'status': 'exhaustively_checked', 'equityWrites': len(writes), 'scope': 'unchanged frozen Replay ledger source; interpreter semantics assumed'}
+
+
+def _only_reviewed_writes(scope, name, allowed, allowed_reads):
+    """Reject every write rooted at `name` other than the reviewed assignments: subscript/attribute stores,
+    augmented assignment, deletion, mutating method calls, and passing the object to any call other than
+    the reviewed row record (`**name`) or `sum(...)` over its values."""
+    for node in ast.walk(scope):
+        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
+            targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+            rooted = [t for t in targets for x in ast.walk(t) if isinstance(x, ast.Name) and x.id == name]
+            if rooted:
+                require(isinstance(node, ast.Assign) and ast.unparse(node) in allowed, f'unreviewed write to {name}: ' + ast.unparse(node))
+        if isinstance(node, ast.Call):
+            func = ast.unparse(node.func)
+            require(not func.startswith(name + '.'), f'unreviewed method call on {name}: ' + func)
+            passed = [a for a in node.args if isinstance(a, ast.Name) and a.id == name]
+            require(not passed, f'{name} passed to a call: ' + func)
+    return True
 
 
 def _abs(x):
