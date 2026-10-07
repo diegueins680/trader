@@ -5,10 +5,12 @@ Frozen replay, observations, PPO artifacts and CE-RL-025 retain their semantics.
 
 ## Representation and timing
 
-A bar is (close, available, price): integer nonnegative microsecond timestamps
+A bar is (symbol, close, available, price): a nonempty instrument identifier of
+at most 32 characters, followed by integer nonnegative microsecond timestamps
 below 2^63, close <= available, positive bounded exact Fraction price. A session
 contains only consumed bars, a frozen scale, and replay-accounting-v2 State.
-Consecutive consumed bars require previous.available < next.close. Availability
+Every consumed bar must have the same exact symbol identifier. Consecutive
+consumed bars require previous.available < next.close. Availability
 means the entire completed-bar value is usable, including processing lag; the
 caller must supply truthful point-in-time vintages. No revised value is backdated.
 The interface receives no future array. A next-bar rejection returns None and
