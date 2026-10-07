@@ -42,7 +42,8 @@
     },
     "source": {
       "equityWrites": 3,
-      "scope": "unchanged frozen Replay ledger source; interpreter semantics assumed",
+      "lockedDefinitions": 4,
+      "scope": "complete AST lock of the reviewed Replay class and helpers plus structural checks; interpreter semantics assumed",
       "status": "exhaustively_checked"
     }
   },
@@ -621,6 +622,7 @@
       "F-RL-BOUNDS-COMPOSE": "unsat"
     },
     "source": {
+      "lockedDefinitions": 4,
       "riskClauses": 5,
       "scope": "unchanged frozen Replay step, risk, trade, shield and runner stress source; interpreter semantics assumed",
       "status": "exhaustively_checked",
@@ -3842,6 +3844,7 @@
     "formal/research/replay-runner-v2-contract.md": "9217abc289918542aff888a51309afa34b8a17bd49db2088a34d8342c50620c9",
     "formal/research/replay-runner-v2-source.json": "7b0b5bdaff59c5ce076407ee5f27f22f7a60cc18c38013a3f660969d78b4f726",
     "formal/research/replay-shield-contract.md": "471825414459d02f74abb96a3bfaa16a24738c5399f613593bb14e3cdbbe5d88",
+    "formal/research/replay-source-lock.json": "df6d742267a57e5aa913d8c2d810ffdd526b5c5dab543dd57d42a289fded3b20",
     "formal/research/report-bundle-contract.md": "ae5090f3dab78e2dbdb571e8f7b28036e6d9c7a85dbd55e3d3694d66a94e87ff",
     "formal/research/report-bundle-source.json": "e62e91b5e54506cc2db4029c79f9e8d6dc12d12df55bf73f371f2def55a8c3ef",
     "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
