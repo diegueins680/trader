@@ -96,3 +96,7 @@ The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disa
 ## Bounded values closure (2026-10-06)
 
 [Obligation 7 closes](bounded-values-2026-10-06.md) for the offline path under the explicit assumption A-GAP-BOUND. Counts: 14 scoped closures / 23 partial / 1 open. This is a conditional safety property of the simulator, not economic evidence; the recommendation is unchanged.
+
+## Accounting reconciliation closure (2026-10-07)
+
+[Obligation 8 closes](accounting-reconciliation-2026-10-07.md) by per-row binary64 reconciliation of the frozen ledger. Counts: 15 scoped closures / 22 partial / 1 open. Fill calibration remains empirical; the recommendation is unchanged.

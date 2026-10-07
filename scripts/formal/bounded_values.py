@@ -44,8 +44,28 @@ def _method(cls, name):
     return found[0]
 
 
+REPLAY_LOCK = 'formal/research/replay-source-lock.json'
+
+
+def replay_lock(sources=None):
+    """Complete AST lock of the reviewed Replay class and its helpers: any source change fails closed."""
+    from promotion_boundary import shape
+    import hashlib
+    sources = sources or {}
+    lock = json.loads((ROOT / REPLAY_LOCK).read_text())
+    tree = ast.parse(sources.get(ENV, (ROOT / ENV).read_text()))
+    # Whole-module lock: transitive helpers (_finite_real, _real_series, _integer, ...) and module bindings.
+    require(hashlib.sha256(shape(tree).encode()).hexdigest() == lock['module'], 'reviewed source lock drift: module')
+    for name, digest in lock['definitions'].items():
+        found = [n for n in tree.body if getattr(n, 'name', None) == name]
+        require(len(found) == 1 and hashlib.sha256(shape(found[0]).encode()).hexdigest() == digest,
+                'reviewed source lock drift: ' + name)
+    return len(lock['definitions']) + 1
+
+
 def bind(sources=None):
     sources = sources or {}
+    locked = replay_lock(sources)
     env = ast.parse(sources.get(ENV, (ROOT / ENV).read_text()))
     replay = _named(env, 'Replay')
     risk = _method(replay, '_risk')
@@ -100,7 +120,7 @@ def bind(sources=None):
     stresses = next(n for n in runner.body if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == 'STRESSES')
     found = {ast.literal_eval(k): {kw.arg: ast.literal_eval(kw.value) for kw in v.keywords} for k, v in zip(stresses.value.keys, stresses.value.values)}
     require(found == STRESSES, 'registered stress maxima')
-    return {'status': 'exhaustively_checked', 'riskClauses': len(RISK), 'stresses': len(found),
+    return {'status': 'exhaustively_checked', 'lockedDefinitions': locked, 'riskClauses': len(RISK), 'stresses': len(found),
             'scope': 'unchanged frozen Replay step, risk, trade, shield and runner stress source; interpreter semantics assumed'}
 
 

@@ -243,3 +243,19 @@ bound covers both fresh entries and rebalances and stays below 0.2506.
   A-GAP-BOUND.
 - **Computed entry exposure.** The bound now applies the two roundings `_risk`
   performs, `fl(fl(new·p)/e)`, before checking the 0.2506 ceiling.
+
+## Complete AST lock (seventh review correction, before merge)
+
+Piecemeal syntactic checks kept missing adversarial edits:
+- alternative `_trade` invocation forms;
+- nested textual duplicates of whitelisted assignments;
+- an early `return terms` before the debit.
+
+The reviewed `Replay` class, `shield`, `market_features` and `Execution` are now
+pinned by AST shape hashes in `formal/research/replay-source-lock.json`, the
+repository's established source-lock practice. Any edit fails the source
+certificate. The structural checks remain as machine-checked documentation of
+what the reviewed source does. The same lock is applied to the obligation-7
+bounded-values certificate, which binds the same class.
+
+The source lock was extended to the whole `sequential_env.py` module (eighth review of the accounting PR), covering transitive admission helpers.
