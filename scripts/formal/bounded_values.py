@@ -92,6 +92,11 @@ def bind(sources=None):
     shield = _named(env, 'shield')
     require(any(ast.unparse(n) == 'action not in (-0.25, 0.0, 0.25)' for n in ast.walk(shield)), 'shield action set')
     runner = ast.parse(sources.get(RUNNER, (ROOT / RUNNER).read_text()))
+    # The delivered loader builds binary64 market arrays; slices passed to Replay preserve the dtype.
+    loader = _named(runner, 'load_development')
+    texts = {ast.unparse(s) for s in ast.walk(loader) if isinstance(s, (ast.Assign, ast.AugAssign))}
+    require({'p = rows.close.to_numpy(dtype=float)', 'f = np.zeros(len(p))', 'prices[symbol], funding[symbol] = (p, f)',
+             'f[j] += event.fundingRate * event.resolvedMarkPrice'} <= texts, 'binary64 market-array provenance')
     stresses = next(n for n in runner.body if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == 'STRESSES')
     found = {ast.literal_eval(k): {kw.arg: ast.literal_eval(kw.value) for kw in v.keywords} for k, v in zip(stresses.value.keys, stresses.value.values)}
     require(found == STRESSES, 'registered stress maxima')
@@ -191,7 +196,8 @@ def propagate():
     # Full-fill target |w| = 1/4 (fresh entry or rebalance): new = rnd(old + rnd(1 * rnd(desired - old))).
     # The multiplication by fill_fraction = 1 is exact; |desired - old| * p <= (desired + x0) * e.
     full_fill = (desired + U * (desired + x0) * (1 + U) + hp) * (1 + U) + hp
-    entry_exposure = full_fill / after_trade
+    # _risk evaluates the computed exposure fl(fl(new * p) / e2): round the product and the quotient.
+    entry_exposure = ((full_fill * (1 + U) + H * Q(5, 4)) / after_trade) * (1 + U) + H
     # Range premise: every intermediate magnitude stays far below 2^1023 (no overflow) for any
     # admitted state, including desired = rnd(rnd(w*e)/p) computed on the missed-fill branch.
     e_max, p_min, p_max = HIGH, LOW_PRICE, HIGH
@@ -251,6 +257,7 @@ def conformance():
         gaps = rng.uniform(-0.5, 0.5, n) * (rng.random(n) < 0.15) + rng.normal(0, 0.01, n)
         gaps = np.clip(gaps, -0.5, 0.5)
         p = 100 * np.cumprod(1 + gaps)
+        require(p.dtype == np.float64, 'probe uses the delivered binary64 dtype')
         f = np.r_[0.0, p[:-1] * rng.uniform(-0.03, 0.03, n - 1)]  # |funding per unit| <= 3/100 of the prior price
         scale = Scale.fit([p[:60]])
         env = Replay(p, f, 70, 150, (1, 3, 6)[k % 3], scale, cfg, enabled=True)

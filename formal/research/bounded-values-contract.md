@@ -231,3 +231,15 @@ The entry-exposure bound skipped the roundings in
 a nonzero position. With fill = 1 the multiplication is exact. The subtraction
 and addition are now modeled, using |desired − old|·p ≤ (desired + x0)·e. The
 bound covers both fresh entries and rebalances and stays below 0.2506.
+
+## Eighth review correction (before merge)
+
+- **Array dtype.** `Replay` admits any NumPy integer or float array. A `uint64`
+  price path would wrap `p1 − p0`, and float16/32/128 round differently. The
+  certificate covers **binary64 (float64) market arrays** only. That is what
+  the delivered loader builds (`to_numpy(dtype=float)`, `np.zeros`, float64
+  accumulation), and slices passed to `Replay` preserve the dtype. The source
+  check now binds that provenance. Other dtypes are explicitly outside
+  A-GAP-BOUND.
+- **Computed entry exposure.** The bound now applies the two roundings `_risk`
+  performs, `fl(fl(new·p)/e)`, before checking the 0.2506 ceiling.
