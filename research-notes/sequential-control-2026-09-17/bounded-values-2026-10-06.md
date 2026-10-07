@@ -29,8 +29,9 @@ and the unconditional floor stays refuted.
 
 ## Certified
 
-- **(I)** Every non-terminal `Replay` state satisfies equity ≥ 0.8, drawdown
-  ≤ 0.15 and |exposure| ≤ 0.35. The bound check runs after every
+- **(I)** Every non-terminal `Replay` state satisfies equity ≥ 0.8 and
+  computed |exposure| ≤ 0.35, and its passing rounded drawdown check implies an
+  exact drawdown below 3/20 + 2⁻⁵⁰. The bound check runs after every
   mark-to-market and every admitted trade, and any failure is terminal.
 - **(II)** Shielded targets are in {−1/4, 0, 1/4}, and a fresh target's
   post-cost exposure is < 0.2505.
@@ -50,7 +51,7 @@ Evidence:
   predicate, step order, early exits, rejection branch, cost terms, shield and
   the nine stress configurations.
 - **F-RL-BOUNDS-COMPOSE** (SMT verified): Z3-certified generic lemmas
-  instantiated in exact rationals along every source operation (6 queries, 8
+  instantiated in exact rationals along every source operation (6 queries, 11
   propagation checks). Review caught that a first version modeled too few
   roundings, and a second review found the post-trade liquidation path and the
   stored-cash rounding missing; further rounds fixed the liquidation equity floor

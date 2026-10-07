@@ -201,19 +201,33 @@ def propagate():
     range_ok = largest < Q(2) ** 1000
     checks = {'equityAfterBar': e1_ratio > Q(4, 5), 'detectionExposure': detect < Q(66, 100), 'turnoverSqrtArgument': liquidation_product * (1 + U) * (1 + U) + 3 * H < 1,
               'afterTrade': after_trade > Q(998, 1000), 'afterLiquidation': after_liquidation > Q(996, 1000),
-              'entryExposure': entry_exposure < Q(2506, 10000) < cap, 'postTradeInventory': post < 1, 'floorLiteral': floor > Q(4, 5), 'noOverflow': range_ok, 'halfLiteral': half == Q(1, 2)}
+              'entryExposure': entry_exposure < Q(2506, 10000) < cap, 'postTradeInventory': post < 1, 'floorLiteral': floor > Q(4, 5), 'noOverflow': range_ok, 'drawdownWithinRegistered': drawdown_bound()[1] < Q(3, 20) + Q(1, 2**50), 'halfLiteral': half == Q(1, 2)}
     require(all(checks.values()), 'exact bound propagation failed: ' + str([k for k, v in checks.items() if not v]))
-    return {'largestMagnitudeLog2': float(math.log2(largest)), 'liquidationEquityFloor': float(liquidation_floor), 'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'postTradeInventory': float(post), 'afterTradeRatio': float(after_trade),
+    return {'realizedDrawdownBound': float(drawdown_bound()[1]), 'largestMagnitudeLog2': float(math.log2(largest)), 'liquidationEquityFloor': float(liquidation_floor), 'equityAfterBarRatio': float(e1_ratio), 'detectionExposure': float(detect), 'postTradeInventory': float(post), 'afterTradeRatio': float(after_trade),
             'afterLiquidationRatio': float(after_liquidation), 'entryExposure': float(entry_exposure), 'checks': len(checks)}
+
+
+def drawdown_bound():
+    """Exact bound implied by the computed check not(fl(1 - fl(eq/peak)) > dbl(0.15))."""
+    c = dbl(0.15)
+    ratio = (1 - (c + H) / (1 - U) - H) / (1 + U)
+    return ratio, 1 - ratio
 
 
 def prove():
     generic_lemmas()
-    # (I) the negated source predicate, evaluated on the stored doubles, is the registered realized bound.
-    eq, peak, v = z.Reals('bv_eq bv_peak bv_v')
+    # (I) Realized bounds implied by a passing _risk() on the stored doubles. The floor compares the stored
+    # equity exactly; exposure is the computed value v (its exact meaning is bounded by lemma I as x0);
+    # drawdown rounds a division and a subtraction: q = fl(eq/peak), t = fl(1 - q).
+    u, h = z.RealVal(str(U)), z.RealVal(str(H))
+    eq, peak, v, rho, q, t, d1, d2, e1, e2 = z.Reals('bv_eq bv_peak bv_v bv_rho bv_q bv_t bv_d1 bv_d2 bv_e1 bv_e2')
     floor, cap, dd = (z.RealVal(str(dbl(x))) for x in (0.8, 0.35, 0.15))
-    certify(z.And(eq > 0, peak >= eq, z.Not(eq < floor), z.Not(1 - eq / peak > dd), z.Not(z.Or(v > cap, v < -cap))),
-            z.And(eq >= floor, eq >= (1 - dd) * peak, v <= cap, v >= -cap))
+    ratio, _ = drawdown_bound()
+    rounding = z.And(*[z.And(x >= -u, x <= u) for x in (d1, d2)], *[z.And(x >= -h, x <= h) for x in (e1, e2)])
+    computed = z.And(eq > 0, peak >= eq, rho * peak == eq, rounding,
+                     q == rho * (1 + d1) + e1, t == (1 - q) * (1 + d2) + e2,
+                     z.Not(eq < floor), z.Not(t > dd), z.Not(z.Or(v > cap, v < -cap)))
+    certify(computed, z.And(eq >= floor, rho >= z.RealVal(str(ratio)), eq >= z.RealVal(str(ratio)) * peak, v <= cap, v >= -cap))
     return {'F-RL-BOUNDS-COMPOSE': 'unsat'}, propagate()
 
 

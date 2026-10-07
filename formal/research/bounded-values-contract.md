@@ -202,3 +202,16 @@ the overflow would not even be rejected. The range premise is now:
 The missed-fill branch leaves `new = old`, which the post-trade inventory bound
 already covers. The registered panel is far inside this range: prices are
 roughly 10⁻² to 10⁵, and equity is at most about 2¹⁴⁰ over 600 bars.
+
+## Fifth review correction (before merge)
+
+The drawdown predicate in claim (I) was treated as exact. `_risk` evaluates
+`1 − self.equity / self.peak` as a rounded division followed by a rounded
+subtraction. The predicate query now models both roundings. A passing check
+fl(1 − fl(eq/peak)) ≤ dbl(0.15) implies an exact drawdown below
+3/20 + 1.06·10⁻¹⁶ (bounded by 3/20 + 2⁻⁵⁰ in the certificate).
+
+The floor compares the stored equity directly, so it needs no rounding model.
+Exposure is the computed value, whose exact meaning lemma I bounds.
+
+The recorded counts are synchronized: the propagation now runs 11 checks.
