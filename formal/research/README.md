@@ -1,5 +1,7 @@
 # Offline research verification runbook
 
+Split isolation (2026-10-06): obligation 2 **closes** for the delivered offline research path. The owner resolved the long-open purge/embargo question in favor of the standard definition (embargo applies only to training rows after a fold's test window, so it is vacuous for these forward folds; the six-bar gap is still not described as two additive regions). Fresh AST binding of every fold-loop data use, six SMT region lemmas, registered fold and holdout arithmetic, and the complete research-module certificates reproduce; a metamorphic probe shows evaluation results ignore every value at or after `testStop`. Counts are now **13 scoped closures / 24 partial / 1 open**. [Contract](split-isolation-contract.md).
+
 FIFO progress (2026-10-06): **12 scoped closures /25 partial /1 open**, still26 unresolved. Original38 gains source-bound FIFO, eight SMT queries, an838-state/3356-edge weak-fairness model and compiled conformance; it does not close. A-ADMISSION-PROGRESS assumes finite resources, terminating callback/cleanup and weak scheduler fairness, with no latency or whole-server guarantee. CE-BACKTEST-STARVATION preserves a fair polling-starvation cycle. No learned candidate or live authorization is introduced. See the [contract](admission-progress-contract.md). Earlier counts below are historical.
 
 

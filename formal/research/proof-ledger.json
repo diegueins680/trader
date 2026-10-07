@@ -361,6 +361,12 @@
       "status": "assumption",
       "statement": "Each IEEE binary64 basic operation (add, subtract, multiply, divide) in the pinned CPython build returns the round-to-nearest-even rounding of its exact real result, with signed-zero results as specified by IEEE 754; not machine-proved for the interpreter, compiler or hardware.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-SPLIT-ISOLATION",
+      "status": "assumption",
+      "statement": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -567,7 +573,10 @@
     "formal/research/value-objective-v2-contract.md",
     "research-notes/registrations/value-objective-v2-engineering.json",
     "formal/research/value-objective-v2-source.json",
-    "formal/research/value-v2-counterexamples.json"
+    "formal/research/value-v2-counterexamples.json",
+    "scripts/formal/split_isolation.py",
+    "formal/research/split-isolation-contract.md",
+    "research-notes/registrations/split-isolation-engineering.json"
   ],
   "entries": [
     {
@@ -6994,6 +7003,96 @@
       "limitations": "Pinned CPython3.13.3 float/math exp, log and fsum semantics on IEEE binary64 RNE hardware; primitive bounds 0 <= exp(x) <= 1 for x <= 0 and 0 <= log(s) <= 2 for 1 <= s <= 3; A-FP-ROUNDING (each basic operation returns the rounding of its exact real result) and the standard model |fl(x)-x| <= 2^-53|x|, neither machine-proved for the CPython build. Full binary64 bit-blasting returned unknown within 120 s, so the binary64 shift claim rests on the named rounding assumption; the bitwise draft claim was refuted by CE-RL-024 and resolved by zero canonicalization. The kernel is disconnected: frozen bellman_gradient/train_q, F-RL-Q-FINITE and F-RL-CQL-SHIFT stay refuted and unchanged; no learner composition, convergence, conservative-value guarantee, support or economic claim follows; original38 remain unresolved.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-SPLIT-SOURCE",
+      "claim": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms.",
+      "formalStatement": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SPLIT-ISOLATION",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding of the unchanged runner/helpers, Z3 integer region lemmas, registration arithmetic and metamorphic future-rewrite probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/split_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "formal/research/split-isolation-contract.md",
+        "research-notes/registrations/split-isolation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (9 fold statements, 5 reviewed full-panel uses, 6 Replay reads), six SAT-premise/UNSAT-violation region queries, registered fold/holdout arithmetic and 18 metamorphic checks must reproduce.",
+      "bounds": "Horizons 1, 3, 6; three registered folds over 4,910 bars; holdout gap of 1 ms after the last development close; synthetic 400-bar probe with folds (150,156,250) and (250,256,350).",
+      "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-SPLIT-REGIONS",
+      "claim": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout.",
+      "formalStatement": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SPLIT-ISOLATION",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding of the unchanged runner/helpers, Z3 integer region lemmas, registration arithmetic and metamorphic future-rewrite probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/split_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "formal/research/split-isolation-contract.md",
+        "research-notes/registrations/split-isolation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (9 fold statements, 5 reviewed full-panel uses, 6 Replay reads), six SAT-premise/UNSAT-violation region queries, registered fold/holdout arithmetic and 18 metamorphic checks must reproduce.",
+      "bounds": "Horizons 1, 3, 6; three registered folds over 4,910 bars; holdout gap of 1 ms after the last development close; synthetic 400-bar probe with folds (150,156,250) and (250,256,350).",
+      "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-SPLIT-CONFORMANCE",
+      "claim": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6.",
+      "formalStatement": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-SPLIT-ISOLATION",
+        "A-SOLVER"
+      ],
+      "tool": "AST source binding of the unchanged runner/helpers, Z3 integer region lemmas, registration arithmetic and metamorphic future-rewrite probe",
+      "toolVersion": "CPython3.13.3; Z3 4.15.4; NumPy 2.3.5",
+      "sourceModel": "scripts/formal/split_isolation.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/run_sequential_screen.py",
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_evaluation.py",
+        "formal/research/split-isolation-contract.md",
+        "research-notes/registrations/split-isolation-engineering.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh source binding (9 fold statements, 5 reviewed full-panel uses, 6 Replay reads), six SAT-premise/UNSAT-violation region queries, registered fold/holdout arithmetic and 18 metamorphic checks must reproduce.",
+      "bounds": "Horizons 1, 3, 6; three registered folds over 4,910 bars; holdout gap of 1 ms after the last development close; synthetic 400-bar probe with folds (150,156,250) and (250,256,350).",
+      "limitations": "Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope.",
+      "counterexample": null,
+      "status": "property_tested"
     }
   ],
   "missionObligations": [
@@ -7030,24 +7129,72 @@
     {
       "number": 2,
       "claim": "Split isolation",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-RL-SPLIT",
         "F-RL-FIT-PREFIX",
-        "F-RL-COLLECT-PREFIX"
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-SPLIT-SOURCE",
+        "F-RL-SPLIT-REGIONS",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE",
+        "F-RL-SPLIT-CONFORMANCE"
       ],
-      "limitations": "Source-linked fit-prefix and episode index containment add evidence conditional on admitted arrays, primitive semantics and Replay boundaries; full-panel admission and full transition refinement remain open.",
+      "limitations": "Scoped closure (2026-10-06) for the delivered offline research path under the owner-approved standard purge/embargo definition: fresh source binding, SMT region lemmas, registered fold/holdout arithmetic and the complete research-module surface certificates reproduce; a metamorphic probe adds tested evidence. Owner-approved standard purge/embargo definition (2026-10-06): embargo constrains only training rows after a fold's test window and is vacuous for these forward folds; the six-bar gap is not two additive regions. Access means label/outcome reads; observation lookback is governed by causality obligations 1 and 17. short_ope's whole-series finiteness admission reads all values but its outcome is constant on the hash-fixed panel. Trusts the Python interpreter, NumPy slicing/indexing and rng.integers upper-exclusive semantics, AST translation and Z3. Production ingestion is outside the scope. Prior history: earlier audits left the purge/embargo relation open; that is now explicitly resolved, not silently reinterpreted.",
       "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
       "closureCriteria": "Every training/calibration/validation/holdout access lies in its disjoint registered region after purge and embargo.",
-      "nextAction": "Verify runner dataset selection and split-manifest validation against all registered regions.",
+      "nextAction": "None for the delivered path. Any new runner, loader, fold design or caller of a v2 kernel requires a fresh split certificate before evidence is reported.",
       "implementationFiles": [
+        "scripts/research/sequential_env.py",
+        "scripts/research/sequential_learning.py",
+        "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
-        "scripts/research/sequential_learning.py"
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py",
+        "scripts/research/point_in_time_v3.py",
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/report_bundle_v2.py",
+        "scripts/research/replay_accounting_v2.py",
+        "scripts/research/funding_events_v2.py",
+        "scripts/research/replay_runner_v2.py",
+        "scripts/research/value_objective_v2.py"
       ],
-      "blockers": [
-        "Index lemmas do not cover file selection and full dataset admission."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-RL-SPLIT",
+        "F-RL-SPLIT-SOURCE",
+        "F-RL-SPLIT-REGIONS",
+        "F-RL-COLLECT-PREFIX",
+        "F-RL-DATA-COMPOSITION",
+        "F-RL-FIT-PREFIX",
+        "F-RL-FEATURE-FOOTPRINT",
+        "F-RL-PPO-V2-BOUNDARY",
+        "F-RL-BRIDGE-V3-BOUNDARY",
+        "F-RL-ARTIFACT-V4-BOUNDARY",
+        "F-RL-PIT-BOUNDARY",
+        "F-RL-OPE-V2-BOUNDARY",
+        "F-RL-BUNDLE-SOURCE",
+        "F-RL-BUNDLE-ARITH",
+        "F-RL-BUNDLE-FLOW",
+        "F-RL-ACCOUNT-V2-SOURCE",
+        "F-RL-FUNDING-V2-SOURCE",
+        "F-RL-RUNNER-V2-SOURCE",
+        "F-RL-VALUE-V2-SOURCE"
+      ]
     },
     {
       "number": 3,

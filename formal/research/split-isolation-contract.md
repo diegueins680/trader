@@ -61,9 +61,17 @@ F-RL-SPLIT-REGIONS (SMT, integers): for those bound expressions,
 - the panel ends before the holdout.
 
 F-RL-SPLIT-CONFORMANCE (property tested): the actual helpers run on a
-synthetic 400-bar panel through an index-recording array probe. Every recorded
-outcome read lies in its region. Rewriting all values at or after `testStop`
+synthetic 400-bar panel. Every replay receipt's outcome index lies in its
+region, and rewriting all values at or after `testStop` with finite numbers
 leaves `replay_policy` and `short_ope` results unchanged.
+
+Admission validation: `short_ope` first runs `_admit_ope_window`, which checks
+that each whole series is real and finite before any episode. This is an
+accept/reject read over the full arrays, not a label read. On the frozen run the
+panel is fixed by its registered hash, so the check's outcome is a constant and
+no information about values at or after `testStop` reaches any estimate. The
+conformance probe rewrites those values with finite numbers and requires
+identical results.
 
 Closure of obligation 2 requires the fresh certificates above plus the existing
 F-RL-SPLIT, F-RL-FIT-PREFIX, F-RL-COLLECT-PREFIX and F-RL-DATA-COMPOSITION, and

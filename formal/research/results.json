@@ -1862,10 +1862,10 @@
       "economic_evidence",
       "reproducible_delivery"
     ],
-    "closedMissionObligations": 12,
+    "closedMissionObligations": 13,
     "formalObligationsComplete": false,
     "missionComplete": false,
-    "openMissionObligations": 26
+    "openMissionObligations": 25
   },
   "opeAlgebra": {
     "binary64AccuracyVerified": false,
@@ -3524,6 +3524,7 @@
     "F-RL-SNAPSHOT-CAS": "unsat",
     "F-RL-SNAPSHOT-FINITE": "unsat",
     "F-RL-SPLIT": "unsat",
+    "F-RL-SPLIT-REGIONS": "unsat",
     "F-RL-STAGE-STEP": "unsat",
     "F-RL-TARGET-V2-FINITE": "unsat",
     "F-RL-TARGET-V2-REAL": "unsat",
@@ -3630,7 +3631,7 @@
     "formal/research/ShutdownDeadline.hs": "53cc62018f8a2371776aa0105ef1eb01b01fbae50e95a01e248a71483142a546",
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "72fa9964362b9ab864f41cea555d8e9a99f5202cdf173a78f190c3ea7682dfc6",
+    "formal/research/admission-progress-source.json": "e76b4de1ae556671728594153200c4f56a5339f5e2cbd259562cf11d172361cf",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -3700,8 +3701,8 @@
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "d041ff4fea0096e49a53e8162637b9d335c07719edc541ae0c442765e21c94ad",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
-    "formal/research/obligation-closure-audit.md": "0d411ffd4aa7181d80004d6b4e1e475607b623bbe3d1f26a8345f0749c4359c1",
-    "formal/research/obligation-contracts.json": "710ab078b890fbb2e835c2e3343997f1fe8ac18dc02aea0d53140305b886aae2",
+    "formal/research/obligation-closure-audit.md": "52d57cf564682a47a47a1d0eb0c1caa08577cb50056d121b6bbe112b2c41e3b9",
+    "formal/research/obligation-contracts.json": "c50c57f688abf5847281678ba0d78d962ebb992e02cdd005c507a13921b422ef",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
     "formal/research/ope-counterexamples.json": "a07c7a0311d9ae6a239bb7daec868d0d0f76e800ddfc101b6716ea62b5f4c31f",
     "formal/research/ope-rational-contract.md": "9c9aca05ea87fba9c3f3f1b9c9a558e3fd80a85de5f25859b28b4db6014c8642",
@@ -3726,7 +3727,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "bf89b7cefc906eb3aeb5bc45ad426dfdb0f746337f4a1b2ff868df8254b195bc",
-    "formal/research/proof-ledger.json": "1582b42fd50ee410f09377325aed52a82fae5a6c82d805b0dfe429fd179e8632",
+    "formal/research/proof-ledger.json": "faee9fd728c1a0eea8c0438be9328713d607f10800f8f10f6ba922680ee4eece",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -3753,6 +3754,7 @@
     "formal/research/sizing-input-source.json": "f2462ceeb5280e19db80889d4e750681fd44b945e0978bbcc907bc60ac8cf954",
     "formal/research/snapshot-v2-counterexample.json": "19c9fec99c1fdc747f7d09382e3c47bbeb684dc01925540bb25b084faa97c3b9",
     "formal/research/snapshot-v2-source.json": "24bcfa01d029c9067d899ab080d523ba6d3bcc9eda5de21cd9ab217f1d98415b",
+    "formal/research/split-isolation-contract.md": "edfa988b46f2d893fcd88b8df6a43caef9146ce8bad7f712bf62cd439fbab2a9",
     "formal/research/target-v2-contract.md": "cbeab3fe92efb895b1f2038c926fe098acc1cbfb02a79e17cf2377306639e42e",
     "formal/research/target-v2-counterexamples.json": "1d463b1551034be8395d67ecb1f23524c490e2927e1adc702cc1fc7f2631abc7",
     "formal/research/terminal-counterexamples.json": "180f99bf993a84cced59e29b35fead25cdb897ab17f039777fda147a78795536",
@@ -3772,7 +3774,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "90ac85c25698e22c5a37ebe936474d11c8a237062017f75742ba4d1c06818878",
-    "formal/specifications.json": "76cc1cd3b3ced1bcc617391a7747303b2786bef6eaeebcf69678293a473f18b4",
+    "formal/specifications.json": "c153c2ec0b8d5ad9436082f8e3d436020d07f56a4a4613d628c5ced305cc3577",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "728dbc3dbed3c544f0495d007201c668f931a0312b52cd97f4cd67ef36788aab",
@@ -3951,6 +3953,7 @@
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "research-notes/registrations/shutdown-deadline-engineering.json": "fc3a495df2ee75b347600bdb30b342b90dde8ffab91470e249533f5cb52860f3",
     "research-notes/registrations/sizing-input-engineering.json": "89710727905c6813850ee0d06a86e1726a72d31047e09da4299a10226b1a7af2",
+    "research-notes/registrations/split-isolation-engineering.json": "a95d2aade1c5b6244b3a792ecc999222e6ddffc2b1ceb20c27caf4df85cd600d",
     "research-notes/registrations/upward-rounding-engineering.json": "0bd88e2848a1c33cd36b09c62a6bc0009b5002f15f251d8918721af6a5c77a81",
     "research-notes/registrations/value-objective-audit-engineering.json": "73382abdea417dadeb8bc3b6cd61e7f36d20bade9a0a7649731f6c5a599f877f",
     "research-notes/registrations/value-objective-v2-engineering.json": "aad266aedfa8d46dc1951eea1bd08d040114461c0b62add005d5dd1220cf56bd",
@@ -4005,15 +4008,16 @@
     "scripts/formal/shutdown_deadline.py": "793e0dd083da053b9d3a1a57ed24f279a8e4024290e4e6cc466bc47d1ec593d7",
     "scripts/formal/sizing_inputs.py": "9a1b098828f5b10f6ed41824fafa069d8e1f4cb02659c8559d8d9c562bc657ea",
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
+    "scripts/formal/split_isolation.py": "2bce1d85906d338f0f198db03f44361025438687042446fd81cabdfb43106d85",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "3e8bdc7b1c0e6b9436a1a83cf600bc890083a9741e71b5102c2f9cef02c73f18",
+    "scripts/formal/test_integrity.py": "abeacae26251c2ee07c3432f41b1b73cc6d82807500062b33fa0bc56e7f903fd",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
     "scripts/formal/value_objective_successor.py": "2d4f24e07f15feeff3a3b6433bedf8aa8d1461a0298f138371ecd1d62bce1620",
-    "scripts/formal/verify.py": "c702e1e679248f4897a0febb9276ee49cec81bec5c7e25c07ec1370247927e3f",
+    "scripts/formal/verify.py": "c4714d74c285b1d412d9f018d4a216e9d34916b587b0807c2807d457b24a29cb",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
@@ -4037,6 +4041,30 @@
     "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
+  },
+  "splitIsolation": {
+    "conformance": {
+      "checks": 18,
+      "folds": 2,
+      "marketDataReads": 0,
+      "seed": 20261010,
+      "status": "property_tested"
+    },
+    "registered": {
+      "folds": 3,
+      "holdoutStartOpenTime": 1742227200000,
+      "lastDevelopmentClose": 1742227199999
+    },
+    "smt": {
+      "F-RL-SPLIT-REGIONS": "unsat"
+    },
+    "source": {
+      "foldBindings": 9,
+      "fullPanelUses": 5,
+      "replayReads": 6,
+      "scope": "unchanged frozen runner, Replay, Baselines and short OPE source; interpreter semantics assumed",
+      "status": "exhaustively_checked"
+    }
   },
   "targetV2": {
     "model": {

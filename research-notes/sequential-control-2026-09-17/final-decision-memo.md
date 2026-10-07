@@ -84,3 +84,7 @@ The [replay-runner-v2 continuation](replay-runner-2026-10-06.md) composes the ex
 ## Value objective (2026-10-06)
 
 The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disabled, disconnected conservative Double-DQN objective that rejects CE-RL-014 inputs, removes the CE-RL-015 shift defect, and preserves and resolves CE-RL-024 (a signed-zero counterexample found during proof). The frozen learner is unchanged; obligation 10 stays open and no adoption follows.
+
+## Split isolation closure (2026-10-06)
+
+[Obligation 2 closes](split-isolation-2026-10-06.md) for the delivered offline screen under the owner-approved standard purge/embargo definition. Counts are now 13 scoped closures / 24 partial / 1 open. This is a formal data-handling result, not economic evidence; the recommendation is unchanged.

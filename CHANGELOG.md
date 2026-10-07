@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Close obligation 2 (split isolation) for the delivered offline screen under the owner-approved standard purge/embargo definition: source-bound fold-loop data uses, SMT region lemmas, registered fold/holdout arithmetic and a metamorphic future-rewrite probe. No source, registration or data change; counts become 13 scoped closures / 24 partial / 1 open.
+
 - Add default-disabled `value-objective-v2`, a finite, shift-stable conservative Double-DQN objective (scalar fsum arithmetic, bounded admission, penalty skipped at alpha = 0, published underflow count). It rejects CE-RL-014 inputs, makes CE-RL-015 shift-invariant, and preserves and resolves new CE-RL-024 (signed zero). Frozen learner unchanged; no broad closure.
 
 - Add default-disabled `replay-runner-v2`, composing exact funding buckets with exact replay transitions over a fixed target schedule. Add SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests that reject leaky variants. No policy, production path or broad closure.

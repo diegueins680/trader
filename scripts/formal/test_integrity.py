@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 26)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [3,5,11,12,23,24,25,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 25)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,11,12,23,24,25,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -4612,6 +4612,68 @@ class ValueObjectiveV2Tests(unittest.TestCase):
         self.assertEqual(far.loss,0.0)
         with self.assertRaises(Exception):
             far.loss=1.0
+
+
+class SplitIsolationTests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import split_isolation as proof
+        return proof
+
+    def test_source_regions_registered_and_conformance(self):
+        p=self.proof()
+        r=p.check_split()
+        self.assertEqual(r['smt'],{'F-RL-SPLIT-REGIONS':'unsat'})
+        self.assertEqual((r['source']['foldBindings'],r['source']['fullPanelUses'],r['source']['replayReads']),(9,5,6))
+        self.assertEqual(r['registered']['holdoutStartOpenTime']-r['registered']['lastDevelopmentClose'],1)
+        self.assertEqual(r['conformance']['checks'],18)
+
+    def test_source_mutants_fail_closed(self):
+        p=self.proof()
+        cases={p.RUNNER:[('p[:split["trainStop"]] for s, p in prices.items()','p[:split["testStart"]] for s, p in prices.items()'),
+                         ('split["testStart"], split["testStop"], h, scale, choose, cfg','split["testStart"], split["testStop"] + 1, h, scale, choose, cfg'),
+                         ("controls = Baselines(train, funds, scale, h)","controls = Baselines(prices, funding, scale, h)"),
+                         ("net = None\n","net = net\n")],
+               p.ENV:[("end = min(self.t + self.horizon, self.stop - 1)","end = min(self.t + self.horizon, self.stop)"),
+                      ("f = self.funding[left + 1]","f = self.funding[left + 2]")],
+               p.EVAL:[("t = int(rng.integers(start, stop - 6 * horizon))","t = int(rng.integers(start, stop))"),
+                       ("y.append(p[t + 1 + horizon] / p[t + 1] - 1)","y.append(p[t + 2 + horizon] / p[t + 1] - 1)")]}
+        for path,pairs in cases.items():
+            source=(ROOT/path).read_text()
+            for old,new in pairs:
+                self.assertIn(old,source)
+                with self.subTest(path=path,old=old), self.assertRaises(ValueError):
+                    p.bind({path:source.replace(old,new)})
+
+    def test_solver_and_registration_fail_closed(self):
+        p=self.proof()
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.regions()
+        real=p.json.loads
+        def overlap(text):
+            value=real(text)
+            if isinstance(value,dict) and 'validation' in value and 'outerFolds' in value['validation']:
+                value['validation']['outerFolds'][0]['testStop']=5000
+            return value
+        with patch.object(p.json,'loads',side_effect=overlap):
+            with self.assertRaisesRegex(ValueError,'fold inside panel'):
+                p.registered()
+
+    def test_conformance_detects_future_read(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'scripts/research'))
+        import sequential_evaluation as ev
+        p=self.proof()
+        original=ev.Replay
+        class Leaky(original):
+            def __init__(self,prices,funding,start,stop,*a,**k):
+                super().__init__(prices,funding,start,min(stop+3,len(prices)),*a,**k)
+        with patch.object(ev,'Replay',Leaky):
+            with self.assertRaisesRegex(ValueError,'after testStop|outside validation region'):
+                p.conformance()
 
 
 if __name__ == '__main__':

@@ -112,7 +112,9 @@
         "formal/research/value-objective-v2-contract.md",
         "formal/research/value-objective-v2-source.json",
         "formal/research/value-v2-counterexamples.json",
-        "scripts/formal/value_objective_successor.py"
+        "scripts/formal/value_objective_successor.py",
+        "formal/research/split-isolation-contract.md",
+        "scripts/formal/split_isolation.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -852,6 +854,18 @@
         {
           "id": "F-RL-VALUE-V2-CONFORMANCE",
           "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values."
+        },
+        {
+          "id": "F-RL-SPLIT-SOURCE",
+          "statement": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms."
+        },
+        {
+          "id": "F-RL-SPLIT-REGIONS",
+          "statement": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout."
+        },
+        {
+          "id": "F-RL-SPLIT-CONFORMANCE",
+          "statement": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6."
         }
       ],
       "invariants": [
