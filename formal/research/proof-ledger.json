@@ -405,6 +405,12 @@
       "risk": "RL-OFFLINE-001"
     },
     {
+      "id": "A-ROUND-MIN-CAP",
+      "status": "assumption",
+      "statement": "Exchange symbol filters and token decimals are taken as truthful; real-number cap reasoning over the reviewed sizing source with binary64 comparisons as the code performs them. Exposure caps are maxOrderQuote, available balance and the venue limits the code checks; the optional market-risk gate is separate.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
       "id": "A-CAUSAL-REPLAY-V3",
       "status": "assumption",
       "statement": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim.",
@@ -642,7 +648,9 @@
     "haskell/app/Trader/App/LiveRole.hs",
     "scripts/formal/readiness_epoch.py",
     "haskell/app/Trader/App/Readiness.hs",
-    "formal/research/readiness-epoch-counterexample.json"
+    "formal/research/readiness-epoch-counterexample.json",
+    "scripts/formal/min_size_cap.py",
+    "formal/research/round-min-cap-counterexample.json"
   ],
   "entries": [
     {
@@ -4574,6 +4582,130 @@
       "status": "smt_verified"
     },
     {
+      "requirementId": "F-ROUND-MIN-CAP-SOURCE",
+      "claim": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses any fraction-sized order whose serialized wire quantity times price exceeds maxOrderQuote, compared exactly (CE-ROUND-003).",
+      "formalStatement": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses any fraction-sized order whose serialized wire quantity times price exceeds maxOrderQuote, compared exactly (CE-ROUND-003).",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-MIN-CAP"
+      ],
+      "tool": "Source binding of the minimum-bump site, its callers and the cap guard",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3; z3",
+      "sourceModel": "scripts/formal/min_size_cap.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "formal/research/round-min-cap-counterexample.json",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Args.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/OrderNumeric.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh check must reproduce; mutants (removed guard, new bump caller, changed renderer) fail closed.",
+      "bounds": "One bump site, two callers; 56 binades below 2^24; 3930 grid values, 3006 raw doubles, 4000 token amounts.",
+      "limitations": "Exchange symbol filters and token decimals are taken as truthful; real-number cap reasoning over the reviewed sizing source with binary64 comparisons as the code performs them. Exposure caps are maxOrderQuote, available balance and the venue limits the code checks; the optional market-risk gate is separate.",
+      "counterexample": "CE-ROUND-003",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-ROUND-MIN-CAP",
+      "claim": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional (serialized quantity times price) above maxOrderQuote; without the guard the raise does exceed it.",
+      "formalStatement": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional (serialized quantity times price) above maxOrderQuote; without the guard the raise does exceed it.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-MIN-CAP"
+      ],
+      "tool": "Z3 real arithmetic with an unguarded witness",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3; z3",
+      "sourceModel": "scripts/formal/min_size_cap.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "formal/research/round-min-cap-counterexample.json",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Args.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/OrderNumeric.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh check must reproduce; mutants (removed guard, new bump caller, changed renderer) fail closed.",
+      "bounds": "One bump site, two callers; 56 binades below 2^24; 3930 grid values, 3006 raw doubles, 4000 token amounts.",
+      "limitations": "Exchange symbol filters and token decimals are taken as truthful; real-number cap reasoning over the reviewed sizing source with binary64 comparisons as the code performs them. Exposure caps are maxOrderQuote, available balance and the venue limits the code checks; the optional market-risk gate is separate.",
+      "counterexample": "CE-ROUND-003",
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-ORDER-WIRE-GRID",
+      "claim": "Every order number reaches the wire as an exact decimal whose binary64 never exceeds the checked value: Binance and Coinbase render through renderOrderNumber and DEX token amounts through the same gridUnits rule - the shortest round-trip decimal of the value when it fits the venue grid (8 decimals, or the token's decimals), otherwise the exact binary value truncated toward zero. Below 2^24 half an ulp is under half an 8-decimal step and an ulp under a step, so 8-decimal grid values are recovered exactly and keep their order as doubles: cap comparisons on doubles are comparisons on the wire decimals.",
+      "formalStatement": "Every order number reaches the wire as an exact decimal whose binary64 never exceeds the checked value: Binance and Coinbase render through renderOrderNumber and DEX token amounts through the same gridUnits rule - the shortest round-trip decimal of the value when it fits the venue grid (8 decimals, or the token's decimals), otherwise the exact binary value truncated toward zero. Below 2^24 half an ulp is under half an 8-decimal step and an ulp under a step, so 8-decimal grid values are recovered exactly and keep their order as doubles: cap comparisons on doubles are comparisons on the wire decimals.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-MIN-CAP"
+      ],
+      "tool": "Exact rational per-binade bound",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3; z3",
+      "sourceModel": "scripts/formal/min_size_cap.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "formal/research/round-min-cap-counterexample.json",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Args.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/OrderNumeric.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh check must reproduce; mutants (removed guard, new bump caller, changed renderer) fail closed.",
+      "bounds": "One bump site, two callers; 56 binades below 2^24; 3930 grid values, 3006 raw doubles, 4000 token amounts.",
+      "limitations": "Exchange symbol filters and token decimals are taken as truthful; real-number cap reasoning over the reviewed sizing source with binary64 comparisons as the code performs them. Exposure caps are maxOrderQuote, available balance and the venue limits the code checks; the optional market-risk gate is separate.",
+      "counterexample": "CE-ROUND-003",
+      "status": "proved"
+    },
+    {
+      "requirementId": "F-ORDER-WIRE-GRID-CONFORMANCE",
+      "claim": "The compiled actual renderOrderNumber and gridUnits match the exact contract on 3930 seeded 8-decimal grid values, 3006 arbitrary finite doubles from random bit patterns and 4000 token amounts at 6 and 18 decimals: grid values are recovered exactly, other values are truncated (or a tied shortest round-trip decimal is used), and no wire or token value's binary64 exceeds the checked value.",
+      "formalStatement": "The compiled actual renderOrderNumber and gridUnits match the exact contract on 3930 seeded 8-decimal grid values, 3006 arbitrary finite doubles from random bit patterns and 4000 token amounts at 6 and 18 decimals: grid values are recovered exactly, other values are truncated (or a tied shortest round-trip decimal is used), and no wire or token value's binary64 exceeds the checked value.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ROUND-MIN-CAP"
+      ],
+      "tool": "Compiled GHC regression against Trader.OrderNumeric",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3; z3",
+      "sourceModel": "scripts/formal/min_size_cap.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "formal/research/round-min-cap-counterexample.json",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Args.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/OrderNumeric.hs"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh check must reproduce; mutants (removed guard, new bump caller, changed renderer) fail closed.",
+      "bounds": "One bump site, two callers; 56 binades below 2^24; 3930 grid values, 3006 raw doubles, 4000 token amounts.",
+      "limitations": "Exchange symbol filters and token decimals are taken as truthful; real-number cap reasoning over the reviewed sizing source with binary64 comparisons as the code performs them. Exposure caps are maxOrderQuote, available balance and the venue limits the code checks; the optional market-risk gate is separate.",
+      "counterexample": "CE-ROUND-003",
+      "status": "property_tested"
+    },
+    {
       "requirementId": "F-SIZING-INPUT",
       "claim": "The source-bound binary64 admission model requires finite nonnegative present effective quantity/notional bounds, ordered present quantity bounds, finite positive supplied prices, and a supplied price for positive minimum notional.",
       "formalStatement": "The source-bound binary64 admission model requires finite nonnegative present effective quantity/notional bounds, ordered present quantity bounds, finite positive supplied prices, and a supplied price for positive minimum notional.",
@@ -8371,7 +8503,7 @@
     {
       "number": 9,
       "claim": "Rounding",
-      "status": "partially_verified",
+      "status": "smt_verified",
       "evidenceRequirements": [
         "F-ROUND-DOWN-INTEGER",
         "F-ROUND-DOWN-FINITE",
@@ -8385,21 +8517,41 @@
         "F-SIZING-PUBLISH",
         "F-SIZING-RETRY",
         "F-SIZING-FLOW",
-        "F-SIZING-CONFORMANCE"
+        "F-SIZING-CONFORMANCE",
+        "F-ROUND-MIN-CAP-SOURCE",
+        "F-ROUND-MIN-CAP",
+        "F-ORDER-WIRE-GRID",
+        "F-ORDER-WIRE-GRID-CONFORMANCE"
       ],
-      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure.",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "limitations": "Pinned GHC/base IEEE binary64 guards and exact Integer/Rational primitives, reviewed source-to-lemma mapping and sufficient runtime resources. No compiler proof, hard latency bound, final decimal wire-cap theorem, minimum-size increase proof or other venue-adapter closure. Exact upward helpers and invalid maker-price rejection now have scoped evidence; final serialization and full minimum-size/order-cap composition remain unresolved. Zero-wire admission now rejects under A-ORDER-WIRE. Wire cap/grid semantics and complete caller retry composition remain unresolved; no broad closure. Sizing metadata/price admission and finite probe publication now have scoped source-bound SMT/model/conformance evidence under A-SIZING-INPUT; parser/freshness, complete caller composition, exact notional and wire-cap/grid proofs remain unresolved. No broad closure. Minimum-size cap (2026-10-08): CE-ROUND-003 (a fraction-sized futures entry raised to the exchange minimum above maxOrderQuote) is fixed and certified (F-ROUND-MIN-CAP*), and 8-decimal grid values are proved to reach the wire exactly and in order (F-ORDER-WIRE-GRID*). Closure (2026-10-08): with the owner-approved round-down, every venue renders or converts amounts so the wire value's binary64 never exceeds the checked value (F-ORDER-WIRE-GRID*), the minimum-size raise respects maxOrderQuote (F-ROUND-MIN-CAP*), and with the existing rounding, sizing and positive-wire certificates no adapter's rounding raises exposure beyond its cap. Assumptions: Exchange symbol filters and token decimals are taken as truthful; real-number cap reasoning over the reviewed sizing source with binary64 comparisons as the code performs them. Exposure caps are maxOrderQuote, available balance and the venue limits the code checks; the optional market-risk gate is separate.",
+      "scope": "Quantity, price and token-amount rounding in the Binance, Coinbase and DEX order adapters, including minimum-size increases and final wire serialization, against the caps the code enforces (maxOrderQuote, available balance and venue limits). Exchange metadata is assumed truthful.",
       "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
-      "nextAction": "Carry exact tick/lot metadata through final wire serialization, then prove order-cap and minimum-size composition without changing live limits.",
+      "nextAction": "Reopen before any new order adapter, sizing path, minimum-size or rounding rule, or change to the wire renderer or token-amount conversion.",
       "implementationFiles": [
+        "haskell/app/Main.hs",
         "haskell/app/Trader/Binance.hs",
-        "haskell/app/Trader/Research/PolicyProposalV1.hs",
-        "haskell/app/Trader/QuantityRounding.hs"
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/OrderNumeric.hs",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
       ],
-      "blockers": [
-        "The repaired quantizeDown Double helper has scoped evidence; final renderDouble serialization, Main quantizeUp/minimum-size increases and other venue order adapters remain uncertified."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-ROUND-DOWN-INTEGER",
+        "F-ROUND-DOWN-FINITE",
+        "F-ROUND-UP-INTEGER",
+        "F-ROUND-UP-FINITE",
+        "F-ROUND-UP-FLOW",
+        "F-ORDER-WIRE-POSITIVE",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-ROUND-MIN-CAP-SOURCE",
+        "F-ROUND-MIN-CAP",
+        "F-ORDER-WIRE-GRID"
+      ]
     },
     {
       "number": 10,

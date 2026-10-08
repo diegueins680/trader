@@ -116,9 +116,9 @@ def samples():
 
 def oracle(row):
     wb,wq,hb,hq,m,test,typ=row; b,q=number(wb),number(wq)
-    # Independent acceptance oracle for the unchanged GHC eight-digit formatter.
-    # GHC rounds shortest decimal 5e-9 to even zero (not Python binary64 .8f).
-    valid=lambda x:math.isfinite(x) and x>5e-9
+    # Independent acceptance oracle for the wire renderer: grid values (shortest round-trip decimal with at most
+    # eight places) keep their value and anything else truncates, so a positive wire needs x >= 1e-8.
+    valid=lambda x:math.isfinite(x) and x>=1e-8
     vb,vq=valid(b),valid(q); f=m==2
     selected=vb if hb else not f and hq and vq
     current=[f and vb and vq,selected,f and vb,f and vb and typ,f and not test and vb and typ]
@@ -179,7 +179,8 @@ run (wb,wq,hb,hq,m,test,typ) = do
  current <- mapM allowed [cur0 env b q,cur1 env qty quote,cur2 env b,cur3 env b orderType,cur4 env mode b orderType]
  legacy <- mapM allowed [old0 env b q,old1 env qty quote,old2 env b,old3 env b orderType,old4 env mode b orderType]
  previous <- mapM allowed [prev0 env b q,prev1 env qty quote,prev2 env b,prev3 env b orderType,prev4 env mode b orderType]
- let parity = renderDouble b == legacyRenderDouble b && renderDouble q == legacyRenderDouble q
+ let wireAtMost x = isNaN x || isInfinite x || x <= 0 || maybe False (<= x) (readMaybe (BS.unpack (renderDouble x)) :: Maybe Double)
+     parity = wireAtMost b && wireAtMost q
      positive = case readMaybe (BS.unpack (renderDouble b)) :: Maybe (Fixed E12) of
                  Just (MkFixed units) -> units > 0
                  Nothing -> False

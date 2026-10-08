@@ -36,7 +36,7 @@ testRounding = do
             let up = quantizeUpExact scale increment x
             check "upward finite bound" (not (isNaN up || isInfinite up) && (up == 0 || up >= x))
             check "upward invalid fallback" (not invalid || up == 0)
-            check "maker price validity" (validOrderPrice x == (not (isNaN x || isInfinite x) && x > 5e-9))
+            check "maker price validity" (validOrderPrice x == (not (isNaN x || isInfinite x) && x >= 1e-8))
             check "adapter parity" (y == quantizeDownExact scale increment x)
             check "finite nonnegative" (not (isNaN y || isInfinite y) && y >= 0)
             check "invalid fallback / non-increase" (if invalid then y == 0 else y <= x)
