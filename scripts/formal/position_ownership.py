@@ -156,6 +156,9 @@ def bind(sources=None):
             'key probe sends a non-test order')
     require(re.search(r'placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty \(Just True\)', bodies['handleBinanceClosePosition']),
             'close-position is no longer reduce-only')
+    close = bodies['handleBinanceClosePosition']
+    require(0 <= close.find('roleRefusal <- liveOrderRoleRefusal <$> resolveServerRole') < close.find('Just msg -> respond (jsonError status403 msg)')
+            < close.find('placeFuturesMarketOrderWithPositionSide'), 'close-position does not refuse a non-trading role up front')
     # Helper module: admission and release under the lock, release uninterruptible.
     for fragment in ('modifyMVarMasked lock $ \\runtime ->\n            case manualTradeConflict (owned runtime) key of',
                      "modifyIORef' ref (Map.insertWith (+) key 1)", 'uninterruptibleMask_ $\n                    modifyMVar_ lock',
