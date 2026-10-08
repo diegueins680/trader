@@ -59,7 +59,8 @@ def bind(sources=None):
     # Futures: a bump above the cap is refused.
     plan = bodies['buildFuturesEntryPlan']
     for fragment in ('case normalizeFuturesEntryQty quantity of',
-                     '| Just cap <- positiveMaxOrderQuote\n                                            , fractionSized && toRational q * toRational currentPrice > toRational cap ->',
+                     '| Just cap <- positiveMaxOrderQuote\n                                            , fractionSized && wireValue q * toRational currentPrice > toRational cap ->',
+                     'wireValue qty = fromIntegral (orderWireUnits qty) / 100000000 :: Rational',
                      'quote = maybe quote0 (`min` quote0) positiveMaxOrderQuote',
                      'not (maybe False (> 0) (argOrderQuantity args))\n                                && not (maybe False (> 0) (argOrderQuote args))'):
         require(fragment in plan, 'futures cap guard changed: ' + fragment.split('\n')[0].strip())

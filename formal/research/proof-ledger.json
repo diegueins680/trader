@@ -4583,8 +4583,8 @@
     },
     {
       "requirementId": "F-ROUND-MIN-CAP-SOURCE",
-      "claim": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses a fraction-sized bump whose notional exceeds maxOrderQuote (CE-ROUND-003).",
-      "formalStatement": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses a fraction-sized bump whose notional exceeds maxOrderQuote (CE-ROUND-003).",
+      "claim": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses any fraction-sized order whose serialized wire quantity times price exceeds maxOrderQuote, compared exactly (CE-ROUND-003).",
+      "formalStatement": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses any fraction-sized order whose serialized wire quantity times price exceeds maxOrderQuote, compared exactly (CE-ROUND-003).",
       "criticality": "critical",
       "assumptions": [
         "A-ROUND-MIN-CAP"
@@ -4614,8 +4614,8 @@
     },
     {
       "requirementId": "F-ROUND-MIN-CAP",
-      "claim": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional above maxOrderQuote; without the guard the raise does exceed it.",
-      "formalStatement": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional above maxOrderQuote; without the guard the raise does exceed it.",
+      "claim": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional (serialized quantity times price) above maxOrderQuote; without the guard the raise does exceed it.",
+      "formalStatement": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional (serialized quantity times price) above maxOrderQuote; without the guard the raise does exceed it.",
       "criticality": "critical",
       "assumptions": [
         "A-ROUND-MIN-CAP"

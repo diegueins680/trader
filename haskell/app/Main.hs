@@ -460,6 +460,7 @@ import Trader.Optimizer.Optimize (
     readOptimizerRecordsSummary,
  )
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
+import Trader.OrderNumeric (orderWireUnits)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -29704,9 +29705,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         Left e -> Left ("No order: " ++ e)
                                         Right (q, bumped)
                                             -- A fraction-sized order, including one raised to the exchange minimum, must not
-                                            -- exceed the configured maxOrderQuote cap (CE-ROUND-003); compared exactly.
+                                            -- exceed the configured maxOrderQuote cap (CE-ROUND-003); its serialized wire
+                                            -- quantity is compared exactly.
                                             | Just cap <- positiveMaxOrderQuote
-                                            , fractionSized && toRational q * toRational currentPrice > toRational cap ->
+                                            , fractionSized && wireValue q * toRational currentPrice > toRational cap ->
                                                 Left
                                                     ( "No order: exchange minimum order size ("
                                                         ++ show (q * currentPrice)
@@ -29720,6 +29722,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                             case argMaxOrderQuote args of
                                 Just quote | quote > 0 -> Just quote
                                 _ -> Nothing
+                        -- The exact decimal the quantity is serialized as (it may sit just above the binary64).
+                        wireValue qty = fromIntegral (orderWireUnits qty) / 100000000 :: Rational
                         -- The quote cap applies only when neither an explicit quantity nor quote is given.
                         fractionSized =
                             not (maybe False (> 0) (argOrderQuantity args))
