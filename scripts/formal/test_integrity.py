@@ -5029,7 +5029,7 @@ class MinSizeCapTests(unittest.TestCase):
     def test_removed_guard_or_new_bump_fails_closed(self):
         import min_size_cap as m
         main = (ROOT / m.MAIN).read_text()
-        guard = '                                            , bumped && fractionSized && q * currentPrice > cap ->'
+        guard = '                                            , fractionSized && toRational q * toRational currentPrice > toRational cap ->'
         self.assertIn(guard, main)
         with self.assertRaisesRegex(ValueError, 'futures cap guard changed'):
             m.bind({m.MAIN: main.replace(guard, '                                            , False ->', 1)})

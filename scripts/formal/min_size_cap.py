@@ -59,7 +59,7 @@ def bind(sources=None):
     # Futures: a bump above the cap is refused.
     plan = bodies['buildFuturesEntryPlan']
     for fragment in ('case normalizeFuturesEntryQty quantity of',
-                     '| Just cap <- positiveMaxOrderQuote\n                                            , bumped && fractionSized && q * currentPrice > cap ->',
+                     '| Just cap <- positiveMaxOrderQuote\n                                            , fractionSized && toRational q * toRational currentPrice > toRational cap ->',
                      'quote = maybe quote0 (`min` quote0) positiveMaxOrderQuote',
                      'not (maybe False (> 0) (argOrderQuantity args))\n                                && not (maybe False (> 0) (argOrderQuote args))'):
         require(fragment in plan, 'futures cap guard changed: ' + fragment.split('\n')[0].strip())
@@ -72,6 +72,9 @@ def bind(sources=None):
     coinbase = read('haskell/app/Trader/Coinbase.hs')
     require('renderDoubleText = renderOrderNumber' in coinbase and 'showFFloat' not in coinbase,
             'Coinbase sizes bypass the shared wire renderer')
+    order = coinbase[coinbase.index('placeCoinbaseMarketOrder env product'):]
+    require(0 <= order.find('validateOrderNumber "Coinbase order size rounds to 0 at 8 decimals." q') < order.find('let body =') and
+            'validateOrderNumber "Coinbase order funds round to 0 at 8 decimals." q' in order, 'Coinbase sends amounts that truncate to zero')
     dex = read('haskell/app/Trader/Dex.hs')
     require('let scaled = gridUnits decimals amt' in dex and 'floor (scaledRaw' not in dex, 'DEX token amounts bypass exact grid truncation')
     binance = read('haskell/app/Trader/Binance.hs')
@@ -89,8 +92,8 @@ def prove_cap():
                     # quantizeDown: the largest grid multiple not above the desired quantity
                     k >= 0, z.ToReal(k) * step <= desired, desired < (z.ToReal(k) + 1) * step,
                     z.If(bumped, q == minimum, q == z.ToReal(k) * step), minimum > z.ToReal(k) * step,
-                    # The guard: a bumped order above the cap is refused, so a published bump satisfies it.
-                    z.Implies(bumped, q * price <= cap))
+                    # The guard refuses any fraction-sized order above the cap (exact comparison), bumped or not.
+                    q * price <= cap)
     s = z.Solver()
     s.set(timeout=20000, random_seed=0)
     s.add(premise)

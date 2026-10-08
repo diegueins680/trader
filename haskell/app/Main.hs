@@ -29703,10 +29703,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                     case normalizeFuturesEntryQty quantity of
                                         Left e -> Left ("No order: " ++ e)
                                         Right (q, bumped)
-                                            -- Raising a fraction-sized order to the exchange minimum must not
-                                            -- exceed the configured maxOrderQuote cap (CE-ROUND-003).
+                                            -- A fraction-sized order, including one raised to the exchange minimum, must not
+                                            -- exceed the configured maxOrderQuote cap (CE-ROUND-003); compared exactly.
                                             | Just cap <- positiveMaxOrderQuote
-                                            , bumped && fractionSized && q * currentPrice > cap ->
+                                            , fractionSized && toRational q * toRational currentPrice > toRational cap ->
                                                 Left
                                                     ( "No order: exchange minimum order size ("
                                                         ++ show (q * currentPrice)

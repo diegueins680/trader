@@ -56,7 +56,7 @@ import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries, validateMarketSeriesBars, validateMarketSeriesContinuity)
-import Trader.OrderNumeric (renderOrderNumber)
+import Trader.OrderNumeric (renderOrderNumber, validateOrderNumber)
 import Trader.Symbol (splitSymbol)
 import Trader.Text (trim)
 
@@ -246,6 +246,12 @@ placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId =
     case (mSize, mFunds) of
         (Nothing, Nothing) -> throwIO (userError "Coinbase market orders require size or funds.")
         _ -> pure ()
+    -- The wire renderer truncates rather than rounds up, so an amount below 1e-8 would be sent as "0": reject it here.
+    mapM_
+        (either (throwIO . userError) pure)
+        ( maybe [] (\q -> [validateOrderNumber "Coinbase order size rounds to 0 at 8 decimals." q]) mSize
+            ++ maybe [] (\q -> [validateOrderNumber "Coinbase order funds round to 0 at 8 decimals." q]) mFunds
+        )
     let body =
             encode $
                 object $
