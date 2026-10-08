@@ -1812,10 +1812,11 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(autoStartLoop, /startupPhase && orphanScanReady && not adoptionPriority/);
   assert.match(
     autoStartLoop,
-    /writeIORef recoveryReadyRef \(orphanScanReady && inventoryReconciled && null adoptionStartingSymbols\)/,
+    /writeIORef recoveryReadyRef \$\s+if orphanScanReady && inventoryReconciled && null adoptionStartingSymbols\s+then ReadyAt scanEpoch scannedAtMs\s+else NotReady/,
   );
-  const readinessClearIndex = autoStartLoop.indexOf("writeIORef recoveryReadyRef False");
-  const runtimeCaptureIndex = autoStartLoop.indexOf("mrt <- readMVar (bcRuntime botCtrl)", readinessClearIndex);
+  const readinessClearIndex = autoStartLoop.indexOf("writeIORef recoveryReadyRef NotReady");
+  // The runtime snapshot is captured together with its epoch under the runtime lock (readiness epoch, CE-READY-001).
+  const runtimeCaptureIndex = autoStartLoop.indexOf("(mrt, scanEpoch) <- withMVar (bcRuntime botCtrl)", readinessClearIndex);
   assert.ok(readinessClearIndex >= 0 && runtimeCaptureIndex > readinessClearIndex && runtimeCaptureIndex < orphanScanIndex,
     "the prior readiness snapshot must be cleared before runtime capture and inventory IO");
   assert.doesNotMatch(autoStartLoop, /writeIORef recoveryReadyRef .*and registered/);
