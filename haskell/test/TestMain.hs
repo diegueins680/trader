@@ -451,6 +451,7 @@ import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
 import Trader.Test.OnlineNeural (runOnlineNeuralTests)
 import Trader.Test.OrderNumeric (orderNumericSuite)
 import Trader.Test.QuantityRounding (quantityRoundingSuite)
+import Trader.Test.Readiness (readinessSuite)
 import Trader.Test.ResearchPolicy (runResearchPolicyTests)
 import Trader.Test.Revenue (revenueSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
@@ -889,6 +890,7 @@ main = do
     runSuite "asyncSafe" asyncSafeSuite
     runSuite "manualTradeOwnership" manualTradeOwnershipSuite
     runSuite "liveRole" liveRoleSuite
+    runSuite "readiness" readinessSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite

@@ -293,7 +293,7 @@ def violation(state):
     """Owners of an identity are one bot worker or the account's manual operator (concurrent manual trades on one
     account are the same owner; idempotency keys order them). Two bots, or a bot and a manual trade, violate it."""
     bots, trades = state
-    for account in {'A', 'B'}:
+    for account in ('A', 'B'):
         live_bots = sum(1 for i, up in enumerate(bots) if up and BOTS[i][1] == account)
         manual = any(p == 'acting' and TRADES[i] == account for i, p in enumerate(trades))
         if live_bots > 1 or (live_bots and manual):

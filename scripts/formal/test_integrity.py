@@ -2074,8 +2074,9 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 22)
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 21)
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,15,23,24,25,26,28,29,30,31])
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='model_checked'], [16])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -3337,7 +3338,7 @@ class InventoryReadinessTests(unittest.TestCase):
                    ('amount == 0 = True','amount == 0 = False'),
                    ('&& raiSide info == Just positionSide','&& True'),
                    ('                                positions\n                    pure (Right (dedupeStable orphanSymbols', '                                openPositions\n                    pure (Right (dedupeStable orphanSymbols'),
-                   ('writeIORef recoveryReadyRef False','writeIORef recoveryReadyRef True'),
+                   ('writeIORef recoveryReadyRef NotReady','writeIORef recoveryReadyRef (ReadyAt 0 0)'),
                    ('orphanScanReady && inventoryReconciled','orphanScanReady && null orphanSymbols')]
         for before,after in mutations:
             changed=source.replace(before,after,1);self.assertNotEqual(source,changed)
@@ -4991,6 +4992,30 @@ class CausalReplayV3Tests(unittest.TestCase):
             self.assertIsNone(c.start_v3(bars,enabled=True))
         self.assertIsNone(c.step_v3(self.session,self.bars[50],((F(2**8191),F(2**8191)),),F(0),enabled=True))
         self.assertEqual(self.session.state.tick,0)
+
+
+class ReadinessEpochTests(unittest.TestCase):
+    def test_source_model_and_compiled_regression(self):
+        import readiness_epoch as r
+        out = r.check_readiness_epoch()
+        self.assertEqual(out['source']['mutationSites'], 6)
+        self.assertIn('CE-READY-001', out['model']['counterexamples'])
+
+    def test_weakened_readiness_fails_closed(self):
+        import readiness_epoch as r
+        main = (ROOT / r.MAIN).read_text()
+        cases = [
+            ('does not bump', main.replace('unless (null targets) (bumpRuntimeEpoch ctrl)', 'pure ()', 1)),
+            ('without epoch validation', main.replace('botRecoveryReady <- botRecoveryReadyNow botCtrl botRecoveryReadyRef', 'botRecoveryReady <- readinessReadyBool <$> readIORef botRecoveryReadyRef', 1)),
+            ('snapshot with its epoch|epoch written outside|in-flight count', main.replace('(,,) m <$> readIORef (bcRuntimeEpoch botCtrl) <*> readIORef (bcManualInFlight botCtrl)', '(,,) m <$> pure 0 <*> pure 0', 1)),
+            ('mutation sites drifted', main + '\nsneaky :: BotController -> IO ()\nsneaky ctrl = modifyMVar_ (bcRuntime ctrl) pure\n'),
+        ]
+        for reason, text in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                r.bind({r.MAIN: text})
+        helper = (ROOT / r.READINESS).read_text()
+        with self.assertRaisesRegex(ValueError, 'readiness decision changed'):
+            r.bind({r.READINESS: helper.replace('epoch == epochNow && ', '', 1)})
 
 
 if __name__ == '__main__':
