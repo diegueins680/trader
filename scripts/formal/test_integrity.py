@@ -2074,8 +2074,8 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 23)
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,23,24,25,26,28,29,30,31])
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 22)
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,15,23,24,25,26,28,29,30,31])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -4882,6 +4882,28 @@ class PositionOwnershipTests(unittest.TestCase):
         helper = (ROOT / o.OWNERSHIP).read_text()
         with self.assertRaisesRegex(ValueError, 'manual claim protocol changed'):
             o.bind({o.OWNERSHIP: helper.replace('uninterruptibleMask_ $', 'id $', 1)})
+
+    def test_role_gate_and_account_identity_fail_closed(self):
+        import position_ownership as o
+        r = o.check_position_ownership()['roleGate']
+        self.assertEqual(r['source']['gatedPrimitives'], 10)
+        binance = (ROOT / 'haskell/app/Trader/Binance.hs').read_text()
+        gate = '    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n'
+        self.assertEqual(binance.count(gate), 5)
+        cases = [
+            ('role gate is not the first action', {'haskell/app/Trader/Binance.hs': binance.replace(gate, '', 1)}),
+            ('ungated venue action', {'haskell/app/Trader/Coinbase.hs': (ROOT / 'haskell/app/Trader/Coinbase.hs').read_text() + '\nplaceCoinbaseLimitOrder :: IO ()\nplaceCoinbaseLimitOrder = do\n    pure ()\n'}),
+            ('lost its role label', {'deploy/hetzner/trader.research.env.managed': (ROOT / 'deploy/hetzner/trader.research.env.managed').read_text().replace('TRADER_SERVER_ROLE=research', 'TRADER_SERVER_ROLE=standalone')}),
+            ('role gate decision changed', {o.LIVE_ROLE: (ROOT / o.LIVE_ROLE).read_text().replace('"research", "read-only", "readonly", "fly"]', '"read-only", "readonly", "fly"]')}),
+        ]
+        for reason, sources in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                o.bind_role_gate(sources)
+        main = (ROOT / o.MAIN).read_text()
+        with self.assertRaisesRegex(ValueError, 'fail-closed account UID'):
+            o.bind({o.MAIN: main.replace('| argPlatform args == PlatformBinance && not (argBinanceTestnet args) -> do', '| False -> do', 1)})
+        with self.assertRaisesRegex(ValueError, 'echo request headers'):
+            o.bind({o.MAIN: main.replace('Just _ -> "Binance account request failed."', 'Just _ -> displayException ex', 1)})
 
 
 class CausalReplayV3Tests(unittest.TestCase):

@@ -470,16 +470,26 @@
     {
       "number": 15,
       "claim": "Position ownership",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "scope": "The trading system's own live actors: bot workers, manual /trade and /trade/async, close-position and every server process built from this repository, for Binance mainnet identified by exchange account UID and for testnet/other venues by API credential pair. Out of scope: actions outside this software (the exchange web UI, an operator running the one-shot CLI trade binary, other software holding the same keys) and servers not labelled by the checked-in deployment configs.",
       "closureCriteria": "At most one live owner exists per protected position identity.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-LIVE-OWNERSHIP-SOURCE",
+        "F-LIVE-OWNERSHIP-FLOW",
+        "F-LIVE-ROLE-GATE-SOURCE",
+        "F-LIVE-STOP-ASYNC-SOURCE",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-FLOW"
+      ],
       "implementationFiles": [
         "haskell/app/Main.hs",
-        "haskell/app/Trader/BotStartSemantics.hs",
+        "haskell/app/Trader/App/AsyncSafe.hs",
+        "haskell/app/Trader/App/LiveRole.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs",
         "haskell/app/Trader/App/WorkerPublication.hs",
-        "haskell/app/Trader/App/ManualTradeOwnership.hs"
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/BotStartSemantics.hs"
       ],
-      "closureClass": null
+      "closureClass": "exhaustively_checked"
     },
     {
       "number": 16,

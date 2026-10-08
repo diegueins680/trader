@@ -444,6 +444,7 @@ import Trader.Test.Cors (corsSuite)
 import Trader.Test.DrainPool (drainPoolSuite)
 import Trader.Test.FormalVerification (formalVerificationSuite)
 import Trader.Test.GracefulShutdown (gracefulShutdownSuite, workerRegistrySuite)
+import Trader.Test.LiveRole (liveRoleSuite)
 import Trader.Test.ManualTradeOwnership (manualTradeOwnershipSuite)
 import Trader.Test.MarketRisk (marketRiskSuite)
 import Trader.Test.NeuralGovernorRollout (neuralGovernorRolloutSuite)
@@ -887,6 +888,7 @@ main = do
     runSuite "workerPublication" workerPublicationSuite
     runSuite "asyncSafe" asyncSafeSuite
     runSuite "manualTradeOwnership" manualTradeOwnershipSuite
+    runSuite "liveRole" liveRoleSuite
     runSuite "tradeLogRiskState" tradeLogRiskStateSuite
     runSuite "marketRisk" marketRiskSuite
     runSuite "neuralGovernorRollout" neuralGovernorRolloutSuite

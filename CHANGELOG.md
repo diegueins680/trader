@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Live safety: research, read-only and Fly servers (by `TRADER_SERVER_ROLE`, `fly` when unlabelled on Fly) can no longer place, cancel or swap live; the Hetzner research managed env sets `TRADER_SERVER_ROLE=research`. Live Binance ownership is now keyed by the exchange account UID (fail-closed: 503 for manual trades, refused bot start if it cannot be resolved). Closes obligation 15 for the system's own actors.
+
 - Live safety: manual `POST /trade` and `/trade/async` now return 409 when a live bot owns the same account and symbol, and bot start refuses an account+symbol that a manual trade is in flight on or that another tenant's bot already trades (CE-LIVE-002, CE-LIVE-003). Dry runs, Binance test-mode trades and close-position are unaffected.
 
 - Add disabled `causal-replay-v3`: pre-decision burn-in normalization, availability-ordered immutable bar steps and exact accounting; separate versioned observation schema, source/SMT/control-model checks, Haskell rational oracle and fail-closed regressions. No frozen learner, artifact, historical result, production setting or original38 status changes.
