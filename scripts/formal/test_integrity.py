@@ -5007,7 +5007,7 @@ class ReadinessEpochTests(unittest.TestCase):
         cases = [
             ('does not bump', main.replace('unless (null targets) (bumpRuntimeEpoch ctrl)', 'pure ()', 1)),
             ('without epoch validation', main.replace('botRecoveryReady <- botRecoveryReadyNow botCtrl botRecoveryReadyRef', 'botRecoveryReady <- readinessReadyBool <$> readIORef botRecoveryReadyRef', 1)),
-            ('snapshot with its epoch|epoch written outside', main.replace('(mrt, scanEpoch) <- withMVar (bcRuntime botCtrl) (\\m -> (,) m <$> readIORef (bcRuntimeEpoch botCtrl))', 'mrt <- readMVar (bcRuntime botCtrl)', 1)),
+            ('snapshot with its epoch|epoch written outside|in-flight count', main.replace('(,,) m <$> readIORef (bcRuntimeEpoch botCtrl) <*> readIORef (bcManualInFlight botCtrl)', '(,,) m <$> pure 0 <*> pure 0', 1)),
             ('mutation sites drifted', main + '\nsneaky :: BotController -> IO ()\nsneaky ctrl = modifyMVar_ (bcRuntime ctrl) pure\n'),
         ]
         for reason, text in cases:

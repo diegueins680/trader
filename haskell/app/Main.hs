@@ -11059,8 +11059,11 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         if startupPhase
                                             then topComboStartupBotCount
                                             else topComboBotCount
-                                -- The runtime snapshot and its epoch are read together under the runtime lock.
-                                (mrt, scanEpoch) <- withMVar (bcRuntime botCtrl) (\m -> (,) m <$> readIORef (bcRuntimeEpoch botCtrl))
+                                -- The runtime snapshot, its epoch and the in-flight manual trade count are read together
+                                -- under the runtime lock; a trade in flight may change inventory after the venue read.
+                                (mrt, scanEpoch, manualInFlightAtScan) <-
+                                    withMVar (bcRuntime botCtrl) $ \m ->
+                                        (,,) m <$> readIORef (bcRuntimeEpoch botCtrl) <*> readIORef (bcManualInFlight botCtrl)
                                 let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
                                 orphanActionsOrErr <-
@@ -11085,7 +11088,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 when (bsTradeEnabled settings) $ do
                                     scannedAtMs <- getTimestampMs
                                     writeIORef recoveryReadyRef $
-                                        if orphanScanReady && inventoryReconciled && null adoptionStartingSymbols
+                                        if orphanScanReady && inventoryReconciled && null adoptionStartingSymbols && manualInFlightAtScan == 0
                                             then ReadyAt scanEpoch scannedAtMs
                                             else NotReady
                                 let adoptionPrioritySymbols = dedupeStable (orphanSymbols ++ adoptionStartingSymbols)
@@ -22472,37 +22475,54 @@ owns the same account and symbol (CE-LIVE-002). Dry runs and Binance
 test-mode orders are not claimed.
 -}
 runManualTrade :: BotController -> Args -> IO a -> IO a
-runManualTrade ctrl args action = bracketManualTrade $ do
+runManualTrade ctrl args action = do
     -- Refuse any possibly-live trade on a non-trading server up front (403), with or
     -- without a symbol (DEX trades may have none); the venue adapters re-check before any send.
     when (manualTradeMayBeLive args) requireLiveOrderRole
-    case argBinanceSymbol args of
-        Just symRaw
-            | manualTradeMayBeLive args -> do
-                accountOrErr <- orderAccountKey ctrl args
-                case accountOrErr of
-                    Left err -> throwIO (AccountIdentityUnavailable err)
-                    Right Nothing -> action
-                    Right (Just account) ->
-                        withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action
-        _ -> action
+    affectsReadiness <- manualTradeAffectsReadiness ctrl args
+    (if affectsReadiness then bracket_ (manualInFlight 1) (manualInFlight (-1)) else id) $ do
+        case argBinanceSymbol args of
+            Just symRaw
+                | manualTradeMayBeLive args -> do
+                    accountOrErr <- orderAccountKey ctrl args
+                    case accountOrErr of
+                        Left err -> throwIO (AccountIdentityUnavailable err)
+                        Right Nothing -> action
+                        Right (Just account) ->
+                            withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action
+            _ -> action
   where
-    -- A possibly-live manual trade may change venue inventory from admission onward: it is counted in flight
+    -- A trade that may change the readiness account's inventory is counted in flight from admission onward
     -- (suspending readiness) and bumps the epoch both when admitted and when it completes, so readiness must
     -- come from a scan after it.
-    bracketManualTrade
-        | manualTradeMayBeLive args = bracket_ (manualInFlight 1) (manualInFlight (-1))
-        | otherwise = id
     manualInFlight delta =
         uninterruptibleMask_ $
             modifyMVar_ (bcRuntime ctrl) $ \mrt -> do
-                modifyIORef' (bcManualInFlight ctrl) (+ delta)
+                -- Epoch first: lock-free readers read the count before the epoch, so a zero count
+                -- must never be visible before the bump that invalidates the old scan.
                 bumpRuntimeEpoch ctrl
+                atomicModifyIORef' (bcManualInFlight ctrl) (\n -> (n + delta, ()))
                 pure mrt
+
+{- | Whether a manual trade can change the inventory that readiness reports:
+a possibly-live Binance trade on the auto-start account (the server
+credentials), compared by account identity. Other venues and other users'
+accounts never touch it; an unresolved identity counts conservatively.
+-}
+manualTradeAffectsReadiness :: BotController -> Args -> IO Bool
+manualTradeAffectsReadiness ctrl args
+    | not (manualTradeMayBeLive args) || argPlatform args /= PlatformBinance = pure False
+    | otherwise = do
+        tradeAccount <- orderAccountKey ctrl args
+        serverAccount <- orderAccountKey ctrl (sanitizeArgsKeys args)
+        pure $
+            case (tradeAccount, serverAccount) of
+                (Right (Just trade), Right (Just server)) -> trade == server
+                _ -> True
 
 -- | Invalidate published readiness. Call only while holding the 'bcRuntime' lock, together with the mutation.
 bumpRuntimeEpoch :: BotController -> IO ()
-bumpRuntimeEpoch ctrl = modifyIORef' (bcRuntimeEpoch ctrl) (+ 1)
+bumpRuntimeEpoch ctrl = atomicModifyIORef' (bcRuntimeEpoch ctrl) (\e -> (e + 1, ()))
 
 {- | Whether live bot readiness holds now: the last reconciled scan's runtime
 epoch is still current and the scan is fresh (see "Trader.App.Readiness").
@@ -22511,8 +22531,9 @@ botRecoveryReadyNow :: BotController -> IORef Readiness -> IO Bool
 botRecoveryReadyNow ctrl readinessRef = do
     readiness <- readIORef readinessRef
     -- In-flight count before the epoch: a trade admitted after the first read has bumped the epoch.
-    manualInFlightNow <- readIORef (bcManualInFlight ctrl)
-    epochNow <- readIORef (bcRuntimeEpoch ctrl)
+    -- Atomic (barrier) reads keep this order on weakly-ordered CPUs.
+    manualInFlightNow <- atomicModifyIORef' (bcManualInFlight ctrl) (\n -> (n, n))
+    epochNow <- atomicModifyIORef' (bcRuntimeEpoch ctrl) (\e -> (e, e))
     nowMs <- getTimestampMs
     pollSec <- comboPollSecondsFromEnv
     pure (readinessHolds manualInFlightNow epochNow nowMs (readinessMaxAgeMs pollSec) readiness)
