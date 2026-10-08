@@ -53,6 +53,7 @@ import Network.HTTP.Types.Status (statusCode)
 import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
+import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries, validateMarketSeriesBars, validateMarketSeriesContinuity)
@@ -233,6 +234,7 @@ fetchCoinbaseOrderById env orderIdRaw = do
 
 placeCoinbaseMarketOrder :: CoinbaseEnv -> String -> String -> Maybe Double -> Maybe Double -> Maybe String -> IO BL.ByteString
 placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId = do
+    requireLiveOrderRole
     let cleanedProduct = map toUpperAscii (trim product)
     side <-
         case map toLowerAscii (trim sideRaw) of

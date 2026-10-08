@@ -41,6 +41,7 @@ import System.Process (proc, readCreateProcessWithExitCode)
 import Text.Read (readMaybe)
 
 import Trader.App.AsyncSafe (trySync)
+import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 
 -- 1inch native token placeholder (used for ETH/BNB/etc.)
@@ -401,6 +402,7 @@ applyApiKey env req =
 
 sendDexTx :: DexEnv -> DexSwapTx -> IO (Either String String)
 sendDexTx env tx = do
+    requireLiveOrderRole
     let args =
             [ "send"
             , "--rpc-url"

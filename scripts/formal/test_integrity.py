@@ -4883,6 +4883,28 @@ class PositionOwnershipTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'manual claim protocol changed'):
             o.bind({o.OWNERSHIP: helper.replace('uninterruptibleMask_ $', 'id $', 1)})
 
+    def test_role_gate_and_account_identity_fail_closed(self):
+        import position_ownership as o
+        r = o.check_position_ownership()['roleGate']
+        self.assertEqual(r['source']['gatedPrimitives'], 10)
+        binance = (ROOT / 'haskell/app/Trader/Binance.hs').read_text()
+        gate = '    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n'
+        self.assertEqual(binance.count(gate), 5)
+        cases = [
+            ('role gate is not the first action', {'haskell/app/Trader/Binance.hs': binance.replace(gate, '', 1)}),
+            ('ungated venue action', {'haskell/app/Trader/Coinbase.hs': (ROOT / 'haskell/app/Trader/Coinbase.hs').read_text() + '\nplaceCoinbaseLimitOrder :: IO ()\nplaceCoinbaseLimitOrder = do\n    pure ()\n'}),
+            ('lost its role label', {'deploy/hetzner/trader.research.env.managed': (ROOT / 'deploy/hetzner/trader.research.env.managed').read_text().replace('TRADER_SERVER_ROLE=research', 'TRADER_SERVER_ROLE=standalone')}),
+            ('role gate decision changed', {o.LIVE_ROLE: (ROOT / o.LIVE_ROLE).read_text().replace('"research", "read-only", "readonly", "fly"]', '"read-only", "readonly", "fly"]')}),
+        ]
+        for reason, sources in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                o.bind_role_gate(sources)
+        main = (ROOT / o.MAIN).read_text()
+        with self.assertRaisesRegex(ValueError, 'fail-closed account UID'):
+            o.bind({o.MAIN: main.replace('| argPlatform args == PlatformBinance && not (argBinanceTestnet args) -> do', '| False -> do', 1)})
+        with self.assertRaisesRegex(ValueError, 'echo request headers'):
+            o.bind({o.MAIN: main.replace('Just _ -> "Binance account request failed."', 'Just _ -> displayException ex', 1)})
+
 
 class CausalReplayV3Tests(unittest.TestCase):
     def setUp(self):

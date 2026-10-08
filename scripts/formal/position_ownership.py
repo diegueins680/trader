@@ -96,19 +96,28 @@ def bind(sources=None):
             re.search(r'"POST" -> handleTradeAsync botCtrl ', bodies['apiApp']), 'trade routes lost the bot controller')
     run = bodies['runManualTrade']
     require('| manualTradeMayBeLive args -> do' in run and
-            'withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action' in run,
-            'manual claim keyed by account and normalized symbol under the runtime lock')
+            'withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action' in run and
+            'Left err -> throwIO (AccountIdentityUnavailable err)' in run,
+            'manual claim keyed by account and normalized symbol under the runtime lock, failing closed')
     require('manualTradeMayBeLive args = not (argDryRun args) && (argPlatform args /= PlatformBinance || argBinanceLive args)'
             in bodies['manualTradeMayBeLive'], 'live-capability predicate changed')
     # Ownership identity uses exactly the credentials makeBinanceEnv/makeCoinbaseEnv sign with.
-    account, env = bodies['orderAccountKey'], bodies['makeBinanceEnv'] + bodies['makeCoinbaseEnv']
+    account, env = bodies['orderCredentialKey'], bodies['makeBinanceEnv'] + bodies['makeCoinbaseEnv']
+    # Live mainnet Binance identity is the exchange account UID (shared by every key pair of one account), fail-closed.
+    uid = bodies['orderAccountKey']
+    require("| argPlatform args == PlatformBinance && not (argBinanceTestnet args) -> do" in uid and
+            'fetchSpotAccountUid' in uid and 'pure (Left ("Cannot resolve the Binance account identity' in uid and
+            '("binance-uid:" ++)' in uid and 'HM.insert cred uid' in uid,
+            'live Binance identity is not the fail-closed account UID')
+    require('Just _ -> "Binance account request failed."' in bodies['accountLookupError'],
+            'account lookup errors may echo request headers (API key)')
     for var, field in (('BINANCE_API_KEY', 'argBinanceApiKey'), ('BINANCE_API_SECRET', 'argBinanceApiSecret'),
                        ('COINBASE_API_KEY', 'argCoinbaseApiKey'), ('COINBASE_API_SECRET', 'argCoinbaseApiSecret'),
                        ('COINBASE_API_PASSPHRASE', 'argCoinbaseApiPassphrase')):
         fragment = f'resolveEnv "{var}" ({field} args)'
         require(fragment in account and fragment in env, 'account identity differs from signing credentials: ' + var)
     # A bot owns its identity whenever its order path can go live; that path ignores argDryRun.
-    require('bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) = fmap (,sym) <$> orderAccountKey args'
+    require('bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) = fmap (fmap (,sym)) <$> orderAccountKey ctrl args'
             in bodies['botOwnerKey'] and 'argDryRun' not in bodies['botOwnerKey'], 'bot owner identity changed')
     for name in ('placeOrderForSignalEx', 'placeIfEnabled', 'placeBotCloseIfEnabled', 'placeBotCloseOrder', 'placeOrderForSignalBot'):
         require('argDryRun' not in bodies[name],
@@ -121,6 +130,10 @@ def bind(sources=None):
     publish = bodies['botStartSymbolWithSettings']
     i = publish.find('publishWorker (bcRuntime ctrl)')
     check, launch = (publish.find('ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey', i), publish.find('Launch (botStartWorker', i))
+    lookup = publish.find('ownerOrErr <- botOwnerKey ctrl argsSym settings sym')
+    refuse = publish.find('Left err -> pure (Left err)', max(lookup, 0))
+    require(0 <= lookup < refuse < i,
+            'bot start does not refuse an unresolved owner identity before publication')
     require(i >= 0 and 0 <= check < launch and
             'Just err -> pure (Retain (Left err))' in publish and 'bsrOwnerKey = mOwnerKey' in publish,
             'bot publication does not refuse a claimed or owned identity before launch')
@@ -147,6 +160,94 @@ def bind(sources=None):
     return {'status': 'exhaustively_checked', 'orderCapableDefinitions': len(capable),
             'roles': sorted(set(CLASSIFICATION.values())),
             'sha256': {p: hashlib.sha256(read(p).encode()).hexdigest() for p in (MAIN, OWNERSHIP)}}
+
+
+# ---- Server-role gate ------------------------------------------------------------------------------------------
+LIVE_ROLE = 'haskell/app/Trader/App/LiveRole.hs'
+OBSERVABILITY = 'haskell/app/Trader/App/Observability.hs'
+GATED = {'haskell/app/Trader/Binance.hs': {'placeMarketOrder', 'placeFuturesMarketOrderWithPositionSide', 'placeFuturesPostOnlyLimitOrder',
+                                          'placeFuturesTriggerMarketOrder', 'placeFuturesAlgoTriggerMarketOrder',
+                                          'cancelFuturesOrderByClientId', 'cancelFuturesAlgoOrderByClientId',
+                                          'cancelFuturesOpenOrdersByClientPrefix'},
+         'haskell/app/Trader/Coinbase.hs': {'placeCoinbaseMarketOrder'},
+         'haskell/app/Trader/Dex.hs': {'sendDexTx'}}
+MODE_GATED = {'placeMarketOrder', 'placeFuturesMarketOrderWithPositionSide', 'placeFuturesPostOnlyLimitOrder',
+              'placeFuturesTriggerMarketOrder', 'placeFuturesAlgoTriggerMarketOrder'}
+
+
+def bind_role_gate(sources=None):
+    sources = sources or {}
+    read = lambda p: sources.get(p, (ROOT / p).read_text())
+    sites = 0
+    for path, names in GATED.items():
+        text = read(path)
+        exported = set(re.findall(r'^((?:place|cancel|swap|send)[A-Z]\w*) ::', text, re.M))
+        require(exported - {'swapDexExactIn'} <= names, f'ungated venue action in {path}: {sorted(exported - names - {"swapDexExactIn"})}')
+        for name in names:
+            m = re.search(r'^' + name + r' [^\n]*= do\n( +)(\S[^\n]*)\n', text, re.M)
+            want = 'Control.Monad.when (mode == OrderLive) requireLiveOrderRole' if name in MODE_GATED else 'requireLiveOrderRole'
+            require(m and m.group(2).strip() == want, f'{name}: role gate is not the first action')
+            sites += 1
+    # On-chain effects only go through sendDexTx; the 1inch helpers only quote and build transactions.
+    dex = definitions(read('haskell/app/Trader/Dex.hs'))
+    for name in ('swapDexExactIn', 'ensureAllowance'):
+        require('sendDexTx' in dex[name] and not re.search(r'readProcess|createProcess|callProcess|httpLbs', dex[name]),
+                f'DEX {name} acts outside sendDexTx')
+    require(not re.search(r'readProcess|createProcess|callProcess|proc ', ''.join(v for k, v in dex.items() if k not in ('sendDexTx', 'waitForReceipt'))),
+            'DEX module launches a process outside sendDexTx')
+    require(re.findall(r'proc "(\w+)" \[?"?(\w+)', dex['waitForReceipt']) == [('cast', 'receipt')], 'receipt polling is not read-only')
+    role = read(LIVE_ROLE)
+    require('nonTradingRoles = ["research", "read-only", "readonly", "fly"]' in role and
+            'explicit <- nonEmpty <$> lookupEnv "TRADER_SERVER_ROLE"' in role and
+            '| isJust flyMachine || isJust flyApp -> "fly"' in role and '| otherwise -> "local"' in role and
+            'maybe (pure ()) (throwIO . LiveOrderRoleRefused) (liveOrderRoleRefusal role)' in role, 'role gate decision changed')
+    obs = read(OBSERVABILITY)
+    require('explicitRole <- lookupTextEnv "TRADER_SERVER_ROLE"' in obs and 'fallbackRole = if onFly then Just "fly" else Just "local"' in obs,
+            'server identity role resolution diverged from the gate')
+    # Checked-in non-trading deployments carry a denied role; the trading deployment does not.
+    deployments = {'fly.toml': r'^\s*TRADER_SERVER_ROLE = "read-only"$', 'fly.research.toml': r'^\s*TRADER_SERVER_ROLE = "research"$',
+                   'deploy/hetzner/trader.research.env.managed': r'^TRADER_SERVER_ROLE=research$'}
+    for path, pattern in deployments.items():
+        require(len(re.findall(r'TRADER_SERVER_ROLE', read(path))) == 1 and re.search(pattern, read(path), re.M),
+                'non-trading deployment lost its role label: ' + path)
+    require('TRADER_SERVER_ROLE' not in read('deploy/hetzner/trader.trading.env.managed'), 'trading deployment role changed')
+    require('merge_env_overlay "$MANAGED_ENV_FILE" "$ENV_FILE"' in read('deploy/hetzner/deploy-remote.sh'),
+            'managed env overlay no longer applied on deploy')
+    return {'status': 'exhaustively_checked', 'gatedPrimitives': sites, 'deniedRoles': ['research', 'read-only', 'readonly', 'fly'],
+            'labelledDeployments': sorted(deployments)}
+
+
+ROLE_PROGRAM = r'''
+import System.Environment
+import Trader.App.LiveRole
+import Control.Exception
+main :: IO ()
+main = do
+  let decide = map (maybe "allowed" (const "refused") . liveOrderRoleRefusal)
+  print (decide ["research", "read-only", "fly", "trading", "standalone", "local"])
+  setEnv "TRADER_SERVER_ROLE" "Research"
+  r <- try requireLiveOrderRole :: IO (Either LiveOrderRoleRefused ())
+  setEnv "TRADER_SERVER_ROLE" "trading"
+  ok <- try requireLiveOrderRole :: IO (Either LiveOrderRoleRefused ())
+  unsetEnv "TRADER_SERVER_ROLE"
+  setEnv "FLY_APP_NAME" "trader-hs"
+  fly <- resolveServerRole
+  print (either (const "refused") (const "allowed") r, either (const "refused") (const "allowed") ok, fly)
+'''
+ROLE_EXPECTED = '["refused","refused","refused","allowed","allowed","allowed"]\n("refused","allowed","fly")'
+
+
+def role_conformance():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='trader-role-') as directory:
+        path = Path(directory) / 'Role.hs'
+        path.write_text(ROLE_PROGRAM)
+        env = {k: v for k, v in __import__('os').environ.items() if k not in ('TRADER_SERVER_ROLE', 'FLY_APP_NAME', 'FLY_MACHINE_ID')}
+        out = subprocess.run(['runghc', '-i' + str(ROOT / 'haskell/app'), str(path)], env=env,
+                             capture_output=True, text=True, timeout=300, check=True).stdout.strip()
+    require(out == ROLE_EXPECTED, 'compiled role-gate regression: ' + out)
+    return {'status': 'property_tested', 'observed': out}
 
 
 # ---- Protocol model -------------------------------------------------------------------------------------------
@@ -284,4 +385,5 @@ def conformance():
 
 
 def check_position_ownership():
-    return {'source': bind(), 'model': check_model(), 'conformance': conformance()}
+    return {'source': bind(), 'model': check_model(), 'conformance': conformance(),
+            'roleGate': {'source': bind_role_gate(), 'conformance': role_conformance()}}

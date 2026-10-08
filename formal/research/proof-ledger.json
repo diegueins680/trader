@@ -395,7 +395,7 @@
     {
       "id": "A-LIVE-OWNERSHIP",
       "status": "assumption",
-      "statement": "In-process only: one trading process's bot registry and manual trades. Identity is the credential pair an order is signed with, not the exchange account: two different API key pairs on one exchange account are distinct identities, so each exchange account must be traded through a single credential pair (deployment assumption, like single-process trading). Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "statement": "Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
       "risk": "RL-OFFLINE-001"
     },
     {
@@ -632,7 +632,8 @@
     "formal/research/CausalReplayV3.hs",
     "scripts/formal/position_ownership.py",
     "haskell/app/Trader/App/ManualTradeOwnership.hs",
-    "formal/research/position-ownership-counterexamples.json"
+    "formal/research/position-ownership-counterexamples.json",
+    "haskell/app/Trader/App/LiveRole.hs"
   ],
   "entries": [
     {
@@ -7454,8 +7455,8 @@
     },
     {
       "requirementId": "F-LIVE-OWNERSHIP-SOURCE",
-      "claim": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release.",
-      "formalStatement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release.",
+      "claim": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release. Live mainnet Binance identity is the exchange account UID from the signed read-only account endpoint (cached per credential pair, fail-closed: an unresolved identity refuses the manual trade with 503 and the bot start), and lookup errors never echo request headers.",
+      "formalStatement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release. Live mainnet Binance identity is the exchange account UID from the signed read-only account endpoint (cached per credential pair, fail-closed: an unresolved identity refuses the manual trade with 503 and the bot start), and lookup errors never echo request headers.",
       "criticality": "critical",
       "assumptions": [
         "A-LIVE-OWNERSHIP"
@@ -7465,9 +7466,10 @@
       "sourceModel": "scripts/formal/position_ownership.py",
       "artifact": "formal/research/results.json",
       "implementationFiles": [
+        "formal/research/position-ownership-counterexamples.json",
         "haskell/app/Main.hs",
         "haskell/app/Trader/App/ManualTradeOwnership.hs",
-        "formal/research/position-ownership-counterexamples.json"
+        "haskell/app/Trader/Binance.hs"
       ],
       "testFiles": [
         "scripts/formal/test_integrity.py",
@@ -7476,7 +7478,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Fresh classification of all 32 order-capable definitions and the guard bindings must reproduce; mutants fail closed.",
       "bounds": "32 order-capable Main.hs definitions; model of 3 bots x 3 manual trades over 2 accounts.",
-      "limitations": "In-process only: one trading process's bot registry and manual trades. Identity is the credential pair an order is signed with, not the exchange account: two different API key pairs on one exchange account are distinct identities, so each exchange account must be traded through a single credential pair (deployment assumption, like single-process trading). Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "limitations": "Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
       "counterexample": "CE-LIVE-002, CE-LIVE-003",
       "status": "exhaustively_checked"
     },
@@ -7504,7 +7506,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Fixed protocol: no violation over the full state space; the three weakened protocols must each be refuted.",
       "bounds": "32 order-capable Main.hs definitions; model of 3 bots x 3 manual trades over 2 accounts.",
-      "limitations": "In-process only: one trading process's bot registry and manual trades. Identity is the credential pair an order is signed with, not the exchange account: two different API key pairs on one exchange account are distinct identities, so each exchange account must be traded through a single credential pair (deployment assumption, like single-process trading). Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "limitations": "Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
       "counterexample": "CE-LIVE-002, CE-LIVE-003",
       "status": "model_checked"
     },
@@ -7532,8 +7534,72 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "The compiled regression output must match exactly.",
       "bounds": "32 order-capable Main.hs definitions; model of 3 bots x 3 manual trades over 2 accounts.",
-      "limitations": "In-process only: one trading process's bot registry and manual trades. Identity is the credential pair an order is signed with, not the exchange account: two different API key pairs on one exchange account are distinct identities, so each exchange account must be traded through a single credential pair (deployment assumption, like single-process trading). Cross-process uniqueness (another server, the research box, Fly, or a CLI one-shot trade holding trade-enabled credentials for the same account) is an environmental assumption the repository cannot verify. Owners are one bot worker or the account's manual operator; concurrent manual trades on one account are not mutually excluded. Close-position is an intentional reduce-only override. An exchange request already sent before a stop or refusal is not recalled. Persistent owner rows only prioritise adoption through the same guarded publication; they confer no order authority.",
+      "limitations": "Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
       "counterexample": "CE-LIVE-002, CE-LIVE-003",
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-LIVE-ROLE-GATE-SOURCE",
+      "claim": "Every venue adapter function that places, cancels or swaps (eight Binance place/cancel primitives, the Coinbase market order and the DEX transaction send) refuses on a research, read-only or Fly server as its first action, before any network call (Binance place primitives only in live mode); the role is resolved exactly as the server identity resolves it, and the checked-in non-trading deployments (fly.toml read-only, fly.research.toml research, the Hetzner research managed env overlay applied on every deploy) carry a refused role while the trading deployment does not.",
+      "formalStatement": "Every venue adapter function that places, cancels or swaps (eight Binance place/cancel primitives, the Coinbase market order and the DEX transaction send) refuses on a research, read-only or Fly server as its first action, before any network call (Binance place primitives only in live mode); the role is resolved exactly as the server identity resolves it, and the checked-in non-trading deployments (fly.toml read-only, fly.research.toml research, the Hetzner research managed env overlay applied on every deploy) carry a refused role while the trading deployment does not.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-LIVE-OWNERSHIP"
+      ],
+      "tool": "Source binding of every venue place/cancel/swap primitive and the checked-in deployment role labels",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/position_ownership.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/LiveRole.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "fly.toml",
+        "fly.research.toml",
+        "deploy/hetzner/trader.research.env.managed"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/LiveRole.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh binding must reproduce; an ungated or late-gated primitive, a lost deployment label or a changed role resolution fails closed.",
+      "bounds": "10 gated venue primitives; 3 labelled non-trading deployments; roles research, read-only, readonly, fly refused.",
+      "limitations": "Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
+      "counterexample": "CE-LIVE-002, CE-LIVE-003 (cross-process and multi-key completion)",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-LIVE-ROLE-GATE-CONFORMANCE",
+      "claim": "A compiled program against the actual Trader.App.LiveRole module refuses research, read-only and Fly roles and allows trading, standalone and local, refuses through requireLiveOrderRole on a research server, and resolves an unlabelled Fly machine to the fly role; the Haskell suite additionally shows a research server's live Binance order and cancel are refused before any network call while test-mode orders are not gated.",
+      "formalStatement": "A compiled program against the actual Trader.App.LiveRole module refuses research, read-only and Fly roles and allows trading, standalone and local, refuses through requireLiveOrderRole on a research server, and resolves an unlabelled Fly machine to the fly role; the Haskell suite additionally shows a research server's live Binance order and cancel are refused before any network call while test-mode orders are not gated.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-LIVE-OWNERSHIP"
+      ],
+      "tool": "Compiled GHC regression against Trader.App.LiveRole, Haskell test suite",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/position_ownership.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/App/LiveRole.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "fly.toml",
+        "fly.research.toml",
+        "deploy/hetzner/trader.research.env.managed"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/LiveRole.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "The compiled regression output must match exactly.",
+      "bounds": "10 gated venue primitives; 3 labelled non-trading deployments; roles research, read-only, readonly, fly refused.",
+      "limitations": "Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
+      "counterexample": "CE-LIVE-002, CE-LIVE-003 (cross-process and multi-key completion)",
       "status": "property_tested"
     },
     {
@@ -8590,7 +8656,7 @@
     {
       "number": 15,
       "claim": "Position ownership",
-      "status": "partially_verified",
+      "status": "exhaustively_checked",
       "evidenceRequirements": [
         "F-BOT-PUBLICATION-GATES",
         "F-BOT-PUBLICATION-FLOW",
@@ -8600,22 +8666,32 @@
         "F-LIVE-STOP-ASYNC-CONFORMANCE",
         "F-LIVE-OWNERSHIP-SOURCE",
         "F-LIVE-OWNERSHIP-FLOW",
-        "F-LIVE-OWNERSHIP-CONFORMANCE"
+        "F-LIVE-OWNERSHIP-CONFORMANCE",
+        "F-LIVE-ROLE-GATE-SOURCE",
+        "F-LIVE-ROLE-GATE-CONFORMANCE"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open. Ownership guard (2026-10-07): CE-LIVE-002 (manual /trade on a bot-owned symbol) and CE-LIVE-003 (two tenants' bots on one account) are resolved; in-process at most one live owner per (credential account, symbol) is now source-bound, exhaustively model checked and compiled-tested (F-LIVE-OWNERSHIP-*).",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Bot-start publication now has source-bound gate/map SMT, finite interleavings and compiled rollback evidence. This does not establish persistent owner uniqueness or post-start/stop/replacement lifecycle correctness. Live stop fix (2026-10-07): CE-LIVE-001 showed a killed bot worker swallowed ThreadKilled in try @SomeException and kept placing or cancelling orders after botStop reported success; trySync now rethrows asynchronous exceptions on all worker and order paths (F-LIVE-STOP-ASYNC-*). Persistent owner rows, account identity and cross-instance uniqueness remain open. Ownership guard (2026-10-07): CE-LIVE-002 (manual /trade on a bot-owned symbol) and CE-LIVE-003 (two tenants' bots on one account) are resolved; in-process at most one live owner per (credential account, symbol) is now source-bound, exhaustively model checked and compiled-tested (F-LIVE-OWNERSHIP-*). Closure (2026-10-07): in-process ownership (F-LIVE-OWNERSHIP-*), hard stop (F-LIVE-STOP-ASYNC-*), guarded publication (F-BOT-PUBLICATION-*) and the server-role gate with exchange-account-UID identity (F-LIVE-ROLE-GATE-*) together give at most one live owner per position identity within the stated scope. Assumptions: Non-trading servers carry their checked-in role label (Fly read-only, Fly research, Hetzner research via the managed env overlay, all bound by F-LIVE-ROLE-GATE-SOURCE); no out-of-band live actor uses the same exchange account; GHC asynchronous-exception and MVar semantics and the Binance account endpoint's uid field are trusted; an exchange request already sent before a stop or refusal is not recalled; concurrent manual trades on one account are one owner (the operator).",
+      "scope": "The trading system's own live actors: bot workers, manual /trade and /trade/async, close-position and every server process built from this repository, for Binance mainnet identified by exchange account UID and for testnet/other venues by API credential pair. Out of scope: actions outside this software (the exchange web UI, an operator running the one-shot CLI trade binary, other software holding the same keys) and servers not labelled by the checked-in deployment configs.",
       "closureCriteria": "At most one live owner exists per protected position identity.",
-      "nextAction": "Close the environmental gaps without changing production ownership: an attested deployment check that only the trading process holds trade-enabled keys, plus either a resolved stable exchange-account identifier (e.g. a cached account UID from a read-only account endpoint) or a default-disabled persistent per-identity lease whose enablement is an owner decision.",
+      "nextAction": "Reopen before any new order, cancel or swap path, a new server deployment or role, a change to how the trading or research env is deployed, a new venue that can host live bots, or a change to ownership identity.",
       "implementationFiles": [
         "haskell/app/Main.hs",
-        "haskell/app/Trader/BotStartSemantics.hs",
+        "haskell/app/Trader/App/AsyncSafe.hs",
+        "haskell/app/Trader/App/LiveRole.hs",
+        "haskell/app/Trader/App/ManualTradeOwnership.hs",
         "haskell/app/Trader/App/WorkerPublication.hs",
-        "haskell/app/Trader/App/ManualTradeOwnership.hs"
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/BotStartSemantics.hs"
       ],
-      "blockers": [
-        "In-process ownership is certified (F-LIVE-OWNERSHIP-*, F-LIVE-STOP-ASYNC-*, F-BOT-PUBLICATION-*). Remaining environmental conditions the repository cannot verify: only one process per exchange account may hold trade-enabled credentials (trading box vs research box, Fly, CLI one-shot trades), and each exchange account must be traded through a single API credential pair, because ownership identity is the credential pair rather than an exchange account identifier."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-LIVE-OWNERSHIP-SOURCE",
+        "F-LIVE-OWNERSHIP-FLOW",
+        "F-LIVE-ROLE-GATE-SOURCE",
+        "F-LIVE-STOP-ASYNC-SOURCE",
+        "F-BOT-PUBLICATION-SOURCE",
+        "F-BOT-PUBLICATION-FLOW"
+      ]
     },
     {
       "number": 16,

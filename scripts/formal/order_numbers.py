@@ -145,13 +145,16 @@ def conformance(current):
     for tag,ps in [('cur',current),('old',legacy),('prev',{k:rename(v) for k,v in wire['prefixes'].items()})]:
         for i,name in enumerate(ROSTER):
             args,typ=signatures[i]
-            defs.append(f'{tag}{i} :: {typ} -> IO ()\n{tag}{i} {args} = do\n'+ps[name]+'    pure ()\n')
+            # Prefixes now open with the live-role gate; bind the live mode where the fixture has no mode argument.
+            live = '    let mode = OrderLive\n' if 'mode' not in args.split() and 'mode' in ps[name] else ''
+            defs.append(f'{tag}{i} :: {typ} -> IO ()\n{tag}{i} {args} = do\n'+live+ps[name]+'    pure ()\n')
     code='''module Main (main) where
 import Control.Exception (SomeException,try,throwIO)
 import qualified Control.Monad
 import Data.Word (Word64)
 import GHC.Float (castWord64ToDouble)
 import Trader.OrderNumeric
+import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.QuantityRounding (validOrderPrice)
 import Data.Char (isSpace)
 import Data.Fixed (E12, Fixed (MkFixed))

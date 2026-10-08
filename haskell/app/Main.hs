@@ -62,7 +62,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -139,7 +139,8 @@ import Trader.App.GracefulShutdown (
     stopSupervisedWorkersBounded,
     stopThreadIdsBounded,
  )
-import Trader.App.ManualTradeOwnership (ManualTradeClaims, ManualTradeOwnershipConflict (..), OwnershipKey, manualTradeClaimed, manualTradeConflict, newManualTradeClaims, withManualTradeClaim)
+import Trader.App.LiveRole (LiveOrderRoleRefused (..))
+import Trader.App.ManualTradeOwnership (AccountIdentityUnavailable (..), ManualTradeClaims, ManualTradeOwnershipConflict (..), OwnershipKey, manualTradeClaimed, manualTradeConflict, newManualTradeClaims, withManualTradeClaim)
 import Trader.App.Observability (
     Journal,
     Metrics,
@@ -221,6 +222,7 @@ import Trader.Binance (
     fetchKlinesRaw,
     fetchOpenOrders,
     fetchOrderByClientId,
+    fetchSpotAccountUid,
     fetchSymbolFilters,
     fetchTicker24hPrice,
     fetchTickerPrice,
@@ -6299,6 +6301,8 @@ type BotTenantMap = HM.HashMap TenantKey BotRuntimeMap
 data BotController = BotController
     { bcRuntime :: MVar BotTenantMap
     , bcManualTrades :: ManualTradeClaims
+    , bcAccountUids :: MVar (HM.HashMap TenantKey Int64)
+    -- ^ Binance account UID per credential pair, resolved once for live ownership identity.
     }
 
 data BotStartRuntime = BotStartRuntime
@@ -6937,7 +6941,7 @@ botFeatureInputs st =
                 (Just (botVolumes st))
 
 newBotController :: IO BotController
-newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims
+newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty
 
 emptyBotAdjustments :: BotAdjustments
 emptyBotAdjustments = BotAdjustments 0 0 0 0
@@ -10428,41 +10432,44 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                         case comboGuard of
                                             Left err -> pure (Left err)
                                             Right () -> do
-                                                mOwnerKey <- botOwnerKey argsSym settings sym
-                                                publishWorker (bcRuntime ctrl) $ \mrt ->
-                                                    let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
-                                                     in case HM.lookup sym tenantMap of
-                                                            Just st ->
-                                                                if allowExisting
-                                                                    then pure (Retain (Right (BotStartOutcome sym st False)))
-                                                                    else case st of
-                                                                        BotRunning _ -> pure (Retain (Left "Bot is already running"))
-                                                                        BotStarting _ -> pure (Retain (Left "Bot is starting"))
-                                                            Nothing -> do
-                                                                ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey
-                                                                case ownerConflict of
-                                                                    Just err -> pure (Retain (Left err))
+                                                ownerOrErr <- botOwnerKey ctrl argsSym settings sym
+                                                case ownerOrErr of
+                                                    Left err -> pure (Left err)
+                                                    Right mOwnerKey ->
+                                                        publishWorker (bcRuntime ctrl) $ \mrt ->
+                                                            let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+                                                             in case HM.lookup sym tenantMap of
+                                                                    Just st ->
+                                                                        if allowExisting
+                                                                            then pure (Retain (Right (BotStartOutcome sym st False)))
+                                                                            else case st of
+                                                                                BotRunning _ -> pure (Retain (Left "Bot is already running"))
+                                                                                BotStarting _ -> pure (Retain (Left "Bot is starting"))
                                                                     Nothing -> do
-                                                                        stopSig <- newEmptyMVar
-                                                                        now <- getTimestampMs
-                                                                        pure $ Launch (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig) $ \tid ->
-                                                                            let rt =
-                                                                                    BotStartRuntime
-                                                                                        { bsrThreadId = tid
-                                                                                        , bsrStopSignal = stopSig
-                                                                                        , bsrArgs = sanitizeArgsKeys argsSym
-                                                                                        , bsrSettings = settings
-                                                                                        , bsrSymbol = sym
-                                                                                        , bsrTenantKey = tenantKey
-                                                                                        , bsrRequestedAtMs = now
-                                                                                        , bsrStartReason = startReason
-                                                                                        , bsrOwnerKey = mOwnerKey
-                                                                                        , bsrAdoptingExisting = arActive adoptReq
-                                                                                        }
-                                                                                st = BotStarting rt
-                                                                                tenantMap' = HM.insert sym st tenantMap
-                                                                                mrt' = HM.insert tenantKey tenantMap' mrt
-                                                                             in (mrt', Right (BotStartOutcome sym st True))
+                                                                        ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey
+                                                                        case ownerConflict of
+                                                                            Just err -> pure (Retain (Left err))
+                                                                            Nothing -> do
+                                                                                stopSig <- newEmptyMVar
+                                                                                now <- getTimestampMs
+                                                                                pure $ Launch (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig) $ \tid ->
+                                                                                    let rt =
+                                                                                            BotStartRuntime
+                                                                                                { bsrThreadId = tid
+                                                                                                , bsrStopSignal = stopSig
+                                                                                                , bsrArgs = sanitizeArgsKeys argsSym
+                                                                                                , bsrSettings = settings
+                                                                                                , bsrSymbol = sym
+                                                                                                , bsrTenantKey = tenantKey
+                                                                                                , bsrRequestedAtMs = now
+                                                                                                , bsrStartReason = startReason
+                                                                                                , bsrOwnerKey = mOwnerKey
+                                                                                                , bsrAdoptingExisting = arActive adoptReq
+                                                                                                }
+                                                                                        st = BotStarting rt
+                                                                                        tenantMap' = HM.insert sym st tenantMap
+                                                                                        mrt' = HM.insert tenantKey tenantMap' mrt
+                                                                                     in (mrt', Right (BotStartOutcome sym st True))
 
 botStartWorker ::
     Maybe OpsStore ->
@@ -18769,6 +18776,8 @@ jsonError st msg = jsonValue st (apiErrorFromMsg msg)
 exceptionToHttp :: SomeException -> (Status, String)
 exceptionToHttp ex
     | Just (ManualTradeOwnershipConflict msg) <- fromException ex = (status409, msg)
+    | Just (AccountIdentityUnavailable msg) <- fromException ex = (status503, msg)
+    | Just (LiveOrderRoleRefused msg) <- fromException ex = (status403, msg)
     | otherwise =
         case fromException ex of
             Just (ErrorCall msg) ->
@@ -22451,22 +22460,23 @@ runManualTrade ctrl args action =
     case argBinanceSymbol args of
         Just symRaw
             | manualTradeMayBeLive args -> do
-                mAccount <- orderAccountKey args
-                case mAccount of
-                    Nothing -> action
-                    Just account ->
+                accountOrErr <- orderAccountKey ctrl args
+                case accountOrErr of
+                    Left err -> throwIO (AccountIdentityUnavailable err)
+                    Right Nothing -> action
+                    Right (Just account) ->
                         withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action
         _ -> action
 
 manualTradeMayBeLive :: Args -> Bool
 manualTradeMayBeLive args = not (argDryRun args) && (argPlatform args /= PlatformBinance || argBinanceLive args)
 
-{- | The credential account an order for these args is signed with: the request
+{- | The credential pair an order for these args is signed with: the request
 keys if present, otherwise the server's environment keys, exactly as
 'makeBinanceEnv' and 'makeCoinbaseEnv' resolve them.
 -}
-orderAccountKey :: Args -> IO (Maybe TenantKey)
-orderAccountKey args =
+orderCredentialKey :: Args -> IO (Maybe TenantKey)
+orderCredentialKey args =
     case argPlatform args of
         PlatformBinance ->
             tenantKeyFromBinanceKeys
@@ -22479,14 +22489,47 @@ orderAccountKey args =
                 <*> resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
         _ -> pure Nothing
 
+{- | The account an order for these args acts on. Live mainnet Binance orders
+are identified by the exchange account UID, which every API key pair of one
+account shares; it is resolved once per credential pair through the signed
+read-only account endpoint, cached, and fails closed when it cannot be
+resolved. Testnet and other venues use the signing credential pair.
+-}
+orderAccountKey :: BotController -> Args -> IO (Either String (Maybe TenantKey))
+orderAccountKey ctrl args = do
+    credential <- orderCredentialKey args
+    case credential of
+        Just cred
+            | argPlatform args == PlatformBinance && not (argBinanceTestnet args) -> do
+                cached <- HM.lookup cred <$> readMVar (bcAccountUids ctrl)
+                uidOrErr <-
+                    case cached of
+                        Just uid -> pure (Right uid)
+                        Nothing -> do
+                            r <- trySync (makeBinanceEnv Nothing args{argBinanceFutures = False, argBinanceMargin = False} >>= fetchSpotAccountUid) :: IO (Either SomeException Int64)
+                            case r of
+                                Left ex -> pure (Left ("Cannot resolve the Binance account identity for live trading: " ++ accountLookupError ex))
+                                Right uid -> do
+                                    modifyMVar_ (bcAccountUids ctrl) (pure . HM.insert cred uid)
+                                    pure (Right uid)
+                pure (Just . T.pack . ("binance-uid:" ++) . show <$> uidOrErr)
+        _ -> pure (Right credential)
+
+-- | An account lookup failure without request details: an 'HttpException' rendering carries the API key header.
+accountLookupError :: SomeException -> String
+accountLookupError ex =
+    case fromException ex :: Maybe HttpException of
+        Just _ -> "Binance account request failed."
+        Nothing -> take 200 (displayException ex)
+
 {- | A bot owns a position identity whenever it can trade live. The bot order
 path ignores 'argDryRun' (only 'bsTradeEnabled' and 'argBinanceLive' gate it),
 so a dry-run flag does not make a live bot a non-owner.
 -}
-botOwnerKey :: Args -> BotSettings -> String -> IO (Maybe OwnershipKey)
-botOwnerKey args settings sym
-    | bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) = fmap (,sym) <$> orderAccountKey args
-    | otherwise = pure Nothing
+botOwnerKey :: BotController -> Args -> BotSettings -> String -> IO (Either String (Maybe OwnershipKey))
+botOwnerKey ctrl args settings sym
+    | bsTradeEnabled settings && (argPlatform args /= PlatformBinance || argBinanceLive args) = fmap (fmap (,sym)) <$> orderAccountKey ctrl args
+    | otherwise = pure (Right Nothing)
 
 {- | Advisory refusal before an async trade is queued, so the client gets 409
 instead of an accepted job that fails later. The claim taken inside the job
@@ -22497,10 +22540,12 @@ manualTradeOwnedNow ctrl args =
     case argBinanceSymbol args of
         Just symRaw
             | manualTradeMayBeLive args -> do
-                mAccount <- orderAccountKey args
-                case mAccount of
-                    Nothing -> pure Nothing
-                    Just account -> do
+                -- An unresolved identity is left to the in-job claim, which fails closed.
+                accountOrErr <- orderAccountKey ctrl args
+                case accountOrErr of
+                    Left _ -> pure Nothing
+                    Right Nothing -> pure Nothing
+                    Right (Just account) -> do
                         mrt <- readMVar (bcRuntime ctrl)
                         pure (manualTradeConflict (ownedBotKeys mrt) (account, normalizeSymbol symRaw))
         _ -> pure Nothing

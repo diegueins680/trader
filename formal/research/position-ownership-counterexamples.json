@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "requirement": "F-LIVE-OWNERSHIP-FLOW",
-  "identity": "A position identity is (credential account, normalized symbol). The credential account is the tenant key derived from the API key pair an order is actually signed with (request keys, else the server environment keys); it is not an exchange account identifier, so distinct key pairs for one exchange account are distinct identities.",
+  "identity": "A position identity is (account, normalized symbol). For live mainnet Binance the account is the exchange account UID from the signed read-only account endpoint (shared by every key pair of one account, fail-closed); for testnet and other venues it is the API credential pair the order is signed with.",
   "entries": [
     {
       "id": "CE-LIVE-002",

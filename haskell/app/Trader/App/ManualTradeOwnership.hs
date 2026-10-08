@@ -20,6 +20,7 @@ module Trader.App.ManualTradeOwnership (
     OwnershipKey,
     ManualTradeClaims,
     ManualTradeOwnershipConflict (..),
+    AccountIdentityUnavailable (..),
     newManualTradeClaims,
     manualTradeConflict,
     manualTradeClaimed,
@@ -42,6 +43,12 @@ newtype ManualTradeOwnershipConflict = ManualTradeOwnershipConflict String
     deriving (Show)
 
 instance Exception ManualTradeOwnershipConflict
+
+-- | The exchange account behind a live order could not be identified, so ownership cannot be checked (fail closed).
+newtype AccountIdentityUnavailable = AccountIdentityUnavailable String
+    deriving (Show)
+
+instance Exception AccountIdentityUnavailable
 
 newManualTradeClaims :: IO ManualTradeClaims
 newManualTradeClaims = ManualTradeClaims <$> newIORef Map.empty

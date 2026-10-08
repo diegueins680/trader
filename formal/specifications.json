@@ -921,7 +921,7 @@
         },
         {
           "id": "F-LIVE-OWNERSHIP-SOURCE",
-          "statement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release."
+          "statement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release. Live mainnet Binance identity is the exchange account UID from the signed read-only account endpoint (cached per credential pair, fail-closed: an unresolved identity refuses the manual trade with 503 and the bot start), and lookup errors never echo request headers."
         },
         {
           "id": "F-LIVE-OWNERSHIP-FLOW",
@@ -930,6 +930,14 @@
         {
           "id": "F-LIVE-OWNERSHIP-CONFORMANCE",
           "statement": "A compiled program against the actual Trader.App.ManualTradeOwnership module refuses a same-account second bot across tenants while admitting another account, refuses a manual trade on an owned identity, refuses bot start during a manual trade, leaks no claim after a timeout, and observes no bot/manual overlap in 300 concurrent races; the Haskell suite checks the same behaviours."
+        },
+        {
+          "id": "F-LIVE-ROLE-GATE-SOURCE",
+          "statement": "Every venue adapter function that places, cancels or swaps (eight Binance place/cancel primitives, the Coinbase market order and the DEX transaction send) refuses on a research, read-only or Fly server as its first action, before any network call (Binance place primitives only in live mode); the role is resolved exactly as the server identity resolves it, and the checked-in non-trading deployments (fly.toml read-only, fly.research.toml research, the Hetzner research managed env overlay applied on every deploy) carry a refused role while the trading deployment does not."
+        },
+        {
+          "id": "F-LIVE-ROLE-GATE-CONFORMANCE",
+          "statement": "A compiled program against the actual Trader.App.LiveRole module refuses research, read-only and Fly roles and allows trading, standalone and local, refuses through requireLiveOrderRole on a research server, and resolves an unlabelled Fly machine to the fly role; the Haskell suite additionally shows a research server's live Binance order and cancel are refused before any network call while test-mode orders are not gated."
         },
         {
           "id": "F-RL-CAUSAL-V3-SOURCE",

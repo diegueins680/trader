@@ -21,6 +21,7 @@ executable trader-hs
                      , Trader.App.AsyncJobAdmission
                      , Trader.App.WorkerPublication
                      , Trader.App.AsyncSafe
+                     , Trader.App.LiveRole
                      , Trader.App.ManualTradeOwnership
                      , Trader.App.GracefulShutdown
                      , Trader.App.Observability
@@ -309,6 +310,7 @@ test-suite trader-tests
                      , Trader.App.AsyncJobAdmission
                      , Trader.App.WorkerPublication
                      , Trader.App.AsyncSafe
+                     , Trader.App.LiveRole
                      , Trader.App.ManualTradeOwnership
                      , Trader.App.GracefulShutdown
                      , Trader.App.Runtime
@@ -401,6 +403,7 @@ test-suite trader-tests
                      , Trader.Test.WorkerPublication
                      , Trader.Test.AsyncSafe
                      , Trader.Test.ManualTradeOwnership
+                     , Trader.Test.LiveRole
                      , Trader.Test.GracefulShutdown
                      , Trader.Test.MarketRisk
                      , Trader.Test.NeuralGovernorRollout
@@ -460,6 +463,7 @@ benchmark trader-bench
   hs-source-dirs:      bench, app
   main-is:             BenchMain.hs
   other-modules:       Trader.App.AsyncSafe
+                     , Trader.App.LiveRole
                      , Trader.Binance
                      , Trader.QuantityRounding
                      , Trader.OrderNumeric
