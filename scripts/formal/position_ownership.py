@@ -97,7 +97,8 @@ def bind(sources=None):
     run = bodies['runManualTrade']
     require('| manualTradeMayBeLive args -> do' in run and
             'withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action' in run and
-            'Left err -> throwIO (AccountIdentityUnavailable err)' in run,
+            'Left err -> throwIO (AccountIdentityUnavailable err)' in run and
+            0 <= run.find('requireLiveOrderRole') < run.find('orderAccountKey ctrl args'),
             'manual claim keyed by account and normalized symbol under the runtime lock, failing closed')
     require('manualTradeMayBeLive args = not (argDryRun args) && (argPlatform args /= PlatformBinance || argBinanceLive args)'
             in bodies['manualTradeMayBeLive'], 'live-capability predicate changed')
@@ -124,7 +125,11 @@ def bind(sources=None):
                 'bot order path gained a dry-run gate; revisit the bot owner predicate: ' + name)
     async_body = bodies['handleTradeAsync']
     require(0 <= async_body.find('ownedNow <- manualTradeOwnedNow botCtrl argsFinal') < async_body.find('startJob mOps store') and
-            'respond (jsonError status409 msg)' in async_body, 'async trade is queued before the ownership refusal')
+            'respond (jsonError refusalStatus msg)' in async_body, 'async trade is queued before the ownership refusal')
+    pre = bodies['manualTradeOwnedNow']
+    require(0 <= pre.find('roleRefusal <- liveOrderRoleRefusal <$> resolveServerRole') < pre.find('orderAccountKey ctrl args') and
+            'Just msg -> pure (Just (status403, msg))' in pre and '(status409,) <$> manualTradeConflict' in pre,
+            'async pre-check does not refuse a non-trading role before ownership')
     # Bot start publication: the only insertion of a new owner, checked under the lock.
     require(main.count('publishWorker (bcRuntime ctrl)') == 1, 'more than one bot publication site')
     publish = bodies['botStartSymbolWithSettings']

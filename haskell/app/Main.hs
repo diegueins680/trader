@@ -139,7 +139,7 @@ import Trader.App.GracefulShutdown (
     stopSupervisedWorkersBounded,
     stopThreadIdsBounded,
  )
-import Trader.App.LiveRole (LiveOrderRoleRefused (..))
+import Trader.App.LiveRole (LiveOrderRoleRefused (..), liveOrderRoleRefusal, requireLiveOrderRole, resolveServerRole)
 import Trader.App.ManualTradeOwnership (AccountIdentityUnavailable (..), ManualTradeClaims, ManualTradeOwnershipConflict (..), OwnershipKey, manualTradeClaimed, manualTradeConflict, newManualTradeClaims, withManualTradeClaim)
 import Trader.App.Observability (
     Journal,
@@ -22460,6 +22460,8 @@ runManualTrade ctrl args action =
     case argBinanceSymbol args of
         Just symRaw
             | manualTradeMayBeLive args -> do
+                -- Refuse on a non-trading server up front (403); the venue adapters re-check before any send.
+                requireLiveOrderRole
                 accountOrErr <- orderAccountKey ctrl args
                 case accountOrErr of
                     Left err -> throwIO (AccountIdentityUnavailable err)
@@ -22535,19 +22537,23 @@ botOwnerKey ctrl args settings sym
 instead of an accepted job that fails later. The claim taken inside the job
 remains authoritative for a bot that starts in between.
 -}
-manualTradeOwnedNow :: BotController -> Args -> IO (Maybe String)
+manualTradeOwnedNow :: BotController -> Args -> IO (Maybe (Status, String))
 manualTradeOwnedNow ctrl args =
     case argBinanceSymbol args of
         Just symRaw
             | manualTradeMayBeLive args -> do
-                -- An unresolved identity is left to the in-job claim, which fails closed.
-                accountOrErr <- orderAccountKey ctrl args
-                case accountOrErr of
-                    Left _ -> pure Nothing
-                    Right Nothing -> pure Nothing
-                    Right (Just account) -> do
-                        mrt <- readMVar (bcRuntime ctrl)
-                        pure (manualTradeConflict (ownedBotKeys mrt) (account, normalizeSymbol symRaw))
+                roleRefusal <- liveOrderRoleRefusal <$> resolveServerRole
+                case roleRefusal of
+                    Just msg -> pure (Just (status403, msg))
+                    Nothing -> do
+                        -- An unresolved identity is left to the in-job claim, which fails closed.
+                        accountOrErr <- orderAccountKey ctrl args
+                        case accountOrErr of
+                            Left _ -> pure Nothing
+                            Right Nothing -> pure Nothing
+                            Right (Just account) -> do
+                                mrt <- readMVar (bcRuntime ctrl)
+                                pure ((status409,) <$> manualTradeConflict (ownedBotKeys mrt) (account, normalizeSymbol symRaw))
         _ -> pure Nothing
 
 -- | Every position identity owned by a starting or running live bot, across all tenants.
@@ -22822,12 +22828,12 @@ handleTradeAsync botCtrl reqLimits mOps limits store metrics mJournal mWebhook b
                                                             TradeIdemAcquire -> do
                                                                 ownedNow <- manualTradeOwnedNow botCtrl argsFinal
                                                                 case ownedNow of
-                                                                    Just msg -> do
+                                                                    Just (refusalStatus, msg) -> do
                                                                         case (mOps, mIdemKey) of
                                                                             (Just opsStore, Just idemKey) ->
                                                                                 completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash msg
                                                                             _ -> pure ()
-                                                                        respond (jsonError status409 msg)
+                                                                        respond (jsonError refusalStatus msg)
                                                                     Nothing -> do
                                                                         r <-
                                                                             startJob mOps store $ do
