@@ -22,6 +22,7 @@ executable trader-hs
                      , Trader.App.WorkerPublication
                      , Trader.App.AsyncSafe
                      , Trader.App.LiveRole
+                     , Trader.App.Readiness
                      , Trader.App.ManualTradeOwnership
                      , Trader.App.GracefulShutdown
                      , Trader.App.Observability
@@ -311,6 +312,7 @@ test-suite trader-tests
                      , Trader.App.WorkerPublication
                      , Trader.App.AsyncSafe
                      , Trader.App.LiveRole
+                     , Trader.App.Readiness
                      , Trader.App.ManualTradeOwnership
                      , Trader.App.GracefulShutdown
                      , Trader.App.Runtime
@@ -404,6 +406,7 @@ test-suite trader-tests
                      , Trader.Test.AsyncSafe
                      , Trader.Test.ManualTradeOwnership
                      , Trader.Test.LiveRole
+                     , Trader.Test.Readiness
                      , Trader.Test.GracefulShutdown
                      , Trader.Test.MarketRisk
                      , Trader.Test.NeuralGovernorRollout

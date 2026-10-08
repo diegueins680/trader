@@ -11,7 +11,7 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, bracket, displayException, finally, fromException, throwIO)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, displayException, finally, fromException, throwIO, uninterruptibleMask_)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -165,6 +165,7 @@ import Trader.App.Observability (
     webhookNotifyMaybe,
     webhookNotifyMaybeSync,
  )
+import Trader.App.Readiness (Readiness (..), readinessHolds, readinessMaxAgeMs)
 import Trader.App.Runtime (
     TenantKey,
     hashKeyHex,
@@ -6302,6 +6303,8 @@ data BotController = BotController
     { bcRuntime :: MVar BotTenantMap
     , bcManualTrades :: ManualTradeClaims
     , bcAccountUids :: MVar (HM.HashMap TenantKey Int64)
+    , bcRuntimeEpoch :: IORef Int
+    -- ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
     -- ^ Binance account UID per credential pair, resolved once for live ownership identity.
     }
 
@@ -6941,7 +6944,7 @@ botFeatureInputs st =
                 (Just (botVolumes st))
 
 newBotController :: IO BotController
-newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty
+newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty <*> newIORef 0
 
 emptyBotAdjustments :: BotAdjustments
 emptyBotAdjustments = BotAdjustments 0 0 0 0
@@ -10450,6 +10453,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                                                         case ownerConflict of
                                                                             Just err -> pure (Retain (Left err))
                                                                             Nothing -> do
+                                                                                bumpRuntimeEpoch ctrl
                                                                                 stopSig <- newEmptyMVar
                                                                                 now <- getTimestampMs
                                                                                 pure $ Launch (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig) $ \tid ->
@@ -10541,13 +10545,14 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                     Just tenantMap ->
                         case HM.lookup sym tenantMap of
                             Just (BotStarting rt)
-                                | bsrThreadId rt == tid ->
+                                | bsrThreadId rt == tid -> do
+                                    bumpRuntimeEpoch ctrl
                                     let tenantMap' = HM.delete sym tenantMap
-                                     in pure
-                                            ( if HM.null tenantMap'
-                                                then HM.delete tenantKey mrt
-                                                else HM.insert tenantKey tenantMap' mrt
-                                            )
+                                    pure
+                                        ( if HM.null tenantMap'
+                                            then HM.delete tenantKey mrt
+                                            else HM.insert tenantKey tenantMap' mrt
+                                        )
                             _ -> pure mrt
                     Nothing -> pure mrt
         Right st0 -> do
@@ -10590,9 +10595,10 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                         Just tenantMap ->
                             case HM.lookup sym tenantMap of
                                 Just (BotStarting rt)
-                                    | bsrThreadId rt == tid ->
+                                    | bsrThreadId rt == tid -> do
+                                        bumpRuntimeEpoch ctrl
                                         let tenantMap' = HM.insert sym (BotRunning (BotRuntime tid stVar stopSig mOptimizerRt (bsrOwnerKey rt))) tenantMap
-                                         in pure (HM.insert tenantKey tenantMap' mrt, True)
+                                        pure (HM.insert tenantKey tenantMap' mrt, True)
                                 _ -> pure (mrt, False)
                         Nothing -> pure (mrt, False)
             if startOk
@@ -10615,7 +10621,7 @@ botAutoStartLoop ::
     Args ->
     BotController ->
     TenantKey ->
-    IORef Bool ->
+    IORef Readiness ->
     IO ()
 botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs botCtrl tenantKey recoveryReadyRef = do
     autostartEnv <- lookupEnv "TRADER_BOT_AUTOSTART"
@@ -11045,13 +11051,14 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                     Right _ -> clearError sym
                             loop = do
                                 -- Revoke the previous snapshot before work that can fail or block.
-                                when (bsTradeEnabled settings) (writeIORef recoveryReadyRef False)
+                                when (bsTradeEnabled settings) (writeIORef recoveryReadyRef NotReady)
                                 startupPhase <- readIORef startupPhaseRef
                                 let topComboTargetCount =
                                         if startupPhase
                                             then topComboStartupBotCount
                                             else topComboBotCount
-                                mrt <- readMVar (bcRuntime botCtrl)
+                                -- The runtime snapshot and its epoch are read together under the runtime lock.
+                                (mrt, scanEpoch) <- withMVar (bcRuntime botCtrl) (\m -> (,) m <$> readIORef (bcRuntimeEpoch botCtrl))
                                 let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
                                 orphanActionsOrErr <-
@@ -11073,8 +11080,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             (normalizeAutoStartErrorMessage err)
                                             ("Live bot auto-start blocked: unable to inspect existing Binance positions before starting or rotating bots: " ++ err)
                                     Right _ -> writeIORef orphanScanWarnRef Nothing
-                                when (bsTradeEnabled settings) $
-                                    writeIORef recoveryReadyRef (orphanScanReady && inventoryReconciled && null adoptionStartingSymbols)
+                                when (bsTradeEnabled settings) $ do
+                                    scannedAtMs <- getTimestampMs
+                                    writeIORef recoveryReadyRef $
+                                        if orphanScanReady && inventoryReconciled && null adoptionStartingSymbols
+                                            then ReadyAt scanEpoch scannedAtMs
+                                            else NotReady
                                 let adoptionPrioritySymbols = dedupeStable (orphanSymbols ++ adoptionStartingSymbols)
                                     adoptionPriority = not (null adoptionPrioritySymbols)
                                 if adoptionPriority
@@ -11274,6 +11285,7 @@ botStop ctrl tenantKey mSymbol =
                 if HM.null remainingTenant
                     then HM.delete tenantKey mrt
                     else HM.insert tenantKey remainingTenant mrt
+        unless (null targets) (bumpRuntimeEpoch ctrl)
         stopped <- mapM (stopRuntime . snd) targets
         pure (mrt', catMaybes stopped)
   where
@@ -14604,6 +14616,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                     Just tenantMap ->
                         case HM.lookup sym tenantMap of
                             Just (BotRunning rt) | brThreadId rt == tid -> do
+                                bumpRuntimeEpoch ctrl
                                 case brOptimizer rt of
                                     Nothing -> pure ()
                                     Just optRt -> do
@@ -16899,7 +16912,7 @@ runRestApi cliArgs mWebhook = do
     autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
     let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
     bot <- newBotController
-    botRecoveryReadyRef <- newIORef (not botRecoveryRequired)
+    botRecoveryReadyRef <- newIORef (if botRecoveryRequired then NotReady else ReadinessNotRequired)
     case mAutoBotTenant of
         Nothing -> do
             putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
@@ -18370,7 +18383,8 @@ adminAsyncHealthJson stores = do
 apiHealthJson ::
     BuildInfo ->
     DrainController ->
-    IORef Bool ->
+    BotController ->
+    IORef Readiness ->
     Maybe BS.ByteString ->
     Wai.Request ->
     ApiComputeLimits ->
@@ -18380,9 +18394,9 @@ apiHealthJson ::
     AsyncStores ->
     Bool ->
     IO Aeson.Value
-apiHealthJson buildInfo drain botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
+apiHealthJson buildInfo drain botCtrl botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores includeAdmin = do
     draining <- isDraining drain
-    botRecoveryReady <- readIORef botRecoveryReadyRef
+    botRecoveryReady <- botRecoveryReadyNow botCtrl botRecoveryReadyRef
     let authRequired = isJust apiToken
         authOk = authorized apiToken req
         asyncCfg = asBacktest asyncStores
@@ -18438,7 +18452,7 @@ apiApp ::
     CorsConfig ->
     Bool ->
     BotController ->
-    IORef Bool ->
+    IORef Readiness ->
     Metrics ->
     Maybe Journal ->
     Maybe Webhook ->
@@ -18528,14 +18542,14 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                     ["health"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> do
-                                                v <- apiHealthJson buildInfo drain botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores False
+                                                v <- apiHealthJson buildInfo drain botCtrl botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores False
                                                 respondCors (jsonValue status200 v)
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["ready"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> do
                                                 drainingNow <- isDraining drain
-                                                botRecoveryReady <- readIORef botRecoveryReadyRef
+                                                botRecoveryReady <- botRecoveryReadyNow botCtrl botRecoveryReadyRef
                                                 let readyNow = not drainingNow && botRecoveryReady
                                                     readyStatus = if readyNow then status200 else status503
                                                     readyLabel
@@ -18557,7 +18571,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                     ["admin", "health"] ->
                                         case Wai.requestMethod req of
                                             "GET" -> do
-                                                v <- apiHealthJson buildInfo drain botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores True
+                                                v <- apiHealthJson buildInfo drain botCtrl botRecoveryReadyRef apiToken req limits reqLimits apiCache mOps asyncStores True
                                                 respondCors (jsonValue status200 v)
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["metrics"] ->
@@ -22456,7 +22470,7 @@ owns the same account and symbol (CE-LIVE-002). Dry runs and Binance
 test-mode orders are not claimed.
 -}
 runManualTrade :: BotController -> Args -> IO a -> IO a
-runManualTrade ctrl args action = do
+runManualTrade ctrl args action = (`finally` invalidateAfterTrade) $ do
     -- Refuse any possibly-live trade on a non-trading server up front (403), with or
     -- without a symbol (DEX trades may have none); the venue adapters re-check before any send.
     when (manualTradeMayBeLive args) requireLiveOrderRole
@@ -22470,6 +22484,26 @@ runManualTrade ctrl args action = do
                     Right (Just account) ->
                         withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action
         _ -> action
+  where
+    -- A possibly-live manual trade may change venue inventory: readiness must come from a later scan.
+    invalidateAfterTrade =
+        when (manualTradeMayBeLive args) $
+            uninterruptibleMask_ (modifyMVar_ (bcRuntime ctrl) (\mrt -> bumpRuntimeEpoch ctrl >> pure mrt))
+
+-- | Invalidate published readiness. Call only while holding the 'bcRuntime' lock, together with the mutation.
+bumpRuntimeEpoch :: BotController -> IO ()
+bumpRuntimeEpoch ctrl = modifyIORef' (bcRuntimeEpoch ctrl) (+ 1)
+
+{- | Whether live bot readiness holds now: the last reconciled scan's runtime
+epoch is still current and the scan is fresh (see "Trader.App.Readiness").
+-}
+botRecoveryReadyNow :: BotController -> IORef Readiness -> IO Bool
+botRecoveryReadyNow ctrl readinessRef = do
+    readiness <- readIORef readinessRef
+    epochNow <- readIORef (bcRuntimeEpoch ctrl)
+    nowMs <- getTimestampMs
+    pollSec <- comboPollSecondsFromEnv
+    pure (readinessHolds epochNow nowMs (readinessMaxAgeMs pollSec) readiness)
 
 manualTradeMayBeLive :: Args -> Bool
 manualTradeMayBeLive args = not (argDryRun args) && (argPlatform args /= PlatformBinance || argBinanceLive args)

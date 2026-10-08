@@ -399,6 +399,12 @@
       "risk": "RL-OFFLINE-001"
     },
     {
+      "id": "A-READINESS-EPOCH",
+      "status": "assumption",
+      "statement": "In-process readiness of one trading server. Venue snapshots are assumed complete and truthful when read; exchange-side changes outside the system (stop or liquidation fills, the exchange UI) between scans are bounded only by the freshness window. Ownership reconciliation relies on obligation 15's certificates. Readiness is reported, not enforced: it gates no order path, and /health always returns status ok.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
       "id": "A-CAUSAL-REPLAY-V3",
       "status": "assumption",
       "statement": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim.",
@@ -633,7 +639,10 @@
     "scripts/formal/position_ownership.py",
     "haskell/app/Trader/App/ManualTradeOwnership.hs",
     "formal/research/position-ownership-counterexamples.json",
-    "haskell/app/Trader/App/LiveRole.hs"
+    "haskell/app/Trader/App/LiveRole.hs",
+    "scripts/formal/readiness_epoch.py",
+    "haskell/app/Trader/App/Readiness.hs",
+    "formal/research/readiness-epoch-counterexample.json"
   ],
   "entries": [
     {
@@ -4947,6 +4956,90 @@
       "status": "property_tested"
     },
     {
+      "requirementId": "F-READINESS-EPOCH-SOURCE",
+      "claim": "Every definition that mutates the bot runtime map (start publication, start-failure removal, Starting-to-Running promotion, stop, worker cleanup) and every possibly-live manual trade completion bumps the runtime epoch inside the same runtime lock; the readiness scan revokes readiness, reads its runtime snapshot together with the epoch under the lock, and publishes readiness tagged with that epoch and scan time only when the scan reconciled; both HTTP readers (/ready and /health) report ready only when the tagged epoch is current and the scan is within the freshness bound.",
+      "formalStatement": "Every definition that mutates the bot runtime map (start publication, start-failure removal, Starting-to-Running promotion, stop, worker cleanup) and every possibly-live manual trade completion bumps the runtime epoch inside the same runtime lock; the readiness scan revokes readiness, reads its runtime snapshot together with the epoch under the lock, and publishes readiness tagged with that epoch and scan time only when the scan reconciled; both HTTP readers (/ready and /health) report ready only when the tagged epoch is current and the scan is within the freshness bound.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-READINESS-EPOCH"
+      ],
+      "tool": "Source binding of every runtime mutation, the scan publication and both readers",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/readiness_epoch.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Readiness.hs",
+        "formal/research/readiness-epoch-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/Readiness.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh binding must reproduce; an unbumped mutation, an unvalidated reader or a reordered scan fails closed.",
+      "bounds": "6 epoch-bumping sites; 2 readers; model of one scan with a stop, a start and a manual trade over symbols A and B.",
+      "limitations": "In-process readiness of one trading server. Venue snapshots are assumed complete and truthful when read; exchange-side changes outside the system (stop or liquidation fills, the exchange UI) between scans are bounded only by the freshness window. Ownership reconciliation relies on obligation 15's certificates. Readiness is reported, not enforced: it gates no order path, and /health always returns status ok.",
+      "counterexample": "CE-READY-001",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-READINESS-EPOCH-FLOW",
+      "claim": "Exhaustive interleavings of the readiness scan (revoke, snapshot, venue read, publish) with a bot stop that leaves its position open, a bot start and a manual trade that opens a position never let an epoch-validating reader report ready while the current runtime and venue inventory are unreconciled, and readiness remains reachable; dropping the epoch check (CE-READY-001) or the epoch bump on stop reaches such a state.",
+      "formalStatement": "Exhaustive interleavings of the readiness scan (revoke, snapshot, venue read, publish) with a bot stop that leaves its position open, a bot start and a manual trade that opens a position never let an epoch-validating reader report ready while the current runtime and venue inventory are unreconciled, and readiness remains reachable; dropping the epoch check (CE-READY-001) or the epoch bump on stop reaches such a state.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-READINESS-EPOCH"
+      ],
+      "tool": "Exhaustive breadth-first interleaving model with protocol mutants",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/readiness_epoch.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Readiness.hs",
+        "formal/research/readiness-epoch-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/Readiness.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "No violation in the fixed protocol with readiness reachable; both weakened protocols refuted.",
+      "bounds": "6 epoch-bumping sites; 2 readers; model of one scan with a stop, a start and a manual trade over symbols A and B.",
+      "limitations": "In-process readiness of one trading server. Venue snapshots are assumed complete and truthful when read; exchange-side changes outside the system (stop or liquidation fills, the exchange UI) between scans are bounded only by the freshness window. Ownership reconciliation relies on obligation 15's certificates. Readiness is reported, not enforced: it gates no order path, and /health always returns status ok.",
+      "counterexample": "CE-READY-001",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-READINESS-EPOCH-CONFORMANCE",
+      "claim": "A compiled program against the actual Trader.App.Readiness module accepts readiness only at the scanned epoch and within the freshness bound (ten scan intervals, at least five minutes), keeps servers without live recovery ready and never accepts revoked readiness; the Haskell suite checks the same decisions.",
+      "formalStatement": "A compiled program against the actual Trader.App.Readiness module accepts readiness only at the scanned epoch and within the freshness bound (ten scan intervals, at least five minutes), keeps servers without live recovery ready and never accepts revoked readiness; the Haskell suite checks the same decisions.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-READINESS-EPOCH"
+      ],
+      "tool": "Compiled GHC regression against Trader.App.Readiness, Haskell test suite",
+      "toolVersion": "GHC 9.4.8; CPython3.13.3",
+      "sourceModel": "scripts/formal/readiness_epoch.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Readiness.hs",
+        "formal/research/readiness-epoch-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py",
+        "haskell/test/Trader/Test/Readiness.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "The compiled regression output must match exactly.",
+      "bounds": "6 epoch-bumping sites; 2 readers; model of one scan with a stop, a start and a manual trade over symbols A and B.",
+      "limitations": "In-process readiness of one trading server. Venue snapshots are assumed complete and truthful when read; exchange-side changes outside the system (stop or liquidation fills, the exchange UI) between scans are bounded only by the freshness window. Ownership reconciliation relies on obligation 15's certificates. Readiness is reported, not enforced: it gates no order path, and /health always returns status ok.",
+      "counterexample": "CE-READY-001",
+      "status": "property_tested"
+    },
+    {
       "requirementId": "F-RL-PROMOTION-SURFACE",
       "claim": "The complete reviewed twelve-module research source closure has six fixed callback bindings, literal research output destinations and no unreviewed call/import/control-field site under the named primitive-effect assumptions.",
       "formalStatement": "The complete reviewed twelve-module research source closure has six fixed callback bindings, literal research output destinations and no unreviewed call/import/control-field site under the named primitive-effect assumptions.",
@@ -8696,24 +8789,31 @@
     {
       "number": 16,
       "claim": "Reconciliation",
-      "status": "partially_verified",
+      "status": "model_checked",
       "evidenceRequirements": [
         "F-INVENTORY-READINESS-PREDICATE",
         "F-INVENTORY-READINESS-FLOW",
-        "F-INVENTORY-READINESS-CONFORMANCE"
+        "F-INVENTORY-READINESS-CONFORMANCE",
+        "F-READINESS-EPOCH-SOURCE",
+        "F-READINESS-EPOCH-FLOW",
+        "F-READINESS-EPOCH-CONFORMANCE"
       ],
-      "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure.",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "limitations": "Pinned GHC/base floating classification, existing signed-side interpretation, immutable non-bottom records and reviewed source/model correspondence; complete truthful venue snapshots are environmental assumptions. Runtime map and bot state reads are not atomic with venue or persistent owners. No persistent uniqueness, multi-process ownership, continuous freshness, HTTP/drain linearization or full reconciliation closure. Closure (2026-10-08): CE-READY-001 (readiness kept reporting a reconciliation after a bot stop or manual trade until the next scan) is resolved by epoch-tagged readiness (F-READINESS-EPOCH-*); with the predicate and publication certificates, readiness now implies that the last scan reconciled inventory against the current runtime, within the freshness bound. Assumptions: In-process readiness of one trading server. Venue snapshots are assumed complete and truthful when read; exchange-side changes outside the system (stop or liquidation fills, the exchange UI) between scans are bounded only by the freshness window. Ownership reconciliation relies on obligation 15's certificates. Readiness is reported, not enforced: it gates no order path, and /health always returns status ok.",
+      "scope": "Live bot readiness reported by one trading server (/ready and /health) for its bot runtime and venue inventory, with ownership as certified for obligation 15. Out of scope: exchange-side changes between scans beyond the freshness bound, and multi-server readiness.",
       "closureCriteria": "Live readiness implies successful inventory and ownership reconciliation.",
-      "nextAction": "Compose snapshot certification with actual persistent-owner reconciliation and runtime invalidation under concurrent stop/replacement; certify the readiness consumer without changing production ownership or risk limits.",
+      "nextAction": "Reopen before any new runtime-map mutation, readiness reader or writer, change to the scan's runtime snapshot or publication, or before readiness starts gating order paths.",
       "implementationFiles": [
         "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Readiness.hs",
         "haskell/app/Trader/BotSnapshotRecovery.hs"
       ],
-      "blockers": [
-        "Snapshot gate has source-bound predicate/model/conformance evidence, but runtime map/state reads, persistent ownership and venue inventory are not one atomic snapshot; ongoing freshness and HTTP/drain linearization remain unverified."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-INVENTORY-READINESS-PREDICATE",
+        "F-INVENTORY-READINESS-FLOW",
+        "F-READINESS-EPOCH-SOURCE",
+        "F-READINESS-EPOCH-FLOW"
+      ]
     },
     {
       "number": 17,

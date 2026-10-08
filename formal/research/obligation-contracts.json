@@ -494,14 +494,20 @@
     {
       "number": 16,
       "claim": "Reconciliation",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "scope": "Live bot readiness reported by one trading server (/ready and /health) for its bot runtime and venue inventory, with ownership as certified for obligation 15. Out of scope: exchange-side changes between scans beyond the freshness bound, and multi-server readiness.",
       "closureCriteria": "Live readiness implies successful inventory and ownership reconciliation.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-INVENTORY-READINESS-PREDICATE",
+        "F-INVENTORY-READINESS-FLOW",
+        "F-READINESS-EPOCH-SOURCE",
+        "F-READINESS-EPOCH-FLOW"
+      ],
       "implementationFiles": [
         "haskell/app/Main.hs",
+        "haskell/app/Trader/App/Readiness.hs",
         "haskell/app/Trader/BotSnapshotRecovery.hs"
       ],
-      "closureClass": null
+      "closureClass": "model_checked"
     },
     {
       "number": 17,
