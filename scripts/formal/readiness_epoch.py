@@ -154,9 +154,14 @@ def _all_states(variant):
     return seen_states, edges
 
 
+def render(state):
+    """Deterministic text for a state: frozenset reprs depend on per-process hash randomization."""
+    return repr(tuple(sorted(x) if isinstance(x, frozenset) else x for x in state))
+
+
 def explore(variant):
     states, edges = _all_states(variant)
-    bad = sorted((repr(s) for s in states if reader_ready(s, variant) and not reconciled(s[0], s[1])), key=len)
+    bad = sorted((render(s) for s in states if reader_ready(s, variant) and not reconciled(s[0], s[1])), key=lambda x: (len(x), x))
     return {'states': len(states), 'transitions': edges, 'violation': bad[0] if bad else None,
             'readyReachable': any(reader_ready(s, variant) for s in states)}
 

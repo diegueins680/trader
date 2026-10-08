@@ -2863,9 +2863,9 @@
     },
     "model": {
       "counterexamples": {
-        "CE-READY-001": "(frozenset(), frozenset({'A'}), 1, 0, 'done', frozenset({'A'}), 0, frozenset({'A'}), ('ready', 0), 'none', frozenset({'stop'}))",
-        "completion-only-trade": "(frozenset({'A'}), frozenset({'A', 'B'}), 0, 0, 'done', frozenset({'A'}), 0, frozenset({'A'}), ('ready', 0), 'filled', frozenset())",
-        "no-bump-on-stop": "(frozenset(), frozenset({'A'}), 0, 0, 'done', frozenset({'A'}), 0, frozenset({'A'}), ('ready', 0), 'none', frozenset({'stop'}))"
+        "CE-READY-001": "([], ['A'], 1, 0, 'done', ['A'], 0, ['A'], ('ready', 0), 'none', ['stop'])",
+        "completion-only-trade": "(['A'], ['A', 'B'], 0, 0, 'done', ['A'], 0, ['A'], ('ready', 0), 'filled', [])",
+        "no-bump-on-stop": "([], ['A'], 0, 0, 'done', ['A'], 0, ['A'], ('ready', 0), 'none', ['stop'])"
       },
       "states": 304,
       "status": "model_checked",
@@ -4268,14 +4268,14 @@
     "scripts/formal/optimizer_publication.py": "385215deeb5cab0d05cb7eb46ffa8d27392705b405716ef94fc2b5bdd67764d0",
     "scripts/formal/order_numbers.py": "b8216100bce2e738ca999b88fb7ac43b6732e6675a17822e41cebae3561a95d9",
     "scripts/formal/point_in_time.py": "35d739aa6d24340d2db381b636130caa8915b23de465f02e4b86064429063f64",
-    "scripts/formal/position_ownership.py": "3960b86708ddefdfb4eefa22294b57d63056c9b8c3454f3a892816515cc83346",
+    "scripts/formal/position_ownership.py": "b204fb0ecccd1123e0815ed1be22ff083cc7eb14ce608fb55c5eba565bb18b80",
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
     "scripts/formal/promotion_boundary.py": "4bb77a4bc8b324f5f1b7291c738b6f38fd882c4af95e7deee9f200b9a21c243b",
     "scripts/formal/proofs.py": "2ead6cb6f358c10dbdc8ee20d4e1e552270ff144c8f3a1eea8b84354217b2366",
     "scripts/formal/quantity_rounding.py": "d0188f00d69ea4c156c40b0e629a66d7db97f0e4a1072c5935c35e3b099075a0",
-    "scripts/formal/readiness_epoch.py": "0afd2573c1c772e1695399e30742adab73b81e93b5647c32c391601cce75b00e",
+    "scripts/formal/readiness_epoch.py": "de34c0627cbecff49a81c7a7b41e44832ec33344403390b7c030f84136cad66c",
     "scripts/formal/replay_accounting.py": "bb71217913d049d192e807955da290988bde5905f23784f018bb4a363d2ce108",
     "scripts/formal/replay_cutoff.py": "96da427c1b3071203c55b27d6ed76c122cb4b1427b83bb3a3b9fedefd418121b",
     "scripts/formal/replay_order.py": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",

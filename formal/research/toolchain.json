@@ -540,11 +540,11 @@
     "formal/research/causal-replay-v3-contract.md": "7c4d1a5cc5086b17d164f82b101b470a13ce8c9e61fc1d7fdaf9824db01e51a6",
     "formal/research/causal-replay-v3-source.json": "7da0614db25217ed9a7f168ee4c99b4058bf937411bc98656f550857ca224457",
     "research-notes/registrations/causal-replay-v3-engineering.json": "335a9d54944381d491e28b5278a395bf766a74a4f68b3f413e79ee4d050ef11d",
-    "scripts/formal/position_ownership.py": "3960b86708ddefdfb4eefa22294b57d63056c9b8c3454f3a892816515cc83346",
+    "scripts/formal/position_ownership.py": "b204fb0ecccd1123e0815ed1be22ff083cc7eb14ce608fb55c5eba565bb18b80",
     "haskell/app/Trader/App/ManualTradeOwnership.hs": "3a5e32049c06d55ae1a05d653fb9642bb4d5e0cc8232fbf1668b338b25a889a1",
     "formal/research/position-ownership-counterexamples.json": "26ba19209813bd2b8bf1e1ea7f4a6aac933e888531f6f764699f43d50d1515b8",
     "haskell/app/Trader/App/LiveRole.hs": "b8c5c0d9258a130bdaf2e8ed154327ca9f397ed16c0caa13c751e2381c8996b9",
-    "scripts/formal/readiness_epoch.py": "0afd2573c1c772e1695399e30742adab73b81e93b5647c32c391601cce75b00e",
+    "scripts/formal/readiness_epoch.py": "de34c0627cbecff49a81c7a7b41e44832ec33344403390b7c030f84136cad66c",
     "haskell/app/Trader/App/Readiness.hs": "1271565c741a2e653a97879300199b103da4b9c68f3dc51885ff0e90142782f6",
     "formal/research/readiness-epoch-counterexample.json": "519168ee732bdb51bc8d13686326568fb2f8b2a4457ce7d03d3eea3e27ac2f9d"
   },
