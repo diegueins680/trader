@@ -22456,12 +22456,13 @@ owns the same account and symbol (CE-LIVE-002). Dry runs and Binance
 test-mode orders are not claimed.
 -}
 runManualTrade :: BotController -> Args -> IO a -> IO a
-runManualTrade ctrl args action =
+runManualTrade ctrl args action = do
+    -- Refuse any possibly-live trade on a non-trading server up front (403), with or
+    -- without a symbol (DEX trades may have none); the venue adapters re-check before any send.
+    when (manualTradeMayBeLive args) requireLiveOrderRole
     case argBinanceSymbol args of
         Just symRaw
             | manualTradeMayBeLive args -> do
-                -- Refuse on a non-trading server up front (403); the venue adapters re-check before any send.
-                requireLiveOrderRole
                 accountOrErr <- orderAccountKey ctrl args
                 case accountOrErr of
                     Left err -> throwIO (AccountIdentityUnavailable err)
@@ -22538,22 +22539,23 @@ instead of an accepted job that fails later. The claim taken inside the job
 remains authoritative for a bot that starts in between.
 -}
 manualTradeOwnedNow :: BotController -> Args -> IO (Maybe (Status, String))
-manualTradeOwnedNow ctrl args =
-    case argBinanceSymbol args of
-        Just symRaw
+manualTradeOwnedNow ctrl args = do
+    roleRefusal <-
+        if manualTradeMayBeLive args
+            then liveOrderRoleRefusal <$> resolveServerRole
+            else pure Nothing
+    case (roleRefusal, argBinanceSymbol args) of
+        (Just msg, _) -> pure (Just (status403, msg))
+        (Nothing, Just symRaw)
             | manualTradeMayBeLive args -> do
-                roleRefusal <- liveOrderRoleRefusal <$> resolveServerRole
-                case roleRefusal of
-                    Just msg -> pure (Just (status403, msg))
-                    Nothing -> do
-                        -- An unresolved identity is left to the in-job claim, which fails closed.
-                        accountOrErr <- orderAccountKey ctrl args
-                        case accountOrErr of
-                            Left _ -> pure Nothing
-                            Right Nothing -> pure Nothing
-                            Right (Just account) -> do
-                                mrt <- readMVar (bcRuntime ctrl)
-                                pure ((status409,) <$> manualTradeConflict (ownedBotKeys mrt) (account, normalizeSymbol symRaw))
+                -- An unresolved identity is left to the in-job claim, which fails closed.
+                accountOrErr <- orderAccountKey ctrl args
+                case accountOrErr of
+                    Left _ -> pure Nothing
+                    Right Nothing -> pure Nothing
+                    Right (Just account) -> do
+                        mrt <- readMVar (bcRuntime ctrl)
+                        pure ((status409,) <$> manualTradeConflict (ownedBotKeys mrt) (account, normalizeSymbol symRaw))
         _ -> pure Nothing
 
 -- | Every position identity owned by a starting or running live bot, across all tenants.
