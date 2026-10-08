@@ -22,7 +22,7 @@ MUTATIONS = {
                        '| bsrThreadId rt == tid -> do\n                                        bumpRuntimeEpoch ctrl\n                                        let tenantMap\' = HM.insert sym (BotRunning'],
     'botLoop': 'Just (BotRunning rt) | brThreadId rt == tid -> do\n                                bumpRuntimeEpoch ctrl',
     'botStartSymbolWithSettings': 'Nothing -> do\n                                                                                bumpRuntimeEpoch ctrl\n                                                                                stopSig <- newEmptyMVar',
-    'runManualTrade': 'uninterruptibleMask_ (modifyMVar_ (bcRuntime ctrl) (\\mrt -> bumpRuntimeEpoch ctrl >> pure mrt))',
+    'runManualTrade': 'modifyMVar_ (bcRuntime ctrl) $ \\mrt -> do\n                modifyIORef\' (bcManualInFlight ctrl) (+ delta)\n                bumpRuntimeEpoch ctrl',
 }
 # Lock-taking uses of the runtime map that leave it unchanged.
 READ_ONLY = {'withManualTradeClaim', 'botOwnerConflict'}
@@ -70,10 +70,16 @@ def bind(sources=None):
     readers = [line.strip() for line in main.split('\n') if re.search(r'readIORef (bot)?[rR]ecoveryReadyRef', line)]
     require(readers == [], 'readiness read without epoch validation')
     now = bodies['botRecoveryReadyNow']
-    require('epochNow <- readIORef (bcRuntimeEpoch ctrl)' in now and
-            'readinessHolds epochNow nowMs (readinessMaxAgeMs pollSec) readiness' in now, 'reader validation')
+    require(0 <= now.find('manualInFlightNow <- readIORef (bcManualInFlight ctrl)') < now.find('epochNow <- readIORef (bcRuntimeEpoch ctrl)') and
+            'readinessHolds manualInFlightNow epochNow nowMs (readinessMaxAgeMs pollSec) readiness' in now, 'reader validation')
+    # A possibly-live manual trade is counted in flight from admission to completion, bumping the epoch at both ends.
+    run = bodies['runManualTrade']
+    require('runManualTrade ctrl args action = bracketManualTrade $ do' in run and
+            '| manualTradeMayBeLive args = bracket_ (manualInFlight 1) (manualInFlight (-1))' in run and
+            'uninterruptibleMask_ $\n            modifyMVar_ (bcRuntime ctrl)' in run, 'manual trade not counted in flight for its whole duration')
+    require(len(re.findall(r'bcManualInFlight', main)) == 3, 'in-flight count written outside the reviewed site')
     require(main.count('botRecoveryReady <- botRecoveryReadyNow botCtrl botRecoveryReadyRef') == 2, 'HTTP readers')
-    for fragment in ('ReadyAt epoch scannedAtMs ->\n            epoch == epochNow && scannedAtMs <= nowMs && nowMs - scannedAtMs <= maxAgeMs',
+    for fragment in ('ReadyAt epoch scannedAtMs ->\n            manualInFlight == 0 && epoch == epochNow && scannedAtMs <= nowMs && nowMs - scannedAtMs <= maxAgeMs',
                      'ReadinessNotRequired -> True', 'NotReady -> False',
                      'readinessMaxAgeMs pollSec = 1000 * fromIntegral (max 300 (10 * max 1 pollSec))'):
         require(fragment in helper, 'readiness decision changed: ' + fragment.split('\n')[0])
@@ -82,84 +88,89 @@ def bind(sources=None):
 
 
 # ---- Model ------------------------------------------------------------------------------------------------------
-# Symbols A and B. Runtime: set of symbols with a live bot. Venue: set of symbols with an open position.
+# Symbols A and B. Runtime: symbols with a live bot. Venue: symbols with an open position.
 # Reconciled(runtime, venue): every open position has a live bot.
-# Actors: a scanner (snapshot -> venue read -> publish), a bot that may stop on A, a bot that may start on B,
-# and a manual trade that opens B. Each step under the runtime lock is atomic.
+# Actors: the scanner (revoke -> snapshot+epoch -> venue read -> publish); bot A stops (its position stays open);
+# a bot for B starts; a manual trade is admitted, fills (opens B) and completes. Lock-protected steps are atomic.
+# A reader validates (in-flight count, epoch) as the server does.
 
 def reconciled(runtime, venue):
     return venue <= runtime
 
 
 def initial():
-    # runtime, venue, epoch, scanner pc, snapshot, snapshot epoch, venue seen, published, events used
-    return (frozenset({'A'}), frozenset({'A'}), 0, 'idle', None, None, None, ('none',), frozenset())
+    # runtime, venue, epoch, in-flight trades, scanner pc, snapshot, snapshot epoch, venue seen, published, trade phase, events
+    return (frozenset({'A'}), frozenset({'A'}), 0, 0, 'idle', None, None, None, ('none',), 'none', frozenset())
 
 
 def successors(state, variant):
-    runtime, venue, epoch, pc, snap, snap_epoch, seen, published, used = state
-    bump = (lambda e: e) if variant == 'no-bump-on-stop' else (lambda e: e + 1)
+    runtime, venue, epoch, flight, pc, snap, snap_epoch, seen, published, trade, used = state
     out = []
+    def with_(**kw):
+        d = dict(runtime=runtime, venue=venue, epoch=epoch, flight=flight, pc=pc, snap=snap, snap_epoch=snap_epoch,
+                 seen=seen, published=published, trade=trade, used=used)
+        d.update(kw)
+        return (d['runtime'], d['venue'], d['epoch'], d['flight'], d['pc'], d['snap'], d['snap_epoch'], d['seen'],
+                d['published'], d['trade'], d['used'])
     if pc == 'idle':
-        out.append(('revoke', (runtime, venue, epoch, 'snapped', runtime, epoch, None, ('none',), used)))
+        out.append(with_(pc='snapped', snap=runtime, snap_epoch=epoch, published=('none',)))
     elif pc == 'snapped':
-        out.append(('venue', (runtime, venue, epoch, 'seen', snap, snap_epoch, venue, published, used)))
+        out.append(with_(pc='seen', seen=venue))
     elif pc == 'seen':
-        ok = reconciled(snap, seen)
-        out.append(('publish', (runtime, venue, epoch, 'done', snap, snap_epoch, seen, ('ready', snap_epoch) if ok else ('none',), used)))
-    if 'stop' not in used and 'A' in runtime:  # bot A stops; its position stays open on the venue
-        out.append(('stop', (runtime - {'A'}, venue, bump(epoch), pc, snap, snap_epoch, seen, published, used | {'stop'})))
-    if 'start' not in used:  # a bot for B starts (adopting nothing yet)
-        out.append(('start', (runtime | {'B'}, venue, epoch + 1, pc, snap, snap_epoch, seen, published, used | {'start'})))
-    if 'trade' not in used:  # a manual trade opens B, then invalidates under the lock on completion
-        out.append(('trade', (runtime, venue | {'B'}, epoch + 1, pc, snap, snap_epoch, seen, published, used | {'trade'})))
+        out.append(with_(pc='done', published=('ready', snap_epoch) if reconciled(snap, seen) else ('none',)))
+    if 'stop' not in used and 'A' in runtime:
+        out.append(with_(runtime=runtime - {'A'}, epoch=epoch if variant == 'no-bump-on-stop' else epoch + 1, used=used | {'stop'}))
+    if 'start' not in used:
+        out.append(with_(runtime=runtime | {'B'}, epoch=epoch + 1, used=used | {'start'}))
+    completion_only = variant == 'completion-only-trade'
+    if trade == 'none':
+        out.append(with_(trade='admitted', flight=flight if completion_only else flight + 1, epoch=epoch if completion_only else epoch + 1))
+    elif trade == 'admitted':
+        out.append(with_(trade='filled', venue=venue | {'B'}))
+    elif trade == 'filled':
+        out.append(with_(trade='done', flight=flight if completion_only else flight - 1, epoch=epoch + 1))
     return out
 
 
 def reader_ready(state, variant):
-    runtime, venue, epoch, pc, snap, snap_epoch, seen, published, used = state
+    runtime, venue, epoch, flight, pc, snap, snap_epoch, seen, published, trade, used = state
     if published[0] != 'ready':
         return False
-    return True if variant == 'no-epoch-check' else published[1] == epoch
+    if variant == 'no-epoch-check':
+        return True
+    return flight == 0 and published[1] == epoch
 
 
-def explore(variant):
+def _all_states(variant):
     start = initial()
     seen_states, queue, edges = {start}, deque([start]), 0
     while queue:
         state = queue.popleft()
-        if reader_ready(state, variant) and not reconciled(state[0], state[1]):
-            return {'states': len(seen_states), 'transitions': edges, 'violation': repr(state)}
-        for _, nxt in successors(state, variant):
+        for nxt in successors(state, variant):
             edges += 1
             if nxt not in seen_states:
                 seen_states.add(nxt)
                 queue.append(nxt)
-    return {'states': len(seen_states), 'transitions': edges, 'violation': None}
+    return seen_states, edges
+
+
+def explore(variant):
+    states, edges = _all_states(variant)
+    bad = sorted((repr(s) for s in states if reader_ready(s, variant) and not reconciled(s[0], s[1])), key=len)
+    return {'states': len(states), 'transitions': edges, 'violation': bad[0] if bad else None,
+            'readyReachable': any(reader_ready(s, variant) for s in states)}
 
 
 def check_model():
     fixed = explore('fixed')
     require(fixed['violation'] is None and fixed['states'] > 20, 'epoch-validated readiness reports an unreconciled state')
-    reachable_ready = any(reader_ready(s, 'fixed') for s in _all_states('fixed'))
-    require(reachable_ready, 'readiness unreachable (vacuous)')
-    mutants = {name: explore(name) for name in ('no-epoch-check', 'no-bump-on-stop')}
+    require(fixed['readyReachable'], 'readiness unreachable (vacuous)')
+    mutants = {name: explore(name) for name in ('no-epoch-check', 'no-bump-on-stop', 'completion-only-trade')}
     require(all(r['violation'] for r in mutants.values()), 'a weakened protocol was not refuted')
     return {'status': 'model_checked', 'states': fixed['states'], 'transitions': fixed['transitions'],
             'counterexamples': {'CE-READY-001': mutants['no-epoch-check']['violation'],
-                                'no-bump-on-stop': mutants['no-bump-on-stop']['violation']}}
-
-
-def _all_states(variant):
-    start = initial()
-    seen_states, queue = {start}, deque([start])
-    while queue:
-        state = queue.popleft()
-        for _, nxt in successors(state, variant):
-            if nxt not in seen_states:
-                seen_states.add(nxt)
-                queue.append(nxt)
-    return seen_states
+                                'no-bump-on-stop': mutants['no-bump-on-stop']['violation'],
+                                'completion-only-trade': mutants['completion-only-trade']['violation']}}
 
 
 PROGRAM = r'''
@@ -168,10 +179,11 @@ main :: IO ()
 main = do
   let maxAge = readinessMaxAgeMs 30
   print maxAge
-  print (map (readinessHolds 7 1000000 maxAge)
+  print (map (readinessHolds 0 7 1000000 maxAge)
     [ReadinessNotRequired, NotReady, ReadyAt 7 900000, ReadyAt 6 900000, ReadyAt 7 600000, ReadyAt 7 1000001])
+  print (readinessHolds 1 7 1000000 maxAge (ReadyAt 7 900000))
 '''
-EXPECTED = '300000\n[True,False,True,False,False,False]'
+EXPECTED = '300000\n[True,False,True,False,False,False]\nFalse'
 
 
 def conformance():

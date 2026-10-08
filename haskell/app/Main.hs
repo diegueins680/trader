@@ -11,7 +11,7 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, bracket, displayException, finally, fromException, throwIO, uninterruptibleMask_)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, finally, fromException, throwIO, uninterruptibleMask_)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -6304,6 +6304,8 @@ data BotController = BotController
     , bcManualTrades :: ManualTradeClaims
     , bcAccountUids :: MVar (HM.HashMap TenantKey Int64)
     , bcRuntimeEpoch :: IORef Int
+    , bcManualInFlight :: IORef Int
+    -- ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
     -- ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
     -- ^ Binance account UID per credential pair, resolved once for live ownership identity.
     }
@@ -6944,7 +6946,7 @@ botFeatureInputs st =
                 (Just (botVolumes st))
 
 newBotController :: IO BotController
-newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty <*> newIORef 0
+newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty <*> newIORef 0 <*> newIORef 0
 
 emptyBotAdjustments :: BotAdjustments
 emptyBotAdjustments = BotAdjustments 0 0 0 0
@@ -22470,7 +22472,7 @@ owns the same account and symbol (CE-LIVE-002). Dry runs and Binance
 test-mode orders are not claimed.
 -}
 runManualTrade :: BotController -> Args -> IO a -> IO a
-runManualTrade ctrl args action = (`finally` invalidateAfterTrade) $ do
+runManualTrade ctrl args action = bracketManualTrade $ do
     -- Refuse any possibly-live trade on a non-trading server up front (403), with or
     -- without a symbol (DEX trades may have none); the venue adapters re-check before any send.
     when (manualTradeMayBeLive args) requireLiveOrderRole
@@ -22485,10 +22487,18 @@ runManualTrade ctrl args action = (`finally` invalidateAfterTrade) $ do
                         withManualTradeClaim (bcRuntime ctrl) ownedBotKeys (bcManualTrades ctrl) (account, normalizeSymbol symRaw) action
         _ -> action
   where
-    -- A possibly-live manual trade may change venue inventory: readiness must come from a later scan.
-    invalidateAfterTrade =
-        when (manualTradeMayBeLive args) $
-            uninterruptibleMask_ (modifyMVar_ (bcRuntime ctrl) (\mrt -> bumpRuntimeEpoch ctrl >> pure mrt))
+    -- A possibly-live manual trade may change venue inventory from admission onward: it is counted in flight
+    -- (suspending readiness) and bumps the epoch both when admitted and when it completes, so readiness must
+    -- come from a scan after it.
+    bracketManualTrade
+        | manualTradeMayBeLive args = bracket_ (manualInFlight 1) (manualInFlight (-1))
+        | otherwise = id
+    manualInFlight delta =
+        uninterruptibleMask_ $
+            modifyMVar_ (bcRuntime ctrl) $ \mrt -> do
+                modifyIORef' (bcManualInFlight ctrl) (+ delta)
+                bumpRuntimeEpoch ctrl
+                pure mrt
 
 -- | Invalidate published readiness. Call only while holding the 'bcRuntime' lock, together with the mutation.
 bumpRuntimeEpoch :: BotController -> IO ()
@@ -22500,10 +22510,12 @@ epoch is still current and the scan is fresh (see "Trader.App.Readiness").
 botRecoveryReadyNow :: BotController -> IORef Readiness -> IO Bool
 botRecoveryReadyNow ctrl readinessRef = do
     readiness <- readIORef readinessRef
+    -- In-flight count before the epoch: a trade admitted after the first read has bumped the epoch.
+    manualInFlightNow <- readIORef (bcManualInFlight ctrl)
     epochNow <- readIORef (bcRuntimeEpoch ctrl)
     nowMs <- getTimestampMs
     pollSec <- comboPollSecondsFromEnv
-    pure (readinessHolds epochNow nowMs (readinessMaxAgeMs pollSec) readiness)
+    pure (readinessHolds manualInFlightNow epochNow nowMs (readinessMaxAgeMs pollSec) readiness)
 
 manualTradeMayBeLive :: Args -> Bool
 manualTradeMayBeLive args = not (argDryRun args) && (argPlatform args /= PlatformBinance || argBinanceLive args)

@@ -25,14 +25,18 @@ data Readiness
       ReadyAt !Int !Int64
     deriving (Eq, Show)
 
--- | Whether readiness holds now, given the current runtime epoch, the time (ms) and the freshness bound (ms).
-readinessHolds :: Int -> Int64 -> Int64 -> Readiness -> Bool
-readinessHolds epochNow nowMs maxAgeMs readiness =
+{- | Whether readiness holds now, given the number of live manual trades in
+flight (read before the epoch), the current runtime epoch, the time (ms) and
+the freshness bound (ms). An in-flight trade may already have changed venue
+inventory, so it suspends readiness until it completes and a later scan runs.
+-}
+readinessHolds :: Int -> Int -> Int64 -> Int64 -> Readiness -> Bool
+readinessHolds manualInFlight epochNow nowMs maxAgeMs readiness =
     case readiness of
         ReadinessNotRequired -> True
         NotReady -> False
         ReadyAt epoch scannedAtMs ->
-            epoch == epochNow && scannedAtMs <= nowMs && nowMs - scannedAtMs <= maxAgeMs
+            manualInFlight == 0 && epoch == epochNow && scannedAtMs <= nowMs && nowMs - scannedAtMs <= maxAgeMs
 
 -- | Freshness bound for a reconciled scan: ten scan intervals, and never under five minutes.
 readinessMaxAgeMs :: Int -> Int64

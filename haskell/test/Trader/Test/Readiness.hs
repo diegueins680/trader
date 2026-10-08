@@ -18,20 +18,22 @@ epochBound :: IO ()
 epochBound = do
     let maxAgeMs = readinessMaxAgeMs 30
     -- A stop, start, promotion or manual trade after the scan bumps the epoch, so the old scan no longer holds.
-    expect "same epoch" True (readinessHolds 4 10000 maxAgeMs (ReadyAt 4 9000))
-    expect "epoch moved on" False (readinessHolds 5 10000 maxAgeMs (ReadyAt 4 9000))
+    expect "same epoch" True (readinessHolds 0 4 10000 maxAgeMs (ReadyAt 4 9000))
+    expect "epoch moved on" False (readinessHolds 0 5 10000 maxAgeMs (ReadyAt 4 9000))
+    -- A live manual trade in flight may already have changed inventory.
+    expect "manual trade in flight" False (readinessHolds 1 4 10000 maxAgeMs (ReadyAt 4 9000))
 
 freshnessBound :: IO ()
 freshnessBound = do
     let maxAgeMs = readinessMaxAgeMs 30
-    expect "at the bound" True (readinessHolds 1 (1000 + maxAgeMs) maxAgeMs (ReadyAt 1 1000))
-    expect "past the bound" False (readinessHolds 1 (1001 + maxAgeMs) maxAgeMs (ReadyAt 1 1000))
-    expect "scan from the future" False (readinessHolds 1 999 maxAgeMs (ReadyAt 1 1000))
+    expect "at the bound" True (readinessHolds 0 1 (1000 + maxAgeMs) maxAgeMs (ReadyAt 1 1000))
+    expect "past the bound" False (readinessHolds 0 1 (1001 + maxAgeMs) maxAgeMs (ReadyAt 1 1000))
+    expect "scan from the future" False (readinessHolds 0 1 999 maxAgeMs (ReadyAt 1 1000))
 
 fixedStates :: IO ()
 fixedStates = do
-    expect "not required" True (readinessHolds 9 0 0 ReadinessNotRequired)
-    expect "revoked" False (readinessHolds 0 0 maxBound NotReady)
+    expect "not required" True (readinessHolds 0 9 0 0 ReadinessNotRequired)
+    expect "revoked" False (readinessHolds 0 0 0 maxBound NotReady)
 
 maxAge :: IO ()
 maxAge = expect "bounds" [300000, 300000, 600000] (map readinessMaxAgeMs [5, 30, 60])

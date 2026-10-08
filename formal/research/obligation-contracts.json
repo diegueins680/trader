@@ -494,7 +494,7 @@
     {
       "number": 16,
       "claim": "Reconciliation",
-      "scope": "Live bot readiness reported by one trading server (/ready and /health) for its bot runtime and venue inventory, with ownership as certified for obligation 15. Out of scope: exchange-side changes between scans beyond the freshness bound, and multi-server readiness.",
+      "scope": "Live bot readiness reported by one trading server (/ready and /health) for its auto-start account: that account's venue inventory against the auto-start tenant's bot runtime, with ownership as certified for obligation 15. Out of scope: other users' accounts in multi-user mode, exchange-side changes between scans beyond the freshness bound, and multi-server readiness.",
       "closureCriteria": "Live readiness implies successful inventory and ownership reconciliation.",
       "requiredCertificates": [
         "F-INVENTORY-READINESS-PREDICATE",
