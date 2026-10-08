@@ -20,7 +20,8 @@ testNumbers = do
     check "wire tie" (renderOrderNumber 5e-9 == "0" && not (accepted (validateOrderNumber "invalid" 5e-9)))
     check "wire quantum" (renderOrderNumber 1e-8 == "0.00000001" && accepted (validateOrderNumber "invalid" 1e-8))
     forM_ values $ \x -> do
-        let valid = not (isNaN x || isInfinite x) && x > 5e-9
+        -- The wire renderer never rounds up, so a positive wire value needs at least one 1e-8 unit.
+        let valid = not (isNaN x || isInfinite x) && x >= 1e-8
         check "single number" (accepted (validateOrderNumber "invalid" x) == valid)
         forM_ [False, True] $ \futures -> do
             check "base priority" (accepted (validateMarketNumbers futures (Just x) (Just 1)) == valid)

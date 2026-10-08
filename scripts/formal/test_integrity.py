@@ -2074,8 +2074,9 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 21)
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 20)
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,15,23,24,25,26,28,29,30,31])
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='smt_verified'], [9])
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='model_checked'], [16])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
@@ -5016,6 +5017,30 @@ class ReadinessEpochTests(unittest.TestCase):
         helper = (ROOT / r.READINESS).read_text()
         with self.assertRaisesRegex(ValueError, 'readiness decision changed'):
             r.bind({r.READINESS: helper.replace('epoch == epochNow && ', '', 1)})
+
+
+class MinSizeCapTests(unittest.TestCase):
+    def test_source_smt_wire_and_compiled_render(self):
+        import min_size_cap as m
+        out = m.check_min_size_cap()
+        self.assertEqual(out['smt']['F-ROUND-MIN-CAP'], 'unsat')
+        self.assertGreater(out['conformance']['cases'], 3000)
+
+    def test_removed_guard_or_new_bump_fails_closed(self):
+        import min_size_cap as m
+        main = (ROOT / m.MAIN).read_text()
+        guard = '                                            , bumped && fractionSized && q * currentPrice > cap ->'
+        self.assertIn(guard, main)
+        with self.assertRaisesRegex(ValueError, 'futures cap guard changed'):
+            m.bind({m.MAIN: main.replace(guard, '                                            , False ->', 1)})
+        with self.assertRaisesRegex(ValueError, 'unreviewed minimum-bump caller'):
+            m.bind({m.MAIN: main + '\nextra = normalizeEntryQty sf currentPrice 1\n'})
+        numeric = (ROOT / m.NUMERIC).read_text()
+        with self.assertRaisesRegex(ValueError, 'wire renderer changed'):
+            m.bind({m.NUMERIC: numeric.replace('else truncate (toRational (abs x) * 10 ^ scaleExp)', 'else ceiling (toRational (abs x) * 10 ^ scaleExp)', 1)})
+        dex = (ROOT / 'haskell/app/Trader/Dex.hs').read_text()
+        with self.assertRaisesRegex(ValueError, 'DEX token amounts bypass'):
+            m.bind({'haskell/app/Trader/Dex.hs': dex.replace('let scaled = gridUnits decimals amt', 'let scaled = floor (scaledRaw + 1e-9)', 1)})
 
 
 if __name__ == '__main__':

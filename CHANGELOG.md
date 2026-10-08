@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Order sizing: with `orderQuoteFraction` and `maxOrderQuote`, a futures entry whose exchange minimum exceeds `maxOrderQuote` is now refused instead of being raised above the cap (CE-ROUND-003).
+- Order amounts never round up on the wire: non-grid Binance/Coinbase quantities and prices are truncated at 8 decimals (grid values unchanged), and DEX token amounts are converted exactly. Closes obligation 9.
+
 - Live readiness: `/ready` and the `ready`/`botRecoveryReady` fields of `/health` now drop as soon as a bot starts, stops or is replaced or a live manual trade completes, and expire if the inventory scan is stale; they report ready again after the next reconciled scan (CE-READY-001). Closes obligation 16.
 
 - Live safety: research, read-only and Fly servers (by `TRADER_SERVER_ROLE`, `fly` when unlabelled on Fly) can no longer place, cancel or swap live; the Hetzner research managed env sets `TRADER_SERVER_ROLE=research`. Live Binance ownership is now keyed by the exchange account UID (fail-closed: 503 for manual trades, refused bot start if it cannot be resolved). Closes obligation 15 for the system's own actors.

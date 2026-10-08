@@ -29702,12 +29702,28 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 Just quantity ->
                                     case normalizeFuturesEntryQty quantity of
                                         Left e -> Left ("No order: " ++ e)
-                                        Right normalized -> Right normalized
+                                        Right (q, bumped)
+                                            -- Raising a fraction-sized order to the exchange minimum must not
+                                            -- exceed the configured maxOrderQuote cap (CE-ROUND-003).
+                                            | Just cap <- positiveMaxOrderQuote
+                                            , bumped && fractionSized && q * currentPrice > cap ->
+                                                Left
+                                                    ( "No order: exchange minimum order size ("
+                                                        ++ show (q * currentPrice)
+                                                        ++ " quote) exceeds maxOrderQuote ("
+                                                        ++ show cap
+                                                        ++ ")."
+                                                    )
+                                            | otherwise -> Right (q, bumped)
                       where
                         positiveMaxOrderQuote =
                             case argMaxOrderQuote args of
                                 Just quote | quote > 0 -> Just quote
                                 _ -> Nothing
+                        -- The quote cap applies only when neither an explicit quantity nor quote is given.
+                        fractionSized =
+                            not (maybe False (> 0) (argOrderQuantity args))
+                                && not (maybe False (> 0) (argOrderQuote args))
                         quoteToQuantity quote =
                             if quote > 0 && currentPrice > 0
                                 then Just (quote / currentPrice)

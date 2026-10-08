@@ -43,6 +43,7 @@ import Text.Read (readMaybe)
 import Trader.App.AsyncSafe (trySync)
 import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
+import Trader.OrderNumeric (gridUnits)
 
 -- 1inch native token placeholder (used for ETH/BNB/etc.)
 dexNativeAddress :: String
@@ -674,7 +675,9 @@ tokenAmountToInteger amt decimals
          in if isNaN scaledRaw || isInfinite scaledRaw
                 then Left "Amount is too large for token precision."
                 else
-                    let scaled = floor (scaledRaw + 1e-9)
+                    -- Exact: a token-grid amount keeps its value, anything else truncates, so the integer
+                    -- amount never exceeds the checked amount (the old floating nudge could round up).
+                    let scaled = gridUnits decimals amt
                      in if scaled <= 0 then Left "Amount rounds to 0." else Right scaled
 
 integerToTokenAmount :: Integer -> Int -> Double

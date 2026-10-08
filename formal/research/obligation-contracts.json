@@ -288,15 +288,33 @@
     {
       "number": 9,
       "claim": "Rounding",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "scope": "Quantity, price and token-amount rounding in the Binance, Coinbase and DEX order adapters, including minimum-size increases and final wire serialization, against the caps the code enforces (maxOrderQuote, available balance and venue limits). Exchange metadata is assumed truthful.",
       "closureCriteria": "Quantity/price rounding in any order adapter never raises authorized exposure beyond its cap.",
-      "requiredCertificates": [],
-      "implementationFiles": [
-        "haskell/app/Trader/Binance.hs",
-        "haskell/app/Trader/Research/PolicyProposalV1.hs",
-        "haskell/app/Trader/QuantityRounding.hs"
+      "requiredCertificates": [
+        "F-ROUND-DOWN-INTEGER",
+        "F-ROUND-DOWN-FINITE",
+        "F-ROUND-UP-INTEGER",
+        "F-ROUND-UP-FINITE",
+        "F-ROUND-UP-FLOW",
+        "F-ORDER-WIRE-POSITIVE",
+        "F-SIZING-INPUT",
+        "F-SIZING-PUBLISH",
+        "F-SIZING-RETRY",
+        "F-SIZING-FLOW",
+        "F-ROUND-MIN-CAP-SOURCE",
+        "F-ROUND-MIN-CAP",
+        "F-ORDER-WIRE-GRID"
       ],
-      "closureClass": null
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/OrderNumeric.hs",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "closureClass": "smt_verified"
     },
     {
       "number": 10,

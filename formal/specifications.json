@@ -128,7 +128,9 @@
         "formal/research/position-ownership-counterexamples.json",
         "scripts/formal/position_ownership.py",
         "formal/research/readiness-epoch-counterexample.json",
-        "scripts/formal/readiness_epoch.py"
+        "scripts/formal/readiness_epoch.py",
+        "formal/research/round-min-cap-counterexample.json",
+        "scripts/formal/min_size_cap.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -592,6 +594,22 @@
         {
           "id": "F-ORDER-WIRE-POSITIVE",
           "statement": "Under the pinned deterministic formatter and Fixed E12 parser assumptions, source-bound selected-value admission requires a successful parse and strictly positive unbounded Integer wire units; failed parsing or nonpositive wire units rejects before credentials."
+        },
+        {
+          "id": "F-ROUND-MIN-CAP-SOURCE",
+          "statement": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses a fraction-sized bump whose notional exceeds maxOrderQuote (CE-ROUND-003)."
+        },
+        {
+          "id": "F-ROUND-MIN-CAP",
+          "statement": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional above maxOrderQuote; without the guard the raise does exceed it."
+        },
+        {
+          "id": "F-ORDER-WIRE-GRID",
+          "statement": "Every order number reaches the wire as an exact decimal whose binary64 never exceeds the checked value: Binance and Coinbase render through renderOrderNumber and DEX token amounts through the same gridUnits rule - the shortest round-trip decimal of the value when it fits the venue grid (8 decimals, or the token's decimals), otherwise the exact binary value truncated toward zero. Below 2^24 half an ulp is under half an 8-decimal step and an ulp under a step, so 8-decimal grid values are recovered exactly and keep their order as doubles: cap comparisons on doubles are comparisons on the wire decimals."
+        },
+        {
+          "id": "F-ORDER-WIRE-GRID-CONFORMANCE",
+          "statement": "The compiled actual renderOrderNumber and gridUnits match the exact contract on 3930 seeded 8-decimal grid values, 3006 arbitrary finite doubles from random bit patterns and 4000 token amounts at 6 and 18 decimals: grid values are recovered exactly, other values are truncated (or a tied shortest round-trip decimal is used), and no wire or token value's binary64 exceeds the checked value."
         },
         {
           "id": "F-SIZING-INPUT",
