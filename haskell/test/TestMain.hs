@@ -7014,12 +7014,26 @@ testMergeExecutableRejectsInvalidOpenThreshold = do
                 , "generatedAtMs" .= (9000 :: Int64)
                 , "source" .= ("test" :: T.Text)
                 ]
+    (jsonlPath, jsonlHandle) <- openTempFile "/tmp" "trader-merge-threshold-input.jsonl"
+    hClose jsonlHandle
+    let jsonlRecord label threshold =
+            case withOpenThreshold label threshold of
+                Aeson.Object o -> Aeson.Object (KM.insert "ok" (Aeson.Bool True) o)
+                other -> other
     BL.writeFile inputPath (Aeson.encode payload)
+    BL.writeFile
+        jsonlPath
+        ( BL.intercalate
+            "\n"
+            [ Aeson.encode (jsonlRecord "jsonl-sane-threshold" (Aeson.toJSON (0.0049 :: Double)))
+            , Aeson.encode (jsonlRecord "jsonl-invalid-threshold" (Aeson.String "NaN"))
+            ]
+        )
     code <-
         runMerge
             MergeArgs
                 { maTopJson = inputPath
-                , maFromJsonl = []
+                , maFromJsonl = [jsonlPath]
                 , maFromTopJson = []
                 , maOut = outputPath
                 , maMax = 10
@@ -7047,6 +7061,9 @@ testMergeExecutableRejectsInvalidOpenThreshold = do
     assert "merge keeps a sane open threshold deployable" (tierOf "sane-threshold" == Just "deployable")
     assert "merge keeps a degenerate open threshold out of the deployable tier" (tierOf "degenerate-threshold" == Just "candidate")
     assert "merge never deploys a present but unparseable open threshold" (tierOf "invalid-threshold" /= Just "deployable")
+    assert "merge reads a sane JSONL open threshold as deployable" (tierOf "jsonl-sane-threshold" == Just "deployable")
+    assert "merge never deploys an unparseable JSONL open threshold" (tierOf "jsonl-invalid-threshold" /= Just "deployable")
+    _ <- try (removeFile jsonlPath) :: IO (Either SomeException ())
     _ <- try (removeFile inputPath) :: IO (Either SomeException ())
     _ <- try (removeFile outputPath) :: IO (Either SomeException ())
     pure ()

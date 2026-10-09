@@ -9433,7 +9433,12 @@ selectCompatibleTopComboArgs now limits sym args req export =
 selectCompatibleExistingTopCombo :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (TopCombo, Args, Maybe Text)
 selectCompatibleExistingTopCombo limits sym args req export = pick matchingCombos
   where
-    matchingCombos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+    -- Stale/incomplete evidence may be relaxed here, but the open-threshold
+    -- ceiling may not (see 'topComboLiveAdoptionEligible').
+    matchingCombos =
+        filter
+            (\combo -> topComboMatchesSymbol sym Nothing combo && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo))
+            (tceCombos export)
     pick candidates =
         case bestTopComboFromList candidates of
             Nothing -> Nothing

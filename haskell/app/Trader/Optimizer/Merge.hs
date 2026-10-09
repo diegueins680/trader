@@ -227,7 +227,7 @@ loadCombosFromJsonl path = do
                                                 _ -> KM.empty
                                         objective = KM.lookup (Key.fromString "objective") rec >>= normalizeObjectiveValue
                                         score = comboFloatField "score" rec metrics
-                                        openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceFloatValue
+                                        openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceThresholdValue
                                         closeThr = KM.lookup (Key.fromString "closeThreshold") rec >>= coerceFloatValue
                                         operations = KM.lookup (Key.fromString "operations") rec >>= coerceOperations
                                         portfolioEvidence = KM.lookup (Key.fromString "portfolioEvidence") rec
@@ -237,7 +237,7 @@ loadCombosFromJsonl path = do
                                                 [ "finalEquity" .= finalEq
                                                 , "objective" .= objective
                                                 , "score" .= score
-                                                , "openThreshold" .= openThr
+                                                , "openThreshold" .= fmap thresholdJson openThr
                                                 , "closeThreshold" .= closeThr
                                                 , "createdAtMs" .= createdAtMs
                                                 , "source" .= source
@@ -1122,6 +1122,14 @@ as absent.
 coerceThresholdValue :: Value -> Maybe Double
 coerceThresholdValue Null = Nothing
 coerceThresholdValue value = Just (fromMaybe (0 / 0) (coerceFloatValue value))
+
+{- | Re-encode a threshold so an invalid (NaN) value survives as a present
+string instead of collapsing to JSON null.
+-}
+thresholdJson :: Double -> Value
+thresholdJson v
+    | isNaN v || isInfinite v = String "NaN"
+    | otherwise = toJSON v
 
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =
