@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-DRAIN-001",
+  "requirement": "F-DRAIN-GATES-FLOW",
+  "status": "resolved",
+  "mechanism": "Only HTTP work routes checked the drain latch. After SIGTERM the shutdown sequence stopped supervised workers, async jobs and only then bots, so until each step ran: running bots kept making new order decisions (entries and reversals), the bot auto-start loop could publish a new bot (publication never checked the latch), and the auto-optimizer could launch new optimizer processes.",
+  "witness": "Model mutants no-decision-gate / no-autostart-gate / no-compute-gate: the drain latch is set, then a bot decision, auto-start publication or compute iteration checks no latch and begins new work.",
+  "resolution": "Bot start publication refuses while draining under the runtime lock; placeIfEnabled and placeBotCloseIfEnabled (the only bot order-decision entry points) refuse while draining, letting an in-flight routine finish its protection orders; runOptimizerProcess refuses while draining. HTTP routes and the backtest gate were already latched."
+}

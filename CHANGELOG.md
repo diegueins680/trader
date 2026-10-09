@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Shutdown: while the server drains, bot starts are refused, bots make no new order decisions and the optimizer launches no new process (CE-DRAIN-001). Closes obligation 14.
+
 - Order sizing: with `orderQuoteFraction` and `maxOrderQuote`, a futures entry whose exchange minimum exceeds `maxOrderQuote` is now refused instead of being raised above the cap (CE-ROUND-003).
 - Order amounts never round up on the wire: non-grid Binance/Coinbase quantities and prices are truncated at 8 decimals (grid values unchanged), and DEX token amounts are converted exactly. Closes obligation 9.
 

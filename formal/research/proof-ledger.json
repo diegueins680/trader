@@ -411,6 +411,12 @@
       "risk": "RL-OFFLINE-001"
     },
     {
+      "id": "A-DRAIN-GATES",
+      "status": "assumption",
+      "statement": "One server process; CLI modes reached only from main run as separate processes and are not drained. Work admitted before the drain latch (pre-drain owners) may complete, including a bot order routine's protection orders. Running bots make no new order decisions while draining; their positions carry over to adoption after restart. Background persistence (state sync, listen-key and ops cleanup) is shutdown reconciliation. Credential probes remain available while draining. STM/IORef latch semantics are trusted.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
       "id": "A-CAUSAL-REPLAY-V3",
       "status": "assumption",
       "statement": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim.",
@@ -650,7 +656,9 @@
     "haskell/app/Trader/App/Readiness.hs",
     "formal/research/readiness-epoch-counterexample.json",
     "scripts/formal/min_size_cap.py",
-    "formal/research/round-min-cap-counterexample.json"
+    "formal/research/round-min-cap-counterexample.json",
+    "scripts/formal/drain_gates.py",
+    "formal/research/drain-gates-counterexample.json"
   ],
   "entries": [
     {
@@ -3660,6 +3668,62 @@
         "states": 5376,
         "transitions": 17872
       }
+    },
+    {
+      "requirementId": "F-DRAIN-GATES-SOURCE",
+      "claim": "Every HTTP route whose handler can transitively reach signal, backtest or trade computation, an optimizer process, a bot start or an order path is a POST route rejected while draining, except two reviewed credential probes (test-mode or read-only); within the server's call graph every backtest computation runs through the drain-latched backtest gate or a drained route; bot start publication checks the drain latch under the runtime lock before launch; the only two bot order-decision functions refuse while draining and are the only callers of the bot order paths; and the optimizer process launch refuses while draining.",
+      "formalStatement": "Every HTTP route whose handler can transitively reach signal, backtest or trade computation, an optimizer process, a bot start or an order path is a POST route rejected while draining, except two reviewed credential probes (test-mode or read-only); within the server's call graph every backtest computation runs through the drain-latched backtest gate or a drained route; bot start publication checks the drain latch under the runtime lock before launch; the only two bot order-decision functions refuse while draining and are the only callers of the bot order paths; and the optimizer process launch refuses while draining.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DRAIN-GATES"
+      ],
+      "tool": "Source-bound route table, transitive compute reachability and choke-point binding over Main.hs",
+      "toolVersion": "CPython3.13.3",
+      "sourceModel": "scripts/formal/drain_gates.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "formal/research/drain-gates-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh classification must reproduce; an undrained work route, an ungated backtest or a removed gate fails closed.",
+      "bounds": "44 HTTP routes; 4 non-HTTP choke points; model of one drain with four actors.",
+      "limitations": "One server process; CLI modes reached only from main run as separate processes and are not drained. Work admitted before the drain latch (pre-drain owners) may complete, including a bot order routine's protection orders. Running bots make no new order decisions while draining; their positions carry over to adoption after restart. Background persistence (state sync, listen-key and ops cleanup) is shutdown reconciliation. Credential probes remain available while draining. STM/IORef latch semantics are trusted.",
+      "counterexample": "CE-DRAIN-001",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-DRAIN-GATES-FLOW",
+      "claim": "Exhaustive interleavings of a drain with an HTTP request, an auto-start publication, a bot order decision and a compute iteration - each checking the latch atomically before its work - never begin work admitted after the latch, while work admitted before it may finish; removing any one of the four gates reaches post-drain work.",
+      "formalStatement": "Exhaustive interleavings of a drain with an HTTP request, an auto-start publication, a bot order decision and a compute iteration - each checking the latch atomically before its work - never begin work admitted after the latch, while work admitted before it may finish; removing any one of the four gates reaches post-drain work.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-DRAIN-GATES"
+      ],
+      "tool": "Exhaustive breadth-first interleaving model with per-gate mutants",
+      "toolVersion": "CPython3.13.3",
+      "sourceModel": "scripts/formal/drain_gates.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/App/GracefulShutdown.hs",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "formal/research/drain-gates-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "No post-drain work in the fixed protocol; each of the four gate removals refuted.",
+      "bounds": "44 HTTP routes; 4 non-HTTP choke points; model of one drain with four actors.",
+      "limitations": "One server process; CLI modes reached only from main run as separate processes and are not drained. Work admitted before the drain latch (pre-drain owners) may complete, including a bot order routine's protection orders. Running bots make no new order decisions while draining; their positions carry over to adoption after restart. Background persistence (state sync, listen-key and ops cleanup) is shutdown reconciliation. Credential probes remain available while draining. STM/IORef latch semantics are trusted.",
+      "counterexample": "CE-DRAIN-001",
+      "status": "model_checked"
     },
     {
       "requirementId": "F-RL-DATA-COMPOSITION",
@@ -8868,7 +8932,7 @@
     {
       "number": 14,
       "claim": "Draining",
-      "status": "partially_verified",
+      "status": "model_checked",
       "evidenceRequirements": [
         "F-RL-LIFECYCLE",
         "F-WORKER-REGISTRY-LIFECYCLE",
@@ -8883,20 +8947,31 @@
         "F-ADMISSION-PROGRESS-SOURCE",
         "F-ADMISSION-PROGRESS-NUMERIC",
         "F-ADMISSION-PROGRESS-FLOW",
-        "F-ADMISSION-PROGRESS-CONFORMANCE"
+        "F-ADMISSION-PROGRESS-CONFORMANCE",
+        "F-DRAIN-GATES-SOURCE",
+        "F-DRAIN-GATES-FLOW"
       ],
-      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred.",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "limitations": "Scope and concrete remaining proof work are specified in closureCriteria, blockers and nextAction; no implementation closure is claimed. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Shared STM latch now excludes post-drain async/backtest reservations. Pre-drain owners, synchronous signal/trade, bots and order authorization remain outside this repair; broader closure is not inferred. Closure (2026-10-09): CE-DRAIN-001 (running bots, the auto-start loop and the auto-optimizer could start new orders, bots and compute after the drain latch until their shutdown step) is fixed; with the drain-pool, seal, registry and admission certificates, draining now forbids new compute, starts and order decisions within the stated scope. Assumptions: One server process; CLI modes reached only from main run as separate processes and are not drained. Work admitted before the drain latch (pre-drain owners) may complete, including a bot order routine's protection orders. Running bots make no new order decisions while draining; their positions carry over to adoption after restart. Background persistence (state sync, listen-key and ops cleanup) is shutdown reconciliation. Credential probes remain available while draining. STM/IORef latch semantics are trusted.",
+      "scope": "Shutdown draining of one server process: after the drain latch no new HTTP work, bot start, bot order decision, optimizer launch or backtest admission begins; work admitted earlier may complete and shutdown reconciliation (persistence, stops) proceeds. CLI processes and credential probes are out of scope.",
       "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
-      "nextAction": "Extract actual runtime admission transitions and match every drain/start race to the state model.",
+      "nextAction": "Reopen before any new HTTP route, background worker, compute entry point, bot order path or change to the shutdown sequence.",
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "haskell/app/Main.hs"
       ],
-      "blockers": [
-        "Two-caller abstract model does not refine actual server admission/cancellation."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-DRAIN-GATES-SOURCE",
+        "F-DRAIN-GATES-FLOW",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-FLOW"
+      ]
     },
     {
       "number": 15,

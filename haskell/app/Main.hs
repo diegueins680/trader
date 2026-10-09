@@ -6306,6 +6306,8 @@ data BotController = BotController
     , bcAccountUids :: MVar (HM.HashMap TenantKey Int64)
     , bcRuntimeEpoch :: IORef Int
     , bcManualInFlight :: IORef Int
+    , bcDrain :: DrainController
+    -- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
     -- ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
     -- ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
     -- ^ Binance account UID per credential pair, resolved once for live ownership identity.
@@ -6946,8 +6948,8 @@ botFeatureInputs st =
                 (Just (botLows st))
                 (Just (botVolumes st))
 
-newBotController :: IO BotController
-newBotController = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty <*> newIORef 0 <*> newIORef 0
+newBotController :: DrainController -> IO BotController
+newBotController drain = BotController <$> newMVar HM.empty <*> newManualTradeClaims <*> newMVar HM.empty <*> newIORef 0 <*> newIORef 0 <*> pure drain
 
 emptyBotAdjustments :: BotAdjustments
 emptyBotAdjustments = BotAdjustments 0 0 0 0
@@ -10452,7 +10454,11 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                                                                 BotRunning _ -> pure (Retain (Left "Bot is already running"))
                                                                                 BotStarting _ -> pure (Retain (Left "Bot is starting"))
                                                                     Nothing -> do
-                                                                        ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey
+                                                                        drainingNow <- isDraining (bcDrain ctrl)
+                                                                        ownerConflict <-
+                                                                            if drainingNow
+                                                                                then pure (Just "Server is draining; bot start refused.")
+                                                                                else botOwnerConflict ctrl mrt mOwnerKey
                                                                         case ownerConflict of
                                                                             Just err -> pure (Retain (Left err))
                                                                             Nothing -> do
@@ -10525,7 +10531,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                             argsFinal
                             settings
                             nowStart
-                    initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) sym
+                    initBotState (bcDrain ctrl) mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) sym
     r <- trySync (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -11340,8 +11346,8 @@ botGetStateFor ctrl tenantKey symRaw = do
         Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
         _ -> pure Nothing
 
-initBotState :: Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> String -> IO BotState
-initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation sym = do
+initBotState :: DrainController -> Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> String -> IO BotState
+initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation sym = do
     let lookback = argLookback args
     now <- getTimestampMs
     env <- makeBinanceEnv mOps args
@@ -11754,8 +11760,8 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp mStar
             then pure Nothing
             else
                 if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
-                    then Just <$> placeBotCloseIfEnabled args settings latestOrder env sym
-                    else Just <$> placeIfEnabled args settings latestOrder env sym
+                    then Just <$> placeBotCloseIfEnabled drain args settings latestOrder env sym
+                    else Just <$> placeIfEnabled drain args settings latestOrder env sym
 
     let qtyEps = 1e-9
         isPositiveQty q = q > qtyEps
@@ -13324,8 +13330,8 @@ readAutoOptimizerLiveGapConfig = do
                 Just value | value >= 0 && isFiniteDouble value -> value
                 _ -> fallback
 
-autoOptimizerLoop :: Args -> Maybe StateSyncTarget -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
-autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore = do
+autoOptimizerLoop :: DrainController -> Args -> Maybe StateSyncTarget -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
+autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore = do
     enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
     let enabled = readEnvBool enabledEnv True
     if not enabled
@@ -13991,7 +13997,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         discoveryRecoveryMinCalmar
                                                                                         discoveryRecoveryArgs
                                                                                 runAutoAttempt attempt recordsOut argsOut = do
-                                                                                    runResult <- runOptimizerProcess projectRoot recordsOut maxOutputBytes argsOut
+                                                                                    runResult <- runOptimizerProcess drain projectRoot recordsOut maxOutputBytes argsOut
                                                                                     summary <- readOptimizerRecordsSummary recordsOut
                                                                                     case runResult of
                                                                                         Left (msg, out, err) -> do
@@ -15691,7 +15697,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
     (ops', orders', trades', closeTimingSamples', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
         if partialExitWanted
             then do
-                oPartial <- placeBotCloseIfEnabled args settings latestFinal (botEnv st) (botSymbol st)
+                oPartial <- placeBotCloseIfEnabled (bcDrain ctrl) args settings latestFinal (botEnv st) (botSymbol st)
                 let opSide = if prevPos > 0 then "SELL" else "BUY"
                     orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now (lsDirectionality latestFinal) oPartial
                     ordersNew = botOrders st ++ [orderEv]
@@ -15817,8 +15823,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                         let closeOnlySwitch = desiredPosWanted == 0 && prevPos /= 0
                         o <-
                             if argPositioning args == LongShort && closeOnlySwitch
-                                then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
-                                else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+                                then placeBotCloseIfEnabled (bcDrain ctrl) args settings latestOrder (botEnv st) (botSymbol st)
+                                else placeIfEnabled (bcDrain ctrl) args settings latestOrder (botEnv st) (botSymbol st)
                         let opSide =
                                 if desiredPosWanted > prevPos
                                     then "BUY"
@@ -16336,17 +16342,28 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
     triggerTopCombosBacktestOnCandle topCombosCtx
     pure stOut
 
-placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
-placeIfEnabled args settings sig env sym =
+placeIfEnabled :: DrainController -> Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
+placeIfEnabled drain args settings sig env sym =
     if not (bsTradeEnabled settings)
         then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
-        else placeOrderForSignalBot args sym sig env (bsProtectionOrders settings)
+        else refuseWhileDraining drain sym (placeOrderForSignalBot args sym sig env (bsProtectionOrders settings))
 
-placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
-placeBotCloseIfEnabled args settings sig env sym =
+{- | A bot makes no new order decision once the server drains: positions carry
+over to adoption after restart. A decision already in flight completes,
+including its protection orders, so an entry is never left unprotected.
+-}
+refuseWhileDraining :: DrainController -> String -> IO ApiOrderResult -> IO ApiOrderResult
+refuseWhileDraining drain sym decide = do
+    draining <- isDraining drain
+    if draining
+        then pure (noOrderResult "Server is draining; no new orders during shutdown."){aorSymbol = Just sym}
+        else decide
+
+placeBotCloseIfEnabled :: DrainController -> Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
+placeBotCloseIfEnabled drain args settings sig env sym =
     if not (bsTradeEnabled settings)
         then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
-        else placeBotCloseOrder args sym sig env (bsProtectionOrders settings)
+        else refuseWhileDraining drain sym (placeBotCloseOrder args sym sig env (bsProtectionOrders settings))
 
 placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> Bool -> IO ApiOrderResult
 placeBotCloseOrder args sym sig env manageProtection =
@@ -16917,7 +16934,7 @@ runRestApi cliArgs mWebhook = do
     autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
     autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
     let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
-    bot <- newBotController
+    bot <- newBotController drain
     botRecoveryReadyRef <- newIORef (if botRecoveryRequired then NotReady else ReadinessNotRequired)
     case mAutoBotTenant of
         Nothing -> do
@@ -16932,7 +16949,7 @@ runRestApi cliArgs mWebhook = do
     let autoOptimizerEnabled = readEnvBool autoOptimizerEnabledEnv True
     if autoOptimizerEnabled
         then do
-            _ <- forkSupervisedWorker workers "auto-optimizer" (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
+            _ <- forkSupervisedWorker workers "auto-optimizer" (autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
             pure ()
         else putStrLn "Auto optimizer background worker disabled (TRADER_OPTIMIZER_ENABLED=false)."
     when topCombosEnabled $ do
@@ -18723,7 +18740,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "run"] ->
                                         case Wai.requestMethod req of
-                                            "POST" -> handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
+                                            "POST" -> handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "combos"] ->
                                         case Wai.requestMethod req of
@@ -20203,13 +20220,19 @@ resolveOptimizerExecutable projectRoot name = do
         if exists then pure (Just dir) else firstExisting rest
 
 runOptimizerProcess ::
+    DrainController ->
     FilePath ->
     FilePath ->
     Int ->
     [String] ->
     IO (Either (String, String, String) ApiOptimizerRunResponse)
-runOptimizerProcess projectRoot outputPath maxOutputBytes cliArgs = do
-    exeResult <- resolveOptimizerExecutable projectRoot "optimize-equity"
+runOptimizerProcess drain projectRoot outputPath maxOutputBytes cliArgs = do
+    -- No new optimizer compute once the server drains.
+    draining <- isDraining drain
+    exeResult <-
+        if draining
+            then pure (Left "Server is draining; optimizer run refused.")
+            else resolveOptimizerExecutable projectRoot "optimize-equity"
     case exeResult of
         Left err -> pure (Left (err, "", ""))
         Right exePath -> do
@@ -21797,6 +21820,7 @@ applyTopComboForStartWithUuid base combo = do
     pure (args0, Just (topComboUuid combo))
 
 handleOptimizerRun ::
+    DrainController ->
     RequestProgressStore ->
     ApiRequestLimits ->
     Maybe OpsStore ->
@@ -21807,7 +21831,7 @@ handleOptimizerRun ::
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
+handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
     let mTracker = requestProgressTracker requestProgressStore req
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid optimizer payload: "
     case payloadOrErr of
@@ -21827,7 +21851,7 @@ handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectR
                     respond (jsonError status400 msg)
                 Right args -> do
                     advanceRequestProgressMaybe mTracker "optimize" Nothing
-                    runResult <- runOptimizerProcess projectRoot recordsPath maxOutputBytes args
+                    runResult <- runOptimizerProcess drain projectRoot recordsPath maxOutputBytes args
                     case runResult of
                         Left (msg, out, err) -> do
                             failRequestProgressMaybe mTracker msg
