@@ -32,6 +32,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -252,11 +253,37 @@ def summarize(returns: list[float], periods_per_year: float) -> dict:
     }
 
 
+def check_embargo(phase: dict, now_ms: int) -> None:
+    """Refuse a phase before its registered release time, before any row is read."""
+    release = phase.get("minimumEvaluationTimeUtc")
+    if release and now_ms < int(datetime.fromisoformat(release.replace("Z", "+00:00")).timestamp() * 1000):
+        raise SystemExit(f"phase is embargoed until {release}; no rows were read")
+
+
+def check_manifest(reg: dict, phase_name: str, manifest_path: Path) -> dict:
+    """The retrospective manifest must be the preregistered one, byte for byte."""
+    pinned = reg["data"].get(f"{phase_name}ManifestSha256")
+    if pinned and sha256_file(manifest_path) != pinned:
+        raise SystemExit(f"{manifest_path.name} does not match the registered sha256")
+    return json.loads(manifest_path.read_text())
+
+
+def check_coverage(open_times: list[int], step: int, first_needed_ms: int, last_open_ms: int) -> None:
+    """Rows must be contiguous from the first training row through the window's final bar."""
+    try:
+        check_contiguous(open_times, step)
+    except ValueError as err:
+        raise SystemExit(f"phase dataset is not contiguous: {err}") from err
+    if not open_times or open_times[0] > first_needed_ms or open_times[-1] < last_open_ms:
+        raise SystemExit("phase dataset does not cover the registered window and its training history")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     reg = load_registration()
     phase = reg["phases"][args.phase]
+    check_embargo(phase, int(time.time() * 1000))
     data_dir = ROOT / reg["data"]["directory"]
-    manifest = json.loads((data_dir / phase["dataManifest"]).read_text())
+    manifest = check_manifest(reg, args.phase, data_dir / phase["dataManifest"])
     snapshot = ROOT / reg["snapshot"]["path"]
     if sha256_file(snapshot) != reg["snapshot"]["sha256"]:
         raise SystemExit("frozen champion snapshot drifted from registration")
@@ -274,6 +301,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         open_times = [int(r["openTimeMs"]) for r in rows]
         closes = [float(r["close"]) for r in rows]
         start_ms = max(int(phase["startMs"]), int(combo["createdAtMs"]))
+        step = INTERVAL_MS[combo["interval"]]
+        first_eval_ms = -(-start_ms // step) * step
+        last_open_ms = (int(phase["endExclusiveMs"]) - 1) // step * step
+        check_coverage(open_times, step, first_eval_ms - combo["windowBars"] * step, last_open_ms)
         chunks = chunk_plan(open_times, start_ms, int(phase["endExclusiveMs"]), combo["windowBars"], combo["chunkBars"])
         per_seed: dict[str, list[float]] = {}
         diag: dict[str, list] = {}
@@ -354,6 +385,19 @@ def cmd_selftest(_: argparse.Namespace) -> None:
     bh = baseline_returns(closes, 1, 3, 1.0, 0.001, "buy_and_hold", False, 1)
     assert abs(bh[0] - (0.1 - 0.001)) < 1e-12 and abs(bh[1] - (-0.1 - 0.001)) < 1e-12
     assert psr([0.01, 0.02, 0.015, 0.012, 0.018]) > 0.9
+    for call in (
+        lambda: check_embargo({"minimumEvaluationTimeUtc": "2027-01-21T06:00:00Z"}, 1800489600000),
+        lambda: check_coverage([0, 10, 20], 10, 0, 30),
+        lambda: check_coverage([10, 20, 30], 10, 0, 30),
+        lambda: check_coverage([0, 10, 30], 10, 0, 30),
+    ):
+        try:
+            call()
+            raise AssertionError("guard must refuse")
+        except SystemExit:
+            pass
+    check_embargo({"minimumEvaluationTimeUtc": "2027-01-21T06:00:00Z"}, 1800511200000)
+    check_coverage([0, 10, 20, 30], 10, 0, 30)
     print("selftest ok")
 
 
