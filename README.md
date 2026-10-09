@@ -409,6 +409,8 @@ All compact reports are prepared before the output directory is created and writ
 
 New runner exception records include the exception class, ensuring empty error messages still produce reportable failures. Training reasons must agree with terminal events. OPE coverage requires a valid v1 outcome payload, not an ID-only placeholder; schema validity does not establish estimator reliability. Conflicting older failure records require investigation; existing evidence archives are never rewritten automatically.
 
+The preregistered [adopted-champion screen](research-notes/adopted-champion-screen-2026-10-09/report.md) (`scripts/research/champion_screen.py`) replays the live fleet's frozen UNI/SUI/ETC combos through the live adoption path on post-creation data. Its 2026-10-09 retrospective phase **rejected all three**: zero round trips in 6.5 months, because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. AVAX and ADA stay unevaluated under the holdout and carry rules. A one-shot prospective phase is readable from 2027-01-21. Nothing was promoted, resized or authorized.
+
 ## CLI and API
 
 List the complete CLI surface with:
