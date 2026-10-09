@@ -428,6 +428,8 @@ Database-backed endpoints serialize access to their shared PostgreSQL connection
 
 `--adopt-combo-file FILE --adopt-combo-uuid UUID` (CLI backtest only, both required) loads one combo from a top-combos export and applies it exactly as live bot adoption does (venue cost floors, `--adoption-max-position-size-cap`) before running the normal backtest on `--data`/`--binance-symbol` input. It cannot be combined with `--serve` or `--trade-only`; JSON output is unchanged.
 
+`--backtest-signal-delay-bars N` (default `0`, backtest only) is a stale-signal stress. The decision at bar `t` uses the predicted return (rescaled to bar `t`'s price) and gate metadata from bar `t-N`; fills, stops and costs stay on bar `t`, and the first `N` bars cannot open positions.
+
 Important operational endpoints:
 
 - `GET /health` — process liveness and build commit

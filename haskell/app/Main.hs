@@ -31273,6 +31273,32 @@ trainLstmWithPersistence args lookback cfg series = do
     savePersistedLstmModelMaybe mPath trainBars model
     pure (model, hist)
 
+{- | Backtest-only signal-delay stress. @preds !! t@ is the next-bar price
+predicted at bar @t@; with a delay of @n@ the decision at bar @t@ uses the
+return predicted at bar @t - n@, rescaled to bar @t@'s price. The first @n@
+bars have no prediction (NaN), so they cannot open positions.
+-}
+delayNextPricePredictions :: Int -> [Double] -> [Double] -> [Double]
+delayNextPricePredictions n prices preds
+    | n <= 0 = preds
+    | otherwise = zipWith delayed [0 ..] preds
+  where
+    priceV = V.fromList prices
+    predV = V.fromList preds
+    delayed :: Int -> Double -> Double
+    delayed t _ =
+        case (priceV V.!? t, priceV V.!? (t - n), predV V.!? (t - n)) of
+            (Just now, Just past, Just pastPred)
+                | t >= n && past > 0 -> now * pastPred / past
+            _ -> 0 / 0
+
+-- | Delay per-bar values by @n@ bars, repeating the first value; length is preserved.
+delayStepValues :: Int -> [a] -> [a]
+delayStepValues n xs =
+    case xs of
+        (x : _) | n > 0 -> take (length xs) (replicate n x ++ xs)
+        _ -> xs
+
 computeBacktestSummary :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO BacktestSummary
 computeBacktestSummary args lookback series mBinanceEnv = do
     seriesWindow <-
@@ -31904,11 +31930,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         baseCfgBacktest = baseCfg{ecOpenTimes = V.fromList <$> backtestOpenTimes, ecOpenPrices = V.fromList <$> backtestOpens}
 
         offsetBacktestPred = max 0 (trainEnd - predStart)
-        kalPredBacktest = drop offsetBacktestPred kalPredAll
-        lstmPredBacktest = drop offsetBacktestPred lstmPredAll
+        signalDelay = argBacktestSignalDelayBars args
+        kalPredBacktest = delayNextPricePredictions signalDelay backtestPrices (drop offsetBacktestPred kalPredAll)
+        lstmPredBacktest = delayNextPricePredictions signalDelay backtestPrices (drop offsetBacktestPred lstmPredAll)
         kalPredTune = take (max 0 (tuneSize - 1)) kalPredAll
         lstmPredTune = take (max 0 (tuneSize - 1)) lstmPredAll
-        metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
+        metaBacktest = fmap (delayStepValues signalDelay . drop offsetBacktestPred) mMetaAll
         metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
         ppy = periodsPerYear args

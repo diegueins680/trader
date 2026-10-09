@@ -231,7 +231,7 @@ def run_chunk(binary: Path, snapshot: Path, uuid: str, rows: list[dict], s: int,
 
 
 def chunk_returns(out: dict, expected: int) -> tuple[list[float], dict]:
-    """``expected`` returns from a backtest slice of ``expected + 1`` bars."""
+    """``expected`` net returns from a backtest slice of ``expected + 1`` bars."""
     split = out["split"]
     if int(split["backtest"]) != expected + 1:
         raise RuntimeError(f"backtest slice {split['backtest']} != registered chunk {expected} + 1 anchor bar")
@@ -240,6 +240,50 @@ def chunk_returns(out: dict, expected: int) -> tuple[list[float], dict]:
         raise RuntimeError(f"equityCurve length {len(curve)} != chunk {expected} + 1")
     realized = out.get("costs", {}).get("attribution", {}).get("realized", {})
     return equity_to_returns(curve), {"metrics": out.get("metrics", {}), "realizedCosts": realized, "perSideCost": out.get("costs", {}).get("perSideCost"), "maxPositionSize": out.get("maxPositionSize")}
+
+
+def chunk_gross_returns(out: dict, expected: int) -> list[float]:
+    """Per-bar gross (pre-cost) returns of the same slice, from the engine's cost attribution."""
+    curve = [float(x) for x in out["costs"]["attribution"]["gross"]["equityCurve"]]
+    if len(curve) != expected + 1:
+        raise RuntimeError(f"gross equityCurve length {len(curve)} != chunk {expected} + 1")
+    return equity_to_returns(curve)
+
+
+def doubled_cost_returns(net: list[float], gross: list[float]) -> list[float]:
+    """Per bar, net - (gross - net): fee, slippage, spread and funding charged twice."""
+    return [2.0 * n - g for n, g in zip(net, gross)]
+
+
+def daily_returns(open_times: list[int], returns: list[float]) -> dict[int, float]:
+    """Compound per-bar returns into UTC calendar days keyed by day index."""
+    days: dict[int, float] = {}
+    for t, r in zip(open_times, returns):
+        day = t // 86_400_000
+        days[day] = (1.0 + days.get(day, 0.0)) * (1.0 + r) - 1.0
+    return days
+
+
+def fleet_daily(per_combo: list[dict[int, float]]) -> list[float]:
+    """Equal-weight daily fleet returns over the days every combo covers."""
+    common = sorted(set.intersection(*(set(d) for d in per_combo)))
+    return [statistics.fmean(d[day] for d in per_combo) for day in common]
+
+
+def prospective_gates(combo_decisions: list[str], fleet: dict, trial_bound: float) -> dict:
+    """Evaluate the amendment's pass gates; any failed gate is a rejection."""
+    base = fleet["net"]
+    lifetime = max(0.0, 1.0 - min(1.0, trial_bound * (1.0 - base["psr"])))
+    gates = {
+        "everyComboNotRejected": all(d == "NOT_REJECTED" for d in combo_decisions),
+        "lifetimeAdjustedPsrAtLeast095": lifetime >= 0.95,
+        "maxDrawdownAtMost20pct": base["maxDrawdown"] <= 0.20,
+        "sharpeAboveBuyAndHold": base["sharpeAnnualized"] > fleet["buy_and_hold"]["sharpeAnnualized"],
+        "sharpeAboveMomentum": base["sharpeAnnualized"] > fleet["momentum"]["sharpeAnnualized"],
+        "doubledCostReturnPositive": fleet["doubledCosts"]["netReturn"] > 0.0,
+        "oneBarDelayReturnPositive": fleet["oneBarDelay"]["netReturn"] > 0.0,
+    }
+    return {"lifetimeAdjustedPsr": lifetime, "gates": gates, "decision": "PASS" if all(gates.values()) else "REJECTED"}
 
 
 def summarize(returns: list[float], periods_per_year: float) -> dict:
@@ -282,6 +326,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     reg = load_registration()
     phase = reg["phases"][args.phase]
     check_embargo(phase, int(time.time() * 1000))
+    out_dir = ROOT / phase["outputDirectory"]  # absolute paths (tests) override ROOT
+    if phase.get("oneShot") and (out_dir / "results.json").exists():
+        raise SystemExit(f"{args.phase} is one-shot and already has sealed results; no rows were read")
+    stress = "passGates" in phase
     data_dir = ROOT / reg["data"]["directory"]
     manifest = check_manifest(reg, args.phase, data_dir / phase["dataManifest"])
     snapshot = ROOT / reg["snapshot"]["path"]
@@ -290,6 +338,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     binary = Path(args.binary)
     results = {"registration": REGISTRATION.name, "registrationSha256": sha256_file(REGISTRATION), "phase": args.phase, "combos": {}}
     series_out: dict[str, dict] = {}
+    fleet_inputs: list[dict[str, dict[int, float]]] = []
     for combo in reg["combos"]:
         if combo["symbol"] not in phase["symbols"]:
             continue
@@ -307,16 +356,27 @@ def cmd_run(args: argparse.Namespace) -> None:
         check_coverage(open_times, step, first_eval_ms - combo["windowBars"] * step, last_open_ms)
         chunks = chunk_plan(open_times, start_ms, int(phase["endExclusiveMs"]), combo["windowBars"], combo["chunkBars"])
         per_seed: dict[str, list[float]] = {}
+        gross_seed: dict[str, list[float]] = {}
+        delayed_seed: dict[str, list[float]] = {}
         diag: dict[str, list] = {}
         for seed in reg["protocol"]["seeds"]:
             rets: list[float] = []
+            gross: list[float] = []
+            delayed: list[float] = []
             diag[str(seed)] = []
+            cap = reg["protocol"]["adoptionMaxPositionSizeCap"]
             for s, e in chunks:
-                out = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, reg["protocol"]["adoptionMaxPositionSizeCap"], [])
+                out = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, [])
                 r, d = chunk_returns(out, e - s)
                 rets.extend(r)
                 diag[str(seed)].append({"chunk": [open_times[s], open_times[e - 1]], **d})
+                if stress:
+                    gross.extend(chunk_gross_returns(out, e - s))
+                    late = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, ["--backtest-signal-delay-bars", "1"])
+                    delayed.extend(chunk_returns(late, e - s)[0])
             per_seed[str(seed)] = rets
+            gross_seed[str(seed)] = gross
+            delayed_seed[str(seed)] = delayed
             print(f"{combo['symbol']} seed {seed}: {len(rets)} bars", file=sys.stderr)
         ppy = combo["periodsPerYear"]
         seed_summaries = {k: summarize(v, ppy) for k, v in per_seed.items()}
@@ -326,10 +386,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         s0, e_last = chunks[0][0], chunks[-1][1]
         adopted = diag[str(reg["protocol"]["liveSeed"])][0]
         size, cost_side = float(adopted["maxPositionSize"]), float(adopted["perSideCost"])
-        bases = {
-            kind: summarize(baseline_returns(closes, s0, e_last, size, cost_side, kind, combo["positioning"] == "long-short", reg["protocol"]["momentumLookbackBars"]), ppy)
+        base_returns = {
+            kind: baseline_returns(closes, s0, e_last, size, cost_side, kind, combo["positioning"] == "long-short", reg["protocol"]["momentumLookbackBars"])
             for kind in ("flat", "buy_and_hold", "momentum")
         }
+        bases = {kind: summarize(r, ppy) for kind, r in base_returns.items()}
         pin_idx = next(i for i, t in enumerate(open_times[s0:e_last]) if t >= int(reg["protocol"]["pinnedAtMs"]))
         med = per_seed[median_seed]
         rule = reg["protocol"]["rejectionRule"]
@@ -352,14 +413,35 @@ def cmd_run(args: argparse.Namespace) -> None:
             "lifetimeAdjustedPsr": max(0.0, 1.0 - min(1.0, reg["protocol"]["optimizerTrialLowerBound"] * (1.0 - seed_summaries[median_seed]["psr"]))),
         }
         series_out[combo["symbol"]] = {"openTimeMs": open_times[s0:e_last], "seeds": per_seed}
+        if stress:
+            times = open_times[s0:e_last]
+            med_net = per_seed[median_seed]
+            fleet_inputs.append(
+                {
+                    "net": daily_returns(times, med_net),
+                    "doubledCosts": daily_returns(times, doubled_cost_returns(med_net, gross_seed[median_seed])),
+                    "oneBarDelay": daily_returns(times, delayed_seed[median_seed]),
+                    "buy_and_hold": daily_returns(times, base_returns["buy_and_hold"]),
+                    "momentum": daily_returns(times, base_returns["momentum"]),
+                }
+            )
+            series_out[combo["symbol"]]["stress"] = {"gross": gross_seed[median_seed], "oneBarDelay": delayed_seed[median_seed], "medianSeed": median_seed}
         results.setdefault("diagnostics", {})[combo["symbol"]] = diag
     decisions = [c["decision"] for c in results["combos"].values()]
     rejected = decisions.count("REJECTED")
     results["fleetDecision"] = "REJECTED" if rejected >= reg["protocol"]["fleetRejectionMinCombos"] else "INCONCLUSIVE"
-    out_dir = ROOT / phase["outputDirectory"]  # absolute paths (tests) override ROOT
+    if stress:
+        fleet = {key: summarize(fleet_daily([c[key] for c in fleet_inputs]), 365.0) for key in fleet_inputs[0]}
+        verdict = prospective_gates(decisions, fleet, reg["protocol"]["optimizerTrialLowerBound"])
+        results["fleet"] = {**fleet, **verdict}
+        results["fleetDecision"] = verdict["decision"]
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "results.json").write_text(json.dumps(results, indent=1, sort_keys=True) + "\n")
-    (out_dir / "returns.json").write_text(json.dumps(series_out, sort_keys=True) + "\n")
+    mode = "x" if phase.get("oneShot") else "w"
+    for name, payload in (("results.json", json.dumps(results, indent=1, sort_keys=True) + "\n"), ("returns.json", json.dumps(series_out, sort_keys=True) + "\n")):
+        with (out_dir / name).open(mode) as handle:
+            handle.write(payload)
+        if phase.get("oneShot"):
+            os.chmod(out_dir / name, 0o444)
     print(json.dumps({k: {"decision": v["decision"], "median": v["seeds"][v["medianSeed"]]} for k, v in results["combos"].items()}, indent=1))
     print("fleet:", results["fleetDecision"])
 
@@ -397,6 +479,18 @@ def cmd_selftest(_: argparse.Namespace) -> None:
         except SystemExit:
             pass
     check_embargo({"minimumEvaluationTimeUtc": "2027-01-21T06:00:00Z"}, 1800511200000)
+    assert doubled_cost_returns([0.01, -0.002], [0.012, 0.0]) == [0.008, -0.004]
+    day = 86_400_000
+    d = daily_returns([0, day // 2, day], [0.1, 0.1, -0.5])
+    assert abs(d[0] - 0.21) < 1e-12 and d[1] == -0.5
+    assert fleet_daily([{0: 0.02, 1: 0.0}, {0: 0.0, 1: 0.04, 2: 0.1}]) == [0.01, 0.02]
+    good = {"psr": 1.0, "maxDrawdown": 0.05, "sharpeAnnualized": 3.0, "netReturn": 0.2}
+    fleet = {"net": good, "buy_and_hold": {"sharpeAnnualized": 1.0}, "momentum": {"sharpeAnnualized": 1.0},
+             "doubledCosts": {"netReturn": 0.1}, "oneBarDelay": {"netReturn": 0.05}}
+    assert prospective_gates(["NOT_REJECTED"] * 3, fleet, 3261)["decision"] == "PASS"
+    assert prospective_gates(["NOT_REJECTED", "REJECTED", "NOT_REJECTED"], fleet, 3261)["decision"] == "REJECTED"
+    assert prospective_gates(["NOT_REJECTED"] * 3, {**fleet, "oneBarDelay": {"netReturn": -0.01}}, 3261)["decision"] == "REJECTED"
+    assert prospective_gates(["NOT_REJECTED"] * 3, {**fleet, "net": {**good, "psr": 0.9999}}, 3261)["decision"] == "REJECTED"
     check_coverage([0, 10, 20, 30], 10, 0, 30)
     print("selftest ok")
 

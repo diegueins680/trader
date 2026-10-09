@@ -134,6 +134,7 @@ data Args = Args
     , argLstmAdamEps :: Double
     , argValRatio :: Double
     , argBacktestRatio :: Double
+    , argBacktestSignalDelayBars :: Int
     , argBacktestFrom :: Maybe String
     , argBacktestTo :: Maybe String
     , argInitialBalance :: Double
@@ -869,6 +870,7 @@ opts = do
     argLstmAdamEps <- option auto (long "lstm-adam-eps" <> value defaultLstmAdamEps <> showDefault <> help "LSTM Adam epsilon denominator stabilizer (>0)")
     argValRatio <- option auto (long "val-ratio" <> value 0.3 <> help "Validation split ratio (within training set)")
     argBacktestRatio <- option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
+    argBacktestSignalDelayBars <- option auto (long "backtest-signal-delay-bars" <> value 0 <> showDefault <> help "Backtest stress: each decision uses the predicted return and gate metadata from N bars earlier; fills, stops and costs stay on the current bar")
     argBacktestFrom <- optional (strOption (long "from" <> metavar "TIME" <> help "Optional backtest start timestamp (epoch seconds/ms or ISO-8601)"))
     argBacktestTo <- optional (strOption (long "to" <> metavar "TIME" <> help "Optional backtest end timestamp (epoch seconds/ms or ISO-8601)"))
     argInitialBalance <- option auto (long "initial-balance" <> value 1.0 <> showDefault <> help "Initial backtest balance (>0); scales equity outputs.")
@@ -1787,6 +1789,7 @@ validateArgs args0 = do
         "--json cannot be used with --serve, --ops-backfill-commits, or --top-combos-backfill-close-timing"
         (not (argJson args && (argServe args || argOpsBackfillCommits args || argTopCombosBackfillCloseTiming args)))
     ensure "--ops-backfill-commits cannot be used with --serve" (not (argOpsBackfillCommits args && argServe args))
+    ensure "--backtest-signal-delay-bars must be >= 0" (argBacktestSignalDelayBars args >= 0)
     ensure "--adopt-combo-file and --adopt-combo-uuid must be given together" (isJust (argAdoptComboFile args) == isJust (argAdoptComboUuid args))
     ensure "--adopt-combo-file cannot be used with --serve or --trade-only" (not (isJust (argAdoptComboFile args) && (argServe args || argTradeOnly args)))
     ensure "--top-combos-backfill-close-timing cannot be used with --serve" (not (argTopCombosBackfillCloseTiming args && argServe args))
