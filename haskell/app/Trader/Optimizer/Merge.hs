@@ -979,7 +979,7 @@ normalizeCombo value =
                                     ]
                                 )
                                 paramsRaw
-                        openThreshold = KM.lookup (Key.fromString "openThreshold") obj >>= coerceFloatValue
+                        openThreshold = KM.lookup (Key.fromString "openThreshold") obj >>= coerceThresholdValue
                         closeThreshold = KM.lookup (Key.fromString "closeThreshold") obj >>= coerceFloatValue
                     pure
                         Combo
@@ -1113,6 +1113,15 @@ valueToString value =
         Bool False -> "False"
         Null -> ""
         _ -> T.unpack (TE.decodeUtf8 (BL.toStrict (Aeson.encode value)))
+
+{- | Like 'coerceFloatValue' for threshold fields, but a present non-null
+value that does not parse to a finite number is kept as NaN, so the
+deployability and adoption-ceiling checks reject it instead of treating it
+as absent.
+-}
+coerceThresholdValue :: Value -> Maybe Double
+coerceThresholdValue Null = Nothing
+coerceThresholdValue value = Just (fromMaybe (0 / 0) (coerceFloatValue value))
 
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =

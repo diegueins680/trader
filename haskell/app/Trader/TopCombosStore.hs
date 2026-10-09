@@ -674,10 +674,18 @@ coerceInt64Value value =
                 Aeson.String s -> readMaybe (trim (T.unpack s))
                 _ -> Nothing
 
-comboTopLevelDouble :: String -> Aeson.Value -> Maybe Double
-comboTopLevelDouble key val =
+{- | A top-level threshold field. A present but unparseable or non-finite
+value is kept as NaN so evidence predicates fail it instead of treating it
+as absent.
+-}
+comboTopLevelThreshold :: String -> Aeson.Value -> Maybe Double
+comboTopLevelThreshold key val =
     case val of
-        Aeson.Object o -> KM.lookup (AK.fromString key) o >>= coerceDoubleValue
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString key) o of
+                Nothing -> Nothing
+                Just Aeson.Null -> Nothing
+                Just raw -> Just (fromMaybe (0 / 0) (coerceDoubleValue raw))
         _ -> Nothing
 
 comboTopLevelInt64 :: String -> Aeson.Value -> Maybe Int64
@@ -1383,7 +1391,7 @@ comboProcessingTier val
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" val)
         && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMeanValue val)
         && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStdValue val)
-        && comboOpenThresholdWithinAdoptionCeiling (comboTopLevelDouble "openThreshold" val) =
+        && comboOpenThresholdWithinAdoptionCeiling (comboTopLevelThreshold "openThreshold" val) =
         "deployable"
     | otherwise = "candidate"
   where
@@ -1430,7 +1438,7 @@ comboProcessingReasons val =
             Just sharpeStd
                 | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
-        , ["open-threshold-above-ceiling" | not (comboOpenThresholdWithinAdoptionCeiling (comboTopLevelDouble "openThreshold" val))]
+        , ["open-threshold-above-ceiling" | not (comboOpenThresholdWithinAdoptionCeiling (comboTopLevelThreshold "openThreshold" val))]
         ]
 
 comboValidatedScore :: Aeson.Value -> Double

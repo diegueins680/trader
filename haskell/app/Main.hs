@@ -258,6 +258,7 @@ import Trader.BotStartSemantics (
     capAdoptedMinPositionSize,
     capBotStartSymbolsPreservingOrphans,
     comboMinEdgeMeetsAdoptionFloorWithConfig,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
@@ -21138,6 +21139,9 @@ topComboLiveAdoptionEligible now adoptionEvidenceConfig combo =
         && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeStdAboveCeilingWithConfig adoptionEvidenceConfig combo)
+        -- Not relaxable: explicit deployable overrides start through
+        -- 'topCombosDeployableOverrideTargets', which does not consult this gate.
+        && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo)
 
 topComboPortfolioCandidate :: PortfolioSelectorConfig -> TopCombo -> Maybe PortfolioCandidate
 topComboPortfolioCandidate selectorConfig combo = do
