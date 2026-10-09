@@ -132,7 +132,9 @@
         "formal/research/round-min-cap-counterexample.json",
         "scripts/formal/min_size_cap.py",
         "formal/research/drain-gates-counterexample.json",
-        "scripts/formal/drain_gates.py"
+        "scripts/formal/drain_gates.py",
+        "formal/research/order-idempotence-counterexample.json",
+        "scripts/formal/order_idempotence.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -496,6 +498,14 @@
         {
           "id": "F-DRAIN-GATES-FLOW",
           "statement": "Exhaustive interleavings of a drain with an HTTP request, an auto-start publication, a bot order decision and a compute iteration - each checking the latch atomically before its work - never begin work admitted after the latch, while work admitted before it may finish; removing any one of the four gates reaches post-drain work."
+        },
+        {
+          "id": "F-ORDER-IDEMPOTENT-SOURCE",
+          "statement": "Binance and Coinbase exchange requests use venueRetryConfig, under which no write (POST, PUT, DELETE) is ever re-sent by the transport regardless of TRADER_HTTP_RETRY_WRITES; the only order re-send is the timestamp retry, which fires only after a non-2xx response carrying the explicit -1021 timestamp rejection; every live Binance futures, spot and Coinbase order decision re-reads the venue position or balance first and is a no-op for an already-held target; keyed orders reconcile an unknown outcome by client order id; and a retried bot start or keyed manual trade is refused or replayed rather than re-executed."
+        },
+        {
+          "id": "F-ORDER-IDEMPOTENT-FLOW",
+          "statement": "Exhaustively over up to three decisions in which each order may or may not apply at the venue and its response may be lost, target-position decisions that observe the venue position never leave more than the target exposure; delta-sized decisions or a transport that re-sends a lost write both exceed it."
         },
         {
           "id": "F-RL-DATA-COMPOSITION",

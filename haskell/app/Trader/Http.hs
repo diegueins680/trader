@@ -3,6 +3,7 @@
 module Trader.Http (
     RetryConfig (..),
     defaultRetryConfig,
+    venueRetryConfig,
     newHttpManager,
     getSharedManager,
     httpLbsWithRetry,
@@ -82,6 +83,15 @@ initHttpGlobals = do
 
 defaultRetryConfig :: RetryConfig
 defaultRetryConfig = hgRetryConfig httpGlobals
+
+{- | Retry policy for exchange requests: a write (an order, cancel or other
+mutating call) is never re-sent, whatever TRADER_HTTP_RETRY_WRITES says. A
+write whose response was lost may already have taken effect, and re-sending it
+blindly could duplicate an order. Reads keep the configured retries; the order
+path recovers an unknown outcome by re-reading venue state instead.
+-}
+venueRetryConfig :: RetryConfig
+venueRetryConfig = defaultRetryConfig{rcRetryWrites = False}
 
 defaultTimeoutMicros :: Int
 defaultTimeoutMicros = 15 * 1000000
