@@ -130,7 +130,9 @@
         "formal/research/readiness-epoch-counterexample.json",
         "scripts/formal/readiness_epoch.py",
         "formal/research/round-min-cap-counterexample.json",
-        "scripts/formal/min_size_cap.py"
+        "scripts/formal/min_size_cap.py",
+        "formal/research/drain-gates-counterexample.json",
+        "scripts/formal/drain_gates.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -486,6 +488,14 @@
         {
           "id": "F-DRAIN-POOL-CONFORMANCE",
           "statement": "Compiled literal baseline fixtures reproduce stale-ingress async, immediate and waiting backtest admissions; real shared-latch helpers reject them without effects. Runtime tests cover transaction rollback, both ownership/drain orderings, waiting rejection, release, independent controllers and generated concurrency. Source binding checks all four server pools share the controller; no complete HTTP or IO refinement is claimed."
+        },
+        {
+          "id": "F-DRAIN-GATES-SOURCE",
+          "statement": "Every HTTP route whose handler can transitively reach signal, backtest or trade computation, an optimizer process, a bot start or an order path is a POST route rejected while draining, except two reviewed credential probes (test-mode or read-only); within the server's call graph every backtest computation runs through the drain-latched backtest gate or a drained route; bot start publication checks the drain latch under the runtime lock before launch; the only two bot order-decision functions refuse while draining and are the only callers of the bot order paths; and the optimizer process launch refuses while draining."
+        },
+        {
+          "id": "F-DRAIN-GATES-FLOW",
+          "statement": "Exhaustive interleavings of a drain with an HTTP request, an auto-start publication, a bot order decision and a compute iteration - each checking the latch atomically before its work - never begin work admitted after the latch, while work admitted before it may finish; removing any one of the four gates reaches post-drain work."
         },
         {
           "id": "F-RL-DATA-COMPOSITION",

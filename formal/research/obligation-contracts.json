@@ -476,14 +476,25 @@
     {
       "number": 14,
       "claim": "Draining",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "scope": "Shutdown draining of one server process: after the drain latch no new HTTP work, bot start, bot order decision, optimizer launch or backtest admission begins; work admitted earlier may complete and shutdown reconciliation (persistence, stops) proceeds. CLI processes and credential probes are out of scope.",
       "closureCriteria": "Draining forbids new compute, starts and authorizations except specified shutdown reconciliation.",
-      "requiredCertificates": [],
+      "requiredCertificates": [
+        "F-DRAIN-GATES-SOURCE",
+        "F-DRAIN-GATES-FLOW",
+        "F-DRAIN-POOL-ORDER",
+        "F-DRAIN-POOL-LIFECYCLE",
+        "F-ASYNC-SEAL-INVARIANTS",
+        "F-ASYNC-SEAL-LIFECYCLE",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-ADMISSION-PROGRESS-SOURCE",
+        "F-ADMISSION-PROGRESS-FLOW"
+      ],
       "implementationFiles": [
         "haskell/app/Trader/App/GracefulShutdown.hs",
         "haskell/app/Main.hs"
       ],
-      "closureClass": null
+      "closureClass": "model_checked"
     },
     {
       "number": 15,

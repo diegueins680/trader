@@ -2074,10 +2074,10 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 20)
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 19)
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,15,23,24,25,26,28,29,30,31])
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='smt_verified'], [9])
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='model_checked'], [16])
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='model_checked'], [14, 16])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -4871,7 +4871,7 @@ class PositionOwnershipTests(unittest.TestCase):
         self.assertEqual(main.count(claimed), 2)
         cases = [
             ('not run under a manual-trade claim', main.replace(claimed, '(computeTradeFromArgsWithLimits limits mOps argsFinal)', 1)),
-            ('does not refuse a claimed or owned identity', main.replace('ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey', 'ownerConflict <- pure Nothing', 1)),
+            ('does not refuse a claimed or owned identity', main.replace('else botOwnerConflict ctrl mrt mOwnerKey', 'else pure Nothing', 1)),
             ('no longer reduce-only', main.replace('OrderLive sym side qty (Just True)', 'OrderLive sym side qty Nothing', 1)),
             ('order-capable definitions drifted', main + '\nsneakyOrder :: IO ()\nsneakyOrder = void (placeMarketOrder env OrderLive sym Buy q Nothing Nothing Nothing)\n'),
             ('account identity differs', main.replace('<$> resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)', '<$> pure (argBinanceApiKey args)', 1)),
@@ -5041,6 +5041,31 @@ class MinSizeCapTests(unittest.TestCase):
         dex = (ROOT / 'haskell/app/Trader/Dex.hs').read_text()
         with self.assertRaisesRegex(ValueError, 'DEX token amounts bypass'):
             m.bind({'haskell/app/Trader/Dex.hs': dex.replace('let scaled = gridUnits decimals amt', 'let scaled = floor (scaledRaw + 1e-9)', 1)})
+
+
+class DrainGatesTests(unittest.TestCase):
+    def test_source_and_model(self):
+        import drain_gates as d
+        out = d.check_drain_gates()
+        self.assertEqual(len(out['source']['drainedRoutes']), 9)
+        self.assertTrue(all(out['model']['mutants'].values()))
+
+    def test_removed_gate_fails_closed(self):
+        import drain_gates as d
+        main = (ROOT / d.MAIN).read_text()
+        cases = [
+            ('bot publication not drain-latched', main.replace('drainingNow <- isDraining (bcDrain ctrl)', 'drainingNow <- pure False', 1)),
+            ('decides orders while draining', main.replace('placeIfEnabled drain args settings sig env sym =\n    refuseWhileDraining drain sym $\n', 'placeIfEnabled drain args settings sig env sym =\n    id $\n', 1)),
+            ('candles are decided while draining', main.replace('            then pure (Right st)\n', '            then trySync (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k)\n', 1)),
+            ('optimizer launch not drain-gated', main.replace('    draining <- isDraining drain\n    exeResult <-', '    let draining = False\n    exeResult <-', 1)),
+        ]
+        for reason, text in cases:
+            self.assertNotEqual(text, main, reason)
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                d.bind({d.MAIN: text})
+        shutdown = (ROOT / d.SHUTDOWN).read_text()
+        with self.assertRaisesRegex(ValueError, 'work-starting route not drained'):
+            d.bind({d.SHUTDOWN: shutdown.replace('        , ["optimizer", "run"]\n', '', 1)})
 
 
 if __name__ == '__main__':

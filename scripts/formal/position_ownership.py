@@ -134,7 +134,7 @@ def bind(sources=None):
     require(main.count('publishWorker (bcRuntime ctrl)') == 1, 'more than one bot publication site')
     publish = bodies['botStartSymbolWithSettings']
     i = publish.find('publishWorker (bcRuntime ctrl)')
-    check, launch = (publish.find('ownerConflict <- botOwnerConflict ctrl mrt mOwnerKey', i), publish.find('Launch (botStartWorker', i))
+    check, launch = (publish.find('else botOwnerConflict ctrl mrt mOwnerKey', i), publish.find('Launch (botStartWorker', i))
     lookup = publish.find('ownerOrErr <- botOwnerKey ctrl argsSym settings sym')
     refuse = publish.find('Left err -> pure (Left err)', max(lookup, 0))
     require(0 <= lookup < refuse < i,
