@@ -121,7 +121,7 @@ import Trader.App.AsyncSafe (tryForwardingAll, trySync)
 import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Duration (parseIntervalSeconds)
-import Trader.Http (httpLbsWithRetry, newHttpManager, venueRetryConfig)
+import Trader.Http (httpLbsWithRetry, newHttpManager, newVenueHttpManager, venueRetryConfig)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
 import Trader.OrderNumeric (renderOrderNumber, validateMarketNumbers, validateOrderNumber)
 import Trader.QuantityRounding (quantizeDownExact)
@@ -524,7 +524,7 @@ binanceMarketDataCacheStats =
 
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
-    mgr <- newHttpManager
+    mgr <- newVenueHttpManager
     proxyCfg <- resolveBinanceProxy
     pure
         BinanceEnv

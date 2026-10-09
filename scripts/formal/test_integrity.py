@@ -5079,6 +5079,8 @@ class OrderIdempotenceTests(unittest.TestCase):
         http = (ROOT / o.HTTP).read_text()
         with self.assertRaisesRegex(ValueError, 'may re-send writes'):
             o.bind({o.HTTP: http.replace('defaultRetryConfig{rcRetryWrites = False}', 'defaultRetryConfig', 1)})
+        with self.assertRaisesRegex(ValueError, 'implicitly re-send'):
+            o.bind({o.HTTP: http.replace(', managerRetryableException = const False', '', 1)})
         binance = (ROOT / o.BINANCE).read_text()
         with self.assertRaisesRegex(ValueError, 'outside the venue retry policy'):
             o.bind({o.BINANCE: binance.replace('httpLbsWithRetry venueRetryConfig Nothing', 'httpLbsWithRetry defaultRetryConfig Nothing', 1)})

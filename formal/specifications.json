@@ -501,7 +501,7 @@
         },
         {
           "id": "F-ORDER-IDEMPOTENT-SOURCE",
-          "statement": "Binance and Coinbase exchange requests use venueRetryConfig, under which no write (POST, PUT, DELETE) is ever re-sent by the transport regardless of TRADER_HTTP_RETRY_WRITES; the only order re-send is the timestamp retry, which fires only after a non-2xx response carrying the explicit -1021 timestamp rejection; every live Binance futures, spot and Coinbase order decision re-reads the venue position or balance first and is a no-op for an already-held target; keyed orders reconcile an unknown outcome by client order id; and a retried bot start or keyed manual trade is refused or replayed rather than re-executed."
+          "statement": "Binance and Coinbase exchange requests use venueRetryConfig, under which no write (POST, PUT, DELETE) is ever re-sent by the transport regardless of TRADER_HTTP_RETRY_WRITES, over venue managers with http-client's implicit stale-connection retry disabled; the only order re-send is the timestamp retry, which fires only after a non-2xx response carrying the explicit -1021 timestamp rejection; every live Binance futures, spot and Coinbase order decision re-reads the venue position or balance first and is a no-op for an already-held target; keyed orders reconcile an unknown outcome by client order id; and a retried bot start or keyed manual trade is refused or replayed rather than re-executed."
         },
         {
           "id": "F-ORDER-IDEMPOTENT-FLOW",

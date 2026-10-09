@@ -54,7 +54,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
-import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager, venueRetryConfig)
+import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newVenueHttpManager, venueRetryConfig)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries, validateMarketSeriesBars, validateMarketSeriesContinuity)
 import Trader.OrderNumeric (renderOrderNumber, validateOrderNumber)
 import Trader.Symbol (splitSymbol)
@@ -172,7 +172,7 @@ data CoinbaseEnv = CoinbaseEnv
 
 newCoinbaseEnv :: Maybe BS.ByteString -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO CoinbaseEnv
 newCoinbaseEnv apiKey apiSecret apiPassphrase = do
-    mgr <- newHttpManager
+    mgr <- newVenueHttpManager
     pure CoinbaseEnv{ceManager = mgr, ceBaseUrl = coinbaseBaseUrl, ceApiKey = apiKey, ceApiSecret = apiSecret, ceApiPassphrase = apiPassphrase}
 
 coinbaseHttp :: CoinbaseEnv -> String -> Request -> IO (Response BL.ByteString)

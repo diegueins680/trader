@@ -5,6 +5,7 @@ module Trader.Http (
     defaultRetryConfig,
     venueRetryConfig,
     newHttpManager,
+    newVenueHttpManager,
     getSharedManager,
     httpLbsWithRetry,
     parseRetryAfterMsAt,
@@ -103,6 +104,21 @@ newHttpManager =
             { managerResponseTimeout = responseTimeoutMicro defaultTimeoutMicros
             , managerConnCount = 50
             , managerIdleConnectionCount = 20
+            }
+
+{- | Manager for exchange requests. http-client otherwise re-sends a request
+once when a reused pooled connection fails before response headers arrive; for
+an order the exchange may already have applied that would be a blind duplicate.
+Reads still retry through the explicit 'httpLbsWithRetry' loop.
+-}
+newVenueHttpManager :: IO Manager
+newVenueHttpManager =
+    newManager
+        tlsManagerSettings
+            { managerResponseTimeout = responseTimeoutMicro defaultTimeoutMicros
+            , managerConnCount = 50
+            , managerIdleConnectionCount = 20
+            , managerRetryableException = const False
             }
 
 getSharedManager :: IO Manager

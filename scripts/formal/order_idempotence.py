@@ -28,6 +28,13 @@ def bind(sources=None):
     main, http, binance, coinbase = read(MAIN), read(HTTP), read(BINANCE), read(COINBASE)
     # 1. Transport: venue writes are never re-sent.
     require('venueRetryConfig = defaultRetryConfig{rcRetryWrites = False}' in http, 'venue retry policy may re-send writes')
+    # http-client's implicit stale-connection retry is disabled on the managers venue requests use.
+    venue_mgr = http[http.index('newVenueHttpManager ='):]
+    venue_mgr = venue_mgr[:venue_mgr.index('\n\n')]
+    require(', managerRetryableException = const False' in venue_mgr, 'venue manager may implicitly re-send requests')
+    require('newBinanceEnv market baseUrl apiKey apiSecret = do\n    mgr <- newVenueHttpManager' in binance and
+            'newCoinbaseEnv apiKey apiSecret apiPassphrase = do\n    mgr <- newVenueHttpManager' in coinbase,
+            'venue environment built on a manager with implicit retries')
     for method in ('"put" -> rcRetryWrites cfg', '"delete" -> rcRetryWrites cfg', '"post" -> rcRetryWrites cfg'):
         require(method in http, 'write methods no longer governed by rcRetryWrites')
     require('respOrErr <- trySync (httpLbsWithRetry venueRetryConfig Nothing (beManager env) req)' in binance and
