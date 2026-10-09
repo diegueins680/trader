@@ -1,0 +1,14 @@
+{
+  "amends": "research-notes/registrations/adopted-champion-screen-v1.json",
+  "amendsSha256": "92311fad723d6a093a8272f7bdab89c9b9ec1b43bd63c32c7bb2bb31e0beae1d",
+  "registeredOn": "2026-10-09",
+  "scope": "Prospective phase only. Specifies how the registered passGates and the oneShot rule are computed. Committed before the prospective window opens (2026-10-10T00:00:00Z); no prospective row has been fetched or read. The retrospective phase and its recorded result are unchanged.",
+  "oneShot": "The runner refuses the phase if its results.json already exists, writes results with exclusive create, and makes the files read-only. A run interrupted before writing results may be repeated with identical inputs; any written result is final.",
+  "medianSeed": "Per combo, the seed with the median base net return over the phase window. Every stress uses that same seed.",
+  "fleetAggregation": "Per-bar net returns of each combo's median seed are compounded into UTC calendar days by bar open time. Fleet daily return = equal-weight mean of the three combos. Baselines (buy-and-hold, 20-bar momentum) are aggregated identically from each combo's baseline returns.",
+  "fleetStatistics": "Fleet PSR uses daily returns; lifetimeAdjustedPsr = max(0, 1 - min(1, 3261 * (1 - PSR))). Annualized Sharpe uses 365 periods per year. Max drawdown is on the compounded fleet daily path.",
+  "doubledCosts": "Per bar, net2x = 2 * net - gross from the engine's gross and net attribution equity curves, which doubles fee, slippage, spread and funding. Fleet net2x return is aggregated as above.",
+  "oneBarDelay": "A separate engine run per chunk with --backtest-signal-delay-bars 1: the decision at bar t uses bar t-1's predicted return (rescaled to bar t's price) and gate metadata; fills, stops and costs use bar t. Fleet delayed return is aggregated as above.",
+  "decision": "PASS only if every registered passGate holds: every combo NOT_REJECTED; fleet lifetimeAdjustedPsr >= 0.95; fleet max drawdown <= 20%; fleet annualized Sharpe above both fleet baselines; fleet net2x return > 0; fleet delayed return > 0. Otherwise REJECTED.",
+  "validation": "The delay flag and stress computations are tested only on rows before createdAtMs (2026-03-25T17:38:18Z) before any prospective evaluation."
+}
