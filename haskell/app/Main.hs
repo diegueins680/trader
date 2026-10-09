@@ -975,6 +975,7 @@ main = do
     case runtimeValidation of
         Left e -> die (e ++ "\n\nRun with --help for usage.")
         Right () -> pure ()
+    args'' <- adoptComboFromFileIfRequested args'
     if argOpsBackfillCommits args'
         then runOpsBackfillCommits
         else
@@ -986,15 +987,15 @@ main = do
                         if argServe args'
                             then runRestApi args' mWebhook
                             else do
-                                (series, mBinanceEnv) <- loadPrices Nothing args'
+                                (series, mBinanceEnv) <- loadPrices Nothing args''
                                 let prices = psClose series
-                                ensureMinPriceRows args' 2 prices
+                                ensureMinPriceRows args'' 2 prices
 
-                                let lookback = argLookback args'
-                                ensureLookbackRows args' lookback prices
-                                if argTradeOnly args'
-                                    then runTradeOnly mWebhook args' lookback series mBinanceEnv
-                                    else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
+                                let lookback = argLookback args''
+                                ensureLookbackRows args'' lookback prices
+                                if argTradeOnly args''
+                                    then runTradeOnly mWebhook args'' lookback series mBinanceEnv
+                                    else runBacktestPipeline mWebhook args'' lookback series mBinanceEnv
                     case (r :: Either SomeException ()) of
                         Left ex -> do
                             let (_, msg) = exceptionToHttp ex
@@ -21822,6 +21823,30 @@ applyTopComboForStart base combo = do
                 , argMinPositionSize = capAdoptedMinPositionSize adoptedMaxPositionSize (argMinPositionSize args2)
                 }
     pure (normalizeBarsForLookback args3)
+
+{- | CLI-only: replay one stored combo exactly as live bot adoption applies it
+('applyTopComboForStart': venue cost floors, adoption position caps), so an
+offline backtest evaluates the same configuration a live bot would trade.
+Market data still comes from the CLI's own --data/--binance-symbol inputs.
+-}
+adoptComboFromFileIfRequested :: Args -> IO Args
+adoptComboFromFileIfRequested args =
+    case (argAdoptComboFile args, argAdoptComboUuid args) of
+        (Just path, Just uuid) -> do
+            decoded <- Aeson.eitherDecodeFileStrict' path
+            let wanted = T.toLower (T.pack uuid)
+                adopted = do
+                    export <- either (\e -> Left ("cannot decode " ++ path ++ ": " ++ e)) Right decoded
+                    combo <-
+                        maybe
+                            (Left ("combo " ++ uuid ++ " not found in " ++ path))
+                            Right
+                            (find ((== wanted) . T.toLower . topComboUuid) (tceCombos export))
+                    applyTopComboForStart args combo
+            case adopted of
+                Left e -> die e
+                Right a -> pure a
+        _ -> pure args
 
 applyTopComboForStartWithUuid :: Args -> TopCombo -> Either String (Args, Maybe Text)
 applyTopComboForStartWithUuid base combo = do

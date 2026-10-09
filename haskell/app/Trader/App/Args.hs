@@ -454,6 +454,8 @@ data Args = Args
     , argServe :: Bool
     , argOpsBackfillCommits :: Bool
     , argTopCombosBackfillCloseTiming :: Bool
+    , argAdoptComboFile :: Maybe FilePath
+    , argAdoptComboUuid :: Maybe String
     , argPort :: Int
     , -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
       argKalmanZMin :: Double
@@ -1527,6 +1529,8 @@ opts = do
             ( long "top-combos-backfill-close-timing"
                 <> help "Rerun persisted top combos through the close-timing analyzer, store metrics.closeTiming, and retune params.maxHoldBars when recommended."
             )
+    argAdoptComboFile <- optional (strOption (long "adopt-combo-file" <> metavar "FILE" <> help "Top-combos export JSON to adopt a combo from (CLI backtest only; requires --adopt-combo-uuid)"))
+    argAdoptComboUuid <- optional (strOption (long "adopt-combo-uuid" <> metavar "UUID" <> help "Apply this combo's params exactly as live bot adoption does (venue cost floors, adoption caps)"))
     argPort <- option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
     argKalmanZMin <- option auto (long "kalman-z-min" <> value 0.5 <> help "Min |Kalman mean|/std (z-score) required to treat Kalman as directional (0 disables)")
     argKalmanZMax <- option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
@@ -1783,6 +1787,8 @@ validateArgs args0 = do
         "--json cannot be used with --serve, --ops-backfill-commits, or --top-combos-backfill-close-timing"
         (not (argJson args && (argServe args || argOpsBackfillCommits args || argTopCombosBackfillCloseTiming args)))
     ensure "--ops-backfill-commits cannot be used with --serve" (not (argOpsBackfillCommits args && argServe args))
+    ensure "--adopt-combo-file and --adopt-combo-uuid must be given together" (isJust (argAdoptComboFile args) == isJust (argAdoptComboUuid args))
+    ensure "--adopt-combo-file cannot be used with --serve or --trade-only" (not (isJust (argAdoptComboFile args) && (argServe args || argTradeOnly args)))
     ensure "--top-combos-backfill-close-timing cannot be used with --serve" (not (argTopCombosBackfillCloseTiming args && argServe args))
     ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
     ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
