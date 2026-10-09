@@ -417,6 +417,12 @@
       "risk": "RL-OFFLINE-001"
     },
     {
+      "id": "A-ORDER-IDEMPOTENCE",
+      "status": "assumption",
+      "statement": "System-initiated retries: transport, timestamp, bot re-decisions on later candles, retried bot starts and keyed manual trades. A client re-submitting an unkeyed manual trade issues a new intent. The venue's position and balance reads are assumed to reflect an applied order before the next decision (read-after-write). DEX swaps are manual and never retried by the system.",
+      "risk": "RL-OFFLINE-001"
+    },
+    {
       "id": "A-CAUSAL-REPLAY-V3",
       "status": "assumption",
       "statement": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim.",
@@ -658,7 +664,9 @@
     "scripts/formal/min_size_cap.py",
     "formal/research/round-min-cap-counterexample.json",
     "scripts/formal/drain_gates.py",
-    "formal/research/drain-gates-counterexample.json"
+    "formal/research/drain-gates-counterexample.json",
+    "scripts/formal/order_idempotence.py",
+    "formal/research/order-idempotence-counterexample.json"
   ],
   "entries": [
     {
@@ -3723,6 +3731,64 @@
       "bounds": "44 HTTP routes; 4 non-HTTP choke points; model of one drain with four actors.",
       "limitations": "One server process; CLI modes reached only from main run as separate processes and are not drained. Work admitted before the drain latch (pre-drain owners) may complete, including a bot order routine's protection orders. Running bots make no new order decisions while draining; their positions carry over to adoption after restart. Background persistence (state sync, listen-key and ops cleanup) is shutdown reconciliation. Credential probes remain available while draining. STM/IORef latch semantics are trusted.",
       "counterexample": "CE-DRAIN-001",
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-ORDER-IDEMPOTENT-SOURCE",
+      "claim": "Binance and Coinbase exchange requests use venueRetryConfig, under which no write (POST, PUT, DELETE) is ever re-sent by the transport regardless of TRADER_HTTP_RETRY_WRITES, over venue managers with http-client's implicit stale-connection retry disabled; the only order re-send is the timestamp retry, which fires only after a non-2xx response carrying the explicit -1021 timestamp rejection; every live Binance futures, spot and Coinbase order decision re-reads the venue position or balance first and is a no-op for an already-held target; keyed orders reconcile an unknown outcome by client order id; and a retried bot start or keyed manual trade is refused or replayed rather than re-executed.",
+      "formalStatement": "Binance and Coinbase exchange requests use venueRetryConfig, under which no write (POST, PUT, DELETE) is ever re-sent by the transport regardless of TRADER_HTTP_RETRY_WRITES, over venue managers with http-client's implicit stale-connection retry disabled; the only order re-send is the timestamp retry, which fires only after a non-2xx response carrying the explicit -1021 timestamp rejection; every live Binance futures, spot and Coinbase order decision re-reads the venue position or balance first and is a no-op for an already-held target; keyed orders reconcile an unknown outcome by client order id; and a retried bot start or keyed manual trade is refused or replayed rather than re-executed.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ORDER-IDEMPOTENCE"
+      ],
+      "tool": "Source binding of the venue retry policy, timestamp retry, target-position decisions and reconciliation",
+      "toolVersion": "CPython3.13.3",
+      "sourceModel": "scripts/formal/order_idempotence.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Http.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Main.hs",
+        "formal/research/order-idempotence-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Fresh binding must reproduce; a write-retrying venue policy, an unconditional re-send or a decision without a venue read fails closed.",
+      "bounds": "Two venues; model of up to three decisions with applied/lost outcomes.",
+      "limitations": "System-initiated retries: transport, timestamp, bot re-decisions on later candles, retried bot starts and keyed manual trades. A client re-submitting an unkeyed manual trade issues a new intent. The venue's position and balance reads are assumed to reflect an applied order before the next decision (read-after-write). DEX swaps are manual and never retried by the system.",
+      "counterexample": "CE-IDEMP-001",
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-ORDER-IDEMPOTENT-FLOW",
+      "claim": "Exhaustively over up to three decisions in which each order may or may not apply at the venue and its response may be lost, target-position decisions that observe the venue position never leave more than the target exposure; delta-sized decisions or a transport that re-sends a lost write both exceed it.",
+      "formalStatement": "Exhaustively over up to three decisions in which each order may or may not apply at the venue and its response may be lost, target-position decisions that observe the venue position never leave more than the target exposure; delta-sized decisions or a transport that re-sends a lost write both exceed it.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-ORDER-IDEMPOTENCE"
+      ],
+      "tool": "Exhaustive breadth-first model with delta-sizing and write-retry mutants",
+      "toolVersion": "CPython3.13.3",
+      "sourceModel": "scripts/formal/order_idempotence.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "haskell/app/Trader/Http.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Main.hs",
+        "formal/research/order-idempotence-counterexample.json"
+      ],
+      "testFiles": [
+        "scripts/formal/test_integrity.py"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "No duplicated exposure in the fixed protocol; both mutants refuted.",
+      "bounds": "Two venues; model of up to three decisions with applied/lost outcomes.",
+      "limitations": "System-initiated retries: transport, timestamp, bot re-decisions on later candles, retried bot starts and keyed manual trades. A client re-submitting an unkeyed manual trade issues a new intent. The venue's position and balance reads are assumed to reflect an applied order before the next decision (read-after-write). DEX swaps are manual and never retried by the system.",
+      "counterexample": "CE-IDEMP-001",
       "status": "model_checked"
     },
     {
@@ -10285,7 +10351,7 @@
     {
       "number": 35,
       "claim": "Idempotence",
-      "status": "partially_verified",
+      "status": "model_checked",
       "evidenceRequirements": [
         "F-RL-SHIELD-IDEMPOTENT",
         "F-RL-TARGET-V2-TERMINAL",
@@ -10300,21 +10366,39 @@
         "F-ASYNC-ADMISSION-CONFORMANCE",
         "F-ASYNC-SEAL-INVARIANTS",
         "F-ASYNC-SEAL-LIFECYCLE",
-        "F-ASYNC-SEAL-CONFORMANCE"
+        "F-ASYNC-SEAL-CONFORMANCE",
+        "F-ORDER-IDEMPOTENT-SOURCE",
+        "F-ORDER-IDEMPOTENT-FLOW",
+        "F-LIVE-OWNERSHIP-SOURCE",
+        "F-LIVE-OWNERSHIP-FLOW",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-FLOW"
       ],
-      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion.",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "limitations": "The disconnected gae-targets-v2 raw-target kernel adds scoped numerical/publication evidence; it does not repair the frozen learner or discharge this whole-system obligation. Persistent worker closure, cancellation deduplication and callback-finalizer acknowledgement now have source-bound model/SMT and compiled conformance evidence; this does not discharge the broader closure criterion. Async admission now has source-bound reservation arithmetic, two-caller ownership/publication model and compiled helper tests; HTTP draining, durable state and the broader criterion remain unresolved. Async pools now seal admission atomically with their counters before shutdown snapshots and acknowledge only closed zero-owner completion. This narrows local shutdown races, not the broader whole-server/durable ownership criterion. Closure (2026-10-09): CE-IDEMP-001 (TRADER_HTTP_RETRY_WRITES would let the transport re-send an order POST whose response was lost) is closed by a venue retry policy that never re-sends writes; with target-position decisions, timestamp-only re-sends, client-order-id reconciliation and the ownership and promotion certificates, system retries do not duplicate order intents, ownership or promotion. Assumptions: System-initiated retries: transport, timestamp, bot re-decisions on later candles, retried bot starts and keyed manual trades. A client re-submitting an unkeyed manual trade issues a new intent. The venue's position and balance reads are assumed to reflect an applied order before the next decision (read-after-write). DEX swaps are manual and never retried by the system.",
+      "scope": "System-initiated retries of order intents (transport, timestamp, later bot decisions, keyed manual trades), of bot ownership (retried starts) and of research promotion, on the Binance and Coinbase adapters. Client re-submission of unkeyed manual trades and DEX swaps are out of scope.",
       "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
-      "nextAction": "Define request identity and atomic deduplication at any future effect boundary; verify retry transitions.",
+      "nextAction": "Reopen before any new venue adapter, retry policy, delta-sized order path, or change to bot start or manual trade idempotency.",
       "implementationFiles": [
-        "haskell/app/Trader/Research/PolicyProposalV1.hs",
         "haskell/app/Main.hs",
-        "haskell/app/Trader/LiveOrderIntent.hs"
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Http.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
       ],
-      "blockers": [
-        "Pure shield idempotence does not cover persistent operation identifiers or consumer retries."
-      ],
-      "requiredCertificates": []
+      "blockers": [],
+      "requiredCertificates": [
+        "F-ORDER-IDEMPOTENT-SOURCE",
+        "F-ORDER-IDEMPOTENT-FLOW",
+        "F-LIVE-OWNERSHIP-SOURCE",
+        "F-LIVE-OWNERSHIP-FLOW",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-SHIELD-IDEMPOTENT",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-ASYNC-ADMISSION-LIFECYCLE"
+      ]
     },
     {
       "number": 36,

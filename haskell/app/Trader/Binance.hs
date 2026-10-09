@@ -121,7 +121,7 @@ import Trader.App.AsyncSafe (tryForwardingAll, trySync)
 import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Duration (parseIntervalSeconds)
-import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
+import Trader.Http (httpLbsWithRetry, newHttpManager, newVenueHttpManager, venueRetryConfig)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
 import Trader.OrderNumeric (renderOrderNumber, validateMarketNumbers, validateOrderNumber)
 import Trader.QuantityRounding (quantizeDownExact)
@@ -524,7 +524,7 @@ binanceMarketDataCacheStats =
 
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
-    mgr <- newHttpManager
+    mgr <- newVenueHttpManager
     proxyCfg <- resolveBinanceProxy
     pure
         BinanceEnv
@@ -674,7 +674,7 @@ binanceHttp :: BinanceEnv -> String -> Request -> IO (Response BL.ByteString)
 binanceHttp env label req0 = do
     t0 <- getTimestampMs
     let req = applyBinanceProxy env req0
-    respOrErr <- trySync (httpLbsWithRetry defaultRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry venueRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
     t1 <- getTimestampMs
     let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
         methodTxt = decodeUtf8With lenientDecode (method req)

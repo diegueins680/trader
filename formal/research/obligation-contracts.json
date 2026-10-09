@@ -1189,15 +1189,29 @@
     {
       "number": 35,
       "claim": "Idempotence",
-      "scope": "Affected offline research path and explicitly named inherited production integration boundary; inherited production correctness is not assumed discharged.",
+      "scope": "System-initiated retries of order intents (transport, timestamp, later bot decisions, keyed manual trades), of bot ownership (retried starts) and of research promotion, on the Binance and Coinbase adapters. Client re-submission of unkeyed manual trades and DEX swaps are out of scope.",
       "closureCriteria": "Retries do not duplicate ownership, promotion or externally visible order intents.",
-      "requiredCertificates": [],
-      "implementationFiles": [
-        "haskell/app/Trader/Research/PolicyProposalV1.hs",
-        "haskell/app/Main.hs",
-        "haskell/app/Trader/LiveOrderIntent.hs"
+      "requiredCertificates": [
+        "F-ORDER-IDEMPOTENT-SOURCE",
+        "F-ORDER-IDEMPOTENT-FLOW",
+        "F-LIVE-OWNERSHIP-SOURCE",
+        "F-LIVE-OWNERSHIP-FLOW",
+        "F-RL-PROMOTION-SURFACE",
+        "F-RL-PROMOTION-FLOW",
+        "F-RL-SHIELD-IDEMPOTENT",
+        "F-WORKER-REGISTRY-INVARIANTS",
+        "F-WORKER-REGISTRY-LIFECYCLE",
+        "F-ASYNC-ADMISSION-LIFECYCLE"
       ],
-      "closureClass": null
+      "implementationFiles": [
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/Coinbase.hs",
+        "haskell/app/Trader/Http.hs",
+        "haskell/app/Trader/LiveOrderIntent.hs",
+        "haskell/app/Trader/Research/PolicyProposalV1.hs"
+      ],
+      "closureClass": "model_checked"
     },
     {
       "number": 36,

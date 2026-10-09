@@ -2074,10 +2074,10 @@ class ObligationClosureTests(unittest.TestCase):
 
     def test_real_affected_scope_obligations_closed_others_remain(self):
         from verify import validate_obligations
-        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 19)
+        self.assertEqual(validate_obligations(self.ledger['missionObligations'], self.ledger['entries']), 18)
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='exhaustively_checked'], [2,3,5,7,8,11,12,15,23,24,25,26,28,29,30,31])
         self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='smt_verified'], [9])
-        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='model_checked'], [14, 16])
+        self.assertEqual([o['number'] for o in self.ledger['missionObligations'] if o['status']=='model_checked'], [14, 16, 35])
 
     def test_certified_completion_is_reachable_but_not_economic_acceptance(self):
         from verify import acceptance_summary
@@ -5066,6 +5066,27 @@ class DrainGatesTests(unittest.TestCase):
         shutdown = (ROOT / d.SHUTDOWN).read_text()
         with self.assertRaisesRegex(ValueError, 'work-starting route not drained'):
             d.bind({d.SHUTDOWN: shutdown.replace('        , ["optimizer", "run"]\n', '', 1)})
+
+
+class OrderIdempotenceTests(unittest.TestCase):
+    def test_source_and_model(self):
+        import order_idempotence as o
+        out = o.check_order_idempotence()
+        self.assertEqual(set(out['model']['counterexamples']), {'delta-sizing', 'retry-writes'})
+
+    def test_weakened_retry_fails_closed(self):
+        import order_idempotence as o
+        http = (ROOT / o.HTTP).read_text()
+        with self.assertRaisesRegex(ValueError, 'may re-send writes'):
+            o.bind({o.HTTP: http.replace('defaultRetryConfig{rcRetryWrites = False}', 'defaultRetryConfig', 1)})
+        with self.assertRaisesRegex(ValueError, 'implicitly re-send'):
+            o.bind({o.HTTP: http.replace(', managerRetryableException = const False', '', 1)})
+        binance = (ROOT / o.BINANCE).read_text()
+        with self.assertRaisesRegex(ValueError, 'outside the venue retry policy'):
+            o.bind({o.BINANCE: binance.replace('httpLbsWithRetry venueRetryConfig Nothing', 'httpLbsWithRetry defaultRetryConfig Nothing', 1)})
+        main = (ROOT / o.MAIN).read_text()
+        with self.assertRaisesRegex(ValueError, 're-read the venue position'):
+            o.bind({o.MAIN: main.replace('    placeFutures mSf quoteAsset dir = do\n        summary <- fetchFuturesPositionSummary env sym', '    placeFutures mSf quoteAsset dir = do\n        let summary = emptySummary', 1)})
 
 
 if __name__ == '__main__':

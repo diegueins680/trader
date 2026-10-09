@@ -3,7 +3,9 @@
 module Trader.Http (
     RetryConfig (..),
     defaultRetryConfig,
+    venueRetryConfig,
     newHttpManager,
+    newVenueHttpManager,
     getSharedManager,
     httpLbsWithRetry,
     parseRetryAfterMsAt,
@@ -83,6 +85,15 @@ initHttpGlobals = do
 defaultRetryConfig :: RetryConfig
 defaultRetryConfig = hgRetryConfig httpGlobals
 
+{- | Retry policy for exchange requests: a write (an order, cancel or other
+mutating call) is never re-sent, whatever TRADER_HTTP_RETRY_WRITES says. A
+write whose response was lost may already have taken effect, and re-sending it
+blindly could duplicate an order. Reads keep the configured retries; the order
+path recovers an unknown outcome by re-reading venue state instead.
+-}
+venueRetryConfig :: RetryConfig
+venueRetryConfig = defaultRetryConfig{rcRetryWrites = False}
+
 defaultTimeoutMicros :: Int
 defaultTimeoutMicros = 15 * 1000000
 
@@ -93,6 +104,21 @@ newHttpManager =
             { managerResponseTimeout = responseTimeoutMicro defaultTimeoutMicros
             , managerConnCount = 50
             , managerIdleConnectionCount = 20
+            }
+
+{- | Manager for exchange requests. http-client otherwise re-sends a request
+once when a reused pooled connection fails before response headers arrive; for
+an order the exchange may already have applied that would be a blind duplicate.
+Reads still retry through the explicit 'httpLbsWithRetry' loop.
+-}
+newVenueHttpManager :: IO Manager
+newVenueHttpManager =
+    newManager
+        tlsManagerSettings
+            { managerResponseTimeout = responseTimeoutMicro defaultTimeoutMicros
+            , managerConnCount = 50
+            , managerIdleConnectionCount = 20
+            , managerRetryableException = const False
             }
 
 getSharedManager :: IO Manager

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-IDEMP-001",
+  "requirement": "F-ORDER-IDEMPOTENT-FLOW",
+  "status": "resolved",
+  "mechanism": "Binance and Coinbase requests used the global retry policy, whose write retries are controlled by TRADER_HTTP_RETRY_WRITES. With it enabled, an order POST whose response was lost (timeout or connection reset after the exchange accepted it) would be re-sent; Binance rejects a duplicate client order id only while the first order is still open, so a filled market order could be placed twice.",
+  "witness": "Model mutant retry-writes: the order applies, its response is lost, the transport re-sends it and it applies again (position 2 against target 1).",
+  "resolution": "Exchange requests use venueRetryConfig (write retries off regardless of the flag); unknown outcomes are recovered by re-reading venue state on the next decision or by client-order-id reconciliation."
+}
