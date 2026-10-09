@@ -7,7 +7,7 @@
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
     "haskell/app/Main.hs": "a52c371c1654dde95a123f1124f1aff7c58a88195b1c45890b0ae570383146f1",
     "haskell/test/Trader/Test/AsyncJobAdmission.hs": "fdc49dec38a4805b18a993c6b3858e073bcad163d53340fb84b889a8d80c5a48",
-    "haskell/test/TestMain.hs": "e96956e0610351936133d42845154d3ed8d2e21ddd0b9b6b7a087bad6bcc4c8b",
+    "haskell/test/TestMain.hs": "9e00645fab31b2e5653ce2f1496f2fd4ec08f430d68b19f452c8df2b190212a3",
     "haskell/trader.cabal": "2b96862e23bf431094dedc271bbd0707182b4cba7049fff21d46ba5f999b78af",
     "formal/research/AsyncJobAdmission.hs": "edc72532790a4089791532462b37897ec83172b7b8220020d3a5df6d6bdb819c",
     "formal/research/fixtures/async-job-before.hs": "0b0f227a943c38219ca1d2c6d76a1525a66223706a52a1cdad9751f1388e7e6d",

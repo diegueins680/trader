@@ -37,12 +37,14 @@ module Trader.BotStartSemantics (
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
     deployableOverrideEvidenceEligible,
+    adoptionMaxOpenThreshold,
+    comboOpenThresholdWithinAdoptionCeiling,
 ) where
 
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
-import Trader.CostCalibration (venueMinEdgeFloor)
+import Trader.CostCalibration (venueMinEdgeFloor, venueRoundTripCostFloor)
 import Trader.Text (dedupeStable, normalizeKey)
 
 {- | An explicit UUID override may relax candidate performance gates, but it
@@ -162,6 +164,42 @@ adoptionMinEdgeFloor = venueMinEdgeFloor
 comboMinEdgeMeetsAdoptionFloor :: Maybe Double -> Bool
 comboMinEdgeMeetsAdoptionFloor =
     comboMinEdgeMeetsAdoptionFloorWithConfig defaultAdoptionEvidenceConfig
+
+{- | Ceiling on a combo's stored per-bar open threshold (fraction of price)
+for it to count as deployable evidence.
+
+Engineering rationale (2026-10-09)
+==================================
+
+The adopted-champion screen
+(@research-notes/adopted-champion-screen-2026-10-09/report.md@, PR #330)
+found pinned live combos with stored open thresholds of 38.6% and 91.8% per
+bar: the optimizer's threshold sweep had fitted LSTM forecasts sitting tens
+of percent away from price, so the adopted bots could never enter. The
+signal-gate feasibility cap ('Trader.SignalGates.signalEntryOpenThresholdFeasibilityCap',
+5.0 / 1.5, i.e. 333% per bar) only screens out impossible values. On the
+2026-10-09 production board 11% of combos sit above 3%, the 99th percentile
+is above 100%, and no deployable combo is above 3%. 25x the venue
+round-trip cost floor (3%) separates that cluster from every sane threshold.
+
+This is a candidate-tier reason, so an explicit UUID override can still
+relax it ('deployableOverrideEvidenceEligible'); it keeps such combos out of
+automatic deployment and surfaces them in pin review.
+
+Falsifiable invariants:
+
+  * a missing threshold passes (the combo runs on its base thresholds);
+  * non-finite or negative thresholds fail;
+  * monotone: if @t1 <= t2@ and @t2@ passes then @t1@ passes.
+-}
+adoptionMaxOpenThreshold :: Double
+adoptionMaxOpenThreshold = 25 * venueRoundTripCostFloor
+
+comboOpenThresholdWithinAdoptionCeiling :: Maybe Double -> Bool
+comboOpenThresholdWithinAdoptionCeiling Nothing = True
+comboOpenThresholdWithinAdoptionCeiling (Just threshold)
+    | isNaN threshold || isInfinite threshold = False
+    | otherwise = threshold >= 0 && threshold <= adoptionMaxOpenThreshold
 
 comboMinEdgeMeetsAdoptionFloorWithConfig :: AdoptionEvidenceConfig -> Maybe Double -> Bool
 comboMinEdgeMeetsAdoptionFloorWithConfig _ Nothing = False

@@ -47,6 +47,7 @@ import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloor,
     comboWalkForwardSharpeMeetsAdoptionFloor,
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
@@ -544,7 +545,8 @@ comboProcessingTier config combo
     | isNothing (comboAnnualizedReturnMaybe combo) = "raw"
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" combo)
         && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMean combo)
-        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStd combo) =
+        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStd combo)
+        && comboOpenThresholdWithinAdoptionCeiling (comboOpenThreshold combo) =
         "deployable"
     | otherwise = "candidate"
 
@@ -584,6 +586,7 @@ comboProcessingReasons config combo =
             Just sharpeStd
                 | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
+        , ["open-threshold-above-ceiling" | not (comboOpenThresholdWithinAdoptionCeiling (comboOpenThreshold combo))]
         ]
 
 comboValidatedScore :: TopComboScoringConfig -> Combo -> Double

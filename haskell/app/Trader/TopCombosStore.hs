@@ -94,6 +94,7 @@ import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloor,
     comboWalkForwardSharpeMeetsAdoptionFloor,
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
@@ -672,6 +673,12 @@ coerceInt64Value value =
             case value of
                 Aeson.String s -> readMaybe (trim (T.unpack s))
                 _ -> Nothing
+
+comboTopLevelDouble :: String -> Aeson.Value -> Maybe Double
+comboTopLevelDouble key val =
+    case val of
+        Aeson.Object o -> KM.lookup (AK.fromString key) o >>= coerceDoubleValue
+        _ -> Nothing
 
 comboTopLevelInt64 :: String -> Aeson.Value -> Maybe Int64
 comboTopLevelInt64 key val =
@@ -1375,7 +1382,8 @@ comboProcessingTier val
     | isNothingFinite (comboAnnualizedReturnValue val) = "raw"
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" val)
         && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMeanValue val)
-        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStdValue val) =
+        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStdValue val)
+        && comboOpenThresholdWithinAdoptionCeiling (comboTopLevelDouble "openThreshold" val) =
         "deployable"
     | otherwise = "candidate"
   where
@@ -1422,6 +1430,7 @@ comboProcessingReasons val =
             Just sharpeStd
                 | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
+        , ["open-threshold-above-ceiling" | not (comboOpenThresholdWithinAdoptionCeiling (comboTopLevelDouble "openThreshold" val))]
         ]
 
 comboValidatedScore :: Aeson.Value -> Double

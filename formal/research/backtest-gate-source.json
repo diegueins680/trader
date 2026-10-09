@@ -7,7 +7,7 @@
     "haskell/app/Main.hs": "a52c371c1654dde95a123f1124f1aff7c58a88195b1c45890b0ae570383146f1",
     "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
-    "haskell/test/TestMain.hs": "e96956e0610351936133d42845154d3ed8d2e21ddd0b9b6b7a087bad6bcc4c8b",
+    "haskell/test/TestMain.hs": "9e00645fab31b2e5653ce2f1496f2fd4ec08f430d68b19f452c8df2b190212a3",
     "haskell/test/Trader/Test/BacktestGate.hs": "8bd8432d6fccfa69a180f64476269c47c1a77cd0673bed21482c83c8c1ece9bf",
     "haskell/trader.cabal": "2b96862e23bf431094dedc271bbd0707182b4cba7049fff21d46ba5f999b78af",
     "scripts/formal/backtest_gate.py": "ca59d6c12d70fbe4c350aeeb622993c5cb522ab47092c4b5467b0492c83d6c09",

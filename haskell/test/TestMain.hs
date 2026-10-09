@@ -31,7 +31,7 @@ import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenant
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotSnapshotRecovery (TradeMemorySnapshotContext (..), restoreTradeMemoryFromStatus)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxOpenThreshold, adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboOpenThresholdWithinAdoptionCeiling, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -741,6 +741,8 @@ main = do
     testDeployableTierRanksAheadOfUnvalidatedCandidate
     testDeployableTierRequiresCompleteAdoptionEvidence
     testExplicitDeployableOverrideIsBoundedAndAuditable
+    testComboOpenThresholdWithinAdoptionCeiling
+    testDegenerateOpenThresholdIsCandidateAndOverrideAuditable
     testTopComboFreshnessMultiplierDefaultsDisabled
     testPortfolioAnnualizationAndDrawdown
     testOptimizerExtractsTimestampedPortfolioEvidence
@@ -6904,6 +6906,81 @@ testDeployableTierRequiresCompleteAdoptionEvidence = do
         "unstable walk-forward evidence remains a candidate with a reason"
         ( (unstableMerged >>= comboProcessingTierForTest) == Just "candidate"
             && maybe False ("walk-forward-std-above-ceiling" `elem`) (unstableMerged >>= comboProcessingReasonsForTest)
+        )
+
+testComboOpenThresholdWithinAdoptionCeiling :: IO ()
+testComboOpenThresholdWithinAdoptionCeiling = do
+    assert "open-threshold ceiling is 25x the venue round-trip cost floor" (abs (adoptionMaxOpenThreshold - 0.03) < 1e-12)
+    assert "a missing open threshold passes" (comboOpenThresholdWithinAdoptionCeiling Nothing)
+    assert "a sane open threshold passes" (comboOpenThresholdWithinAdoptionCeiling (Just 0.0049))
+    assert "the ceiling itself passes" (comboOpenThresholdWithinAdoptionCeiling (Just adoptionMaxOpenThreshold))
+    assert
+        "the 2026-10-09 degenerate live thresholds fail"
+        (not (any (comboOpenThresholdWithinAdoptionCeiling . Just) [0.386, 0.918]))
+    assert
+        "non-finite or negative thresholds fail"
+        (not (any (comboOpenThresholdWithinAdoptionCeiling . Just) [0 / 0, 1 / 0, -0.001]))
+    let grid = [0, 0.001 .. 0.05] :: [Double]
+    assert
+        "open-threshold ceiling is monotone"
+        ( and
+            [ comboOpenThresholdWithinAdoptionCeiling (Just lo)
+            | lo <- grid
+            , hi <- grid
+            , lo <= hi
+            , comboOpenThresholdWithinAdoptionCeiling (Just hi)
+            ]
+        )
+
+testDegenerateOpenThresholdIsCandidateAndOverrideAuditable :: IO ()
+testDegenerateOpenThresholdIsCandidateAndOverrideAuditable = do
+    let withOpenThreshold label threshold =
+            case processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" (Aeson.toJSON (threshold :: Double)) o)
+                other -> other
+        sane = withOpenThreshold "sane-threshold" 0.0049
+        degenerate = withOpenThreshold "degenerate-threshold" 0.386
+        pinned = withOpenThreshold "pinned-degenerate" 0.918
+        mergedSane = listToMaybe (mergedCombosForTest [sane])
+        mergedDegenerate = listToMaybe (mergedCombosForTest [degenerate])
+        (stored, _) =
+            mergeTopCombosPayloadsWithStatsAndDeployableOverrides
+                ["pinned-degenerate"]
+                10
+                9500
+                [Aeson.object ["combos" .= [degenerate, pinned]]]
+        storedCombos =
+            case stored of
+                Aeson.Object o | Just (Aeson.Array values) <- KM.lookup "combos" o -> V.toList values
+                _ -> []
+        byUuid :: T.Text -> Maybe Aeson.Value
+        byUuid uuid =
+            find
+                ( \case
+                    Aeson.Object o -> (KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON) == Just uuid
+                    _ -> False
+                )
+                storedCombos
+        relaxedReasons :: Maybe [T.Text]
+        relaxedReasons =
+            byUuid "pinned-degenerate" >>= \case
+                Aeson.Object o | Just (Aeson.Object processing) <- KM.lookup "processing" o -> KM.lookup "relaxedReasons" processing >>= AT.parseMaybe Aeson.parseJSON
+                _ -> Nothing
+    assert
+        "a sane open threshold keeps complete evidence deployable"
+        ((mergedSane >>= comboProcessingTierForTest) == Just "deployable")
+    assert
+        "a degenerate open threshold stays a candidate with a reason"
+        ( (mergedDegenerate >>= comboProcessingTierForTest) == Just "candidate"
+            && maybe False ("open-threshold-above-ceiling" `elem`) (mergedDegenerate >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "the store keeps an unpinned degenerate threshold out of the deployable tier"
+        ((byUuid "degenerate-threshold" >>= comboProcessingTierForTest) == Just "candidate")
+    assert
+        "an explicit UUID override still relaxes the ceiling and records it for pin review"
+        ( (byUuid "pinned-degenerate" >>= comboProcessingTierForTest) == Just "deployable"
+            && maybe False ("open-threshold-above-ceiling" `elem`) relaxedReasons
         )
 
 testExplicitDeployableOverrideIsBoundedAndAuditable :: IO ()
