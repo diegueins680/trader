@@ -70,7 +70,7 @@ Live corroboration: in the production snapshot only ADA (stored threshold 0.13%)
 ## Gate status and next steps
 
 - `economic_evidence` stays **open**. Nothing here can satisfy it.
-- Proposed ledger blocker text (not applied: recording the formal certificate needs maintainer approval):
+- Ledger blocker text (applied to `formal/research/proof-ledger.json` and re-recorded with `scripts/formal/verify.py --record`):
   > Matched adopted-champion replay (research-notes/registrations/adopted-champion-screen-v1.json) rejected the live UNI/SUI/ETC combos on lawful post-creation data: zero round trips from 2026-03-25 to 2026-10-09 because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. Its one-shot prospective phase cannot be read before 2027-01-21; AVAX/ADA remain unevaluated under the holdout and carry rules.
 - **Prospective phase** (one shot, 2026-10-10 → 2027-01-21, readable from 2027-01-21 06:00 UTC). Before then, commit the 2×-cost and one-bar-delay stress implementation, tested only on pre-`createdAtMs` data. Then run:
   1. `python3 scripts/research/champion_screen.py fetch --end-ms 1800489600000 --manifest prospective-manifest.json`

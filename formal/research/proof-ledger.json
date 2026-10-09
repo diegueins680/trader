@@ -10552,7 +10552,8 @@
       "status": "open",
       "criteria": "Preregistered untouched real historical confirmation, identical champion/adopted-combo baselines, realistic costs and delay, all seeds, DSR>=0.95, PBO<=0.20, valid OPE/support, acceptable drawdown/tails and complete ablations or a completed rigorous rejection campaign.",
       "blockers": [
-        "Current evidence is contaminated-development rejection; no matched champion or independent final confirmation.",
+        "Current candidate evidence is contaminated-development rejection; no independent final confirmation.",
+        "Matched adopted-champion replay (research-notes/registrations/adopted-champion-screen-v1.json) rejected the live UNI/SUI/ETC combos on lawful post-creation data: zero round trips from 2026-03-25 to 2026-10-09 because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. Its one-shot prospective phase cannot be read before 2027-01-21; AVAX/ADA remain unevaluated under the holdout and carry rules.",
         "All 108 OPE estimates were invalid; no candidate may be promoted."
       ],
       "evidence": []
