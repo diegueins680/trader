@@ -5055,7 +5055,8 @@ class DrainGatesTests(unittest.TestCase):
         main = (ROOT / d.MAIN).read_text()
         cases = [
             ('bot publication not drain-latched', main.replace('drainingNow <- isDraining (bcDrain ctrl)', 'drainingNow <- pure False', 1)),
-            ('decides orders while draining', main.replace('else refuseWhileDraining drain sym (placeOrderForSignalBot', 'else (placeOrderForSignalBot', 1)),
+            ('decides orders while draining', main.replace('placeIfEnabled drain args settings sig env sym =\n    refuseWhileDraining drain sym $\n', 'placeIfEnabled drain args settings sig env sym =\n    id $\n', 1)),
+            ('candles are decided while draining', main.replace('            then pure (Right st)\n', '            then trySync (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k)\n', 1)),
             ('optimizer launch not drain-gated', main.replace('    draining <- isDraining drain\n    exeResult <-', '    let draining = False\n    exeResult <-', 1)),
         ]
         for reason, text in cases:

@@ -119,7 +119,18 @@ def bind(sources=None):
     require(0 <= publish.find('drainingNow <- isDraining (bcDrain ctrl)') < publish.find('Launch (botStartWorker') and
             'then pure (Just "Server is draining; bot start refused.")' in publish, 'bot publication not drain-latched under the lock')
     for name in ('placeIfEnabled', 'placeBotCloseIfEnabled'):
-        require('refuseWhileDraining drain sym' in bodies[name], f'{name} decides orders while draining')
+        body = bodies[name]
+        require(0 <= body.find('refuseWhileDraining drain sym $') < body.find('if not (bsTradeEnabled settings)'),
+                f'{name} decides orders while draining (paper or live)')
+    # Paper bots treat an intended trade as executed, so no candle and no startup switch may be decided after the latch.
+    safe = bodies['botApplyKlineSafe']
+    require(0 <= safe.find('draining <- isDraining (bcDrain ctrl)') < safe.find('trySync (botApplyKline') and
+            'then pure (Right st)' in safe, 'candles are decided while draining')
+    require(re.findall(r'(?<![\w.])botApplyKline\b', ''.join(t for d, t in bodies.items() if d not in ('botApplyKline', 'botApplyKlineSafe'))) == [],
+            'botApplyKline reachable outside the drain-gated wrapper')
+    init = bodies['initBotState']
+    require('drainingAtStart <- isDraining drain' in init and 'if not wantSwitch || drainingAtStart' in init and
+            '| not wantSwitch || drainingAtStart = 0' in init, 'startup switch decided while draining')
     require('draining <- isDraining drain' in bodies['refuseWhileDraining'] and
             'Server is draining; no new orders during shutdown.' in bodies['refuseWhileDraining'], 'order decision gate changed')
     for callee in ('placeOrderForSignalBot', 'placeBotCloseOrder'):

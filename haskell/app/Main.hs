@@ -11755,8 +11755,10 @@ initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp
                 Just s | s > 0 -> s
                 _ -> if entrySize > 0 then entrySize else 1
 
+    -- A bot starting while the server drains makes no switch decision (live or paper).
+    drainingAtStart <- isDraining drain
     mOrder <-
-        if not wantSwitch
+        if not wantSwitch || drainingAtStart
             then pure Nothing
             else
                 if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
@@ -11797,7 +11799,7 @@ initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp
                 Just o | aorReduceOnly o -> startSize
                 _ -> targetQtyForSwitch
         executedQtyRaw
-            | not wantSwitch = 0
+            | not wantSwitch || drainingAtStart = 0
             | not tradeEnabled = primaryIntent
             | alreadyMsg = primaryIntent
             | otherwise =
@@ -14795,7 +14797,12 @@ reconcileBotPositionWithExchange mOps mJournal now st k = do
 
 botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
 botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
-    r <- trySync (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
+    -- A draining server applies no new candle: no live or paper decision and no state change after the latch.
+    draining <- isDraining (bcDrain ctrl)
+    r <-
+        if draining
+            then pure (Right st)
+            else trySync (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
     case r of
         Right st' -> pure st'
         Left ex -> do
@@ -16344,9 +16351,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
 
 placeIfEnabled :: DrainController -> Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeIfEnabled drain args settings sig env sym =
-    if not (bsTradeEnabled settings)
-        then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
-        else refuseWhileDraining drain sym (placeOrderForSignalBot args sym sig env (bsProtectionOrders settings))
+    refuseWhileDraining drain sym $
+        if not (bsTradeEnabled settings)
+            then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
+            else placeOrderForSignalBot args sym sig env (bsProtectionOrders settings)
 
 {- | A bot makes no new order decision once the server drains: positions carry
 over to adoption after restart. A decision already in flight completes,
@@ -16361,9 +16369,10 @@ refuseWhileDraining drain sym decide = do
 
 placeBotCloseIfEnabled :: DrainController -> Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeBotCloseIfEnabled drain args settings sig env sym =
-    if not (bsTradeEnabled settings)
-        then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
-        else refuseWhileDraining drain sym (placeBotCloseOrder args sym sig env (bsProtectionOrders settings))
+    refuseWhileDraining drain sym $
+        if not (bsTradeEnabled settings)
+            then pure (noOrderResult "Paper mode: no order sent."){aorSymbol = Just sym}
+            else placeBotCloseOrder args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> Bool -> IO ApiOrderResult
 placeBotCloseOrder args sym sig env manageProtection =
