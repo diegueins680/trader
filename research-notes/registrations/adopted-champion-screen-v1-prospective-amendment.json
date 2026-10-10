@@ -3,20 +3,26 @@
   "amendsSha256": "92311fad723d6a093a8272f7bdab89c9b9ec1b43bd63c32c7bb2bb31e0beae1d",
   "registeredOn": "2026-10-09",
   "scope": "Prospective phase only. Specifies how the registered passGates and the oneShot rule are computed. Committed before the prospective window opens (2026-10-10T00:00:00Z); no prospective row has been fetched or read. The retrospective phase and its recorded result are unchanged.",
-  "oneShot": "The runner refuses the phase if its results.json already exists. It stages returns.json and results.json durably and renames them into place read-only, results.json last, as the completion marker. A run interrupted before results.json is published may be repeated with identical inputs; a published result is final.",
+  "oneShot": "The runner refuses the phase if its results.json exists, then takes an exclusive .reservation (a leftover reservation from an interrupted run must be inspected and removed by an operator). It stages returns.json and results.json under per-process names and renames them into place read-only, results.json last, as the completion marker. A published result is final.",
   "medianSeed": "Per combo, the seed with the median base net return over the phase window. Every stress uses that same seed.",
   "fleetAggregation": "Per-bar net returns of each combo's median seed are compounded into UTC calendar days by bar open time. Fleet daily return = equal-weight mean of the three combos. Baselines (buy-and-hold, 20-bar momentum) are aggregated identically from each combo's baseline returns.",
   "fleetStatistics": "Fleet PSR uses daily returns; lifetimeAdjustedPsr = max(0, 1 - min(1, 3261 * (1 - PSR))). Annualized Sharpe uses 365 periods per year. Max drawdown is on the compounded fleet daily path.",
-  "doubledCosts": "A separate engine run per chunk with --backtest-cost-multiplier 2, which multiplies fee (including fixed and minimum fees), slippage, impact, spread and funding after combo adoption. Fleet doubled-cost return is aggregated like the base return.",
+  "doubledCosts": "A separate engine run per chunk with --backtest-cost-multiplier 2. After combo adoption it multiplies every additive cost term: fees (including fixed and minimum), base and volatility-scaled slippage and spread, impact and funding. Exponents such as the impact power are unchanged. Fleet doubled-cost return is aggregated like the base return.",
   "oneBarDelay": "A separate engine run per chunk with --backtest-signal-delay-bars 1: the decision at bar t uses bar t-1's predicted return (rescaled to bar t's price) and gate metadata; fills, stops and costs use bar t. Fleet delayed return is aggregated as above.",
   "decision": "PASS only if every registered passGate holds: every combo NOT_REJECTED; fleet lifetimeAdjustedPsr >= 0.95; fleet max drawdown <= 20%; fleet annualized Sharpe above both fleet baselines; fleet net2x return > 0; fleet delayed return > 0. Otherwise REJECTED.",
   "validation": "The delay flag and stress computations are tested only on rows before createdAtMs (2026-03-25T17:38:18Z) before any prospective evaluation.",
-  "pinnedHaskellTree": "b4ea588a8bc32b9d46fd053be4468f0dc38e3599",
+  "pinnedHaskellTree": "dde039597ed50a48b0330338a93f458ca918ba99",
   "pinnedHaskellTreeNote": "git rev-parse HEAD:haskell of the commit that implements these gates. The prospective run must use a clean checkout whose haskell/ tree equals this hash; the runner builds trader-hs there and records tree, commit and binary sha256.",
   "revisions": [
     {
       "atUtc": "2026-10-10",
       "change": "Doubled costs moved from net-minus-gross arithmetic (which mixes return denominators) to an engine rerun with --backtest-cost-multiplier 2; added pinnedHaskellTree and atomic publication. Made after the window opened, before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Cost multiplier extended to volatility-scaled slippage and spread; added pinnedRunnerSha256, the exclusive reservation and per-process staging. Made before any prospective row was fetched or read, in response to review on PR #330."
     }
-  ]
+  ],
+  "pinnedRunnerSha256": "9015c18fb2fec394f174e02bb7f11a2b4b5c7afc1ebc510fc4b587eb707de53e",
+  "pinnedRunnerNote": "sha256 of scripts/research/champion_screen.py. A one-shot run refuses a different runner and refuses uncommitted changes to the runner, the registration or this amendment."
 }
