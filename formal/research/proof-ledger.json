@@ -8105,7 +8105,8 @@
         "scripts/research/rl_composition.py",
         "scripts/research/run_rl_composition.py",
         "formal/research/rl-composition-source.json",
-        "research-notes/rl-exposure-2026-10-10/contract.md"
+        "research-notes/rl-exposure-2026-10-10/contract.md",
+        "scripts/research/summarize_rl_composition.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
@@ -8195,7 +8196,8 @@
         "scripts/research/rl_composition.py",
         "scripts/research/run_rl_composition.py",
         "formal/research/rl-composition-source.json",
-        "research-notes/rl-exposure-2026-10-10/contract.md"
+        "research-notes/rl-exposure-2026-10-10/contract.md",
+        "scripts/research/summarize_rl_composition.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
