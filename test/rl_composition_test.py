@@ -186,6 +186,18 @@ class CompositionTests(unittest.TestCase):
         self.assertEqual(before,r.buffer_hash(frozen))
 
 class AdmissionV2Tests(unittest.TestCase):
+    def test_matched_control_uses_only_observation_vector(self):
+        from compare_rl_observations_v2 import observation_rule
+        for value,expected in ((-1.,0),(0.,1),(1.,2)):
+            x=np.zeros(12,dtype='float64');x[1]=value
+            self.assertEqual(observation_rule('normalized_momentum3',x),expected)
+            self.assertEqual(observation_rule('normalized_reversal3',x),2-expected)
+            y=np.full(12,100.,dtype='float64');y[1]=value
+            self.assertEqual(observation_rule('normalized_momentum3',y),expected)
+        for bad in (np.zeros(9),np.full(12,np.nan),[0.]*12):
+            with self.assertRaises(ValueError):observation_rule('normalized_momentum3',bad)
+        with self.assertRaises(ValueError):observation_rule('raw_momentum3',np.zeros(12))
+
     def test_rejected_reversal_continues_without_preview_debit(self):
         import rl_admission_v2 as v2
         bars,events=fixture()

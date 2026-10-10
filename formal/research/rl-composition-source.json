@@ -4,7 +4,7 @@
     "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
     "scripts/research/run_rl_composition.py": "cac91358e22f3428b5e01dd14a71e46d0c1cee341cc1fd0d7514a35c24ce3717",
     "scripts/formal/rl_composition_check.py": "1459d32b4ffea0befe385dce0f0fc7323da9c9cd5e06ecc5c30ad64a82445039",
-    "test/rl_composition_test.py": "28b9df0d20402f549c8ff3b70018b107f9244910cca2e6eb6231bd67f6f9ab80",
+    "test/rl_composition_test.py": "29c9f3cf9a985dd4c45cd054a3f947000cde6f93d78a23d98635317f456fb8db",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
     "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
@@ -14,6 +14,7 @@
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
     "scripts/formal/shield_consumers.py": "3ad42b9ad8024dba9a0acf00b1e85f4cfc7bee0283f427fef2d3f56cd6438338",
     "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
-    "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953"
+    "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
+    "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6"
   }
 }
