@@ -37,11 +37,20 @@
     {
       "atUtc": "2026-10-10",
       "change": "Delayed runs carry the previous forecast across chunk boundaries; doubled-cost funding is adverse on either side; tree and runner pins and the trust tag updated. Made before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Pinned toolchain, refused local Cabal overrides, recorded the build plan, made publication crash-durable; runner pin and trust tag updated. Made before any prospective row was fetched or read, in response to review on PR #330."
     }
   ],
-  "pinnedRunnerSha256": "da796279e51efbd2fd57146a76c502f2bc333d7eb1ae14e674c010466b27433b",
+  "pinnedRunnerSha256": "ed588a8ba73120e56273367d8a5202ac32b2c9cb0f49fecea5255a0564bec73a",
   "pinnedRunnerNote": "sha256 of scripts/research/champion_screen.py. A one-shot run refuses a different runner and refuses uncommitted changes to the runner, the registration or this amendment.",
   "trustTag": "adopted-champion-screen-v1-prospective",
   "trustTagNote": "Annotated tag on https://github.com/diegueins680/trader.git (checked there, not on the local origin). A one-shot run requires the local tag to equal that tag, and the runner, registration, this amendment and haskell/ at HEAD to be identical to the tagged commit. Run from a checkout of the tag.",
-  "prospectiveData": "Fetched with `fetch --phase prospective` (refused before minimumEvaluationTimeUtc) into data/research/adopted-champion-screen-v1/prospective/, separate from the retrospective files. Before reserving the run, the runner re-downloads every file from Binance and requires byte-identical CSVs."
+  "prospectiveData": "Fetched with `fetch --phase prospective` (refused before minimumEvaluationTimeUtc) into data/research/adopted-champion-screen-v1/prospective/, separate from the retrospective files. Before reserving the run, the runner re-downloads every file from Binance and requires byte-identical CSVs.",
+  "pinnedToolchain": {
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "note": "Required for the one-shot build, which also refuses untracked cabal.project* overrides and records the resolved build plan's sha256."
+  }
 }
