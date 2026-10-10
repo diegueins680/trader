@@ -13213,7 +13213,8 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                                 adoptionEvidenceConfig = effectiveAdoptionEvidenceConfigFromArgs now (botArgs st) matchingCombos
                                 bestCombo =
                                     if allowStaleIncomplete
-                                        then bestTopComboForSymbol sym (Just interval) export
+                                        then -- stale/incomplete evidence is relaxed; the open-threshold ceiling is not
+                                            bestTopComboFromList (filter (comboOpenThresholdWithinAdoptionCeiling . tcOpenThreshold) matchingCombos)
                                         else bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export
                             case bestCombo of
                                 Nothing -> recordError "bot.combo.sync_failed" "No fresh deployable top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
@@ -21766,10 +21767,6 @@ bestTopComboFromList combos =
 
 bestTopCombo :: TopCombosExport -> Maybe TopCombo
 bestTopCombo export = bestTopComboFromList (tceCombos export)
-
-bestTopComboForSymbol :: String -> Maybe String -> TopCombosExport -> Maybe TopCombo
-bestTopComboForSymbol symRaw mInterval export =
-    bestTopComboFromList (filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export))
 
 bestLiveTopComboForSymbol :: Int64 -> AdoptionEvidenceConfig -> String -> Maybe String -> TopCombosExport -> Maybe TopCombo
 bestLiveTopComboForSymbol now adoptionEvidenceConfig symRaw mInterval export =

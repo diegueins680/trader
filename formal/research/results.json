@@ -927,7 +927,7 @@
     "sourceHashes": {
       "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
       "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-      "haskell/app/Main.hs": "0e3ef375c296df2b0242e658f3971bc498fa4766e8bd88f3e7ed480913f0f960",
+      "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
       "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
       "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
       "haskell/app/OutboxPublisherMain.hs": "3d99e4fb0e4c6d80ea957e0cceeb006c4f172f28a3fe9a062f4f2ad391a432aa",
@@ -1967,7 +1967,7 @@
     "smt": {
       "F-INVENTORY-READINESS-PREDICATE": "unsat"
     },
-    "sourceHash": "0e3ef375c296df2b0242e658f3971bc498fa4766e8bd88f3e7ed480913f0f960"
+    "sourceHash": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253"
   },
   "lifecycleStage": {
     "conformance": {
@@ -2349,7 +2349,7 @@
         "test-order-probe"
       ],
       "sha256": {
-        "haskell/app/Main.hs": "0e3ef375c296df2b0242e658f3971bc498fa4766e8bd88f3e7ed480913f0f960",
+        "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
         "haskell/app/Trader/App/ManualTradeOwnership.hs": "3a5e32049c06d55ae1a05d653fb9642bb4d5e0cc8232fbf1668b338b25a889a1"
       },
       "status": "exhaustively_checked"
@@ -3961,7 +3961,7 @@
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/accounting-reconciliation-contract.md": "da2f48c99730625161e11fcede5edee9ecf3d3a890003570230cad3050ff724e",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "10976290eed47474aef3c0fa12fe6a09e0eeb80c85369a52dc817e821f13d67f",
+    "formal/research/admission-progress-source.json": "d6b27fc549e8b34119e84fe8e2100ce08a46dcbd000f06ad58578182213fc7ee",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -3969,20 +3969,20 @@
     "formal/research/artifact-legacy-loader.json": "70b0d6100c25a6c4af88c31ad600a41d000fd0fcdf5a1a46117c7a7630f7dc8b",
     "formal/research/async-job-admission-contract.md": "da92366084a287bd590fb3ca3446c784f85bc83f99405307f647f958223ab964",
     "formal/research/async-job-admission-counterexamples.json": "37546208297c2d1f11fb2f2014de6c3660e5df4a57a339402830c80b511120f3",
-    "formal/research/async-job-admission-source.json": "5b1e884d52e0d265f6d9861c9a4f031f02efc5dd550a06eabe7ba55014abbeaf",
+    "formal/research/async-job-admission-source.json": "54c6c73cf9afced14907cdc9617a800a01221edacb69a9d900db75a9e06a9fbe",
     "formal/research/async-shutdown-seal-contract.md": "bc67d02e844bf3bfeac2e6ec245fa5459ff0bb6cc0617a011d31efb039fb4fcc",
     "formal/research/async-shutdown-seal-counterexamples.json": "e061d5e9b3a88ec53059cc0a76b6b24f66f9bde1b105ee346dccad7a0bed6dff",
-    "formal/research/async-shutdown-seal-source.json": "869cf9d339d104f6fecf6cadb9a247e17eb810480dd9c73ccef49b5b523e57cb",
+    "formal/research/async-shutdown-seal-source.json": "d45379a0f7d820879db997e8449d58413b083490676ced67105054f8bf065897",
     "formal/research/async-stop-counterexample.json": "36919f9b814dd58ce7617bd683e86de852dfccf355c181ba12e7b0bab0ca1d6e",
     "formal/research/backtest-gate-contract.md": "c775f0b2cb1f12e4283dba625a5b13fb061de41132e5af4fe2285014baa45e26",
     "formal/research/backtest-gate-counterexamples.json": "659172cc22fc4a2120d6d3024b689e55f88a93751440cb78ffa7641a58a12f85",
-    "formal/research/backtest-gate-source.json": "7a712a8eedf9ce2c775c5514cb1ec5eecf9de1c23cc7331032d39a79f72b730c",
+    "formal/research/backtest-gate-source.json": "99517c9f9c7dc4c0f4f8f746b807acc55dd257400cc96c55d51d583db924954d",
     "formal/research/bot-worker-publication-contract.md": "af42fbb7b0edd88bda0a610d37313c43e8cad801abca2b6dedf264aa5d5e9cf4",
     "formal/research/bot-worker-publication-legacy.json": "9958775abab9f15de1b58201771232467644404839e0799ae153f1fd1e5b5f46",
     "formal/research/bot-worker-publication-source.json": "be483fd69f0d18038ddbec60062249756ffce04ec05255238fed7758c1bdf56e",
     "formal/research/bounded-values-contract.md": "24b4fe4612eca150aaec5a27751cbacc413067af4e9fbb78c558e7bd06707cbb",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
-    "formal/research/capability-source-contract.json": "8aa5288ca4ba5bc6ce869f5b9754eff6383ae8974c767105a0da043fcca59697",
+    "formal/research/capability-source-contract.json": "22ad4da04c6201b9a1b31063b0d9f5b11fff81cdc3bb44323174e8f16bb357f4",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
     "formal/research/causal-replay-v3-contract.md": "7c4d1a5cc5086b17d164f82b101b470a13ce8c9e61fc1d7fdaf9824db01e51a6",
@@ -4003,7 +4003,7 @@
     "formal/research/drain-gates-counterexample.json": "581c38316a7812185c2c2158c2b37095f029106236a2f51eb5e73fc77e74b39b",
     "formal/research/drain-pool-contract.md": "3767e06d29e7a19b4db6439cbac68550e21d0ffa667af64330b8a523e06845b0",
     "formal/research/drain-pool-counterexamples.json": "9046e06d60ef6be96080ef0935592c8972ee1fb5bacc60ad4092e8f4a8bf3b36",
-    "formal/research/drain-pool-source.json": "036eee217e8e9cb418e6211d6e66478f7bdf54abb348ebbc71657ab1c3e6517c",
+    "formal/research/drain-pool-source.json": "079ae8da46ed51cc3cc9cea7bfa0a612affbef5927849fd9e653c68839968d68",
     "formal/research/ess-v2-contract.md": "a4f73a8e95156068f44131e63137fdd9871641599615cae5efa91e08b441e400",
     "formal/research/fixtures/admission-progress-before.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
     "formal/research/fixtures/admission-progress-witness.hs": "866dc747f34b80c5ba3652a66add1a0de5072973984f03b3e600ae36e063484e",
@@ -4034,7 +4034,7 @@
     "formal/research/inference-process-v2-contract.md": "bea4b290d3caa4049e54973fa7296f89f9b0714291c158ee3e751307ebc2d098",
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
-    "formal/research/inventory-readiness-source.json": "dde420da902b29de0f004ca4ab39940ff8589d9acdb1c0366a87a38a8e4b2224",
+    "formal/research/inventory-readiness-source.json": "2e7a707b73301b4e9a6625be571ecebe5bda7b6064a789f83651d51e8f8f4440",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
     "formal/research/obligation-closure-audit.md": "546c1de98fdc32afa942a4f0c09f39332dac971eeed4d049491b0e8605914d27",
     "formal/research/obligation-contracts.json": "bbe31041d96131245ab5d7c5eb2b2a82605a8894d5bbc8e509d1ae56aa8eef12",
@@ -4090,7 +4090,7 @@
     "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
     "formal/research/shutdown-deadline-contract.md": "052481312f9074fc73118ce6ea9e13b8b32ff7e4f32b1a60dfff8159d661b9fd",
-    "formal/research/shutdown-source.json": "9647dc867184068b971ad2ed488b45cbb0c4753f37d09bd46805c9accc5d75ba",
+    "formal/research/shutdown-source.json": "878c59e24608effffd04dd451c4687faf3d14a49c80d4da92e48b55cb572e08d",
     "formal/research/sizing-input-contract.md": "c06ee997a5c1b7db187bba2c5bb5ebb7eaa3b5950561f3a393ccf720b5ca004f",
     "formal/research/sizing-input-counterexamples.json": "8114f4abce525905b240b633d4fe26fff28bc549ca6a21d6c35d7fd7a8156d60",
     "formal/research/sizing-input-source.json": "f2462ceeb5280e19db80889d4e750681fd44b945e0978bbcc907bc60ac8cf954",
@@ -4119,7 +4119,7 @@
     "formal/specifications.json": "27edf8e572a1af4980f093aa00a8ef6dec0ff213232770b7e4738c7e61c50224",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-    "haskell/app/Main.hs": "0e3ef375c296df2b0242e658f3971bc498fa4766e8bd88f3e7ed480913f0f960",
+    "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
     "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
     "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
     "haskell/app/OutboxPublisherMain.hs": "3d99e4fb0e4c6d80ea957e0cceeb006c4f172f28a3fe9a062f4f2ad391a432aa",
