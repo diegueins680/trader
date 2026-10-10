@@ -1,5 +1,14 @@
 # Replay shield-consumer composition v1
 
+2026-10-10 composition extension: `rl_composition.py` imports causal replay,
+GAE, immutable optimization, value objectives and the numeric `ppo_gradient` and
+`softmax` helpers; its runner imports the causal `Bar` type. Neither imports
+`Replay`. The importer audit admits only those six exact import statements when
+each complete consumer source matches its reviewed composition hash. Mutation tests reject wildcard,
+unknown-file and source-drift alternatives. The original Replay constructor and
+receiver roster is unchanged; the new exact-ledger environment has its own scoped
+composition certificates and does not inherit the old Replay proof by import.
+
 Engineering preregistration against main 4894a6d813bad18b5881d40b51b7a835848df316.
 No financial trial, historical-data access, runtime policy change or deployment.
 Obligation 12 keeps its original scope and criterion: "Every consumed action

@@ -6,6 +6,7 @@ import ast
 from collections import deque
 from dataclasses import dataclass, replace
 from itertools import product
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -21,6 +22,16 @@ REGISTRY = 'formal/research/shield-consumer-source.json'
 MODULES = {'sequential_env', 'sequential_evaluation', 'run_sequential_screen'}
 FIELDS = {'actions','done','equity','failure','fills','horizon','modifications','observation',
           'pending','proposals','rejections','rows','start','step','stop','supported','t','units'}
+COMPOSITION_IMPORTS = {
+    'scripts/research/rl_composition.py': {
+        'import causal_replay_v3 as causal',
+        'from gae_targets_v2 import batch_v2',
+        'from optimizer_snapshot_v2 import Snapshot, create_v2, forward_v2, update_v2',
+        'from sequential_learning import ppo_gradient, softmax',
+        'from value_objective_v2 import objective_v2',
+    },
+    'scripts/research/run_rl_composition.py': {'from causal_replay_v3 import Bar'},
+}
 
 
 def require(ok, message):
@@ -59,7 +70,15 @@ def research_importers(sources=None):
         for n in ast.walk(ast.parse(source)):
             names = [a.name for a in n.names] if isinstance(n,ast.Import) else [n.module] if isinstance(n,ast.ImportFrom) else []
             if any(name in delivered for name in names):
-                require(path in {'scripts/research/'+name+'.py' for name in delivered}, 'unregistered research consumer: '+path)
+                if path not in {'scripts/research/'+name+'.py' for name in delivered}:
+                    # New exact-ledger consumers have separate certificates.
+                    # Admit only their reviewed complete bytes and exact kernel
+                    # imports; this does not widen the old Replay receiver proof.
+                    require(ast.unparse(n) in COMPOSITION_IMPORTS.get(path,set()),
+                            'unregistered research consumer: '+path)
+                    lock=json.loads((ROOT/'formal/research/rl-composition-source.json').read_text())
+                    require(hashlib.sha256(source.encode()).hexdigest()==lock['sha256'][path],
+                            'composition consumer source drift: '+path)
                 found.append([path,ast.unparse(n)])
     return sorted(found)
 

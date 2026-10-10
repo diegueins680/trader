@@ -1,15 +1,17 @@
 {
-  "review": "Complete composition inspected before financial experiment; source identity is not a semantic proof.",
+  "review": "Composition inspected before experiment e29f8fba. Post-run metadata labels and independent trace audit reviewed; learner/environment economics unchanged. Source identity is not semantic proof.",
   "sha256": {
     "scripts/research/rl_composition.py": "425f61170d266953fde2a91279223107954cf6eb9e1b606b5fea1c30d378e2dc",
-    "scripts/research/run_rl_composition.py": "e78d6470eb656bb076167f6c8f2c454dd346cb0b8513b2211494fdd81e6d1393",
+    "scripts/research/run_rl_composition.py": "28d46604b7b3ba89268f392bc008213f3dcf704d7513d99ea31abe03f41c429d",
     "scripts/formal/rl_composition_check.py": "aea8d4170aa13777e9725d6025980afd6881b9426ad925b7fa9a0f736ab788fd",
-    "test/rl_composition_test.py": "36e64cc5f41be1af1f3acedbad4d48fe80ab830691e292f93ac4255c1bf84e10",
+    "test/rl_composition_test.py": "88b6eaf5c9fa74c7d2c6207f1519131c57cd339247fe88331469a0acfff97b9e",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
     "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
-    "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587"
+    "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+    "scripts/research/summarize_rl_composition.py": "7dc94ffce8d857cefd50c8cee45f55db32811a42ec05b9c2acd035f5722aff4f",
+    "scripts/formal/shield_consumers.py": "3ad42b9ad8024dba9a0acf00b1e85f4cfc7bee0283f427fef2d3f56cd6438338"
   }
 }

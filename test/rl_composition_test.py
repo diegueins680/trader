@@ -88,6 +88,83 @@ class CompositionTests(unittest.TestCase):
             d=(objective_v2((tuple(plus),),actions,targets,.1,enabled=True).loss-objective_v2((tuple(minus),),actions,targets,.1,enabled=True).loss)/2e-6
             self.assertAlmostEqual(d,obj.grad[0][j],places=7)
 
+    def test_owned_state_and_late_data_fail_before_fill(self):
+        from dataclasses import replace
+        bars, events = fixture()
+        ep = r.Episode(bars, events, 96, 129, enabled=True)
+        ep.session = replace(ep.session, state=replace(ep.session.state, units=F(100)))
+        with self.assertRaises(ValueError): ep.step(2)
+        self.assertEqual(ep.rows, [])
+        broken = bars[:97] + (replace(bars[97], available=bars[97].close-1),) + bars[98:]
+        ep = r.Episode(broken, events, 96, 129, enabled=True)
+        old = ep.session
+        with self.assertRaises(ValueError): ep.step(2)
+        self.assertIs(ep.session, old)
+        self.assertEqual(ep.rows, [])
+
+    def test_frozen_inference_finiteness_and_parity(self):
+        from dataclasses import replace
+        net = r.create_v2(11, 3, enabled=True)
+        x = np.ones((1,12), dtype="float64")
+        np.testing.assert_allclose(r.forward(net, x), r.forward(net.snapshot(), x), rtol=1e-12, atol=1e-12)
+        with self.assertRaises(ValueError): r.forward(net.snapshot(), np.full((1,12), np.nan))
+        bad = replace(net.snapshot(), p=(b"broken",) + net.snapshot().p[1:])
+        with self.assertRaises(ValueError): r.forward(bad, x)
+        with self.assertRaises(ValueError): r.forward(net.snapshot(), np.ones((1,9)))
+
+    def test_trace_audit_detects_omitted_cost_and_oversized_intent(self):
+        from copy import deepcopy
+        from summarize_rl_composition import audit_rows
+        bars,events=fixture()
+        ep=r.Episode(bars,events,96,129,enabled=True)
+        while not ep.done: ep.step(2)
+        self.assertEqual(audit_rows(ep.rows)['violations'],[])
+        corrupt=deepcopy(ep.rows)
+        corrupt[0]['equity']+=.01
+        corrupt[0]['permitted']=1.
+        reasons={v['reason'] for v in audit_rows(corrupt)['violations']}
+        self.assertTrue({'ledger_identity','action_domain','equity_continuity'}<=reasons)
+
+    def test_repeatable_evaluation_and_partition_reset(self):
+        bars,events=fixture()
+        net=r.create_v2(23,3,enabled=True).snapshot()
+        first=r.Episode(bars,events,96,129,'delay1bar',enabled=True)
+        while not first.done: first.step(int(np.argmax(r.forward(net,first.observation()[None,:]))))
+        # An unrelated episode cannot contaminate a fresh account or pending slot.
+        unrelated=r.Episode(bars,events,120,153,enabled=True)
+        unrelated.step(0)
+        second=r.Episode(bars,events,96,129,'delay1bar',enabled=True)
+        self.assertIsNone(second.pending)
+        self.assertEqual(second.session.state.equity,1)
+        while not second.done: second.step(int(np.argmax(r.forward(net,second.observation()[None,:]))))
+        self.assertEqual(first.rows,second.rows)
+
+    def test_exporter_rejects_bad_identity_and_nonfinite_json(self):
+        import tempfile
+        from summarize_rl_composition import export,read
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/'source';source.mkdir()
+            (source/'index.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError,'index identity'): export(source,root/'output','wrong')
+            self.assertFalse((root/'output').exists())
+            bad=root/'bad.json';bad.write_text('{"value":1e999}')
+            with self.assertRaisesRegex(ValueError,'overflowing'):read(bad)
+
+    def test_registered_numeric_helper_import_cannot_expand_replay_surface(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/formal'))
+        from shield_consumers import research_importers
+        root=Path(__file__).resolve().parents[1]
+        path='scripts/research/rl_composition.py'
+        source=(root/path).read_text()
+        self.assertEqual(len(research_importers({path:source})),5)
+        runner='scripts/research/run_rl_composition.py'
+        self.assertEqual(len(research_importers({runner:(root/runner).read_text()})),1)
+        with self.assertRaisesRegex(ValueError,'unregistered research consumer'):
+            research_importers({'scripts/research/unregistered.py':source})
+        mutant=source.replace('from sequential_learning import ppo_gradient, softmax','from sequential_learning import *')
+        with self.assertRaisesRegex(ValueError,'unregistered research consumer|source drift'): research_importers({path:mutant})
+        with self.assertRaisesRegex(ValueError,'source drift'): research_importers({path:source+'\n# changed source\n'})
+
     def test_toy_three_learners_and_offline_no_collection(self):
         # Known one-state finite MDP, unique optimal long action; this checks
         # the learner mechanisms, not the financial environment's efficacy.

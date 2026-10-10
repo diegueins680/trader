@@ -100,7 +100,8 @@ def metrics(episode):
         'holdingPeriodsBars': holds, 'proposalCounts': [sum(r['proposal'] == a for r in rows) for a in (-.25, 0, .25)],
         'interventionRate': float(np.mean([r['intervention'] for r in rows])),
         'unsupportedRate': float(np.mean([not r['supported'] for r in rows])),
-        'incrementSum': float(increments.sum()), 'unsafeExecutableIntents': 0,
+        'incrementSum': float(increments.sum()),
+        'admissionAudit': 'requires independent archived-trace audit; not inferred from successful replay',
         'riskWarning': 'Admission checks are not future risk guarantees; failures retain stopped endpoints.'}
 
 
@@ -198,7 +199,8 @@ def run(panel: Path, settlements: Path, output: Path):
                             # No production loader accepts this schema. Parameter bytes are only research evidence.
                             artifact = {'version':VERSION, 'observation':OBSERVATION, 'algorithm':alg,
                                 'seed':seed, 'fold':fi, 'mode':'research_only', 'sourceCommit':commit,
-                                'registrationSha256':sha(raw), 'trainingDatasetSha256':dataset_sha,
+                                'registrationSha256':sha(raw), 'simulatedReferenceDatasetSha256':dataset_sha,
+                                'trainingInput': 'frozen_simulated_reference_buffer' if alg in ('cql','cql_alpha0','behavior_cloning') else 'fresh_simulator_rollouts_from_registered_training_prefix',
                                 'parametersLittleEndianHex':[p.hex() for p in fit.actor.p],
                                 'updates':fit.actor.step, 'performanceEvidence':'summary.json',
                                 'assuranceLedgerSha256':manifest['proofLedgerSha256']}
