@@ -360,6 +360,13 @@ def check_manifest(reg: dict, phase_name: str, manifest_path: Path) -> dict:
     return json.loads(manifest_path.read_text())
 
 
+PINNED_TOOLCHAIN = {"ghc": "9.4.8", "cabal": "3.12.1.0"}
+
+
+def toolchain_versions() -> dict[str, str]:
+    return {tool: subprocess.check_output([tool, "--numeric-version"], text=True).strip() for tool in PINNED_TOOLCHAIN}
+
+
 def pinned_binary(pinned_tree: str) -> dict:
     """Build trader-hs from a clean haskell/ tree equal to the preregistered one.
 
@@ -373,7 +380,16 @@ def pinned_binary(pinned_tree: str) -> dict:
     if tree != pinned_tree:
         raise SystemExit(f"haskell/ tree {tree} is not the preregistered {pinned_tree}; check out a commit with that tree")
     haskell = ROOT / "haskell"
+    tracked = set(subprocess.check_output([*git, "ls-files", "haskell"], text=True).split())
+    overrides = [p for p in haskell.glob("cabal.project*") if str(p.relative_to(ROOT)) not in tracked]
+    if overrides:
+        raise SystemExit(f"untracked Cabal project overrides would change the build: {[p.name for p in overrides]}")
+    versions = toolchain_versions()
+    for tool, pinned in PINNED_TOOLCHAIN.items():
+        if versions[tool] != pinned:
+            raise SystemExit(f"{tool} {versions[tool]} is not the pinned {pinned} (.tool-versions)")
     subprocess.run(["cabal", "build", "exe:trader-hs"], cwd=haskell, check=True, capture_output=True)
+    plan = haskell / "dist-newstyle" / "cache" / "plan.json"
     binary = Path(subprocess.check_output(["cabal", "list-bin", "trader-hs"], cwd=haskell, text=True).strip())
     commit = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
     # Every chunk runs this private read-only copy, so a rebuild during the run cannot mix engines.
@@ -383,7 +399,7 @@ def pinned_binary(pinned_tree: str) -> dict:
     os.chmod(frozen, 0o500)
     os.chmod(private, 0o500)
     atexit.register(shutil.rmtree, private, ignore_errors=True)
-    return {"path": frozen, "haskellTree": tree, "commit": commit, "sha256": sha256_file(frozen)}
+    return {"path": frozen, "haskellTree": tree, "commit": commit, "sha256": sha256_file(frozen), "toolchain": versions, "buildPlanSha256": sha256_file(plan)}
 
 
 def publish(out_dir: Path, payloads: list[tuple[str, str]], seal: bool) -> None:
@@ -404,6 +420,13 @@ def publish(out_dir: Path, payloads: list[tuple[str, str]], seal: bool) -> None:
         if seal:
             os.chmod(tmp, 0o444)
         os.replace(tmp, final)
+        # Make each rename durable before the next, so a crash cannot keep the
+        # completion marker while losing returns.json.
+        dir_fd = os.open(out_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 def reserve(out_dir: Path) -> None:
