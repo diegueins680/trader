@@ -21831,7 +21831,9 @@ Market data still comes from the CLI's own --data/--binance-symbol inputs.
 -}
 
 {- | Backtest-only cost stress, applied after combo adoption so adopted venue
-cost floors are scaled too. A multiplier of 1 leaves the arguments unchanged.
+cost floors are scaled too. Every additive cost term is scaled (base and
+volatility-scaled slippage and spread, impact, fees, funding); exponents such
+as the impact power are not. A multiplier of 1 leaves the arguments unchanged.
 -}
 applyBacktestCostMultiplier :: Args -> Args
 applyBacktestCostMultiplier args
@@ -21842,8 +21844,10 @@ applyBacktestCostMultiplier args
             , argFeeFixed = m * argFeeFixed args
             , argFeeMin = m * argFeeMin args
             , argSlippage = m * argSlippage args
+            , argSlippageVolMult = m * argSlippageVolMult args
             , argSlippageImpact = m * argSlippageImpact args
             , argSpread = m * argSpread args
+            , argSpreadVolMult = m * argSpreadVolMult args
             , argFundingRate = m * argFundingRate args
             }
   where

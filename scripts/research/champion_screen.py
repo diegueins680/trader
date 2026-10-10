@@ -327,7 +327,7 @@ def publish(out_dir: Path, payloads: list[tuple[str, str]], seal: bool) -> None:
     """
     staged = []
     for name, text in payloads:
-        tmp = out_dir / f".{name}.partial"
+        tmp = out_dir / f".{name}.{os.getpid()}.partial"
         with tmp.open("w") as handle:
             handle.write(text)
             handle.flush()
@@ -337,6 +337,31 @@ def publish(out_dir: Path, payloads: list[tuple[str, str]], seal: bool) -> None:
         if seal:
             os.chmod(tmp, 0o444)
         os.replace(tmp, final)
+
+
+def reserve(out_dir: Path) -> None:
+    """Exclusively reserve a one-shot output directory before any row is read.
+
+    A leftover reservation means a run is in progress or was interrupted; an
+    operator must inspect it and remove the file before retrying.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(out_dir / ".reservation", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o444)
+    except FileExistsError:
+        raise SystemExit(f"{out_dir} is reserved by another run (or an interrupted one); inspect and remove .reservation to retry") from None
+    with os.fdopen(fd, "w") as handle:
+        handle.write(json.dumps({"pid": os.getpid(), "startedAtMs": int(time.time() * 1000)}) + "\n")
+
+
+def check_runner_pin(amendment: dict) -> None:
+    """The runner, registration and amendment must be committed, unmodified, and the runner preregistered."""
+    git = ["git", "-C", str(ROOT)]
+    tracked = [str(p.relative_to(ROOT)) for p in (Path(__file__).resolve(), REGISTRATION, AMENDMENT)]
+    if subprocess.run([*git, "diff", "--quiet", "HEAD", "--", *tracked]).returncode != 0:
+        raise SystemExit("runner, registration or amendment has uncommitted changes; one-shot phases need the pinned sources")
+    if sha256_file(Path(__file__).resolve()) != amendment["pinnedRunnerSha256"]:
+        raise SystemExit("champion_screen.py is not the preregistered runner (pinnedRunnerSha256)")
 
 
 def check_coverage(open_times: list[int], step: int, first_needed_ms: int, last_open_ms: int) -> None:
@@ -362,7 +387,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         amendment = json.loads(AMENDMENT.read_text())
         if amendment["amendsSha256"] != sha256_file(REGISTRATION):
             raise SystemExit("prospective amendment does not amend this registration")
+        check_runner_pin(amendment)
         build = pinned_binary(amendment["pinnedHaskellTree"])
+        reserve(out_dir)
     data_dir = ROOT / reg["data"]["directory"]
     manifest = check_manifest(reg, args.phase, data_dir / phase["dataManifest"])
     snapshot = ROOT / reg["snapshot"]["path"]
@@ -373,6 +400,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     if build:
         results["build"] = {k: str(v) for k, v in build.items()}
         results["amendmentSha256"] = sha256_file(AMENDMENT)
+        results["runnerSha256"] = sha256_file(Path(__file__).resolve())
     series_out: dict[str, dict] = {}
     fleet_inputs: list[dict[str, dict[int, float]]] = []
     for combo in reg["combos"]:
@@ -522,7 +550,14 @@ def cmd_selftest(_: argparse.Namespace) -> None:
         (out / "returns.json").write_text("stale")
         publish(out, [("returns.json", "r"), ("results.json", "s")], seal=True)
         assert (out / "returns.json").read_text() == "r" and (out / "results.json").read_text() == "s"
-        assert not list(out.glob(".*.partial")) and not os.access(out / "results.json", os.W_OK)
+        assert not list(out.glob(".*.partial"))
+        assert (out / "results.json").stat().st_mode & 0o222 == 0, "sealed results must have no write bits"
+        reserve(out)
+        try:
+            reserve(out)
+            raise AssertionError("a second reservation must be refused")
+        except SystemExit:
+            pass
     day = 86_400_000
     d = daily_returns([0, day // 2, day], [0.1, 0.1, -0.5])
     assert abs(d[0] - 0.21) < 1e-12 and d[1] == -0.5
