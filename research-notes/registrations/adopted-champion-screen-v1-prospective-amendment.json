@@ -29,11 +29,15 @@
     {
       "atUtc": "2026-10-10",
       "change": "The verified snapshot bytes are frozen into a private read-only file used by every chunk; runner pin and trust tag updated. Made before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Trust tag checked on the canonical repository URL; datasets parsed from the verified bytes; chunks run a private read-only copy of the verified binary. Runner pin and tag updated before any prospective row was fetched or read, in response to review on PR #330."
     }
   ],
-  "pinnedRunnerSha256": "7fc42585d0d3332eebdf16943f50332e5f706c15e68201134c6b2ad927e469ee",
+  "pinnedRunnerSha256": "3417440456e698b3f70bdaf1995cf97e6ec71d08605c3af933264acf723132e4",
   "pinnedRunnerNote": "sha256 of scripts/research/champion_screen.py. A one-shot run refuses a different runner and refuses uncommitted changes to the runner, the registration or this amendment.",
   "trustTag": "adopted-champion-screen-v1-prospective",
-  "trustTagNote": "Annotated tag pushed to GitHub. A one-shot run requires the local tag to equal origin's tag, and the runner, registration, this amendment and haskell/ at HEAD to be identical to the tagged commit. Run from a checkout of the tag.",
+  "trustTagNote": "Annotated tag on https://github.com/diegueins680/trader.git (checked there, not on the local origin). A one-shot run requires the local tag to equal that tag, and the runner, registration, this amendment and haskell/ at HEAD to be identical to the tagged commit. Run from a checkout of the tag.",
   "prospectiveData": "Fetched with `fetch --phase prospective` (refused before minimumEvaluationTimeUtc) into data/research/adopted-champion-screen-v1/prospective/, separate from the retrospective files. Before reserving the run, the runner re-downloads every file from Binance and requires byte-identical CSVs."
 }
