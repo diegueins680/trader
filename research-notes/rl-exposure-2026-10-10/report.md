@@ -293,3 +293,13 @@ changes reporting labels only. Deterministic evaluation is tested; repeatability
 is scoped to pinned runtime/hardware with 1e-12 numerical comparison tolerance,
 not claimed bitwise across arbitrary BLAS/platforms. Verification attempts and
 their final outcomes are recorded in `verification.md` beside this report.
+
+
+## Later baseline-fidelity correction
+
+The admission-v2 continuation found that raw momentum/reversal read unnormalized
+history, while the RL vector omits the normalization parameters. Therefore the
+v1 raw-rule comparison is not exactly observation-matched. Its archived results
+and stopped-horizon rejection remain unchanged. See the [successor report](admission-v2.md)
+for a separately registered, explicitly adaptive normalized-observation control
+comparison using frozen trained policies. No holdout or production selection changed.

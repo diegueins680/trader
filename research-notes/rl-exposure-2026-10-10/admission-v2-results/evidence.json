@@ -1,0 +1,299 @@
+{
+  "DSR": "insufficient_evidence",
+  "OPE": "No real logged behavior/support. Historical replay is model-based counterfactual evidence. No valid real IS/DR/FQE estimate.",
+  "PBO": "insufficient_evidence",
+  "artifactBytesMax": 4892,
+  "artifactProvenanceClarification": "The archived trainingDatasetSha256 field names the common simulated reference buffer. Only CQL/alpha0/BC train on that buffer; PPO and DDQN collect fresh simulator transitions. The manifest panel/settlement hashes, fold and source commit identify their market training inputs. These research artifacts have no production loader.",
+  "blockers": [
+    "matched current champion",
+    "authentic first-seen data",
+    "untouched confirmation",
+    "full production safety composition",
+    "realistic precision and min-notional",
+    "short pilot compute and horizon"
+  ],
+  "elapsedSeconds": 285.0065112379998,
+  "failedFits": 0,
+  "failedReplays": 0,
+  "failureReasons": {},
+  "fitCount": 50,
+  "holdoutOpened": false,
+  "indexSha256": "375289707f8b55a3d58d8ded69f7686215f0c67297dcdd9c22739e5f6a3956f4",
+  "inferenceP99MaxMs": 0.23987922000000003,
+  "manifest": {
+    "commit": "fb23bc3e4a39f24dfc43fc5afbda25613f055925",
+    "data": {
+      "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+      "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+      "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors.",
+      "intervalMs": 28800000,
+      "license": "Binance provider terms; do not redistribute raw data",
+      "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+      "parentRegistration": "sequential-control-screen-v1.json",
+      "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT"
+      ]
+    },
+    "holdoutOpened": false,
+    "numpy": "2.3.5",
+    "observation": "causal-inventory-pending-finite-v1",
+    "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+    "promotionAllowed": false,
+    "proofLedgerSha256": "ba0f7afa1cde06a95b0aaa7ef2bf54a2d45766c7edc990c0da49acffe0030e19",
+    "python": "3.13.3",
+    "registrationSha256": "22fbbfd16a51a8785ec365d5fa194c021c4e20193a60c4d3393cda6119c6e813",
+    "sourceHashes": {
+      "research-notes/registrations/rl-admission-continuation-v2.json": "22fbbfd16a51a8785ec365d5fa194c021c4e20193a60c4d3393cda6119c6e813",
+      "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+      "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+      "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+      "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+      "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+      "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+      "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
+      "scripts/research/run_rl_composition.py": "cac91358e22f3428b5e01dd14a71e46d0c1cee341cc1fd0d7514a35c24ce3717",
+      "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+      "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+      "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+    },
+    "version": "rl-admission-continuation-v2"
+  },
+  "maxRss": 83853312,
+  "paired": [
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": 0.001065883812210531,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.012668977837786054,
+        0.014993985096933626
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": 0.001065883812210531,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.010981297474423782,
+        0.012599200474054375
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": 0.001065883812210531,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.01029086368103753,
+        0.010351928267707863
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.008581957831363249,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.0635530189606505,
+        0.029660469567460608
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.008581957831363249,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05264685544064615,
+        0.020373707471565635
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.008581957831363249,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.042985668080316675,
+        0.017685933075915254
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.005198051835956548,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.018053449624059515,
+        0.0065039728864867506
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.005198051835956548,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.01927347267936645,
+        0.006115854440553325
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.005198051835956548,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.01696323306111402,
+        0.004030119705507198
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.014845893479530328,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.0635011563186801,
+        0.024357950051523258
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.014845893479530328,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05602240367083569,
+        0.01687188992886208
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.014845893479530328,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.04721423320075848,
+        0.012997814533936497
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.00284551366693429,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.03211740436585052,
+        0.019680464658248097
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.00284551366693429,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.025076427520919098,
+        0.019796080737103906
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.00284551366693429,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.021043595333163835,
+        0.01471646899029744
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.012493355310508061,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.07801176318467036,
+        0.03243755262312409
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.012493355310508061,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05990172959589835,
+        0.023490299387575575
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.012493355310508061,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.049334432532053676,
+        0.014805335781315923
+      ],
+      "status": "descriptive_development_only"
+    }
+  ],
+  "parameterArtifactsInGit": false,
+  "planned": 1268,
+  "promotionAllowed": false,
+  "replayCount": 1218,
+  "rssUnit": "bytes",
+  "source": "/private/tmp/trader-rl-admission-v2-evidence",
+  "traceAudit": {
+    "changedOrDeferredProposals": 34211,
+    "legacyCounter": "Archived unsafeExecutableIntents=0 was a constant and is NOT evidence. This independent audit supersedes that reporting claim.",
+    "paths": 1218,
+    "rows": 77952,
+    "scope": "Post-hoc binary64 archived trace checks, tolerance 1e-12. Not a production safety proof. V2 independently reconstructs units/prices/funding/linear costs and nonterminal fills.",
+    "violationCount": 0,
+    "violations": {}
+  },
+  "trainingSeconds": 56.96711735800454
+}

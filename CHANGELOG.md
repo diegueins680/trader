@@ -3,6 +3,10 @@
 - Research: add disabled `rl-admission-continuation-v2`, separating turnover
   rejection from economic termination and independently auditing traced fills
   and costs. Preserve v1 artifacts; require retraining in the new environment.
+  All 50 successor fits and 1,218 replays completed; paired uncertainty and
+  intervention gates still reject integration. Record every seed and stress.
+  Correct the raw-momentum observation-matching claim and retain 84 separately
+  registered normalized-observation control replays without retraining RL.
 
 - Research: add versioned causal RL composition pilot with PPO, Double DQN,
   fixed simulated-data discrete CQL, matched controls, exact equity rewards,

@@ -15,6 +15,11 @@ The registered [admission-continuation successor](research-notes/rl-exposure-202
 revalidates turnover at simulated fill and continues after a rejected reversal
 with a costed zero target. Run `python3 scripts/research/run_rl_admission_v2.py --help`.
 It has a distinct environment/artifact version and remains disabled by default.
+Its 50 fits and 1,218 replays all completed, but PPO (+0.107%), Double DQN
+(−0.520%) and CQL (−0.285%) trail the raw-momentum contextual mean (+0.965%).
+These exposed-development results reject integration of this candidate package.
+An explicitly adaptive supplemental control using exactly the RL observation
+vector averaged +1.487%; it also remains ineligible for production adoption.
 
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
