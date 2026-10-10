@@ -3,6 +3,8 @@
 - Research: add versioned causal RL composition pilot with PPO, Double DQN,
   fixed simulated-data discrete CQL, matched controls, exact equity rewards,
   explicit delay reservations, all-seed reporting and scoped formal checks.
+  Execute all 50 pilot fits and 1,218 replays; retain 314 turnover-guard stops,
+  report insufficient primary comparison evidence and reject integration.
   Disabled by default; no production policy, permissions or live settings changed.
 
 - Exchange order/cancel requests are never retried by the HTTP layer, whatever `TRADER_HTTP_RETRY_WRITES` says (CE-IDEMP-001). Closes obligation 35.

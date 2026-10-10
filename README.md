@@ -6,7 +6,10 @@ It is disabled by default, cannot authorize orders, and uses only hash-pinned,
 already-exposed development exports. Run `python3 scripts/research/run_rl_composition.py --help`;
 install the existing pinned research/formal dependencies first. Its regression and
 scoped proof checks run through `bash scripts/verify.sh formal` and `full`.
-No challenger is eligible for production from this pilot.
+The [executed report and all-seed evidence](research-notes/rl-exposure-2026-10-10/report.md)
+record 50 fits and 1,218 replays. Turnover-guard stops invalidate the primary
+equal-horizon comparisons; no challenger qualifies. The report includes exact
+reproduction commands, data/artifact hashes and remaining assurance gates.
 
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
