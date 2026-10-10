@@ -44,6 +44,8 @@ AMENDMENT = ROOT / "research-notes/registrations/adopted-champion-screen-v1-pros
 # Annotated tag on GitHub that fixes the runner, registration, amendment and
 # haskell/ tree for one-shot phases; the trust root the repo files cannot forge.
 TRUST_TAG = "adopted-champion-screen-v1-prospective"
+# The tag is checked on this repository, never on whatever the local origin points to.
+CANONICAL_REMOTE = "https://github.com/diegueins680/trader.git"
 FAPI_KLINES = "https://fapi.binance.com/fapi/v1/klines"
 INTERVAL_MS = {"1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "6h": 21_600_000, "8h": 28_800_000, "12h": 43_200_000, "1d": 86_400_000}
 CSV_FIELDS = ["openTimeMs", "open", "high", "low", "close", "volume", "closeTimeMs"]
@@ -130,17 +132,37 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     (out_dir / phase["dataManifest"]).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 
 
-def verify_against_source(reg: dict, phase_name: str, data_dir: Path, manifest: dict) -> None:
-    """Re-download every phase file from Binance and require byte-identical CSVs."""
+def load_phase_blobs(reg: dict, phase_name: str, data_dir: Path, manifest: dict) -> dict[str, bytes]:
+    """Read every phase CSV exactly once and check those bytes against the manifest.
+
+    The run parses only these buffers, so a file replaced later cannot reach the backtest.
+    """
     phase = reg["phases"][phase_name]
+    blobs: dict[str, bytes] = {}
     for combo in reg["combos"]:
         if combo["symbol"] not in phase["symbols"]:
             continue
         name = f"{combo['symbol']}-{combo['interval']}.csv"
+        data = (data_dir / name).read_bytes()
+        if hashlib.sha256(data).hexdigest() != manifest["files"][name]["sha256"]:
+            raise SystemExit(f"{name} drifted from manifest")
+        blobs[name] = data
+    return blobs
+
+
+def verify_against_source(reg: dict, phase_name: str, blobs: dict[str, bytes]) -> None:
+    """Re-download every phase file from Binance and require byte-identical CSVs."""
+    for combo in reg["combos"]:
+        name = f"{combo['symbol']}-{combo['interval']}.csv"
+        if name not in blobs:
+            continue
         rows = fetch_klines(combo["symbol"], combo["interval"], int(reg["data"]["fetchStartMs"]), phase_fetch_end(reg, phase_name))
-        digest = hashlib.sha256(render_csv(rows)).hexdigest()
-        if digest != manifest["files"][name]["sha256"] or digest != sha256_file(data_dir / name):
+        if render_csv(rows) != blobs[name]:
             raise SystemExit(f"{name} does not match a fresh download from {FAPI_KLINES}")
+
+
+def parse_rows(data: bytes) -> list[dict]:
+    return list(csv.DictReader(io.StringIO(data.decode())))
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -354,7 +376,14 @@ def pinned_binary(pinned_tree: str) -> dict:
     subprocess.run(["cabal", "build", "exe:trader-hs"], cwd=haskell, check=True, capture_output=True)
     binary = Path(subprocess.check_output(["cabal", "list-bin", "trader-hs"], cwd=haskell, text=True).strip())
     commit = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
-    return {"path": binary, "haskellTree": tree, "commit": commit, "sha256": sha256_file(binary)}
+    # Every chunk runs this private read-only copy, so a rebuild during the run cannot mix engines.
+    private = Path(tempfile.mkdtemp(prefix="champion-trader-hs-"))
+    frozen = private / "trader-hs"
+    shutil.copy2(binary, frozen)
+    os.chmod(frozen, 0o500)
+    os.chmod(private, 0o500)
+    atexit.register(shutil.rmtree, private, ignore_errors=True)
+    return {"path": frozen, "haskellTree": tree, "commit": commit, "sha256": sha256_file(frozen)}
 
 
 def publish(out_dir: Path, payloads: list[tuple[str, str]], seal: bool) -> None:
@@ -400,10 +429,10 @@ def check_trust_root(tag: str = TRUST_TAG) -> str:
     """
     git = ["git", "-C", str(ROOT)]
     local = subprocess.run([*git, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"], capture_output=True, text=True).stdout.strip()
-    remote_lines = subprocess.run([*git, "ls-remote", "--tags", "origin", f"refs/tags/{tag}^{{}}"], capture_output=True, text=True).stdout.split()
+    remote_lines = subprocess.run([*git, "ls-remote", "--tags", CANONICAL_REMOTE, f"refs/tags/{tag}^{{}}"], capture_output=True, text=True).stdout.split()
     remote = remote_lines[0] if remote_lines else ""
     if not local or local != remote:
-        raise SystemExit(f"tag {tag} is missing, or differs from origin ({local or 'none'} vs {remote or 'none'})")
+        raise SystemExit(f"tag {tag} is missing, or differs from {CANONICAL_REMOTE} ({local or 'none'} vs {remote or 'none'})")
     paths = [str(p.relative_to(ROOT)) for p in (Path(__file__).resolve(), REGISTRATION, AMENDMENT)] + ["haskell"]
     for path in paths:
         tagged = subprocess.run([*git, "rev-parse", f"{local}:{path}"], capture_output=True, text=True).stdout.strip()
@@ -469,8 +498,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         build = pinned_binary(amendment["pinnedHaskellTree"])
     data_dir = phase_data_dir(reg, args.phase)
     manifest = check_manifest(reg, args.phase, data_dir / phase["dataManifest"])
+    blobs = load_phase_blobs(reg, args.phase, data_dir, manifest)
     if build:
-        verify_against_source(reg, args.phase, data_dir, manifest)
+        verify_against_source(reg, args.phase, blobs)
         build["trustTag"] = TRUST_TAG
         build["trustCommit"] = trust_commit
         reserve(out_dir)
@@ -486,11 +516,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     for combo in reg["combos"]:
         if combo["symbol"] not in phase["symbols"]:
             continue
-        fname = f"{combo['symbol']}-{combo['interval']}.csv"
-        meta = manifest["files"][fname]
-        if sha256_file(data_dir / fname) != meta["sha256"]:
-            raise SystemExit(f"{fname} drifted from manifest")
-        rows = read_rows(data_dir / fname)
+        rows = parse_rows(blobs[f"{combo['symbol']}-{combo['interval']}.csv"])
         open_times = [int(r["openTimeMs"]) for r in rows]
         closes = [float(r["close"]) for r in rows]
         start_ms = max(int(phase["startMs"]), int(combo["createdAtMs"]))
