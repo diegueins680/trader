@@ -135,6 +135,7 @@ data Args = Args
     , argValRatio :: Double
     , argBacktestRatio :: Double
     , argBacktestSignalDelayBars :: Int
+    , argBacktestCostMultiplier :: Double
     , argBacktestFrom :: Maybe String
     , argBacktestTo :: Maybe String
     , argInitialBalance :: Double
@@ -870,6 +871,7 @@ opts = do
     argLstmAdamEps <- option auto (long "lstm-adam-eps" <> value defaultLstmAdamEps <> showDefault <> help "LSTM Adam epsilon denominator stabilizer (>0)")
     argValRatio <- option auto (long "val-ratio" <> value 0.3 <> help "Validation split ratio (within training set)")
     argBacktestRatio <- option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
+    argBacktestCostMultiplier <- option auto (long "backtest-cost-multiplier" <> value 1 <> showDefault <> help "Backtest stress: multiply fee, slippage, spread, impact and funding charges after any combo adoption")
     argBacktestSignalDelayBars <- option auto (long "backtest-signal-delay-bars" <> value 0 <> showDefault <> help "Backtest stress: each decision uses the predicted return and gate metadata from N bars earlier; fills, stops and costs stay on the current bar")
     argBacktestFrom <- optional (strOption (long "from" <> metavar "TIME" <> help "Optional backtest start timestamp (epoch seconds/ms or ISO-8601)"))
     argBacktestTo <- optional (strOption (long "to" <> metavar "TIME" <> help "Optional backtest end timestamp (epoch seconds/ms or ISO-8601)"))
@@ -1791,7 +1793,9 @@ validateArgs args0 = do
     ensure "--ops-backfill-commits cannot be used with --serve" (not (argOpsBackfillCommits args && argServe args))
     ensure "--backtest-signal-delay-bars must be >= 0" (argBacktestSignalDelayBars args >= 0)
     ensure "--adopt-combo-file and --adopt-combo-uuid must be given together" (isJust (argAdoptComboFile args) == isJust (argAdoptComboUuid args))
-    ensure "--adopt-combo-file cannot be used with --serve or --trade-only" (not (isJust (argAdoptComboFile args) && (argServe args || argTradeOnly args)))
+    ensure "--adopt-combo-file cannot be used with --serve, --trade-only or exchange trading" (not (isJust (argAdoptComboFile args) && (argServe args || argTradeOnly args || argBinanceTrade args || argBinanceLive args)))
+    ensure "--backtest-cost-multiplier must be finite and > 0" (let m = argBacktestCostMultiplier args in not (isNaN m || isInfinite m) && m > 0)
+    ensure "backtest stresses cannot be used with --serve, --trade-only or exchange trading" (not ((argBacktestCostMultiplier args /= 1 || argBacktestSignalDelayBars args /= 0) && (argServe args || argTradeOnly args || argBinanceTrade args || argBinanceLive args)))
     ensure "--top-combos-backfill-close-timing cannot be used with --serve" (not (argTopCombosBackfillCloseTiming args && argServe args))
     ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
     ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)

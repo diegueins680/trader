@@ -975,7 +975,7 @@ main = do
     case runtimeValidation of
         Left e -> die (e ++ "\n\nRun with --help for usage.")
         Right () -> pure ()
-    args'' <- adoptComboFromFileIfRequested args'
+    args'' <- applyBacktestCostMultiplier <$> adoptComboFromFileIfRequested args'
     if argOpsBackfillCommits args'
         then runOpsBackfillCommits
         else
@@ -21829,6 +21829,26 @@ applyTopComboForStart base combo = do
 offline backtest evaluates the same configuration a live bot would trade.
 Market data still comes from the CLI's own --data/--binance-symbol inputs.
 -}
+
+{- | Backtest-only cost stress, applied after combo adoption so adopted venue
+cost floors are scaled too. A multiplier of 1 leaves the arguments unchanged.
+-}
+applyBacktestCostMultiplier :: Args -> Args
+applyBacktestCostMultiplier args
+    | m == 1 = args
+    | otherwise =
+        args
+            { argFee = m * argFee args
+            , argFeeFixed = m * argFeeFixed args
+            , argFeeMin = m * argFeeMin args
+            , argSlippage = m * argSlippage args
+            , argSlippageImpact = m * argSlippageImpact args
+            , argSpread = m * argSpread args
+            , argFundingRate = m * argFundingRate args
+            }
+  where
+    m = argBacktestCostMultiplier args
+
 adoptComboFromFileIfRequested :: Args -> IO Args
 adoptComboFromFileIfRequested args =
     case (argAdoptComboFile args, argAdoptComboUuid args) of

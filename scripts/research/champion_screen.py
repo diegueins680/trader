@@ -37,6 +37,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRATION = ROOT / "research-notes/registrations/adopted-champion-screen-v1.json"
+AMENDMENT = ROOT / "research-notes/registrations/adopted-champion-screen-v1-prospective-amendment.json"
 FAPI_KLINES = "https://fapi.binance.com/fapi/v1/klines"
 INTERVAL_MS = {"1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "6h": 21_600_000, "8h": 28_800_000, "12h": 43_200_000, "1d": 86_400_000}
 CSV_FIELDS = ["openTimeMs", "open", "high", "low", "close", "volume", "closeTimeMs"]
@@ -242,19 +243,6 @@ def chunk_returns(out: dict, expected: int) -> tuple[list[float], dict]:
     return equity_to_returns(curve), {"metrics": out.get("metrics", {}), "realizedCosts": realized, "perSideCost": out.get("costs", {}).get("perSideCost"), "maxPositionSize": out.get("maxPositionSize")}
 
 
-def chunk_gross_returns(out: dict, expected: int) -> list[float]:
-    """Per-bar gross (pre-cost) returns of the same slice, from the engine's cost attribution."""
-    curve = [float(x) for x in out["costs"]["attribution"]["gross"]["equityCurve"]]
-    if len(curve) != expected + 1:
-        raise RuntimeError(f"gross equityCurve length {len(curve)} != chunk {expected} + 1")
-    return equity_to_returns(curve)
-
-
-def doubled_cost_returns(net: list[float], gross: list[float]) -> list[float]:
-    """Per bar, net - (gross - net): fee, slippage, spread and funding charged twice."""
-    return [2.0 * n - g for n, g in zip(net, gross)]
-
-
 def daily_returns(open_times: list[int], returns: list[float]) -> dict[int, float]:
     """Compound per-bar returns into UTC calendar days keyed by day index."""
     days: dict[int, float] = {}
@@ -312,6 +300,45 @@ def check_manifest(reg: dict, phase_name: str, manifest_path: Path) -> dict:
     return json.loads(manifest_path.read_text())
 
 
+def pinned_binary(pinned_tree: str) -> dict:
+    """Build trader-hs from a clean haskell/ tree equal to the preregistered one.
+
+    One-shot evidence must come from preregistered code, so a dirty tree or a
+    different tree hash is refused before any row is read.
+    """
+    git = ["git", "-C", str(ROOT)]
+    if subprocess.run([*git, "diff", "--quiet", "HEAD", "--", "haskell"]).returncode != 0:
+        raise SystemExit("haskell/ has uncommitted changes; one-shot phases need the pinned tree")
+    tree = subprocess.check_output([*git, "rev-parse", "HEAD:haskell"], text=True).strip()
+    if tree != pinned_tree:
+        raise SystemExit(f"haskell/ tree {tree} is not the preregistered {pinned_tree}; check out a commit with that tree")
+    haskell = ROOT / "haskell"
+    subprocess.run(["cabal", "build", "exe:trader-hs"], cwd=haskell, check=True, capture_output=True)
+    binary = Path(subprocess.check_output(["cabal", "list-bin", "trader-hs"], cwd=haskell, text=True).strip())
+    commit = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+    return {"path": binary, "haskellTree": tree, "commit": commit, "sha256": sha256_file(binary)}
+
+
+def publish(out_dir: Path, payloads: list[tuple[str, str]], seal: bool) -> None:
+    """Write every payload durably under a temporary name, then rename into place.
+
+    The last payload (results.json) is the completion marker, so an interrupted
+    run leaves no marker and may be repeated with identical inputs.
+    """
+    staged = []
+    for name, text in payloads:
+        tmp = out_dir / f".{name}.partial"
+        with tmp.open("w") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        staged.append((tmp, out_dir / name))
+    for tmp, final in staged:
+        if seal:
+            os.chmod(tmp, 0o444)
+        os.replace(tmp, final)
+
+
 def check_coverage(open_times: list[int], step: int, first_needed_ms: int, last_open_ms: int) -> None:
     """Rows must be contiguous from the first training row through the window's final bar."""
     try:
@@ -330,13 +357,22 @@ def cmd_run(args: argparse.Namespace) -> None:
     if phase.get("oneShot") and (out_dir / "results.json").exists():
         raise SystemExit(f"{args.phase} is one-shot and already has sealed results; no rows were read")
     stress = "passGates" in phase
+    build = None
+    if phase.get("oneShot"):
+        amendment = json.loads(AMENDMENT.read_text())
+        if amendment["amendsSha256"] != sha256_file(REGISTRATION):
+            raise SystemExit("prospective amendment does not amend this registration")
+        build = pinned_binary(amendment["pinnedHaskellTree"])
     data_dir = ROOT / reg["data"]["directory"]
     manifest = check_manifest(reg, args.phase, data_dir / phase["dataManifest"])
     snapshot = ROOT / reg["snapshot"]["path"]
     if sha256_file(snapshot) != reg["snapshot"]["sha256"]:
         raise SystemExit("frozen champion snapshot drifted from registration")
-    binary = Path(args.binary)
+    binary = build["path"] if build else Path(args.binary)
     results = {"registration": REGISTRATION.name, "registrationSha256": sha256_file(REGISTRATION), "phase": args.phase, "combos": {}}
+    if build:
+        results["build"] = {k: str(v) for k, v in build.items()}
+        results["amendmentSha256"] = sha256_file(AMENDMENT)
     series_out: dict[str, dict] = {}
     fleet_inputs: list[dict[str, dict[int, float]]] = []
     for combo in reg["combos"]:
@@ -356,12 +392,12 @@ def cmd_run(args: argparse.Namespace) -> None:
         check_coverage(open_times, step, first_eval_ms - combo["windowBars"] * step, last_open_ms)
         chunks = chunk_plan(open_times, start_ms, int(phase["endExclusiveMs"]), combo["windowBars"], combo["chunkBars"])
         per_seed: dict[str, list[float]] = {}
-        gross_seed: dict[str, list[float]] = {}
+        doubled_seed: dict[str, list[float]] = {}
         delayed_seed: dict[str, list[float]] = {}
         diag: dict[str, list] = {}
         for seed in reg["protocol"]["seeds"]:
             rets: list[float] = []
-            gross: list[float] = []
+            doubled: list[float] = []
             delayed: list[float] = []
             diag[str(seed)] = []
             cap = reg["protocol"]["adoptionMaxPositionSizeCap"]
@@ -371,11 +407,12 @@ def cmd_run(args: argparse.Namespace) -> None:
                 rets.extend(r)
                 diag[str(seed)].append({"chunk": [open_times[s], open_times[e - 1]], **d})
                 if stress:
-                    gross.extend(chunk_gross_returns(out, e - s))
+                    costly = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, ["--backtest-cost-multiplier", "2"])
+                    doubled.extend(chunk_returns(costly, e - s)[0])
                     late = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, ["--backtest-signal-delay-bars", "1"])
                     delayed.extend(chunk_returns(late, e - s)[0])
             per_seed[str(seed)] = rets
-            gross_seed[str(seed)] = gross
+            doubled_seed[str(seed)] = doubled
             delayed_seed[str(seed)] = delayed
             print(f"{combo['symbol']} seed {seed}: {len(rets)} bars", file=sys.stderr)
         ppy = combo["periodsPerYear"]
@@ -419,13 +456,13 @@ def cmd_run(args: argparse.Namespace) -> None:
             fleet_inputs.append(
                 {
                     "net": daily_returns(times, med_net),
-                    "doubledCosts": daily_returns(times, doubled_cost_returns(med_net, gross_seed[median_seed])),
+                    "doubledCosts": daily_returns(times, doubled_seed[median_seed]),
                     "oneBarDelay": daily_returns(times, delayed_seed[median_seed]),
                     "buy_and_hold": daily_returns(times, base_returns["buy_and_hold"]),
                     "momentum": daily_returns(times, base_returns["momentum"]),
                 }
             )
-            series_out[combo["symbol"]]["stress"] = {"gross": gross_seed[median_seed], "oneBarDelay": delayed_seed[median_seed], "medianSeed": median_seed}
+            series_out[combo["symbol"]]["stress"] = {"doubledCosts": doubled_seed[median_seed], "oneBarDelay": delayed_seed[median_seed], "medianSeed": median_seed}
         results.setdefault("diagnostics", {})[combo["symbol"]] = diag
     decisions = [c["decision"] for c in results["combos"].values()]
     rejected = decisions.count("REJECTED")
@@ -436,12 +473,13 @@ def cmd_run(args: argparse.Namespace) -> None:
         results["fleet"] = {**fleet, **verdict}
         results["fleetDecision"] = verdict["decision"]
     out_dir.mkdir(parents=True, exist_ok=True)
-    mode = "x" if phase.get("oneShot") else "w"
-    for name, payload in (("results.json", json.dumps(results, indent=1, sort_keys=True) + "\n"), ("returns.json", json.dumps(series_out, sort_keys=True) + "\n")):
-        with (out_dir / name).open(mode) as handle:
-            handle.write(payload)
-        if phase.get("oneShot"):
-            os.chmod(out_dir / name, 0o444)
+    if phase.get("oneShot") and (out_dir / "results.json").exists():
+        raise SystemExit(f"{args.phase} results appeared during the run; refusing to overwrite")
+    publish(
+        out_dir,
+        [("returns.json", json.dumps(series_out, sort_keys=True) + "\n"), ("results.json", json.dumps(results, indent=1, sort_keys=True) + "\n")],
+        seal=bool(phase.get("oneShot")),
+    )
     print(json.dumps({k: {"decision": v["decision"], "median": v["seeds"][v["medianSeed"]]} for k, v in results["combos"].items()}, indent=1))
     print("fleet:", results["fleetDecision"])
 
@@ -479,7 +517,12 @@ def cmd_selftest(_: argparse.Namespace) -> None:
         except SystemExit:
             pass
     check_embargo({"minimumEvaluationTimeUtc": "2027-01-21T06:00:00Z"}, 1800511200000)
-    assert doubled_cost_returns([0.01, -0.002], [0.012, 0.0]) == [0.008, -0.004]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        (out / "returns.json").write_text("stale")
+        publish(out, [("returns.json", "r"), ("results.json", "s")], seal=True)
+        assert (out / "returns.json").read_text() == "r" and (out / "results.json").read_text() == "s"
+        assert not list(out.glob(".*.partial")) and not os.access(out / "results.json", os.W_OK)
     day = 86_400_000
     d = daily_returns([0, day // 2, day], [0.1, 0.1, -0.5])
     assert abs(d[0] - 0.21) < 1e-12 and d[1] == -0.5
