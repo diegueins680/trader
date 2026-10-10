@@ -975,6 +975,7 @@ main = do
     case runtimeValidation of
         Left e -> die (e ++ "\n\nRun with --help for usage.")
         Right () -> pure ()
+    args'' <- applyBacktestCostMultiplier <$> adoptComboFromFileIfRequested args'
     if argOpsBackfillCommits args'
         then runOpsBackfillCommits
         else
@@ -986,15 +987,15 @@ main = do
                         if argServe args'
                             then runRestApi args' mWebhook
                             else do
-                                (series, mBinanceEnv) <- loadPrices Nothing args'
+                                (series, mBinanceEnv) <- loadPrices Nothing args''
                                 let prices = psClose series
-                                ensureMinPriceRows args' 2 prices
+                                ensureMinPriceRows args'' 2 prices
 
-                                let lookback = argLookback args'
-                                ensureLookbackRows args' lookback prices
-                                if argTradeOnly args'
-                                    then runTradeOnly mWebhook args' lookback series mBinanceEnv
-                                    else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
+                                let lookback = argLookback args''
+                                ensureLookbackRows args'' lookback prices
+                                if argTradeOnly args''
+                                    then runTradeOnly mWebhook args'' lookback series mBinanceEnv
+                                    else runBacktestPipeline mWebhook args'' lookback series mBinanceEnv
                     case (r :: Either SomeException ()) of
                         Left ex -> do
                             let (_, msg) = exceptionToHttp ex
@@ -21823,6 +21824,58 @@ applyTopComboForStart base combo = do
                 }
     pure (normalizeBarsForLookback args3)
 
+{- | CLI-only: replay one stored combo exactly as live bot adoption applies it
+('applyTopComboForStart': venue cost floors, adoption position caps), so an
+offline backtest evaluates the same configuration a live bot would trade.
+Market data still comes from the CLI's own --data/--binance-symbol inputs.
+-}
+
+{- | Backtest-only cost stress, applied after combo adoption so adopted venue
+cost floors are scaled too. Every additive cost term is scaled (base and
+volatility-scaled slippage and spread, impact, fees); funding becomes an
+explicitly adverse debit on either side (@m * |rate|@, never a side-signed
+credit). Exponents such as the impact power are not scaled. A multiplier of 1
+leaves the arguments unchanged.
+-}
+applyBacktestCostMultiplier :: Args -> Args
+applyBacktestCostMultiplier args
+    | m == 1 = args
+    | otherwise =
+        args
+            { argFee = m * argFee args
+            , argFeeFixed = m * argFeeFixed args
+            , argFeeMin = m * argFeeMin args
+            , argSlippage = m * argSlippage args
+            , argSlippageVolMult = m * argSlippageVolMult args
+            , argSlippageImpact = m * argSlippageImpact args
+            , argSpread = m * argSpread args
+            , argSpreadVolMult = m * argSpreadVolMult args
+            , -- Adverse funding: charged on either side (no side-signed credits), then scaled.
+              argFundingRate = m * abs (argFundingRate args)
+            , argFundingBySide = False
+            }
+  where
+    m = argBacktestCostMultiplier args
+
+adoptComboFromFileIfRequested :: Args -> IO Args
+adoptComboFromFileIfRequested args =
+    case (argAdoptComboFile args, argAdoptComboUuid args) of
+        (Just path, Just uuid) -> do
+            decoded <- Aeson.eitherDecodeFileStrict' path
+            let wanted = T.toLower (T.pack uuid)
+                adopted = do
+                    export <- either (\e -> Left ("cannot decode " ++ path ++ ": " ++ e)) Right decoded
+                    combo <-
+                        maybe
+                            (Left ("combo " ++ uuid ++ " not found in " ++ path))
+                            Right
+                            (find ((== wanted) . T.toLower . topComboUuid) (tceCombos export))
+                    applyTopComboForStart args combo
+            case adopted of
+                Left e -> die e
+                Right a -> pure a
+        _ -> pure args
+
 applyTopComboForStartWithUuid :: Args -> TopCombo -> Either String (Args, Maybe Text)
 applyTopComboForStartWithUuid base combo = do
     args0 <- applyTopComboForStart base combo
@@ -31248,6 +31301,32 @@ trainLstmWithPersistence args lookback cfg series = do
     savePersistedLstmModelMaybe mPath trainBars model
     pure (model, hist)
 
+{- | Backtest-only signal-delay stress. @preds !! t@ is the next-bar price
+predicted at bar @t@; with a delay of @n@ the decision at bar @t@ uses the
+return predicted at bar @t - n@, rescaled to bar @t@'s price. The first @n@
+bars have no prediction (NaN), so they cannot open positions.
+-}
+delayNextPricePredictions :: Int -> [Double] -> [Double] -> [Double]
+delayNextPricePredictions n prices preds
+    | n <= 0 = preds
+    | otherwise = zipWith delayed [0 ..] preds
+  where
+    priceV = V.fromList prices
+    predV = V.fromList preds
+    delayed :: Int -> Double -> Double
+    delayed t _ =
+        case (priceV V.!? t, priceV V.!? (t - n), predV V.!? (t - n)) of
+            (Just now, Just past, Just pastPred)
+                | t >= n && past > 0 -> now * pastPred / past
+            _ -> 0 / 0
+
+-- | Delay per-bar values by @n@ bars, repeating the first value; length is preserved.
+delayStepValues :: Int -> [a] -> [a]
+delayStepValues n xs =
+    case xs of
+        (x : _) | n > 0 -> take (length xs) (replicate n x ++ xs)
+        _ -> xs
+
 computeBacktestSummary :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO BacktestSummary
 computeBacktestSummary args lookback series mBinanceEnv = do
     seriesWindow <-
@@ -31879,11 +31958,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         baseCfgBacktest = baseCfg{ecOpenTimes = V.fromList <$> backtestOpenTimes, ecOpenPrices = V.fromList <$> backtestOpens}
 
         offsetBacktestPred = max 0 (trainEnd - predStart)
-        kalPredBacktest = drop offsetBacktestPred kalPredAll
-        lstmPredBacktest = drop offsetBacktestPred lstmPredAll
+        signalDelay = argBacktestSignalDelayBars args
+        -- Delay over the whole prediction history, then slice, so the first
+        -- backtest bars use the forecasts made just before the slice.
+        predPrices = drop predStart prices
+        kalPredBacktest = drop offsetBacktestPred (delayNextPricePredictions signalDelay predPrices kalPredAll)
+        lstmPredBacktest = drop offsetBacktestPred (delayNextPricePredictions signalDelay predPrices lstmPredAll)
         kalPredTune = take (max 0 (tuneSize - 1)) kalPredAll
         lstmPredTune = take (max 0 (tuneSize - 1)) lstmPredAll
-        metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
+        metaBacktest = fmap (drop offsetBacktestPred . delayStepValues signalDelay) mMetaAll
         metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
         ppy = periodsPerYear args

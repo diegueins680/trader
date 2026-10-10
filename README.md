@@ -409,6 +409,8 @@ All compact reports are prepared before the output directory is created and writ
 
 New runner exception records include the exception class, ensuring empty error messages still produce reportable failures. Training reasons must agree with terminal events. OPE coverage requires a valid v1 outcome payload, not an ID-only placeholder; schema validity does not establish estimator reliability. Conflicting older failure records require investigation; existing evidence archives are never rewritten automatically.
 
+The preregistered [adopted-champion screen](research-notes/adopted-champion-screen-2026-10-09/report.md) (`scripts/research/champion_screen.py`) replays the live fleet's frozen UNI/SUI/ETC combos through the live adoption path on post-creation data. Its 2026-10-09 retrospective phase **rejected all three**: zero round trips in 6.5 months, because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. AVAX and ADA stay unevaluated under the holdout and carry rules. A one-shot prospective phase is readable from 2027-01-21. Nothing was promoted, resized or authorized.
+
 ## CLI and API
 
 List the complete CLI surface with:
@@ -423,6 +425,10 @@ Serve mode requires `TRADER_DB_URL` or `DATABASE_URL`. The local wrapper supplie
 Database-backed endpoints serialize access to their shared PostgreSQL connection and automatically replace it after libpq connection failures, including a connection left busy by an interrupted command.
 
 `--trade-log FILE` remains backward compatible with schema-1.1 backtest closed-trade rows. Applied live OPEN/CLOSE event rows use schema 1.2 and add `closeReason`/`close_reason` plus identical `riskState`/`risk_state` objects containing the exact pre-execution drawdown, daily loss, weekly loss, and configured-expectancy evidence supplied to the canonical halt decision, their equity references, and distinct market-event/processing timestamps. Missing expectancy stays `null`; non-finite or out-of-domain risk evidence is serialized as `null` and marked by `finite=false` or `valid=false`, and must be treated as unavailable, never as a bullish, bearish, or neutral zero. Live event rows retain their legacy zero-quantity/P&L compatibility fields and therefore are not substitutes for fill, round-trip P&L, or fee evidence. The complete versioned contract is in [`artifacts/cio/trade-log-schema-contract-2026-05-24.md`](artifacts/cio/trade-log-schema-contract-2026-05-24.md).
+
+`--adopt-combo-file FILE --adopt-combo-uuid UUID` (CLI backtest only, both required) loads one combo from a top-combos export and applies it exactly as live bot adoption does (venue cost floors, `--adoption-max-position-size-cap`) before running the normal backtest on `--data`/`--binance-symbol` input. It cannot be combined with `--serve` or `--trade-only`; JSON output is unchanged.
+
+`--backtest-signal-delay-bars N` (default `0`, backtest only) is a stale-signal stress. The decision at bar `t` uses the predicted return (rescaled to bar `t`'s price) and gate metadata from bar `t-N`; fills, stops and costs stay on bar `t`, and the first `N` bars cannot open positions. `--backtest-cost-multiplier X` (default `1`, backtest only) multiplies fee, slippage, spread, impact and funding after any combo adoption. Neither stress, nor `--adopt-combo-file`, can be combined with `--serve`, `--trade-only`, `--binance-trade` or `--binance-live`.
 
 Important operational endpoints:
 

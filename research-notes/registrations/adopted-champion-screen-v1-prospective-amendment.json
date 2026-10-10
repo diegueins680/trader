@@ -1,0 +1,56 @@
+{
+  "amends": "research-notes/registrations/adopted-champion-screen-v1.json",
+  "amendsSha256": "92311fad723d6a093a8272f7bdab89c9b9ec1b43bd63c32c7bb2bb31e0beae1d",
+  "registeredOn": "2026-10-09",
+  "scope": "Prospective phase only. Specifies how the registered passGates and the oneShot rule are computed. Committed before the prospective window opens (2026-10-10T00:00:00Z); no prospective row has been fetched or read. The retrospective phase and its recorded result are unchanged.",
+  "oneShot": "The runner refuses the phase if its results.json exists, then takes an exclusive .reservation (a leftover reservation from an interrupted run must be inspected and removed by an operator). It stages returns.json and results.json under per-process names and renames them into place read-only, results.json last, as the completion marker. A published result is final.",
+  "medianSeed": "Per combo, the seed with the median base net return over the phase window. Every stress uses that same seed.",
+  "fleetAggregation": "Per-bar net returns of each combo's median seed are compounded into UTC calendar days by bar open time. Fleet daily return = equal-weight mean of the three combos. Baselines (buy-and-hold, 20-bar momentum) are aggregated identically from each combo's baseline returns.",
+  "fleetStatistics": "Fleet PSR uses daily returns; lifetimeAdjustedPsr = max(0, 1 - min(1, 3261 * (1 - PSR))). Annualized Sharpe uses 365 periods per year. Max drawdown is on the compounded fleet daily path.",
+  "doubledCosts": "A separate engine run per chunk with --backtest-cost-multiplier 2. After combo adoption it multiplies every additive cost term: fees (including fixed and minimum), base and volatility-scaled slippage and spread, and impact. Funding becomes an explicitly adverse debit on either side (2 * |rate|, never a side-signed credit). Exponents such as the impact power are unchanged. Fleet doubled-cost return is aggregated like the base return.",
+  "oneBarDelay": "A separate engine run per chunk with --backtest-signal-delay-bars 1: the decision at bar t uses bar t-1's predicted return (rescaled to bar t's price) and gate metadata; fills, stops and costs use bar t. The delayed run starts one bar before the chunk and that bar's return is dropped, so every chunk's first decision uses the previous bar's forecast (its model is fit on one fewer bar). Fleet delayed return is aggregated like the base return.",
+  "decision": "PASS only if every registered passGate holds: every combo NOT_REJECTED; fleet lifetimeAdjustedPsr >= 0.95; fleet max drawdown <= 20%; fleet annualized Sharpe above both fleet baselines; fleet net2x return > 0; fleet delayed return > 0. Otherwise REJECTED.",
+  "validation": "The delay flag and stress computations are tested only on rows before createdAtMs (2026-03-25T17:38:18Z) before any prospective evaluation.",
+  "pinnedHaskellTree": "d315f6693e0e9726bc617fcbd580d280c5fac4fb",
+  "pinnedHaskellTreeNote": "git rev-parse HEAD:haskell of the commit that implements these gates. The prospective run must use a clean checkout whose haskell/ tree equals this hash; the runner builds trader-hs there and records tree, commit and binary sha256.",
+  "revisions": [
+    {
+      "atUtc": "2026-10-10",
+      "change": "Doubled costs moved from net-minus-gross arithmetic (which mixes return denominators) to an engine rerun with --backtest-cost-multiplier 2; added pinnedHaskellTree and atomic publication. Made after the window opened, before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Cost multiplier extended to volatility-scaled slippage and spread; added pinnedRunnerSha256, the exclusive reservation and per-process staging. Made before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Added the GitHub tag trust root, re-download verification of prospective data, and a separate prospective data directory; runner pin updated. Made before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "The verified snapshot bytes are frozen into a private read-only file used by every chunk; runner pin and trust tag updated. Made before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Trust tag checked on the canonical repository URL; datasets parsed from the verified bytes; chunks run a private read-only copy of the verified binary. Runner pin and tag updated before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Delayed runs carry the previous forecast across chunk boundaries; doubled-cost funding is adverse on either side; tree and runner pins and the trust tag updated. Made before any prospective row was fetched or read, in response to review on PR #330."
+    },
+    {
+      "atUtc": "2026-10-10",
+      "change": "Pinned toolchain, refused local Cabal overrides, recorded the build plan, made publication crash-durable; runner pin and trust tag updated. Made before any prospective row was fetched or read, in response to review on PR #330."
+    }
+  ],
+  "pinnedRunnerSha256": "ed588a8ba73120e56273367d8a5202ac32b2c9cb0f49fecea5255a0564bec73a",
+  "pinnedRunnerNote": "sha256 of scripts/research/champion_screen.py. A one-shot run refuses a different runner and refuses uncommitted changes to the runner, the registration or this amendment.",
+  "trustTag": "adopted-champion-screen-v1-prospective",
+  "trustTagNote": "Annotated tag on https://github.com/diegueins680/trader.git (checked there, not on the local origin). A one-shot run requires the local tag to equal that tag, and the runner, registration, this amendment and haskell/ at HEAD to be identical to the tagged commit. Run from a checkout of the tag.",
+  "prospectiveData": "Fetched with `fetch --phase prospective` (refused before minimumEvaluationTimeUtc) into data/research/adopted-champion-screen-v1/prospective/, separate from the retrospective files. Before reserving the run, the runner re-downloads every file from Binance and requires byte-identical CSVs.",
+  "pinnedToolchain": {
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "note": "Required for the one-shot build, which also refuses untracked cabal.project* overrides and records the resolved build plan's sha256."
+  }
+}

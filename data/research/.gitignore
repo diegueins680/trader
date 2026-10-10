@@ -7,3 +7,4 @@
 *-alternative.json
 .collector/
 !.gitignore
+adopted-champion-screen-v1/champion-snapshot.json

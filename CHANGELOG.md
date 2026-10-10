@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research: preregistered `adopted_champion_screen_v1` replays the live fleet's frozen combos (UNI/SUI/ETC; AVAX/ADA excluded by existing holdout/carry rules) causally on lawful post-creation data with live adoption costs, against flat/buy-and-hold/momentum baselines. The retrospective phase can only reject; a one-shot prospective phase (2026-10-10..2027-01-21) is the only route to a pass. Results: `research-notes/adopted-champion-screen-2026-10-09/`.
+- CLI: `--adopt-combo-file FILE --adopt-combo-uuid UUID` backtests one stored combo exactly as live bot adoption applies it (venue cost floors, adoption cap). JSON output is unchanged.
+- CLI: `--backtest-signal-delay-bars N` (default 0, backtest only) is a stale-signal stress. Each decision uses the predicted return and gate metadata from N bars earlier, while fills, stops and costs stay on the current bar. With 0, output is unchanged.
+- CLI: `--backtest-cost-multiplier X` (default 1, backtest only) multiplies fee, slippage, spread, impact and funding after any combo adoption. `--adopt-combo-file` and both backtest stresses now refuse exchange-trading flags.
+
 - Exchange order/cancel requests are never retried by the HTTP layer, whatever `TRADER_HTTP_RETRY_WRITES` says (CE-IDEMP-001). Closes obligation 35.
 
 - Shutdown: while the server drains, bot starts are refused, bots make no new order decisions and the optimizer launches no new process (CE-DRAIN-001). Closes obligation 14.
