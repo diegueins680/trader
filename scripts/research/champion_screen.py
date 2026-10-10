@@ -543,8 +543,11 @@ def cmd_run(args: argparse.Namespace) -> None:
                 if stress:
                     costly = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, ["--backtest-cost-multiplier", "2"])
                     doubled.extend(chunk_returns(costly, e - s)[0])
-                    late = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, ["--backtest-signal-delay-bars", "1"])
-                    delayed.extend(chunk_returns(late, e - s)[0])
+                    # Start the delayed run one bar earlier and drop that bar's return, so the
+                    # chunk's first evaluated decision uses the previous bar's forecast
+                    # instead of being forced flat at the slice boundary.
+                    late = run_chunk(binary, snapshot, combo["uuid"], rows, s - 1, e, combo["windowBars"], seed, cap, ["--backtest-signal-delay-bars", "1"])
+                    delayed.extend(chunk_returns(late, e - s + 1)[0][1:])
             per_seed[str(seed)] = rets
             doubled_seed[str(seed)] = doubled
             delayed_seed[str(seed)] = delayed

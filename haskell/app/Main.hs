@@ -21832,8 +21832,10 @@ Market data still comes from the CLI's own --data/--binance-symbol inputs.
 
 {- | Backtest-only cost stress, applied after combo adoption so adopted venue
 cost floors are scaled too. Every additive cost term is scaled (base and
-volatility-scaled slippage and spread, impact, fees, funding); exponents such
-as the impact power are not. A multiplier of 1 leaves the arguments unchanged.
+volatility-scaled slippage and spread, impact, fees); funding becomes an
+explicitly adverse debit on either side (@m * |rate|@, never a side-signed
+credit). Exponents such as the impact power are not scaled. A multiplier of 1
+leaves the arguments unchanged.
 -}
 applyBacktestCostMultiplier :: Args -> Args
 applyBacktestCostMultiplier args
@@ -21848,7 +21850,9 @@ applyBacktestCostMultiplier args
             , argSlippageImpact = m * argSlippageImpact args
             , argSpread = m * argSpread args
             , argSpreadVolMult = m * argSpreadVolMult args
-            , argFundingRate = m * argFundingRate args
+            , -- Adverse funding: charged on either side (no side-signed credits), then scaled.
+              argFundingRate = m * abs (argFundingRate args)
+            , argFundingBySide = False
             }
   where
     m = argBacktestCostMultiplier args
@@ -31955,11 +31959,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
 
         offsetBacktestPred = max 0 (trainEnd - predStart)
         signalDelay = argBacktestSignalDelayBars args
-        kalPredBacktest = delayNextPricePredictions signalDelay backtestPrices (drop offsetBacktestPred kalPredAll)
-        lstmPredBacktest = delayNextPricePredictions signalDelay backtestPrices (drop offsetBacktestPred lstmPredAll)
+        -- Delay over the whole prediction history, then slice, so the first
+        -- backtest bars use the forecasts made just before the slice.
+        predPrices = drop predStart prices
+        kalPredBacktest = drop offsetBacktestPred (delayNextPricePredictions signalDelay predPrices kalPredAll)
+        lstmPredBacktest = drop offsetBacktestPred (delayNextPricePredictions signalDelay predPrices lstmPredAll)
         kalPredTune = take (max 0 (tuneSize - 1)) kalPredAll
         lstmPredTune = take (max 0 (tuneSize - 1)) lstmPredAll
-        metaBacktest = fmap (delayStepValues signalDelay . drop offsetBacktestPred) mMetaAll
+        metaBacktest = fmap (drop offsetBacktestPred . delayStepValues signalDelay) mMetaAll
         metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
         ppy = periodsPerYear args
