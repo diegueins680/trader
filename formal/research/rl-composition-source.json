@@ -1,10 +1,10 @@
 {
-  "review": "V1 economics preserved via an extracted execution hook; explicit runner injection preserves defaults. V2 zero-target retry from immutable original session, trace primitives and independent audit reviewed before successor historical outcomes. Original e29f8fba experiment remains frozen. Identity binding is not semantic proof.",
+  "review": "V1/v2 defaults and economic kernels unchanged. Budget-v3 adds explicit comparator and buffer-size injection, causal factory extraction and checks both original v2 buffer identities before training. No new safety theorem; source identity is not semantic proof.",
   "sha256": {
     "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
-    "scripts/research/run_rl_composition.py": "cac91358e22f3428b5e01dd14a71e46d0c1cee341cc1fd0d7514a35c24ce3717",
+    "scripts/research/run_rl_composition.py": "a02f6d81d5ed2584f331e5ace265e0334ebeeff235741820d22783aee18a630e",
     "scripts/formal/rl_composition_check.py": "1459d32b4ffea0befe385dce0f0fc7323da9c9cd5e06ecc5c30ad64a82445039",
-    "test/rl_composition_test.py": "29c9f3cf9a985dd4c45cd054a3f947000cde6f93d78a23d98635317f456fb8db",
+    "test/rl_composition_test.py": "f7b7707c2754b894fbdaf331294d23f612acc4cb72357ed15d78f9fd31761496",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
     "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
@@ -15,6 +15,8 @@
     "scripts/formal/shield_consumers.py": "3ad42b9ad8024dba9a0acf00b1e85f4cfc7bee0283f427fef2d3f56cd6438338",
     "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
-    "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6"
+    "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",
+    "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+    "scripts/research/summarize_rl_budget_v3.py": "1264159a96cc389229071c6c036c80efdc73d80f88f07161905925953492b84c"
   }
 }

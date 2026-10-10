@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research: preregister a 4,096-step training-budget sensitivity study, preserving
+  v2 accounting, shield and 512-transition offline datasets. Add an explicit
+  opt-in runner, observation-matched controls and pre-fit buffer identity checks.
+  Preserve previous experiment versions and default behavior.
+
 - Research: add disabled `rl-admission-continuation-v2`, separating turnover
   rejection from economic termination and independently auditing traced fills
   and costs. Preserve v1 artifacts; require retraining in the new environment.
