@@ -1,5 +1,13 @@
 # Trader
 
+The opt-in [causal RL composition pilot](research-notes/rl-exposure-2026-10-10/contract.md)
+connects PPO, Double DQN and fixed-dataset discrete CQL to exact research accounting.
+It is disabled by default, cannot authorize orders, and uses only hash-pinned,
+already-exposed development exports. Run `python3 scripts/research/run_rl_composition.py --help`;
+install the existing pinned research/formal dependencies first. Its regression and
+scoped proof checks run through `bash scripts/verify.sh formal` and `full`.
+No challenger is eligible for production from this pilot.
+
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
 Drain gates (2026-10-09): obligation 14 **closes**. After SIGTERM, running bots, the bot auto-start loop and the auto-optimizer used to keep starting new work until their own shutdown step (CE-DRAIN-001). Now, once the server drains, bot start is refused, bots make no new order decisions (a routine already in flight still places its protection orders; positions carry over to adoption after restart), and no optimizer process is launched. HTTP work routes and backtests were already gated; credential probes stay available.

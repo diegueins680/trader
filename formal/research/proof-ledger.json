@@ -427,6 +427,12 @@
       "status": "assumption",
       "statement": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim.",
       "risk": "RL-OFFLINE-001"
+    },
+    {
+      "id": "A-RL-COMPOSITION",
+      "status": "assumption",
+      "statement": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement.",
+      "risk": "RL-OFFLINE-001"
     }
   ],
   "criticalFiles": [
@@ -666,7 +672,12 @@
     "scripts/formal/drain_gates.py",
     "formal/research/drain-gates-counterexample.json",
     "scripts/formal/order_idempotence.py",
-    "formal/research/order-idempotence-counterexample.json"
+    "formal/research/order-idempotence-counterexample.json",
+    "formal/research/rl-composition-source.json",
+    "scripts/formal/rl_composition_check.py",
+    "scripts/research/rl_composition.py",
+    "scripts/research/run_rl_composition.py",
+    "test/rl_composition_test.py"
   ],
   "entries": [
     {
@@ -8074,6 +8085,126 @@
       "result": "Source, eight SAT-premise/UNSAT-violation queries, 32-state/39-transition model, 32 seeded episodes and 512 Haskell oracle rows must reproduce.",
       "bounds": "Initialization 26..4096 bars; history at most 8192; ticks at most 4096; per-result rational numerator/denominator 8192 bits; model 8 steps, 32 states, 39 transitions; seed 20261007, 32 episodes, 512 transitions.",
       "limitations": "Truthful completed-bar availability including processing lag and caller-aligned funding buckets; native immutable objects and trusted CPython Fraction/dataclass plus checked replay-accounting-v2 primitives; sufficient resources, no hostile reflection or monkeypatching. Source/SMT/model composition is reviewed and conformance-tested, not interpreter/compiler refinement. No authentic historical releases, calibrated fills, learning, OPE or economic claim. Exact new nine-component observation schema differs intentionally from frozen twelve-component observations; no trained artifact compatibility or learner integration. CE-RL-025 remains refuted on frozen code. Properties over all admitted indices are SMT lemmas; replay/oracle cases are tests, not proofs.",
+      "counterexample": null,
+      "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-COMPOSE-SOURCE",
+      "claim": "Complete reviewed source identities and direct effect exclusions reproduce; default-disabled isolated learner and runner have no order/production interface. Transitive library effects remain trusted.",
+      "formalStatement": "Complete reviewed source identities and direct effect exclusions reproduce; default-disabled isolated learner and runner have no order/production interface. Transitive library effects remain trusted.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RL-COMPOSITION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 + exhaustive finite Python model + actual Haskell Rational oracle",
+      "toolVersion": "Z3 4.15.4 / CPython3.13.3 / GHC9.4.8",
+      "sourceModel": "scripts/formal/rl_composition_check.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/rl_composition.py",
+        "scripts/research/run_rl_composition.py",
+        "formal/research/rl-composition-source.json",
+        "research-notes/rl-exposure-2026-10-10/contract.md"
+      ],
+      "testFiles": [
+        "test/rl_composition_test.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
+      "counterexample": null,
+      "status": "exhaustively_checked"
+    },
+    {
+      "requirementId": "F-RL-COMPOSE-ARITH",
+      "claim": "Seven nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, and projected action mass. All valid domain values quantified; no probability lower-bound or market-risk theorem.",
+      "formalStatement": "Seven nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, and projected action mass. All valid domain values quantified; no probability lower-bound or market-risk theorem.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RL-COMPOSITION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 + exhaustive finite Python model + actual Haskell Rational oracle",
+      "toolVersion": "Z3 4.15.4 / CPython3.13.3 / GHC9.4.8",
+      "sourceModel": "scripts/formal/rl_composition_check.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/rl_composition.py",
+        "scripts/research/run_rl_composition.py",
+        "formal/research/rl-composition-source.json",
+        "research-notes/rl-exposure-2026-10-10/contract.md"
+      ],
+      "testFiles": [
+        "test/rl_composition_test.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
+      "counterexample": null,
+      "status": "smt_verified"
+    },
+    {
+      "requirementId": "F-RL-COMPOSE-FLOW",
+      "claim": "Exhaustive reachable fixed point of eight-step single-owner lifecycle with two proposal identities checks one reservation, no live authority and reachable terminal/disabled states. Retry self-loops have no liveness guarantee.",
+      "formalStatement": "Exhaustive reachable fixed point of eight-step single-owner lifecycle with two proposal identities checks one reservation, no live authority and reachable terminal/disabled states. Retry self-loops have no liveness guarantee.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RL-COMPOSITION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 + exhaustive finite Python model + actual Haskell Rational oracle",
+      "toolVersion": "Z3 4.15.4 / CPython3.13.3 / GHC9.4.8",
+      "sourceModel": "scripts/formal/rl_composition_check.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/rl_composition.py",
+        "scripts/research/run_rl_composition.py",
+        "formal/research/rl-composition-source.json",
+        "research-notes/rl-exposure-2026-10-10/contract.md"
+      ],
+      "testFiles": [
+        "test/rl_composition_test.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
+      "counterexample": null,
+      "status": "model_checked"
+    },
+    {
+      "requirementId": "F-RL-COMPOSE-CONFORMANCE",
+      "claim": "Eight synthetic optimized-vs-public replay transitions reproduce the exact same immutable session and agree with the compiled Haskell Rational ledger oracle; targeted tests validate learned toy policies and analytical gradients.",
+      "formalStatement": "Eight synthetic optimized-vs-public replay transitions reproduce the exact same immutable session and agree with the compiled Haskell Rational ledger oracle; targeted tests validate learned toy policies and analytical gradients.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RL-COMPOSITION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 + exhaustive finite Python model + actual Haskell Rational oracle",
+      "toolVersion": "Z3 4.15.4 / CPython3.13.3 / GHC9.4.8",
+      "sourceModel": "scripts/formal/rl_composition_check.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/rl_composition.py",
+        "scripts/research/run_rl_composition.py",
+        "formal/research/rl-composition-source.json",
+        "research-notes/rl-exposure-2026-10-10/contract.md"
+      ],
+      "testFiles": [
+        "test/rl_composition_test.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
       "counterexample": null,
       "status": "property_tested"
     }

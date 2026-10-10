@@ -43,3 +43,17 @@ its numerical and runtime assumptions, bounded lifecycle domain, implementation
 mapping and remaining gaps. Property tests are not theorem proofs. Kernel proofs
 do not imply profitability, original publication times or safety under arbitrary
 market disturbances. No market holdout is opened by this pilot.
+
+Pre-market implementation amendment: the initial synthetic benchmark measured
+0.233 seconds per step because public causal-v3 re-fits the identical burn-in on
+every admission. The composition now validates once at Episode construction,
+retains immutable owned sessions and caches each observation. A session identity
+change rejects. `advance_owned` uses the unchanged exact feature formulas and
+accounting public API, with explicit symbol/clock/history admission. Differential
+tests compare it with public `step_v3`; this is a reviewed construction invariant,
+not a proof that arbitrary caller-built Sessions are valid. Hostile reflection or
+monkeypatching is outside the Python trust boundary. Delay uses an explicitly
+reviewed zero-fill call to the kernel's private pure transition after the public
+input predicate succeeds with fill=1. A zero-fill transition preserves units unless
+risk termination liquidates; it cannot silently rebalance. No economic parameters,
+search space, data or registered evaluation endpoints were changed.
