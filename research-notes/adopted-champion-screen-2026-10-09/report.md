@@ -72,9 +72,12 @@ Live corroboration: in the production snapshot only ADA (stored threshold 0.13%)
 - `economic_evidence` stays **open**. Nothing here can satisfy it.
 - Ledger blocker text (applied to `formal/research/proof-ledger.json` and re-recorded with `scripts/formal/verify.py --record`):
   > Matched adopted-champion replay (research-notes/registrations/adopted-champion-screen-v1.json) rejected the live UNI/SUI/ETC combos on lawful post-creation data: zero round trips from 2026-03-25 to 2026-10-09 because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. Its one-shot prospective phase cannot be read before 2027-01-21; AVAX/ADA remain unevaluated under the holdout and carry rules.
-- **Prospective phase** (one shot, 2026-10-10 → 2027-01-21, readable from 2027-01-21 06:00 UTC). The gate computations are fixed in [`adopted-champion-screen-v1-prospective-amendment.json`](../registrations/adopted-champion-screen-v1-prospective-amendment.json), which was pushed at 2026-10-09 23:04 UTC, before the window opened. The runner implements them: fleet daily equal-weight PSR/drawdown/Sharpe against both baselines, a doubled-cost engine rerun via `--backtest-cost-multiplier 2`, and a one-bar stale-signal run via `--backtest-signal-delay-bars 1`. They were tested only on rows before `createdAtMs`. The runner refuses to start before the release time and rejects a manifest or dataset that doesn't cover the window. It builds `trader-hs` only from a clean `haskell/` tree matching the amendment's `pinnedHaskellTree`, and records that tree, the commit and the binary's sha256. It publishes `returns.json` and then `results.json` atomically and read-only, so a completed run can't be repeated. On 2027-01-21:
-  1. `python3 scripts/research/champion_screen.py fetch --end-ms 1800489600000 --manifest prospective-manifest.json`
-  2. `python3 scripts/research/champion_screen.py run --phase prospective`
+- **Prospective phase** (one shot, 2026-10-10 → 2027-01-21, readable from 2027-01-21 06:00 UTC). The gate computations are fixed in [`adopted-champion-screen-v1-prospective-amendment.json`](../registrations/adopted-champion-screen-v1-prospective-amendment.json), which was pushed at 2026-10-09 23:04 UTC, before the window opened. The runner implements them: fleet daily equal-weight PSR/drawdown/Sharpe against both baselines, a doubled-cost engine rerun via `--backtest-cost-multiplier 2`, and a one-bar stale-signal run via `--backtest-signal-delay-bars 1`. They were tested only on rows before `createdAtMs`. The runner refuses to start before the release time and rejects a manifest or dataset that doesn't cover the window. It builds `trader-hs` only from a clean `haskell/` tree matching the amendment's `pinnedHaskellTree`, and records that tree, the commit and the binary's sha256. It publishes `returns.json` and then `results.json` atomically and read-only, so a completed run can't be repeated. On or after 2027-01-21 06:00 UTC, from a checkout of the tag `adopted-champion-screen-v1-prospective`, with the private `champion-snapshot.json` copied into `data/research/adopted-champion-screen-v1/`:
+  1. `git worktree add ../screen-run adopted-champion-screen-v1-prospective && cd ../screen-run`
+  2. `python3 scripts/research/champion_screen.py fetch --phase prospective`
+  3. `python3 scripts/research/champion_screen.py run --phase prospective`
+
+  Before it takes its one-shot reservation, the runner checks the tag against GitHub, the runner and `haskell/` pins, and that the data matches a fresh Binance download.
 
   Run nothing on that window earlier. If the fleet is re-pinned before then, these combos are no longer the live champion. The phase still runs as registered, but it then only describes the retired fleet.
 
@@ -83,6 +86,6 @@ Live corroboration: in the production snapshot only ADA (stored threshold 0.13%)
 ```bash
 cd haskell && cabal build exe:trader-hs && cd ..
 # champion-snapshot.json: the five pinned UUIDs from s3://<bucket>/trader-prod/optimizer/top-combos.json (not committed; repo is public)
-python3 scripts/research/champion_screen.py fetch --manifest retrospective-manifest.json   # must reproduce the pinned hashes
+python3 scripts/research/champion_screen.py fetch --phase retrospective   # must reproduce the pinned hashes
 TRADER_HS_BIN=$(cd haskell && cabal list-bin trader-hs) python3 scripts/research/champion_screen.py run --phase retrospective
 ```

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import math
 import os
@@ -38,6 +39,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRATION = ROOT / "research-notes/registrations/adopted-champion-screen-v1.json"
 AMENDMENT = ROOT / "research-notes/registrations/adopted-champion-screen-v1-prospective-amendment.json"
+# Annotated tag on GitHub that fixes the runner, registration, amendment and
+# haskell/ tree for one-shot phases; the trust root the repo files cannot forge.
+TRUST_TAG = "adopted-champion-screen-v1-prospective"
 FAPI_KLINES = "https://fapi.binance.com/fapi/v1/klines"
 INTERVAL_MS = {"1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "6h": 21_600_000, "8h": 28_800_000, "12h": 43_200_000, "1d": 86_400_000}
 CSV_FIELDS = ["openTimeMs", "open", "high", "low", "close", "volume", "closeTimeMs"]
@@ -83,26 +87,58 @@ def check_contiguous(open_times: list[int], step: int) -> None:
             raise ValueError(f"kline gap or duplicate between {a} and {b}")
 
 
+def render_csv(rows: list[list]) -> bytes:
+    """The exact CSV bytes the screen stores for a list of klines."""
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    writer.writerow(CSV_FIELDS)
+    for r in rows:
+        writer.writerow([r[0], r[1], r[2], r[3], r[4], r[5], r[6]])
+    return buffer.getvalue().encode()
+
+
+def phase_data_dir(reg: dict, phase_name: str) -> Path:
+    """Retrospective files live at the data root (as preregistered); other phases get their own directory."""
+    root = ROOT / reg["data"]["directory"]
+    return root if phase_name == "retrospective" else root / phase_name
+
+
+def phase_fetch_end(reg: dict, phase_name: str) -> int:
+    return int(reg["data"]["fetchEndExclusiveMs"]) if phase_name == "retrospective" else int(reg["phases"][phase_name]["endExclusiveMs"])
+
+
 def cmd_fetch(args: argparse.Namespace) -> None:
     reg = load_registration()
-    data = reg["data"]
-    out_dir = ROOT / data["directory"]
+    phase = reg["phases"][args.phase]
+    check_embargo(phase, int(time.time() * 1000))
+    out_dir = phase_data_dir(reg, args.phase)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {"kind": "adopted_champion_screen_data_v1", "source": FAPI_KLINES, "files": {}}
-    end_ms = int(args.end_ms) if args.end_ms else int(data["fetchEndExclusiveMs"])
+    end_ms = phase_fetch_end(reg, args.phase)
     for combo in reg["combos"]:
+        if combo["symbol"] not in phase["symbols"]:
+            continue
         sym, interval = combo["symbol"], combo["interval"]
-        rows = fetch_klines(sym, interval, int(data["fetchStartMs"]), end_ms)
+        rows = fetch_klines(sym, interval, int(reg["data"]["fetchStartMs"]), end_ms)
         check_contiguous([int(r[0]) for r in rows], INTERVAL_MS[interval])
         path = out_dir / f"{sym}-{interval}.csv"
-        with path.open("w", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(CSV_FIELDS)
-            for r in rows:
-                writer.writerow([r[0], r[1], r[2], r[3], r[4], r[5], r[6]])
+        path.write_bytes(render_csv(rows))
         manifest["files"][path.name] = {"sha256": sha256_file(path), "rows": len(rows), "firstOpenMs": int(rows[0][0]), "lastOpenMs": int(rows[-1][0])}
         print(f"{path.name}: {len(rows)} rows", file=sys.stderr)
-    (out_dir / args.manifest).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out_dir / phase["dataManifest"]).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+
+
+def verify_against_source(reg: dict, phase_name: str, data_dir: Path, manifest: dict) -> None:
+    """Re-download every phase file from Binance and require byte-identical CSVs."""
+    phase = reg["phases"][phase_name]
+    for combo in reg["combos"]:
+        if combo["symbol"] not in phase["symbols"]:
+            continue
+        name = f"{combo['symbol']}-{combo['interval']}.csv"
+        rows = fetch_klines(combo["symbol"], combo["interval"], int(reg["data"]["fetchStartMs"]), phase_fetch_end(reg, phase_name))
+        digest = hashlib.sha256(render_csv(rows)).hexdigest()
+        if digest != manifest["files"][name]["sha256"] or digest != sha256_file(data_dir / name):
+            raise SystemExit(f"{name} does not match a fresh download from {FAPI_KLINES}")
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -354,6 +390,27 @@ def reserve(out_dir: Path) -> None:
         handle.write(json.dumps({"pid": os.getpid(), "startedAtMs": int(time.time() * 1000)}) + "\n")
 
 
+def check_trust_root(tag: str = TRUST_TAG) -> str:
+    """HEAD must carry the tagged runner, registration, amendment and haskell/ tree.
+
+    The local tag must equal the tag on origin, so a rewritten local tag or a
+    later commit that changes these files together is refused.
+    """
+    git = ["git", "-C", str(ROOT)]
+    local = subprocess.run([*git, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"], capture_output=True, text=True).stdout.strip()
+    remote_lines = subprocess.run([*git, "ls-remote", "--tags", "origin", f"refs/tags/{tag}^{{}}"], capture_output=True, text=True).stdout.split()
+    remote = remote_lines[0] if remote_lines else ""
+    if not local or local != remote:
+        raise SystemExit(f"tag {tag} is missing, or differs from origin ({local or 'none'} vs {remote or 'none'})")
+    paths = [str(p.relative_to(ROOT)) for p in (Path(__file__).resolve(), REGISTRATION, AMENDMENT)] + ["haskell"]
+    for path in paths:
+        tagged = subprocess.run([*git, "rev-parse", f"{local}:{path}"], capture_output=True, text=True).stdout.strip()
+        current = subprocess.run([*git, "rev-parse", f"HEAD:{path}"], capture_output=True, text=True).stdout.strip()
+        if not tagged or tagged != current:
+            raise SystemExit(f"{path} at HEAD differs from tag {tag}; run from a checkout of the tag")
+    return local
+
+
 def check_runner_pin(amendment: dict) -> None:
     """The runner, registration and amendment must be committed, unmodified, and the runner preregistered."""
     git = ["git", "-C", str(ROOT)]
@@ -388,10 +445,15 @@ def cmd_run(args: argparse.Namespace) -> None:
         if amendment["amendsSha256"] != sha256_file(REGISTRATION):
             raise SystemExit("prospective amendment does not amend this registration")
         check_runner_pin(amendment)
+        trust_commit = check_trust_root()
         build = pinned_binary(amendment["pinnedHaskellTree"])
-        reserve(out_dir)
-    data_dir = ROOT / reg["data"]["directory"]
+    data_dir = phase_data_dir(reg, args.phase)
     manifest = check_manifest(reg, args.phase, data_dir / phase["dataManifest"])
+    if build:
+        verify_against_source(reg, args.phase, data_dir, manifest)
+        build["trustTag"] = TRUST_TAG
+        build["trustCommit"] = trust_commit
+        reserve(out_dir)
     snapshot = ROOT / reg["snapshot"]["path"]
     if sha256_file(snapshot) != reg["snapshot"]["sha256"]:
         raise SystemExit("frozen champion snapshot drifted from registration")
@@ -577,8 +639,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch")
-    f.add_argument("--end-ms", help="override fetch end (exclusive), e.g. for the prospective phase")
-    f.add_argument("--manifest", default="manifest.json")
+    f.add_argument("--phase", default="retrospective", choices=["retrospective", "prospective"])
     r = sub.add_parser("run")
     r.add_argument("--phase", required=True, choices=["retrospective", "prospective"])
     r.add_argument("--binary", default=os.environ.get("TRADER_HS_BIN", "trader-hs"))
