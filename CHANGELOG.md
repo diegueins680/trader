@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Top combos: a stored `openThreshold` above 3% per bar (25x the venue round-trip cost floor) now keeps a combo out of `processing.tier=deployable` with reason `open-threshold-above-ceiling`. The 2026-10-09 adopted-champion screen found pinned live combos at 38.6% and 91.8% that could never enter. Explicit `TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS` overrides still relax it and list it under `processing.relaxedReasons`, so the running fleet is unchanged.
+
 - Exchange order/cancel requests are never retried by the HTTP layer, whatever `TRADER_HTTP_RETRY_WRITES` says (CE-IDEMP-001). Closes obligation 35.
 
 - Shutdown: while the server drains, bot starts are refused, bots make no new order decisions and the optimizer launches no new process (CE-DRAIN-001). Closes obligation 14.

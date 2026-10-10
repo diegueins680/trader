@@ -94,6 +94,7 @@ import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloor,
     comboWalkForwardSharpeMeetsAdoptionFloor,
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
@@ -672,6 +673,20 @@ coerceInt64Value value =
             case value of
                 Aeson.String s -> readMaybe (trim (T.unpack s))
                 _ -> Nothing
+
+{- | A top-level threshold field. A present but unparseable or non-finite
+value is kept as NaN so evidence predicates fail it instead of treating it
+as absent.
+-}
+comboTopLevelThreshold :: String -> Aeson.Value -> Maybe Double
+comboTopLevelThreshold key val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString key) o of
+                Nothing -> Nothing
+                Just Aeson.Null -> Nothing
+                Just raw -> Just (fromMaybe (0 / 0) (coerceDoubleValue raw))
+        _ -> Nothing
 
 comboTopLevelInt64 :: String -> Aeson.Value -> Maybe Int64
 comboTopLevelInt64 key val =
@@ -1375,7 +1390,8 @@ comboProcessingTier val
     | isNothingFinite (comboAnnualizedReturnValue val) = "raw"
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" val)
         && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMeanValue val)
-        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStdValue val) =
+        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStdValue val)
+        && comboOpenThresholdWithinAdoptionCeiling (comboTopLevelThreshold "openThreshold" val) =
         "deployable"
     | otherwise = "candidate"
   where
@@ -1422,6 +1438,7 @@ comboProcessingReasons val =
             Just sharpeStd
                 | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
+        , ["open-threshold-above-ceiling" | not (comboOpenThresholdWithinAdoptionCeiling (comboTopLevelThreshold "openThreshold" val))]
         ]
 
 comboValidatedScore :: Aeson.Value -> Double

@@ -47,6 +47,7 @@ import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloor,
     comboWalkForwardSharpeMeetsAdoptionFloor,
     comboWalkForwardSharpeStdMeetsAdoptionCeiling,
@@ -226,7 +227,7 @@ loadCombosFromJsonl path = do
                                                 _ -> KM.empty
                                         objective = KM.lookup (Key.fromString "objective") rec >>= normalizeObjectiveValue
                                         score = comboFloatField "score" rec metrics
-                                        openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceFloatValue
+                                        openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceThresholdValue
                                         closeThr = KM.lookup (Key.fromString "closeThreshold") rec >>= coerceFloatValue
                                         operations = KM.lookup (Key.fromString "operations") rec >>= coerceOperations
                                         portfolioEvidence = KM.lookup (Key.fromString "portfolioEvidence") rec
@@ -236,7 +237,7 @@ loadCombosFromJsonl path = do
                                                 [ "finalEquity" .= finalEq
                                                 , "objective" .= objective
                                                 , "score" .= score
-                                                , "openThreshold" .= openThr
+                                                , "openThreshold" .= fmap thresholdJson openThr
                                                 , "closeThreshold" .= closeThr
                                                 , "createdAtMs" .= createdAtMs
                                                 , "source" .= source
@@ -544,7 +545,8 @@ comboProcessingTier config combo
     | isNothing (comboAnnualizedReturnMaybe combo) = "raw"
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" combo)
         && comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMean combo)
-        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStd combo) =
+        && comboWalkForwardSharpeStdMeetsAdoptionCeiling (comboWalkForwardSharpeStd combo)
+        && comboOpenThresholdWithinAdoptionCeiling (comboOpenThreshold combo) =
         "deployable"
     | otherwise = "candidate"
 
@@ -584,6 +586,7 @@ comboProcessingReasons config combo =
             Just sharpeStd
                 | not (comboWalkForwardSharpeStdMeetsAdoptionCeiling (Just sharpeStd)) -> ["walk-forward-std-above-ceiling"]
                 | otherwise -> []
+        , ["open-threshold-above-ceiling" | not (comboOpenThresholdWithinAdoptionCeiling (comboOpenThreshold combo))]
         ]
 
 comboValidatedScore :: TopComboScoringConfig -> Combo -> Double
@@ -976,7 +979,7 @@ normalizeCombo value =
                                     ]
                                 )
                                 paramsRaw
-                        openThreshold = KM.lookup (Key.fromString "openThreshold") obj >>= coerceFloatValue
+                        openThreshold = KM.lookup (Key.fromString "openThreshold") obj >>= coerceThresholdValue
                         closeThreshold = KM.lookup (Key.fromString "closeThreshold") obj >>= coerceFloatValue
                     pure
                         Combo
@@ -1110,6 +1113,23 @@ valueToString value =
         Bool False -> "False"
         Null -> ""
         _ -> T.unpack (TE.decodeUtf8 (BL.toStrict (Aeson.encode value)))
+
+{- | Like 'coerceFloatValue' for threshold fields, but a present non-null
+value that does not parse to a finite number is kept as NaN, so the
+deployability and adoption-ceiling checks reject it instead of treating it
+as absent.
+-}
+coerceThresholdValue :: Value -> Maybe Double
+coerceThresholdValue Null = Nothing
+coerceThresholdValue value = Just (fromMaybe (0 / 0) (coerceFloatValue value))
+
+{- | Re-encode a threshold so an invalid (NaN) value survives as a present
+string instead of collapsing to JSON null.
+-}
+thresholdJson :: Double -> Value
+thresholdJson v
+    | isNaN v || isInfinite v = String "NaN"
+    | otherwise = toJSON v
 
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =

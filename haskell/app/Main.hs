@@ -258,6 +258,7 @@ import Trader.BotStartSemantics (
     capAdoptedMinPositionSize,
     capBotStartSymbolsPreservingOrphans,
     comboMinEdgeMeetsAdoptionFloorWithConfig,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
@@ -9432,7 +9433,12 @@ selectCompatibleTopComboArgs now limits sym args req export =
 selectCompatibleExistingTopCombo :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (TopCombo, Args, Maybe Text)
 selectCompatibleExistingTopCombo limits sym args req export = pick matchingCombos
   where
-    matchingCombos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+    -- Stale/incomplete evidence may be relaxed here, but the open-threshold
+    -- ceiling may not (see 'topComboLiveAdoptionEligible').
+    matchingCombos =
+        filter
+            (\combo -> topComboMatchesSymbol sym Nothing combo && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo))
+            (tceCombos export)
     pick candidates =
         case bestTopComboFromList candidates of
             Nothing -> Nothing
@@ -13207,7 +13213,8 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                                 adoptionEvidenceConfig = effectiveAdoptionEvidenceConfigFromArgs now (botArgs st) matchingCombos
                                 bestCombo =
                                     if allowStaleIncomplete
-                                        then bestTopComboForSymbol sym (Just interval) export
+                                        then -- stale/incomplete evidence is relaxed; the open-threshold ceiling is not
+                                            bestTopComboFromList (filter (comboOpenThresholdWithinAdoptionCeiling . tcOpenThreshold) matchingCombos)
                                         else bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export
                             case bestCombo of
                                 Nothing -> recordError "bot.combo.sync_failed" "No fresh deployable top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
@@ -21138,6 +21145,9 @@ topComboLiveAdoptionEligible now adoptionEvidenceConfig combo =
         && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeStdAboveCeilingWithConfig adoptionEvidenceConfig combo)
+        -- Not relaxable: explicit deployable overrides start through
+        -- 'topCombosDeployableOverrideTargets', which does not consult this gate.
+        && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo)
 
 topComboPortfolioCandidate :: PortfolioSelectorConfig -> TopCombo -> Maybe PortfolioCandidate
 topComboPortfolioCandidate selectorConfig combo = do
@@ -21757,10 +21767,6 @@ bestTopComboFromList combos =
 
 bestTopCombo :: TopCombosExport -> Maybe TopCombo
 bestTopCombo export = bestTopComboFromList (tceCombos export)
-
-bestTopComboForSymbol :: String -> Maybe String -> TopCombosExport -> Maybe TopCombo
-bestTopComboForSymbol symRaw mInterval export =
-    bestTopComboFromList (filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export))
 
 bestLiveTopComboForSymbol :: Int64 -> AdoptionEvidenceConfig -> String -> Maybe String -> TopCombosExport -> Maybe TopCombo
 bestLiveTopComboForSymbol now adoptionEvidenceConfig symRaw mInterval export =

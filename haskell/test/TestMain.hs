@@ -31,7 +31,7 @@ import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenant
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotSnapshotRecovery (TradeMemorySnapshotContext (..), restoreTradeMemoryFromStatus)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxOpenThreshold, adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboOpenThresholdWithinAdoptionCeiling, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -741,6 +741,9 @@ main = do
     testDeployableTierRanksAheadOfUnvalidatedCandidate
     testDeployableTierRequiresCompleteAdoptionEvidence
     testExplicitDeployableOverrideIsBoundedAndAuditable
+    testComboOpenThresholdWithinAdoptionCeiling
+    testDegenerateOpenThresholdIsCandidateAndOverrideAuditable
+    testMergeExecutableRejectsInvalidOpenThreshold
     testTopComboFreshnessMultiplierDefaultsDisabled
     testPortfolioAnnualizationAndDrawdown
     testOptimizerExtractsTimestampedPortfolioEvidence
@@ -6905,6 +6908,165 @@ testDeployableTierRequiresCompleteAdoptionEvidence = do
         ( (unstableMerged >>= comboProcessingTierForTest) == Just "candidate"
             && maybe False ("walk-forward-std-above-ceiling" `elem`) (unstableMerged >>= comboProcessingReasonsForTest)
         )
+
+testComboOpenThresholdWithinAdoptionCeiling :: IO ()
+testComboOpenThresholdWithinAdoptionCeiling = do
+    assert "open-threshold ceiling is 25x the venue round-trip cost floor" (abs (adoptionMaxOpenThreshold - 0.03) < 1e-12)
+    assert "a missing open threshold passes" (comboOpenThresholdWithinAdoptionCeiling Nothing)
+    assert "a sane open threshold passes" (comboOpenThresholdWithinAdoptionCeiling (Just 0.0049))
+    assert "the ceiling itself passes" (comboOpenThresholdWithinAdoptionCeiling (Just adoptionMaxOpenThreshold))
+    assert
+        "the 2026-10-09 degenerate live thresholds fail"
+        (not (any (comboOpenThresholdWithinAdoptionCeiling . Just) [0.386, 0.918]))
+    assert
+        "non-finite or negative thresholds fail"
+        (not (any (comboOpenThresholdWithinAdoptionCeiling . Just) [0 / 0, 1 / 0, -0.001]))
+    let grid = [0, 0.001 .. 0.05] :: [Double]
+    assert
+        "open-threshold ceiling is monotone"
+        ( and
+            [ comboOpenThresholdWithinAdoptionCeiling (Just lo)
+            | lo <- grid
+            , hi <- grid
+            , lo <= hi
+            , comboOpenThresholdWithinAdoptionCeiling (Just hi)
+            ]
+        )
+
+testDegenerateOpenThresholdIsCandidateAndOverrideAuditable :: IO ()
+testDegenerateOpenThresholdIsCandidateAndOverrideAuditable = do
+    let withOpenThreshold label threshold =
+            case processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" (Aeson.toJSON (threshold :: Double)) o)
+                other -> other
+        sane = withOpenThreshold "sane-threshold" 0.0049
+        degenerate = withOpenThreshold "degenerate-threshold" 0.386
+        invalidText =
+            case processingComboForTest "invalid-threshold" "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" (Aeson.String "NaN") o)
+                other -> other
+        mergedInvalid = listToMaybe (mergedCombosForTest [invalidText])
+        pinned = withOpenThreshold "pinned-degenerate" 0.918
+        mergedSane = listToMaybe (mergedCombosForTest [sane])
+        mergedDegenerate = listToMaybe (mergedCombosForTest [degenerate])
+        (stored, _) =
+            mergeTopCombosPayloadsWithStatsAndDeployableOverrides
+                ["pinned-degenerate"]
+                10
+                9500
+                [Aeson.object ["combos" .= [degenerate, pinned]]]
+        storedCombos =
+            case stored of
+                Aeson.Object o | Just (Aeson.Array values) <- KM.lookup "combos" o -> V.toList values
+                _ -> []
+        byUuid :: T.Text -> Maybe Aeson.Value
+        byUuid uuid =
+            find
+                ( \case
+                    Aeson.Object o -> (KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON) == Just uuid
+                    _ -> False
+                )
+                storedCombos
+        relaxedReasons :: Maybe [T.Text]
+        relaxedReasons =
+            byUuid "pinned-degenerate" >>= \case
+                Aeson.Object o | Just (Aeson.Object processing) <- KM.lookup "processing" o -> KM.lookup "relaxedReasons" processing >>= AT.parseMaybe Aeson.parseJSON
+                _ -> Nothing
+    assert
+        "a sane open threshold keeps complete evidence deployable"
+        ((mergedSane >>= comboProcessingTierForTest) == Just "deployable")
+    assert
+        "a degenerate open threshold stays a candidate with a reason"
+        ( (mergedDegenerate >>= comboProcessingTierForTest) == Just "candidate"
+            && maybe False ("open-threshold-above-ceiling" `elem`) (mergedDegenerate >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "a present but unparseable open threshold is failed evidence, not an absent field"
+        ( (mergedInvalid >>= comboProcessingTierForTest) /= Just "deployable"
+            && maybe False ("open-threshold-above-ceiling" `elem`) (mergedInvalid >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "the store keeps an unpinned degenerate threshold out of the deployable tier"
+        ((byUuid "degenerate-threshold" >>= comboProcessingTierForTest) == Just "candidate")
+    assert
+        "an explicit UUID override still relaxes the ceiling and records it for pin review"
+        ( (byUuid "pinned-degenerate" >>= comboProcessingTierForTest) == Just "deployable"
+            && maybe False ("open-threshold-above-ceiling" `elem`) relaxedReasons
+        )
+
+testMergeExecutableRejectsInvalidOpenThreshold :: IO ()
+testMergeExecutableRejectsInvalidOpenThreshold = do
+    (inputPath, inputHandle) <- openTempFile "/tmp" "trader-merge-threshold-input.json"
+    hClose inputHandle
+    (outputPath, outputHandle) <- openTempFile "/tmp" "trader-merge-threshold-output.json"
+    hClose outputHandle
+    let withOpenThreshold label threshold =
+            case processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" threshold o)
+                other -> other
+        payload =
+            Aeson.object
+                [ "combos"
+                    .= [ withOpenThreshold "sane-threshold" (Aeson.toJSON (0.0049 :: Double))
+                       , withOpenThreshold "degenerate-threshold" (Aeson.toJSON (0.918 :: Double))
+                       , withOpenThreshold "invalid-threshold" (Aeson.String "NaN")
+                       ]
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+    (jsonlPath, jsonlHandle) <- openTempFile "/tmp" "trader-merge-threshold-input.jsonl"
+    hClose jsonlHandle
+    let jsonlRecord label threshold =
+            case withOpenThreshold label threshold of
+                Aeson.Object o -> Aeson.Object (KM.insert "ok" (Aeson.Bool True) o)
+                other -> other
+    BL.writeFile inputPath (Aeson.encode payload)
+    BL.writeFile
+        jsonlPath
+        ( BL.intercalate
+            "\n"
+            [ Aeson.encode (jsonlRecord "jsonl-sane-threshold" (Aeson.toJSON (0.0049 :: Double)))
+            , Aeson.encode (jsonlRecord "jsonl-invalid-threshold" (Aeson.String "NaN"))
+            ]
+        )
+    code <-
+        runMerge
+            MergeArgs
+                { maTopJson = inputPath
+                , maFromJsonl = [jsonlPath]
+                , maFromTopJson = []
+                , maOut = outputPath
+                , maMax = 10
+                , maHistoryDir = Nothing
+                , maScoringConfig = defaultTopComboScoringConfig
+                , maCopyToDist = False
+                }
+    decoded <- (Aeson.eitherDecode <$> BL.readFile outputPath) :: IO (Either String Aeson.Value)
+    let combos =
+            case decoded of
+                Right (Aeson.Object o) | Just (Aeson.Array v) <- KM.lookup "combos" o -> V.toList v
+                _ -> []
+        tierOf :: T.Text -> Maybe T.Text
+        tierOf method =
+            find
+                ( \case
+                    Aeson.Object o
+                        | Just (Aeson.Object params) <- KM.lookup "params" o ->
+                            (KM.lookup "method" params >>= AT.parseMaybe Aeson.parseJSON) == Just method
+                    _ -> False
+                )
+                combos
+                >>= comboProcessingTierForTest
+    assert "threshold merge exits successfully" (code == 0)
+    assert "merge keeps a sane open threshold deployable" (tierOf "sane-threshold" == Just "deployable")
+    assert "merge keeps a degenerate open threshold out of the deployable tier" (tierOf "degenerate-threshold" == Just "candidate")
+    assert "merge never deploys a present but unparseable open threshold" (tierOf "invalid-threshold" /= Just "deployable")
+    assert "merge reads a sane JSONL open threshold as deployable" (tierOf "jsonl-sane-threshold" == Just "deployable")
+    assert "merge never deploys an unparseable JSONL open threshold" (tierOf "jsonl-invalid-threshold" /= Just "deployable")
+    _ <- try (removeFile jsonlPath) :: IO (Either SomeException ())
+    _ <- try (removeFile inputPath) :: IO (Either SomeException ())
+    _ <- try (removeFile outputPath) :: IO (Either SomeException ())
+    pure ()
 
 testExplicitDeployableOverrideIsBoundedAndAuditable :: IO ()
 testExplicitDeployableOverrideIsBoundedAndAuditable = do

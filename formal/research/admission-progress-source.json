@@ -3,7 +3,7 @@
   "baselineCommit": "fb00a66707d2e645e15fb347833a661e044a7a77",
   "hashes": {
     "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
-    "haskell/app/Main.hs": "a52c371c1654dde95a123f1124f1aff7c58a88195b1c45890b0ae570383146f1",
+    "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
     "haskell/app/Trader/App/AsyncJobAdmission.hs": "2a37ca08029402e5da998cdc2542813b6b3c392a275cc758345c4ff30a5aef5e",
     "haskell/app/Trader/App/GracefulShutdown.hs": "dfc7c4fec0d43936a186c01d0ae31141b32e009b0bd5c0f03bc6524a8ab68fcf",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
