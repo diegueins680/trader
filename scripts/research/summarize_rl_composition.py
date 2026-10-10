@@ -51,6 +51,34 @@ def audit_rows(rows):
             check(row['turnover']<=.5*prefill+1e-12,i,'nonterminal_turnover')
             check(row['exposure'] is not None and abs(row['exposure'])<=.35+1e-12,i,'nonterminal_exposure')
         if row['liquidation']=='flat': check(row['exposure']==0,i,'terminal_flat')
+        if 'finalTarget' in row:
+            # V2 adds enough primitive ledger fields for independent price,
+            # units, funding and nonterminal fill reconstruction.
+            near=lambda a,b: math.isclose(a,b,rel_tol=1e-12,abs_tol=1e-12)
+            units,price=row['unitsBefore'],row['priceAfter']
+            prefill=row['equityBefore']+row['gross']+row['funding']
+            check(price>0 and row['priceBefore']>0,i,'positive_price')
+            check(near(row['gross'],units*(price-row['priceBefore'])),i,'unit_price_gross')
+            check(near(row['funding'],-units*row['fundingPerUnit']),i,'unit_funding')
+            check(near(row['filledUnits'],row['unitsAfter']-units),i,'unit_delta')
+            if previous is not None:
+                check(near(previous['unitsAfter'],units) and near(previous['priceAfter'],row['priceBefore']),i,'unit_price_continuity')
+            for key,rate in (('fee',.0005),('spread',.00005),('slippage',.00045)):
+                check(near(row[key],row['turnover']*row['costMultiplier']*rate),i,'linear_'+key)
+            check(row['finalTarget']==row['applied'],i,'final_target_identity')
+            check(row['actionChanged']==((row['proposal']!=row['permitted']) or row['turnoverRejected'])
+                  and row['intervention']==row['actionChanged'],i,'intervention_definition')
+            if row['turnoverRejected']:
+                due=row['dueTarget']
+                check(due in (-.25,.25) and row['finalTarget']==0,i,'rejection_projection')
+                if due is not None:
+                    check(abs(due*prefill-units*price)*row['fillFraction']>.5*prefill-1e-12,i,'rejected_turnover_witness')
+            if not row['terminal']:
+                target=row['finalTarget']
+                expected=units if target is None else units+row['fillFraction']*(target*prefill/price-units)
+                check(near(expected,row['unitsAfter']),i,'fill_reconstruction')
+                check(near(abs(expected-units)*price,row['turnover']),i,'turnover_reconstruction')
+            if row['liquidation']=='flat':check(row['unitsAfter']==0,i,'terminal_units_flat')
         changed+=row['applied'] is None or row['applied']!=row['proposal']
         previous=row
     return {'rows':len(rows),'violations':violations,'changedOrDeferredProposals':changed}
@@ -76,7 +104,8 @@ def export(source,output,expected):
         raise ValueError('trial reconciliation failed')
     if summary['promotionAllowed'] or summary['holdoutOpened']: raise ValueError('wrong research mode')
     audits={name:audit_rows(read(source/name)) for name in inventory if name.startswith('paths/')}
-    audit={'scope':'Post-hoc binary64 archived trace checks, tolerance 1e-12. Not a production safety proof; no independent unit/price reconstruction.',
+    v2=manifest['version']=='rl-admission-continuation-v2'
+    audit={'scope':'Post-hoc binary64 archived trace checks, tolerance 1e-12. Not a production safety proof. '+('V2 independently reconstructs units/prices/funding/linear costs and nonterminal fills.' if v2 else 'V1 lacks independent unit/price reconstruction.'),
            'paths':len(audits),'rows':sum(a['rows'] for a in audits.values()),
            'violationCount':sum(len(a['violations']) for a in audits.values()),
            'violations':{n:a['violations'] for n,a in audits.items() if a['violations']},
@@ -86,6 +115,7 @@ def export(source,output,expected):
     fields=['id','fold','algorithm','seed','stress','symbol','status','failure','observations','netReturn',
             'grossPnl','fundingPnl','feesSpreadSlippage','maxDrawdown','drawdownDurationBars','ES95',
             'turnover','fillsIncludingLiquidation','meanAbsExposure','interventionRate','unsupportedRate',
+            'turnoverRejectionRate','supportActionChangeRate','schedulingDeferredRate','newProposalIgnoredRate',
             'proposalCounts','holdingPeriodsBars','trainingFailures','regime','steps','frozenDatasetSha256',
             'criticMseFinitePath','seconds','updates','collectedTransitions','artifactSha256']
     with (output/'trial-registry.csv').open('x') as f:

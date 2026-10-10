@@ -85,14 +85,7 @@ class Episode:
             funding = tuple((mark, rate * 2) for mark, rate in funding)
         multiplier = {"cost1_5x": F(3, 2), "cost2x": F(2), "severe50bp": F(5)}.get(self.stress, F(1))
         fill = F(1, 2) if self.stress == "partial50pct" else F(1)
-        if applied is None and not terminal:
-            # Exact no-fill transition: use the same kernel, with zero target and
-            # a separate exact carry adapter (kernel only accepts positive fill).
-            pair = carry(self.session, self.bars[j], funding, multiplier)
-        else:
-            pair = advance_owned(self.session, self.bars[j], funding,
-                                  F(0) if applied is None else applied, terminal=terminal,
-                                  multiplier=multiplier, fill=fill, enabled=True)
+        pair = self._execute(self.bars[j], funding, applied, terminal, multiplier, fill)
         require(pair is not None, "replay rejected (including rational resource limit)")
         following, receipt = pair
         costs = receipt.costs
@@ -124,6 +117,13 @@ class Episode:
         self.rows.append(row)
         nxt = np.zeros(12, dtype="float64") if self.done else self.observation()
         return nxt, reward, self.done
+
+    def _execute(self, bar, funding, applied, terminal, multiplier, fill):
+        if applied is None and not terminal:
+            return carry(self.session, bar, funding, multiplier)
+        return advance_owned(self.session, bar, funding,
+                             F(0) if applied is None else applied, terminal=terminal,
+                             multiplier=multiplier, fill=fill, enabled=True)
 
 
 def advance_owned(session, bar, events, target, *, terminal, multiplier, fill, enabled):

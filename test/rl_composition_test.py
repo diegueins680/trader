@@ -185,4 +185,104 @@ class CompositionTests(unittest.TestCase):
             self.assertGreater(fit.actor.step,0)
         self.assertEqual(before,r.buffer_hash(frozen))
 
+class AdmissionV2Tests(unittest.TestCase):
+    def test_rejected_reversal_continues_without_preview_debit(self):
+        import rl_admission_v2 as v2
+        bars,events=fixture()
+        old=r.Episode(bars,events,96,129,enabled=True)
+        new=v2.Episode(bars,events,96,129,enabled=True)
+        rejected=0
+        while not new.done:
+            prior=new.session
+            action=0 if new.index%2 else 2
+            if not old.done: old.step(action)
+            new.step(action)
+            if new.rows[-1]['turnoverRejected']:
+                reference=r.advance_owned(prior,bars[new.index],(),F(0),terminal=False,
+                                          multiplier=F(1),fill=F(1),enabled=True)
+                self.assertEqual(new.session,reference[0])
+                self.assertFalse(new.done)
+                self.assertEqual(new.rows[-1]['finalTarget'],0)
+                rejected+=1
+        self.assertEqual((len(old.rows),old.failure),(3,'turnover_limit'))
+        self.assertEqual((len(new.rows),new.failure,rejected),(32,None,13))
+        self.assertAlmostEqual(sum(x['reward'] for x in new.rows),100*float(new.session.state.equity-1),places=11)
+
+    def test_economic_failure_is_not_hidden_or_reset(self):
+        import rl_admission_v2 as v2
+        from dataclasses import replace
+        bars,events=fixture()
+        # Establish a supported long position, then a severe adverse gap.
+        bars=bars[:98]+(replace(bars[98],price=F(40)),)+bars[99:]
+        for cls in (r.Episode,v2.Episode):
+            ep=cls(bars,events,96,129,enabled=True)
+            ep.step(2)
+            self.assertNotEqual(ep.session.state.units,0)
+            ep.step(1)
+            self.assertTrue(ep.done)
+            self.assertIn(ep.failure,('drawdown_limit','capital_floor','endpoint_exposure'))
+            self.assertLess(ep.session.state.equity,1)
+            with self.assertRaises(ValueError): ep.step(1)
+
+    def test_v2_stresses_and_metrics(self):
+        import rl_admission_v2 as v2
+        from summarize_rl_composition import audit_rows
+        from copy import deepcopy
+        bars,events=fixture()
+        with self.assertRaises(ValueError): v2.Episode(bars,events,96,129)
+        for stress in r.STRESSES:
+            ep=v2.Episode(bars,events,96,129,stress,enabled=True)
+            while not ep.done: ep.step(0 if ep.index%2 else 2)
+            self.assertEqual(len(ep.rows),32)
+            self.assertIsNone(ep.failure)
+            self.assertEqual(ep.session.state.units,0)
+            self.assertEqual(audit_rows(ep.rows)['violations'],[])
+            self.assertTrue(all(x['intervention']==(x['supportChangedAction'] or x['turnoverRejected']) for x in ep.rows))
+            if stress=='delay1bar':
+                self.assertTrue(any(x['newProposalIgnored'] for x in ep.rows))
+                self.assertTrue(any(x['schedulingDeferred'] for x in ep.rows))
+                self.assertTrue(all(x['unitsBefore']==x['unitsAfter'] and x['turnover']==0
+                                    for x in ep.rows if x['schedulingDeferred'] and not x['terminal']))
+        cash=v2.Episode(bars,events,96,129,enabled=True)
+        while not cash.done: cash.step(1)
+        self.assertFalse(any(x['actionChanged'] for x in cash.rows))
+        corrupt=deepcopy(cash.rows)
+        corrupt[0]['unitsAfter']=1.
+        self.assertIn('fill_reconstruction',{v['reason'] for v in audit_rows(corrupt)['violations']})
+
+    def test_actual_ddqn_loop_targets_masks_and_sync(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        class Net:
+            step=0
+            def snapshot(self):return SimpleNamespace(step=self.step,outputs=3)
+        net=Net(); observed=[]
+        data={'s':np.ones((128,12)), 'next':np.ones((128,12)),
+              'a':np.arange(128)%3, 'r':np.arange(128,dtype=float),
+              'done':np.arange(128)%2==0, 'prob':np.full(128,1/3)}
+        def forward(n,x):
+            # Online chooses index1; target max is index0. Distinct values
+            # detect using max(target), online evaluation or premature sync.
+            values=[1.,3.,2.] if n is net else [n.step+9.,n.step+4.,n.step+6.]
+            return np.tile(values,(len(x),1))
+        def objective(q,actions,targets,alpha,enabled):
+            for value in targets:
+                # Even rewards are terminal; odd rewards bootstrap index1.
+                # Batch index reconstruction below verifies every exact target.
+                self.assertTrue(np.isfinite(value))
+            observed.append((net.step,tuple(targets)))
+            return SimpleNamespace(loss=0.,grad=np.zeros((64,3)))
+        def update(*_):net.step+=1
+        with patch.object(r,'create_v2',return_value=net), patch.object(r.Collector,'collect',return_value=data), \
+             patch.object(r,'forward',side_effect=forward), patch.object(r,'objective_v2',side_effect=objective), \
+             patch.object(r,'update',side_effect=update):
+            r.train('double_dqn',lambda _:None,11,128,enabled=True)
+        rng=np.random.default_rng(13)
+        for step,actual in observed:
+            idx=rng.integers(128,size=64)
+            expected=np.where(data['done'][idx],data['r'][idx],data['r'][idx]+(step//100)*100+4)
+            np.testing.assert_array_equal(actual,expected)
+        self.assertEqual(len(observed),128)
+
+
 if __name__=='__main__': unittest.main()

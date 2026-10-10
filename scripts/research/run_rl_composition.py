@@ -100,6 +100,11 @@ def metrics(episode):
         'holdingPeriodsBars': holds, 'proposalCounts': [sum(r['proposal'] == a for r in rows) for a in (-.25, 0, .25)],
         'interventionRate': float(np.mean([r['intervention'] for r in rows])),
         'unsupportedRate': float(np.mean([not r['supported'] for r in rows])),
+        **({'turnoverRejectionRate': float(np.mean([r['turnoverRejected'] for r in rows])),
+            'supportActionChangeRate': float(np.mean([r['supportChangedAction'] for r in rows])),
+            'schedulingDeferredRate': float(np.mean([r['schedulingDeferred'] for r in rows])),
+            'newProposalIgnoredRate': float(np.mean([r['newProposalIgnored'] for r in rows]))}
+           if 'actionChanged' in rows[0] else {}),
         'incrementSum': float(increments.sum()),
         'admissionAudit': 'requires independent archived-trace audit; not inferred from successful replay',
         'riskWarning': 'Admission checks are not future risk guarantees; failures retain stopped endpoints.'}
@@ -142,10 +147,15 @@ def paired(records):
     return result
 
 
-def run(panel: Path, settlements: Path, output: Path):
+def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
+        episode_type=Episode, trainer=train, version=VERSION, observation=OBSERVATION,
+        extra_sources=()):
+    # Explicit dependency injection keeps v1 defaults and artifact meanings;
+    # successor entrypoints register and hash their own environment adapters.
+    REG, Episode, train, VERSION, OBSERVATION = registration, episode_type, trainer, version, observation
     raw = REG.read_bytes(); reg = json.loads(raw)
     commit = subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip()
-    sources = {f'scripts/research/{name}': (ROOT/'scripts/research'/name).read_bytes() for name in SOURCES}
+    sources = {f'scripts/research/{name}': (ROOT/'scripts/research'/name).read_bytes() for name in (*SOURCES, *extra_sources)}
     sources[str(REG.relative_to(ROOT))] = raw
     for name, source in sources.items():
         require(subprocess.check_output(['git','show',f'{commit}:{name}'], cwd=ROOT) == source, 'uncommitted experiment source')

@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Research: add disabled `rl-admission-continuation-v2`, separating turnover
+  rejection from economic termination and independently auditing traced fills
+  and costs. Preserve v1 artifacts; require retraining in the new environment.
+
 - Research: add versioned causal RL composition pilot with PPO, Double DQN,
   fixed simulated-data discrete CQL, matched controls, exact equity rewards,
   explicit delay reservations, all-seed reporting and scoped formal checks.
