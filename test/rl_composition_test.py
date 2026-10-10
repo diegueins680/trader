@@ -262,6 +262,62 @@ class AdmissionV2Tests(unittest.TestCase):
         corrupt[0]['unitsAfter']=1.
         self.assertIn('fill_reconstruction',{v['reason'] for v in audit_rows(corrupt)['violations']})
 
+    def test_budget_registration_and_vector_only_baselines(self):
+        import json
+        from copy import deepcopy
+        from types import SimpleNamespace
+        import run_rl_budget_v3 as budget
+        reg = json.loads(budget.REG.read_bytes())
+        config = budget.configuration(reg)
+        self.assertEqual(config['offline_transitions'], 512)
+        self.assertEqual(config['comparators'], ('cash', 'normalized_momentum3'))
+        for key, value in (('steps', 512), ('offlineTransitions', 4096), ('liveAuthorization', True)):
+            corrupt = deepcopy(reg); corrupt[key] = value
+            with self.assertRaises(ValueError): budget.configuration(corrupt)
+        # No history/session member is available to these controls.
+        x = np.zeros(12); x[1] = -.2
+        ep = SimpleNamespace(observation=lambda: x)
+        self.assertEqual([budget.baseline(name, ep) for name in budget.RULES], [1, 2, 0, 2])
+        x[1] = .2
+        self.assertEqual(budget.baseline('normalized_momentum3', ep), 2)
+
+    def test_budget_buffer_identity_blocks_training(self):
+        import json
+        import tempfile
+        from unittest.mock import Mock, patch
+        import run_rl_budget_v3 as budget
+        import run_rl_composition as driver
+        config = budget.configuration(json.loads(budget.REG.read_bytes()))
+        config['expected_behavior_hashes'] = ('0'*64, '0'*64)
+        trainer = Mock(); config['trainer'] = trainer
+        bars = tuple(Bar('FIXTURE', i*1000, i*1000+1, F(10000+(i%7)*10,100)) for i in range(1600))
+        events = tuple(() for _ in bars)
+        real_check_output = driver.subprocess.check_output
+        def committed(cmd, **kwargs):
+            if cmd[0] != 'git': return real_check_output(cmd, **kwargs)
+            if cmd[1] == 'rev-parse': return 'fixture\n'
+            return (driver.ROOT/cmd[-1].split(':', 1)[1]).read_bytes()
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(driver, 'load', return_value=(dict.fromkeys(('BTCUSDT','ETHUSDT','SOLUSDT'), bars),
+                                                        dict.fromkeys(('BTCUSDT','ETHUSDT','SOLUSDT'), events))), \
+             patch.object(driver.subprocess, 'check_output', side_effect=committed):
+            output = Path(directory)/'evidence'
+            with self.assertRaisesRegex(ValueError, 'fixed dataset differs'):
+                driver.run(Path('unused-panel'), Path('unused-settlements'), output, **config)
+            trainer.assert_not_called()
+            self.assertEqual(list((output/'policies').iterdir()), [])
+
+    def test_budget_paired_comparator_excludes_raw_history_rule(self):
+        import run_rl_composition as driver
+        records = [dict(algorithm=a, fold=f, stress='base', status='complete',
+                        increments=[value]*64)
+                   for f in (0,1) for a,value in (('ppo',.001),('double_dqn',.001),('cql',.001),
+                                                  ('cash',0.),('normalized_momentum3',.002),('momentum3',99.))]
+        paired = driver.paired(records, ('cash','normalized_momentum3'))
+        self.assertEqual(len(paired), 18)
+        for row in paired:
+            self.assertAlmostEqual(row['meanPairedNetChange'], .064 if row['baseline']=='cash' else -.064)
+
     def test_actual_ddqn_loop_targets_masks_and_sync(self):
         from unittest.mock import patch
         from types import SimpleNamespace

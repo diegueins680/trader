@@ -120,10 +120,10 @@ def benchmark(fit, observation):
             'maxMs': max(times), 'calls':100, 'scope':'warm Python numeric inference only; no hard deadline/Haskell artifact parity claim'}
 
 
-def paired(records):
+def paired(records, comparators=('cash', 'momentum3')):
     result = []
     for alg in ('ppo', 'double_dqn', 'cql'):
-        for rule in ('cash', 'momentum3'):
+        for rule in comparators:
             chosen = [r for r in records if r['algorithm'] in (alg, rule) and r['stress'] == 'base']
             if any(r.get('status') != 'complete' for r in chosen):
                 result.append({'algorithm': alg, 'baseline': rule, 'status':'insufficient_evidence_failed_paths'}); continue
@@ -147,13 +147,35 @@ def paired(records):
     return result
 
 
+def behavior_buffer(bars, events, fold, symbols, episode_type, fold_index, count):
+    # Each closure owns a physically sliced training prefix, including funding.
+    train_bars = {s:v[:fold['trainStop']] for s,v in bars.items()}
+    train_events = {s:v[:fold['trainStop']] for s,v in events.items()}
+    def factory(rng):
+        symbol = symbols[int(rng.integers(len(symbols)))]
+        start = int(rng.integers(96, fold['trainStop']-32))
+        return episode_type(train_bars[symbol], train_events[symbol], start, start+33, enabled=True)
+    collector = Collector(factory, 20261010+fold_index)
+    frozen = collector.collect(lambda _: np.full(3, 1/3), count)
+    for value in frozen.values(): value.setflags(write=False)
+    return factory, frozen, collector.failures
+
+
 def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
         episode_type=Episode, trainer=train, version=VERSION, observation=OBSERVATION,
-        extra_sources=()):
+        extra_sources=(), rules=RULES, rule_policy=baseline,
+        comparators=('cash', 'momentum3'), offline_transitions=None,
+        expected_behavior_hashes=None):
     # Explicit dependency injection keeps v1 defaults and artifact meanings;
     # successor entrypoints register and hash their own environment adapters.
     REG, Episode, train, VERSION, OBSERVATION = registration, episode_type, trainer, version, observation
+    RULES, baseline = rules, rule_policy
+    require(len(comparators) == 2 and set(comparators) <= set(RULES), 'invalid paired comparators')
     raw = REG.read_bytes(); reg = json.loads(raw)
+    frozen_count = reg['steps'] if offline_transitions is None else offline_transitions
+    require(type(frozen_count) is int and 128 <= frozen_count <= 4096, 'invalid fixed dataset size')
+    require(expected_behavior_hashes is None or len(expected_behavior_hashes) == len(reg['folds']),
+            'missing behavior identities')
     commit = subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip()
     sources = {f'scripts/research/{name}': (ROOT/'scripts/research'/name).read_bytes() for name in (*SOURCES, *extra_sources)}
     sources[str(REG.relative_to(ROOT))] = raw
@@ -163,6 +185,8 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
     output.mkdir(parents=True, exist_ok=False)
     (output/'policies').mkdir(); (output/'paths').mkdir()
     manifest = {'version': VERSION, 'observation': OBSERVATION, 'commit':commit,
+        'campaign':reg['id'], 'rules':list(RULES), 'pairedComparators':list(comparators),
+        'offlineTransitions':frozen_count,
         'registrationSha256':sha(raw), 'sourceHashes':{k:sha(v) for k,v in sources.items()},
         'python':platform.python_version(), 'numpy':np.__version__, 'platform':platform.platform(),
         'data':reg['data'], 'promotionAllowed':False, 'holdoutOpened':False,
@@ -183,22 +207,24 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
             require(value['id'] not in terminal_ids, 'duplicate trial')
             ledger.write(json.dumps(value, sort_keys=True, allow_nan=False)+'\n'); ledger.flush()
             terminal_ids.append(value['id'])
+        # All registered reference identities pass before the first learner runs.
+        prepared = []
+        if expected_behavior_hashes is not None:
+            for fi, fold in enumerate(reg['folds']):
+                item = behavior_buffer(bars, events, fold, reg['data']['symbols'], Episode, fi, frozen_count)
+                require(buffer_hash(item[1]) == expected_behavior_hashes[fi],
+                        'fixed dataset differs from registered parent')
+                prepared.append(item)
         for fi, fold in enumerate(reg['folds']):
-            # Training factories receive physically sliced prefixes, including funding.
-            train_bars = {s:v[:fold['trainStop']] for s,v in bars.items()}
-            train_events = {s:v[:fold['trainStop']] for s,v in events.items()}
-            def factory(rng):
-                symbol = reg['data']['symbols'][int(rng.integers(3))]
-                start = int(rng.integers(96, fold['trainStop']-32))
-                return Episode(train_bars[symbol], train_events[symbol], start, start+33, enabled=True)
-            collector = Collector(factory, 20261010+fi)
-            frozen = collector.collect(lambda _: np.full(3, 1/3), reg['steps'])
-            for value in frozen.values(): value.setflags(write=False)
+            factory, frozen, behavior_failures = prepared[fi] if prepared else behavior_buffer(
+                bars, events, fold, reg['data']['symbols'], Episode, fi, frozen_count)
             dataset_sha = buffer_hash(frozen)
+            require(expected_behavior_hashes is None or dataset_sha == expected_behavior_hashes[fi],
+                    'fixed dataset differs from registered parent')
             np.savez(output/f'behavior-fold{fi}.npz', **frozen)
             write(output/f'behavior-fold{fi}.json', {'sha256':dataset_sha, 'transitions':len(frozen['a']),
                 'actionCounts':np.bincount(frozen['a'], minlength=3).tolist(), 'proposalPropensity':1/3,
-                'origin':'simulator_generated_not_exchange_logs', 'trainingRiskFailures':collector.failures})
+                'origin':'simulator_generated_not_exchange_logs', 'trainingRiskFailures':behavior_failures})
             for alg in (*ALGORITHMS, *RULES):
                 for seed in reg['seeds'] if alg in ALGORITHMS else [0]:
                     fit, failure = None, None
@@ -256,7 +282,7 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
         'maxRss':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         'rssUnit':'bytes' if platform.system() == 'Darwin' else 'KiB',
         'planned':len(planned),'terminal':len(terminal_ids),'fits':fits,
-        'records':[{k:v for k,v in r.items() if k != 'increments'} for r in records], 'paired':paired(records),
+        'records':[{k:v for k,v in r.items() if k != 'increments'} for r in records], 'paired':paired(records, comparators),
         'promotionAllowed':False,'holdoutOpened':False,'adoption':'continue_research',
         'DSR':'insufficient_evidence','PBO':'insufficient_evidence',
         'OPE':'No real logged behavior/support. Historical replay is model-based counterfactual evidence. No valid real IS/DR/FQE estimate.',
