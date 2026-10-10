@@ -11,6 +11,11 @@ record 50 fits and 1,218 replays. Turnover-guard stops invalidate the primary
 equal-horizon comparisons; no challenger qualifies. The report includes exact
 reproduction commands, data/artifact hashes and remaining assurance gates.
 
+The registered [admission-continuation successor](research-notes/rl-exposure-2026-10-10/admission-v2.md)
+revalidates turnover at simulated fill and continues after a rejected reversal
+with a costed zero target. Run `python3 scripts/research/run_rl_admission_v2.py --help`.
+It has a distinct environment/artifact version and remains disabled by default.
+
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
 Drain gates (2026-10-09): obligation 14 **closes**. After SIGTERM, running bots, the bot auto-start loop and the auto-optimizer used to keep starting new work until their own shutdown step (CE-DRAIN-001). Now, once the server drains, bot start is refused, bots make no new order decisions (a routine already in flight still places its protection orders; positions carry over to adoption after restart), and no optimizer process is launched. HTTP work routes and backtests were already gated; credential probes stay available.

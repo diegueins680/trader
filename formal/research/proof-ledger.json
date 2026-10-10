@@ -8209,6 +8209,36 @@
       "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
       "counterexample": null,
       "status": "property_tested"
+    },
+    {
+      "requirementId": "F-RL-ADMISSION-V2",
+      "claim": "For every pre-fill absolute exposure <=0.35, fill in (0,1], and linear cost rate in [0,0.005], a zero target has turnover <=0.5 and positive post-cost equity with endpoint exposure <=0.35. Does not assert capital-floor/drawdown safety.",
+      "formalStatement": "SMT SAT premises and UNSAT negated turnover and post-cost exposure formulas over exact reals. Selected exact-rational conformance: 3-step turnover counterexample continues 32 steps with 13 independently recomputed zero-target fallbacks.",
+      "criticality": "critical",
+      "assumptions": [
+        "A-RL-COMPOSITION",
+        "A-SOLVER"
+      ],
+      "tool": "Z3 + exhaustive finite Python model + actual Haskell Rational oracle",
+      "toolVersion": "Z3 4.15.4 / CPython3.13.3 / GHC9.4.8",
+      "sourceModel": "scripts/formal/rl_composition_check.py",
+      "artifact": "formal/research/results.json",
+      "implementationFiles": [
+        "scripts/research/rl_admission_v2.py",
+        "scripts/research/rl_composition.py",
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/rl-composition-source.json"
+      ],
+      "testFiles": [
+        "test/rl_composition_test.py",
+        "formal/research/ReplayAccountingV2.hs"
+      ],
+      "ciCommand": "bash scripts/verify.sh formal",
+      "result": "Must reproduce two nonvacuous SMT lemmas and exact counterexample/conformance. Source lock plus tests, not theorem-to-Python refinement.",
+      "bounds": "Pre-fill equity positive; abs exposure <=7/20; fill >0 and <=1; fee+spread+slippage <=1/200 per turnover; no impact; exact real algebra, bounded Fraction execution; one owner.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. No guarantee against capital/drawdown failures, gaps, stale inputs, unknown funding or production recovery. Rejected previews are immutable calculations; no real effects.",
+      "counterexample": null,
+      "status": "smt_verified"
     }
   ],
   "missionObligations": [

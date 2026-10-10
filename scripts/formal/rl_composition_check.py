@@ -111,7 +111,48 @@ def conformance():
 
 
 def check_composed():
-    return {'source':extract(),'smt':prove(),'model':model(),'conformance':conformance()}
+    admission=check_admission()
+    return {'source':extract(),'smt':{**prove(),'F-RL-ADMISSION-V2':'unsat'},
+            'model':model(),'conformance':conformance(),'admissionV2':admission}
+
+
+def check_admission():
+    # Exact real/rational algebra; bounded Fraction implementation correspondence
+    # is through conformance, not a proof about arbitrary Python execution.
+    exposure,fill=z.Reals('admission_exposure admission_fill')
+    magnitude=z.If(exposure>=0,exposure,-exposure)
+    lemma(z.And(magnitude<=z.RealVal(7)/20,fill>0,fill<=1),
+          fill*magnitude<=z.RealVal(1)/2)
+    rate=z.Real('admission_cost_rate')
+    denominator=1-rate*fill*magnitude
+    lemma(z.And(magnitude<=z.RealVal(7)/20,fill>0,fill<=1,
+                rate>=0,rate<=z.RealVal(1)/200),
+          z.And(denominator>0,(1-fill)*magnitude<=z.RealVal(7)/20*denominator))
+    sys.path.insert(0,str(ROOT/'scripts/research'))
+    import rl_admission_v2 as v2
+    r=v2.v1
+    bars=tuple(r.causal.Bar('FIXTURE',i*1000,i*1000+1,F(10000+(i%7)*10,100)) for i in range(140))
+    events=tuple(() for _ in bars)
+    old=r.Episode(bars,events,96,129,enabled=True)
+    new=v2.Episode(bars,events,96,129,enabled=True)
+    rejected=0
+    while not new.done:
+        original=new.session
+        action=0 if new.index%2 else 2
+        if not old.done: old.step(action)
+        new.step(action)
+        row=new.rows[-1]
+        if row['turnoverRejected']:
+            expected=r.advance_owned(original,bars[new.index],(),F(0),terminal=False,
+                                     multiplier=F(1),fill=F(1),enabled=True)
+            require(expected is not None and new.session==expected[0], 'rejected preview committed')
+            require(not new.done and row['applied']==0,'turnover reset')
+            rejected+=1
+    require(old.failure=='turnover_limit' and len(old.rows)==3,'counterexample drift')
+    require(len(new.rows)==32 and new.failure is None and rejected==13,'continuation witness')
+    return {'status':'smt_verified_and_conformance_tested','lemmas':2,
+            'oldCounterexampleSteps':3,'continuedSteps':32,'rejectedPreviews':rejected,
+            'scope':'zero-target turnover and post-cost exposure bounds under pre-fill exposure <=0.35, fill (0,1], linear cost <=50bp; exact selected immutable-preview witnesses. Capital/drawdown risk and broad Python/Haskell refinement remain outside proof.'}
 
 
 if __name__=='__main__': print(json.dumps(check_composed(),indent=2))
