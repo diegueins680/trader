@@ -20,12 +20,14 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import atexit
 import csv
 import hashlib
 import io
 import json
 import math
 import os
+import shutil
 import statistics
 import subprocess
 import sys
@@ -421,6 +423,24 @@ def check_runner_pin(amendment: dict) -> None:
         raise SystemExit("champion_screen.py is not the preregistered runner (pinnedRunnerSha256)")
 
 
+def freeze_snapshot(path: Path, expected_sha256: str) -> Path:
+    """Copy the verified snapshot bytes to a private read-only file used by every chunk.
+
+    Each chunk is a new process; reading the shared file again could pick up a
+    replaced snapshot after the one-time hash check.
+    """
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != expected_sha256:
+        raise SystemExit("frozen champion snapshot drifted from registration")
+    private = Path(tempfile.mkdtemp(prefix="champion-snapshot-"))
+    frozen = private / "snapshot.json"
+    frozen.write_bytes(data)
+    os.chmod(frozen, 0o400)
+    os.chmod(private, 0o500)
+    atexit.register(shutil.rmtree, private, ignore_errors=True)
+    return frozen
+
+
 def check_coverage(open_times: list[int], step: int, first_needed_ms: int, last_open_ms: int) -> None:
     """Rows must be contiguous from the first training row through the window's final bar."""
     try:
@@ -454,9 +474,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         build["trustTag"] = TRUST_TAG
         build["trustCommit"] = trust_commit
         reserve(out_dir)
-    snapshot = ROOT / reg["snapshot"]["path"]
-    if sha256_file(snapshot) != reg["snapshot"]["sha256"]:
-        raise SystemExit("frozen champion snapshot drifted from registration")
+    snapshot = freeze_snapshot(ROOT / reg["snapshot"]["path"], reg["snapshot"]["sha256"])
     binary = build["path"] if build else Path(args.binary)
     results = {"registration": REGISTRATION.name, "registrationSha256": sha256_file(REGISTRATION), "phase": args.phase, "combos": {}}
     if build:
@@ -632,6 +650,17 @@ def cmd_selftest(_: argparse.Namespace) -> None:
     assert prospective_gates(["NOT_REJECTED"] * 3, {**fleet, "oneBarDelay": {"netReturn": -0.01}}, 3261)["decision"] == "REJECTED"
     assert prospective_gates(["NOT_REJECTED"] * 3, {**fleet, "net": {**good, "psr": 0.9999}}, 3261)["decision"] == "REJECTED"
     check_coverage([0, 10, 20, 30], 10, 0, 30)
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "snap.json"
+        src.write_bytes(b'{"combos": []}')
+        frozen = freeze_snapshot(src, hashlib.sha256(b'{"combos": []}').hexdigest())
+        src.write_bytes(b"replaced")
+        assert frozen.read_bytes() == b'{"combos": []}' and frozen.stat().st_mode & 0o222 == 0
+        try:
+            freeze_snapshot(src, hashlib.sha256(b'{"combos": []}').hexdigest())
+            raise AssertionError("a drifted snapshot must be refused")
+        except SystemExit:
+            pass
     print("selftest ok")
 
 
