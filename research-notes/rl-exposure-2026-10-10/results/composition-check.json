@@ -1,0 +1,24 @@
+{
+  "source": {
+    "status": "exhaustively_checked",
+    "files": 12,
+    "scope": "reviewed complete source digests and direct effect names; trusted transitive NumPy/kernel/runtime, not OS capability security"
+  },
+  "smt": {
+    "F-RL-COMPOSE-ARITH": "unsat"
+  },
+  "model": {
+    "status": "model_checked",
+    "states": 43,
+    "transitions": 107,
+    "stepBound": 8,
+    "scope": "finite single-owner reservation/lifecycle, two proposal identities; no production concurrency or fairness proof"
+  },
+  "conformance": {
+    "status": "property_tested",
+    "referenceTransitions": 8,
+    "haskellLedgerRows": 8,
+    "historicalDataReads": 0,
+    "scope": "exact selected Python/kernel/Haskell differential cases, not compiler refinement"
+  }
+}

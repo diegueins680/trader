@@ -1,0 +1,113 @@
+{
+  "DSR": "insufficient_evidence",
+  "OPE": "No real logged behavior/support. Historical replay is model-based counterfactual evidence. No valid real IS/DR/FQE estimate.",
+  "PBO": "insufficient_evidence",
+  "artifactBytesMax": 4805,
+  "artifactProvenanceClarification": "The archived trainingDatasetSha256 field names the common simulated reference buffer. Only CQL/alpha0/BC train on that buffer; PPO and DDQN collect fresh simulator transitions. The manifest panel/settlement hashes, fold and source commit identify their market training inputs. These research artifacts have no production loader.",
+  "blockers": [
+    "matched current champion",
+    "authentic first-seen data",
+    "untouched confirmation",
+    "full production safety composition",
+    "realistic precision and min-notional",
+    "short pilot compute and horizon"
+  ],
+  "elapsedSeconds": 1079.1281864860002,
+  "failedFits": 0,
+  "failedReplays": 314,
+  "failureReasons": {
+    "turnover_limit": 314
+  },
+  "fitCount": 50,
+  "holdoutOpened": false,
+  "indexSha256": "67cdc6f16dadf28cd8323e20a3dee18a5e62ff67babfe5c906f587431e4d096c",
+  "inferenceP99MaxMs": 8.178339770000095,
+  "manifest": {
+    "commit": "e29f8fbaa4812ff62734ed463c0638d67f7b146d",
+    "data": {
+      "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+      "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+      "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors.",
+      "intervalMs": 28800000,
+      "license": "Binance provider terms; do not redistribute raw data",
+      "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+      "parentRegistration": "sequential-control-screen-v1.json",
+      "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT"
+      ]
+    },
+    "holdoutOpened": false,
+    "numpy": "2.3.5",
+    "observation": "causal-inventory-pending-finite-v1",
+    "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+    "promotionAllowed": false,
+    "proofLedgerSha256": "def0efc627564dfe3a8c2a9213183416b6cd61b145b3aed4f750f3ced3a7b212",
+    "python": "3.13.3",
+    "registrationSha256": "43dee2b2f5895d63009b312902aab3dbbc091f444b211637a913a7a458f82fb3",
+    "sourceHashes": {
+      "research-notes/registrations/rl-causal-composition-v1.json": "43dee2b2f5895d63009b312902aab3dbbc091f444b211637a913a7a458f82fb3",
+      "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+      "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+      "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+      "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+      "scripts/research/rl_composition.py": "425f61170d266953fde2a91279223107954cf6eb9e1b606b5fea1c30d378e2dc",
+      "scripts/research/run_rl_composition.py": "e78d6470eb656bb076167f6c8f2c454dd346cb0b8513b2211494fdd81e6d1393",
+      "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+      "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+      "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+    },
+    "version": "rl-causal-composition-v1"
+  },
+  "maxRss": 84361216,
+  "paired": [
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "status": "insufficient_evidence_failed_paths"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "momentum3",
+      "status": "insufficient_evidence_failed_paths"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "status": "insufficient_evidence_failed_paths"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "momentum3",
+      "status": "insufficient_evidence_failed_paths"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "status": "insufficient_evidence_failed_paths"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "momentum3",
+      "status": "insufficient_evidence_failed_paths"
+    }
+  ],
+  "parameterArtifactsInGit": false,
+  "planned": 1268,
+  "promotionAllowed": false,
+  "replayCount": 1218,
+  "rssUnit": "bytes",
+  "source": "/Users/diegosaa/GitHub/trader/.tmp/research/rl-causal-composition-20261010",
+  "traceAudit": {
+    "changedOrDeferredProposals": 26795,
+    "legacyCounter": "Archived unsafeExecutableIntents=0 was a constant and is NOT evidence. This independent audit supersedes that reporting claim.",
+    "paths": 1218,
+    "rows": 63309,
+    "scope": "Post-hoc binary64 archived trace checks, tolerance 1e-12. Not a production safety proof; no independent unit/price reconstruction.",
+    "violationCount": 0,
+    "violations": {}
+  },
+  "trainingSeconds": 311.90855563199875
+}
