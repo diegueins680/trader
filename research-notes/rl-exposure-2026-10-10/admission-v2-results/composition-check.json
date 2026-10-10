@@ -1,0 +1,33 @@
+{
+  "admissionV2": {
+    "continuedSteps": 32,
+    "lemmas": 2,
+    "oldCounterexampleSteps": 3,
+    "rejectedPreviews": 13,
+    "scope": "zero-target turnover and post-cost exposure bounds under pre-fill exposure <=0.35, fill (0,1], linear cost <=50bp; exact selected immutable-preview witnesses. Capital/drawdown risk and broad Python/Haskell refinement remain outside proof.",
+    "status": "smt_verified_and_conformance_tested"
+  },
+  "conformance": {
+    "haskellLedgerRows": 8,
+    "historicalDataReads": 0,
+    "referenceTransitions": 8,
+    "scope": "exact selected Python/kernel/Haskell differential cases, not compiler refinement",
+    "status": "property_tested"
+  },
+  "model": {
+    "scope": "finite single-owner reservation/lifecycle, two proposal identities; no production concurrency or fairness proof",
+    "states": 43,
+    "status": "model_checked",
+    "stepBound": 8,
+    "transitions": 107
+  },
+  "smt": {
+    "F-RL-ADMISSION-V2": "unsat",
+    "F-RL-COMPOSE-ARITH": "unsat"
+  },
+  "source": {
+    "files": 15,
+    "scope": "reviewed complete source digests and direct effect names; trusted transitive NumPy/kernel/runtime, not OS capability security",
+    "status": "exhaustively_checked"
+  }
+}

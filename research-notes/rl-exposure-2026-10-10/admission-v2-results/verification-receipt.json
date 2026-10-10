@@ -1,0 +1,57 @@
+{
+  "automationTests": 185,
+  "baseMainCommit": "354c853176b7ee2ac6570951f7f6f2d0aed6909d",
+  "cancelled": 0,
+  "closedMissionObligations": 20,
+  "date": "2026-10-10",
+  "earlierAttempts": [
+    {
+      "check": "initial 17-test run",
+      "detail": "One source-drift rejection before reviewed source locks were refreshed; all other tests passed. Preserved in tool output; no historical run had started.",
+      "status": "failed"
+    },
+    {
+      "check": "preliminary formal recording",
+      "detail": "Stopped own process after reporting edits changed source hashes; no receipt counted as success.",
+      "exitCode": 143,
+      "status": "terminated"
+    },
+    {
+      "check": "first frozen implementation formal record",
+      "detail": "Superseded by final recording after the separately registered observation-control addition.",
+      "seconds": 196.397,
+      "status": "passed"
+    }
+  ],
+  "experimentCommit": "fb23bc3e4a39f24dfc43fc5afbda25613f055925",
+  "failed": 0,
+  "financialExecution": "No real orders, live exploration, changed production authorization, deployment or merge.",
+  "formalRecordedSeconds": 188.637,
+  "formalRegressionTests": 341,
+  "formalResultsSha256": "b00ca3b0787916da982aad377f391604975378086ba0826d2239a3c19d2b5695",
+  "fullCommand": "env -i HOME=/Users/diegosaa TMPDIR=/private/tmp PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:/private/tmp/trader-rl-tools/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin TRADER_FORMAL_PYTHON=/private/tmp/trader-rl-tools/bin/python bash scripts/verify.sh full",
+  "fullExitCode": 0,
+  "haskellBuildFormatLintSmokeTests": "passed",
+  "logSha256": {
+    "rl-v2-campaign.log": "018b1f1b83e0eb46febd48c080111080894785bb5733ed902690bcc26f4c60a2",
+    "rl-v2-composition-check.json": "785c7b3e42cb0ecf58aca0d55b7470dda9d9f0795cee9f801a86110d40fc0943",
+    "rl-v2-controls.log": "44a01087665a17e4004393a378cdb777b17ec324eeb1bf0e58d48d251f1b69ad",
+    "rl-v2-formal-record-controls.log": "77a03b31bcfb85812e7e5c7363d0b65f8cd61fd6ffbf4d63fa4b814d062065d0",
+    "rl-v2-formal-record-final.log": "2832772622763a1cd345ca7daf0742fc0aa15b35191c2db50b9ae83843e668e8",
+    "rl-v2-formal-record.log": "1ea04da0efb6a07c8ee77de34bde8529953a1714bd7851a4fccf6fc35bd674e3",
+    "rl-v2-full.log": "1a0b18ece46f09e351de486532d583ad3b62534430fb860a1e85b70fccd266a6",
+    "rl-v2-targeted-final.log": "642f0d992510c0643432642ad031c7da03e43f06cef8016967c727664ec76108",
+    "rl-v2-targeted.log": "aea016e72d23038d832799bb6e6144f2343354ea61a4d4ae171d289e25beb2e1"
+  },
+  "logsDirectory": "/Users/diegosaa/GitHub/trader/.tmp/research/rl-admission-continuation-v2-delivery-20261010",
+  "missionComplete": false,
+  "openMissionObligations": 18,
+  "promotionAllowed": false,
+  "publication": "Local only. Draft/unmerged PR review feedback can be processed by scheduled autoloop and pushed to default branch; deployment isolation not established.",
+  "rlRegressionTests": 18,
+  "skipped": 0,
+  "toolchainLockSha256": "01227b926bb8f0231c569de0cce0c8572695725a10e32784efe2de2f81be5869",
+  "verifiedCodeCommit": "c429f0a7010ccb6536b256c5a701d00341d0444c",
+  "webTests": 241,
+  "webTypecheckTestsBuild": "passed"
+}
