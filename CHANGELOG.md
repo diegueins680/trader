@@ -4,6 +4,9 @@
   v2 accounting, shield and 512-transition offline datasets. Add an explicit
   opt-in runner, observation-matched controls and pre-fit buffer identity checks.
   Preserve previous experiment versions and default behavior.
+  Execute all 50 fits and 1,218 evaluation replays, retain six training risk
+  terminations, audit 77,952 evaluation rows and reject integration. More training
+  improves PPO/Double DQN means but worsens the fixed-dataset CQL result.
 
 - Research: add disabled `rl-admission-continuation-v2`, separating turnover
   rejection from economic termination and independently auditing traced fills

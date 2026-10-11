@@ -1,0 +1,2781 @@
+{
+  "aggregates": [
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": -0.006442463641325687,
+        "1": 0.003032297229027729
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.0025091628180718304,
+        "ETHUSDT": -0.013170038288019026,
+        "SOLUSDT": 0.010563951487643919
+      },
+      "meanCosts": 0.004390665140009783,
+      "meanFunding": -7.288102731642212e-05,
+      "meanGross": 0.002758462961177233,
+      "meanIntervention": 0.3411458333333333,
+      "meanNetReturn": -0.001705083206148979,
+      "meanTurnover": 4.390665140009783,
+      "meanTurnoverRejection": 0.03854166666666667,
+      "seedMeanReturns": {
+        "101": -0.001373189516127582,
+        "11": -0.0025455182313751656,
+        "23": 0.0006726274832770293,
+        "47": 0.0036488174660164554,
+        "71": -0.008928153232535633
+      },
+      "seedMeanSampleSD": 0.004671910358440444,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.029113903158162868,
+      "worstES95": 0.013807393466588347
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": -0.008486913597421101,
+        "1": 0.0006847772236510489
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.0043295599232779595,
+        "ETHUSDT": -0.01518104009239426,
+        "SOLUSDT": 0.007807395455017141
+      },
+      "meanCosts": 0.006578306080017426,
+      "meanFunding": -7.276512607941867e-05,
+      "meanGross": 0.0027500030192118166,
+      "meanIntervention": 0.33958333333333335,
+      "meanNetReturn": -0.003901068186885026,
+      "meanTurnover": 4.385537386678283,
+      "meanTurnoverRejection": 0.03854166666666667,
+      "seedMeanReturns": {
+        "101": -0.003143136153803091,
+        "11": -0.004975702418756889,
+        "23": -0.001968742858877696,
+        "47": 0.0019220062721644153,
+        "71": -0.01133976577515187
+      },
+      "seedMeanSampleSD": 0.004865840082597816,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.029661308247088236,
+      "worstES95": 0.013842026075335072
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": -0.010667294960636097,
+        "1": -0.0016567938152724838
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.006356409134062857,
+        "ETHUSDT": -0.017188281755439728,
+        "SOLUSDT": 0.0050585577256397115
+      },
+      "meanCosts": 0.008793680978662222,
+      "meanFunding": -7.348406534183903e-05,
+      "meanGross": 0.0027051206560497545,
+      "meanIntervention": 0.33958333333333335,
+      "meanNetReturn": -0.00616204438795429,
+      "meanTurnover": 4.396840489331112,
+      "meanTurnoverRejection": 0.03854166666666667,
+      "seedMeanReturns": {
+        "101": -0.004909852662036103,
+        "11": -0.007750608577824873,
+        "23": -0.004602807803965936,
+        "47": 0.00019837688782070595,
+        "71": -0.013745329783765248
+      },
+      "seedMeanSampleSD": 0.005110868693976979,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.030529202183337212,
+      "worstES95": 0.013876665948342297
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": 0.006729923879068678,
+        "1": -0.001498344082874111
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0018278885309728544,
+        "ETHUSDT": 0.002971807267187132,
+        "SOLUSDT": 0.003047673896131864
+      },
+      "meanCosts": 0.0022805393726609813,
+      "meanFunding": -5.41322433005772e-05,
+      "meanGross": 0.00495046151405882,
+      "meanIntervention": 0.32395833333333335,
+      "meanNetReturn": 0.0026157898980972835,
+      "meanTurnover": 2.2805393726609813,
+      "meanTurnoverRejection": 0.016145833333333335,
+      "seedMeanReturns": {
+        "101": -0.0018767384992676162,
+        "11": 0.0017168084232571656,
+        "23": 0.006732042480727045,
+        "47": 0.004363933802464155,
+        "71": 0.0021429032833056674
+      },
+      "seedMeanSampleSD": 0.0032099121202170803,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.03493090102256202,
+      "worstES95": 0.013921603585361422
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": -0.00645948944831188,
+        "1": 0.002902793341530526
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.0025473596086687533,
+        "ETHUSDT": -0.013159738220028616,
+        "SOLUSDT": 0.010372053668525338
+      },
+      "meanCosts": 0.00439058081162196,
+      "meanFunding": -0.00014575122441750463,
+      "meanGross": 0.0027579839826488038,
+      "meanIntervention": 0.340625,
+      "meanNetReturn": -0.001778348053390677,
+      "meanTurnover": 4.39058081162196,
+      "meanTurnoverRejection": 0.03854166666666667,
+      "seedMeanReturns": {
+        "101": -0.0014264403994195447,
+        "11": -0.0026118836512776986,
+        "23": 0.0005958741450669732,
+        "47": 0.003506224586320106,
+        "71": -0.00895551494764322
+      },
+      "seedMeanSampleSD": 0.0046339503733275975,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.02934949601222625,
+      "worstES95": 0.013812439772047448
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": 0.0002436659318330851,
+        "1": 0.006170946728598866
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0002300006345767658,
+        "ETHUSDT": -0.004919317105757071,
+        "SOLUSDT": 0.01431123546182823
+      },
+      "meanCosts": 0.002430132434801428,
+      "meanFunding": -8.657658028197524e-05,
+      "meanGross": 0.0057240153452993775,
+      "meanIntervention": 0.303125,
+      "meanNetReturn": 0.0032073063302159757,
+      "meanTurnover": 2.430132434801428,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "101": 0.0018432009179194149,
+        "11": -0.0013714556937364046,
+        "23": 0.007228916253748756,
+        "47": 0.009149878770945771,
+        "71": -0.0008140085977976589
+      },
+      "seedMeanSampleSD": 0.004756162649355286,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.023133956100237385,
+      "worstES95": 0.00972284306468667
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "byFold": {
+        "0": -0.02283870495294876,
+        "1": -0.017210208620136957
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.01631061774502728,
+        "ETHUSDT": -0.029953254376662807,
+        "SOLUSDT": -0.013809498237938488
+      },
+      "meanCosts": 0.021419277660550837,
+      "meanFunding": -7.706395314125893e-05,
+      "meanGross": 0.0014718848271492392,
+      "meanIntervention": 0.33229166666666665,
+      "meanNetReturn": -0.020024456786542858,
+      "meanTurnover": 4.2838555321101675,
+      "meanTurnoverRejection": 0.03958333333333333,
+      "seedMeanReturns": {
+        "101": -0.019759709708985346,
+        "11": -0.02287468280718376,
+        "23": -0.021651231485507,
+        "47": -0.00976349178044461,
+        "71": -0.026073168150593573
+      },
+      "seedMeanSampleSD": 0.006178887183930708,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.042265970433286726,
+      "worstES95": 0.014084658275967474
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanCosts": 0.0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.0,
+      "worstES95": -0.0
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.024457238551694866,
+        "1": -0.004507964905777724
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.02045405719900517,
+        "ETHUSDT": 0.00802779177163182,
+        "SOLUSDT": 0.0014420614982387225
+      },
+      "meanCosts": 0.0019916151877032344,
+      "meanFunding": -0.0004512054907242621,
+      "meanGross": 0.012417457501386066,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.009974636822958571,
+      "meanTurnover": 1.9916151877032346,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.009974636822958571
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.044798175434087484,
+      "worstES95": 0.015587952299208976
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.02357871784872323,
+        "1": -0.005627412037404356
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.01979315194732678,
+        "ETHUSDT": 0.006998351500827671,
+        "SOLUSDT": 0.0001354552688238586
+      },
+      "meanCosts": 0.0029859960431375663,
+      "meanFunding": -0.00045093545137115217,
+      "meanGross": 0.012412584400168148,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.008975652905659437,
+      "meanTurnover": 1.9906640287583774,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.008975652905659437
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.04483022511644619,
+      "worstES95": 0.015593786634820833
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.022701017933231944,
+        "1": -0.006745780411492948
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.01913268075905117,
+        "ETHUSDT": 0.005969834231204563,
+        "SOLUSDT": -0.0011696587076472365
+      },
+      "meanCosts": 0.0039794268004684314,
+      "meanFunding": -0.0004506655728576531,
+      "meanGross": 0.012407711134195584,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.007977618760869498,
+      "meanTurnover": 1.9897134002342158,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.007977618760869498
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.04486227364843243,
+      "worstES95": 0.01559962069923266
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.02437003278006474,
+        "1": -0.0076096564744914845
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.017025886812404467,
+        "ETHUSDT": 0.005838032955221284,
+        "SOLUSDT": 0.002276644690734131
+      },
+      "meanCosts": 0.0013772745093371568,
+      "meanFunding": -0.0004007614108882198,
+      "meanGross": 0.010158224073012019,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.008380188152786627,
+      "meanTurnover": 1.3772745093371568,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.008380188152786627
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.04718117779412978,
+      "worstES95": 0.015593573738992046
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.024053089821820972,
+        "1": -0.005002598545774599
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.02012857539385937,
+        "ETHUSDT": 0.007592183334004798,
+        "SOLUSDT": 0.0008549781862053907
+      },
+      "meanCosts": 0.001991274558882075,
+      "meanFunding": -0.00090218524641131,
+      "meanGross": 0.012418705443316575,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.009525245638023186,
+      "meanTurnover": 1.991274558882075,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.009525245638023186
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.04520923802263577,
+      "worstES95": 0.015612943706872705
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.02968017342477114,
+        "1": -0.0062072763203506005
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.017184540267176973,
+        "ETHUSDT": 0.0073276543456309295,
+        "SOLUSDT": 0.010697151043822906
+      },
+      "meanCosts": 0.001425249329672173,
+      "meanFunding": -0.0004583337572348784,
+      "meanGross": 0.013620031639117324,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.011736448552210269,
+      "meanTurnover": 1.425249329672173,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.011736448552210269
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.04410615863552314,
+      "worstES95": 0.014071832986040684
+    },
+    {
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.017452015017588602,
+        "1": -0.013433385535710865
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.015178953579958687,
+        "ETHUSDT": -0.00018192496410784909,
+        "SOLUSDT": -0.008969084393034232
+      },
+      "meanCosts": 0.009920103767348955,
+      "meanFunding": -0.0004490496748573196,
+      "meanGross": 0.012378468183145183,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.0020093147409388687,
+      "meanTurnover": 1.9840207534697911,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0020093147409388687
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.04505454064645942,
+      "worstES95": 0.015634619542369853
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": -0.007517870777780714,
+        "1": -0.02458849879514067
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.009312613785871848,
+        "ETHUSDT": -0.014599125322596395,
+        "SOLUSDT": -0.02424781525091383
+      },
+      "meanCosts": 0.004344361195337667,
+      "meanFunding": -0.00010155566011993057,
+      "meanGross": -0.011607267931003085,
+      "meanIntervention": 0.3765625,
+      "meanNetReturn": -0.016053184786460693,
+      "meanTurnover": 4.344361195337667,
+      "meanTurnoverRejection": 0.018229166666666668,
+      "seedMeanReturns": {
+        "101": -0.01893191261303599,
+        "11": -0.014518710177558347,
+        "23": -0.019984471526705388,
+        "47": -0.0180405467452176,
+        "71": -0.008790282869786134
+      },
+      "seedMeanSampleSD": 0.00454961683730723,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.059593352216619766,
+      "worstES95": 0.017139103875413363
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": -0.009571713982480875,
+        "1": -0.02648917142813955
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.010697124120843515,
+        "ETHUSDT": -0.016658441110831833,
+        "SOLUSDT": -0.026735762884255287
+      },
+      "meanCosts": 0.006510496800715184,
+      "meanFunding": -0.00010250131339810884,
+      "meanGross": -0.011417444591196927,
+      "meanIntervention": 0.3770833333333333,
+      "meanNetReturn": -0.018030442705310214,
+      "meanTurnover": 4.34033120047679,
+      "meanTurnoverRejection": 0.01875,
+      "seedMeanReturns": {
+        "101": -0.021449808167847233,
+        "11": -0.01658754142980458,
+        "23": -0.0219357865990162,
+        "47": -0.019186163340335793,
+        "71": -0.010992913989547251
+      },
+      "seedMeanSampleSD": 0.004469010958723575,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.06273999722334989,
+      "worstES95": 0.017150289926777966
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": -0.01197625411725481,
+        "1": -0.03145034024476223
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.01623803643039201,
+        "ETHUSDT": -0.018713793721394235,
+        "SOLUSDT": -0.030188061391239317
+      },
+      "meanCosts": 0.008732391204412661,
+      "meanFunding": -0.00010006351473724245,
+      "meanGross": -0.012880842461858628,
+      "meanIntervention": 0.3765625,
+      "meanNetReturn": -0.02171329718100852,
+      "meanTurnover": 4.36619560220633,
+      "meanTurnoverRejection": 0.01875,
+      "seedMeanReturns": {
+        "101": -0.02396091843945904,
+        "11": -0.024696063207234536,
+        "23": -0.02550069199014961,
+        "47": -0.02121808906881245,
+        "71": -0.013190723199386967
+      },
+      "seedMeanSampleSD": 0.00502922837708612,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.06621287036916723,
+      "worstES95": 0.01716145688774976
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": 0.010317206705080014,
+        "1": -0.015735615848353472
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.0015377689993856692,
+        "ETHUSDT": -0.008939543516860127,
+        "SOLUSDT": 0.002349698801335609
+      },
+      "meanCosts": 0.0023824571659282773,
+      "meanFunding": -6.347637595968042e-05,
+      "meanGross": -0.0002632710297487753,
+      "meanIntervention": 0.3619791666666667,
+      "meanNetReturn": -0.0027092045716367286,
+      "meanTurnover": 2.382457165928277,
+      "meanTurnoverRejection": 0.0046875,
+      "seedMeanReturns": {
+        "101": -0.0006161884748872767,
+        "11": 0.0046414920383131926,
+        "23": -0.013810448232259168,
+        "47": -0.006245007661679125,
+        "71": 0.0024841294723287333
+      },
+      "seedMeanSampleSD": 0.007435114152268536,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.06496034769886694,
+      "worstES95": 0.01732066797789151
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": -0.007601210453065055,
+        "1": -0.024707120725705134
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.009387666479025813,
+        "ETHUSDT": -0.014777475416593322,
+        "SOLUSDT": -0.024297354872536148
+      },
+      "meanCosts": 0.004344265673712918,
+      "meanFunding": -0.00020308928752336267,
+      "meanGross": -0.011606810628148816,
+      "meanIntervention": 0.3765625,
+      "meanNetReturn": -0.016154165589385094,
+      "meanTurnover": 4.3442656737129175,
+      "meanTurnoverRejection": 0.018229166666666668,
+      "seedMeanReturns": {
+        "101": -0.01894271931779991,
+        "11": -0.014668750392375751,
+        "23": -0.02006198461831345,
+        "47": -0.018105707680704963,
+        "71": -0.008991665937731394
+      },
+      "seedMeanSampleSD": 0.004482283390213898,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.0594378115271581,
+      "worstES95": 0.017145420037542786
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": -0.0007922862956260879,
+        "1": -0.018746517981856146
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.007100972767314096,
+        "ETHUSDT": -0.01354460267087454,
+        "SOLUSDT": -0.008662630978034713
+      },
+      "meanCosts": 0.002377283511755765,
+      "meanFunding": -0.00010583187377777794,
+      "meanGross": -0.0072862867532075635,
+      "meanIntervention": 0.36041666666666666,
+      "meanNetReturn": -0.009769402138741116,
+      "meanTurnover": 2.377283511755765,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "101": -0.008160305677653893,
+        "11": -0.0032795377316911325,
+        "23": -0.016167004070432717,
+        "47": -0.011993056563138352,
+        "71": -0.009247106650789483
+      },
+      "seedMeanSampleSD": 0.0047658754047718715,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.051484617786436426,
+      "worstES95": 0.01283156788388247
+    },
+    {
+      "algorithm": "cql",
+      "byFold": {
+        "0": -0.026736043011152125,
+        "1": -0.042959944708996424
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.02820721080562617,
+        "ETHUSDT": -0.030963071798192087,
+        "SOLUSDT": -0.045373698976404565
+      },
+      "meanCosts": 0.021840064961355127,
+      "meanFunding": -9.589250952440862e-05,
+      "meanGross": -0.012912036389194739,
+      "meanIntervention": 0.375,
+      "meanNetReturn": -0.034847993860074276,
+      "meanTurnover": 4.368012992271026,
+      "meanTurnoverRejection": 0.019270833333333334,
+      "seedMeanReturns": {
+        "101": -0.03900122512249319,
+        "11": -0.037205108603314385,
+        "23": -0.03769357493275068,
+        "47": -0.03332372270447235,
+        "71": -0.027016337937340762
+      },
+      "seedMeanSampleSD": 0.004862121155447354,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.08756155182598968,
+      "worstES95": 0.01751638680131698
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": -0.002220807318200757,
+        "1": -0.029544128714161344
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008706242489984695,
+        "ETHUSDT": -0.01480727977512325,
+        "SOLUSDT": -0.02413388178343521
+      },
+      "meanCosts": 0.004041440682300885,
+      "meanFunding": -0.00010358899249663865,
+      "meanGross": -0.01173743834138353,
+      "meanIntervention": 0.4234375,
+      "meanNetReturn": -0.01588246801618105,
+      "meanTurnover": 4.041440682300886,
+      "meanTurnoverRejection": 0.0109375,
+      "seedMeanReturns": {
+        "101": -0.011529189916854568,
+        "11": -0.02953158450788566,
+        "23": -0.026163236250510386,
+        "47": -0.013906296570917112,
+        "71": 0.0017179671652624757
+      },
+      "seedMeanSampleSD": 0.012496241223458607,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.06818361548895036,
+      "worstES95": 0.017136155152076154
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": -0.004358563921737376,
+        "1": -0.03141983706732905
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.010459053194099455,
+        "ETHUSDT": -0.016616812901572242,
+        "SOLUSDT": -0.026591735387927938
+      },
+      "meanCosts": 0.00605565266521494,
+      "meanFunding": -0.00010342518931569002,
+      "meanGross": -0.011730122640002597,
+      "meanIntervention": 0.42291666666666666,
+      "meanNetReturn": -0.017889200494533214,
+      "meanTurnover": 4.03710177680996,
+      "meanTurnoverRejection": 0.0109375,
+      "seedMeanReturns": {
+        "101": -0.013739905391202345,
+        "11": -0.031496756126478585,
+        "23": -0.02810296378904224,
+        "47": -0.016132305024865772,
+        "71": 2.592785892287693e-05
+      },
+      "seedMeanSampleSD": 0.012557285598203717,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.07049592860113219,
+      "worstES95": 0.01714588665614638
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": -0.006491867357490159,
+        "1": -0.03329136427593202
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.01220797909955874,
+        "ETHUSDT": -0.01842327819868379,
+        "SOLUSDT": -0.02904359015189073
+      },
+      "meanCosts": 0.008065538466128721,
+      "meanFunding": -0.00010326163387922674,
+      "meanGross": -0.011722815716703139,
+      "meanIntervention": 0.42291666666666666,
+      "meanNetReturn": -0.019891615816711086,
+      "meanTurnover": 4.032769233064361,
+      "meanTurnoverRejection": 0.0109375,
+      "seedMeanReturns": {
+        "101": -0.015945118105245275,
+        "11": -0.033457964926717355,
+        "23": -0.030038888091983813,
+        "47": -0.01835268038543129,
+        "71": -0.0016634275741777005
+      },
+      "seedMeanSampleSD": 0.012621637927152839,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.07280291767579128,
+      "worstES95": 0.017155612295311637
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": 0.005343868565530781,
+        "1": -0.018282200601187713
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.009231836500526891,
+        "ETHUSDT": -0.010109518231321734,
+        "SOLUSDT": -6.614332163676906e-05
+      },
+      "meanCosts": 0.00238298780035783,
+      "meanFunding": -4.730332531812048e-05,
+      "meanGross": -0.004038874892152515,
+      "meanIntervention": 0.4125,
+      "meanNetReturn": -0.0064691660178284646,
+      "meanTurnover": 2.38298780035783,
+      "meanTurnoverRejection": 0.0046875,
+      "seedMeanReturns": {
+        "101": -0.0030085799141647183,
+        "11": -0.010844346744386816,
+        "23": -0.014103871258480413,
+        "47": -0.005850260749723187,
+        "71": 0.001461228577612809
+      },
+      "seedMeanSampleSD": 0.006178203396879412,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.06496034769886694,
+      "worstES95": 0.01732066797789151
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": -0.0023170419911408297,
+        "1": -0.02965505521293966
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008739667303758724,
+        "ETHUSDT": -0.014994722923480697,
+        "SOLUSDT": -0.02422375557888131
+      },
+      "meanCosts": 0.004041393652143268,
+      "meanFunding": -0.00020714765275425167,
+      "meanGross": -0.011737507297142713,
+      "meanIntervention": 0.4234375,
+      "meanNetReturn": -0.015986048602040243,
+      "meanTurnover": 4.041393652143268,
+      "meanTurnoverRejection": 0.0109375,
+      "seedMeanReturns": {
+        "101": -0.011503135435553036,
+        "11": -0.029670166466654397,
+        "23": -0.026253670088429604,
+        "47": -0.013926939282544385,
+        "71": 0.0014236682629802007
+      },
+      "seedMeanSampleSD": 0.012451042282561057,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.06802919400565377,
+      "worstES95": 0.017142468202720137
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": -0.001100459581754946,
+        "1": -0.02103994372806485
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008768212647180074,
+        "ETHUSDT": -0.011038095406066683,
+        "SOLUSDT": -0.013404296911482937
+      },
+      "meanCosts": 0.002227236493423753,
+      "meanFunding": -0.0001004149404928326,
+      "meanGross": -0.008742550220993305,
+      "meanIntervention": 0.40625,
+      "meanNetReturn": -0.011070201654909899,
+      "meanTurnover": 2.227236493423753,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "101": -0.005371791582685008,
+        "11": -0.013278247263833143,
+        "23": -0.01962174088957234,
+        "47": -0.015686942527832443,
+        "71": -0.001392286010626557
+      },
+      "seedMeanSampleSD": 0.007507538104296712,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.06687697774070955,
+      "worstES95": 0.013674221770736341
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "byFold": {
+        "0": -0.019388924474907514,
+        "1": -0.044184702724875
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.02267705872649155,
+        "ETHUSDT": -0.029197914243356594,
+        "SOLUSDT": -0.04348546782982563
+      },
+      "meanCosts": 0.020188518489134603,
+      "meanFunding": -0.00010030193756234232,
+      "meanGross": -0.011497993173194313,
+      "meanIntervention": 0.42291666666666666,
+      "meanNetReturn": -0.03178681359989126,
+      "meanTurnover": 4.03770369782692,
+      "meanTurnoverRejection": 0.0109375,
+      "seedMeanReturns": {
+        "101": -0.02906161917830798,
+        "11": -0.04523662994801938,
+        "23": -0.04133494010279607,
+        "47": -0.031557456613265734,
+        "71": -0.011743422157067121
+      },
+      "seedMeanSampleSD": 0.01305068110585484,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.0828234480574257,
+      "worstES95": 0.01721384267521837
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.01085637675677742,
+        "1": -0.004631800123038602
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.004953695507211531,
+        "ETHUSDT": -0.0003041008507599696,
+        "SOLUSDT": 0.004687270294156665
+      },
+      "meanCosts": 0.002631355208537455,
+      "meanFunding": -0.00020738558577337946,
+      "meanGross": 0.005951029111180234,
+      "meanIntervention": 0.34270833333333334,
+      "meanNetReturn": 0.0031122883168694083,
+      "meanTurnover": 2.6313552085374545,
+      "meanTurnoverRejection": 0.015104166666666667,
+      "seedMeanReturns": {
+        "101": -0.001648214018559709,
+        "11": 0.013973114119800104,
+        "23": 0.01224425199593208,
+        "47": -0.005647292394152552,
+        "71": -0.003360418118672881
+      },
+      "seedMeanSampleSD": 0.009255253414636599,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.05896127469995027,
+      "worstES95": 0.015587952299208976
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.009571142508437625,
+        "1": -0.005973522378856429
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.004021436305196568,
+        "ETHUSDT": -0.0017517499791159796,
+        "SOLUSDT": 0.003126743868291204
+      },
+      "meanCosts": 0.003942840260381474,
+      "meanFunding": -0.0002072468413214866,
+      "meanGross": 0.005948897166493555,
+      "meanIntervention": 0.34322916666666664,
+      "meanNetReturn": 0.0017988100647905974,
+      "meanTurnover": 2.628560173587649,
+      "meanTurnoverRejection": 0.015104166666666667,
+      "seedMeanReturns": {
+        "101": -0.003696167883300313,
+        "11": 0.012932369264258595,
+        "23": 0.011763273360113976,
+        "47": -0.007883289365296328,
+        "71": -0.004122135051822943
+      },
+      "seedMeanSampleSD": 0.009775506282412564,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.060895247149787224,
+      "worstES95": 0.015593786634820833
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.008288817467972557,
+        "1": -0.007312582330805924
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.003091403192501718,
+        "ETHUSDT": -0.003196503224320213,
+        "SOLUSDT": 0.001569452737568444
+      },
+      "meanCosts": 0.0052515396336736235,
+      "meanFunding": -0.00020710821386672764,
+      "meanGross": 0.005946765416123678,
+      "meanIntervention": 0.34322916666666664,
+      "meanNetReturn": 0.00048811756858331643,
+      "meanTurnover": 2.6257698168368115,
+      "meanTurnoverRejection": 0.015104166666666667,
+      "seedMeanReturns": {
+        "101": -0.0057391671666164506,
+        "11": 0.011892672451796815,
+        "23": 0.011282705118036066,
+        "47": -0.010113020049981825,
+        "71": -0.004882602510318024
+      },
+      "seedMeanSampleSD": 0.010327085995017572,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.06282572868263814,
+      "worstES95": 0.01559962069923266
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.01610920437496753,
+        "1": -0.012396925956388987
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.00583121759932399,
+        "ETHUSDT": 0.0004962393039975033,
+        "SOLUSDT": -0.0007590392754536768
+      },
+      "meanCosts": 0.001445230347853896,
+      "meanFunding": -0.00018056584620508123,
+      "meanGross": 0.003481935403348249,
+      "meanIntervention": 0.32916666666666666,
+      "meanNetReturn": 0.0018561392092892723,
+      "meanTurnover": 1.445230347853896,
+      "meanTurnoverRejection": 0.00625,
+      "seedMeanReturns": {
+        "101": -0.003869720635877353,
+        "11": 0.008360451915707964,
+        "23": 0.01218501639003237,
+        "47": -0.004236299511597448,
+        "71": -0.0031587521118191706
+      },
+      "seedMeanSampleSD": 0.007810957097157417,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.06478900205615301,
+      "worstES95": 0.01571302720022716
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.010603734996172287,
+        "1": -0.004793796885996985
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.004759487304420884,
+        "ETHUSDT": -0.00046299678431739323,
+        "SOLUSDT": 0.004418416645159462
+      },
+      "meanCosts": 0.002631091603305108,
+      "meanFunding": -0.00041469057906870033,
+      "meanGross": 0.005950751237461469,
+      "meanIntervention": 0.34270833333333334,
+      "meanNetReturn": 0.002904969055087651,
+      "meanTurnover": 2.631091603305108,
+      "meanTurnoverRejection": 0.015104166666666667,
+      "seedMeanReturns": {
+        "101": -0.0018368977097657686,
+        "11": 0.013620007968755418,
+        "23": 0.012038011588523986,
+        "47": -0.005717827480184383,
+        "71": -0.003578449091890997
+      },
+      "seedMeanSampleSD": 0.009180102889018518,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.05911665303644564,
+      "worstES95": 0.015612943706872705
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.016230605073600805,
+        "1": -0.005769766766263691
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.00635449444003765,
+        "ETHUSDT": 0.004330842115954326,
+        "SOLUSDT": 0.005005920905013695
+      },
+      "meanCosts": 0.0015533128942160428,
+      "meanFunding": -0.000210882647510102,
+      "meanGross": 0.006994614695394699,
+      "meanIntervention": 0.3255208333333333,
+      "meanNetReturn": 0.005230419153668557,
+      "meanTurnover": 1.5533128942160428,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "101": 0.0006001997282988891,
+        "11": 0.014975268710987533,
+        "23": 0.014839674367858454,
+        "47": -0.0008622313806133652,
+        "71": -0.0034008156581887272
+      },
+      "seedMeanSampleSD": 0.00894926554952401,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.05011345947083623,
+      "worstES95": 0.014071832986040684
+    },
+    {
+      "algorithm": "double_dqn",
+      "byFold": {
+        "0": 0.0013874806262225813,
+        "1": -0.01816716251351806
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.0013445263318147104,
+        "ETHUSDT": -0.011879793893169089,
+        "SOLUSDT": -0.011945202605959415
+      },
+      "meanCosts": 0.012954788099225747,
+      "meanFunding": -0.00020903483072284753,
+      "meanGross": 0.004773981986300871,
+      "meanIntervention": 0.34322916666666664,
+      "meanNetReturn": -0.008389840943647737,
+      "meanTurnover": 2.5909576198451494,
+      "meanTurnoverRejection": 0.015104166666666667,
+      "seedMeanReturns": {
+        "101": -0.021516049025128065,
+        "11": 0.0021091935030529605,
+        "23": 0.008407893954220738,
+        "47": -0.02153095474335622,
+        "71": -0.009419288407028104
+      },
+      "seedMeanSampleSD": 0.013587122530057134,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.09426983198203143,
+      "worstES95": 0.016230276371230416
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.010721746119509786,
+        "1": 0.019026556506040276
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.016058543002332115,
+        "ETHUSDT": 0.024756378967754955,
+        "SOLUSDT": 0.0038075319682380204
+      },
+      "meanCosts": 0.004373686594463575,
+      "meanFunding": -0.00015742505092653525,
+      "meanGross": 0.01940526295816514,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.01487415131277503,
+      "meanTurnover": 4.3736865944635746,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": 0.01487415131277503
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.026550304801149838,
+      "worstES95": 0.011615743501717428
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.00876670077645425,
+        "1": 0.016616574417449164
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.014395584906775616,
+        "ETHUSDT": 0.022431025065735355,
+        "SOLUSDT": 0.0012483028183441491
+      },
+      "meanCosts": 0.00655333471510636,
+      "meanFunding": -0.0001572267307358502,
+      "meanGross": 0.019402199042793885,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.012691637596951707,
+      "meanTurnover": 4.368889810070906,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": 0.012691637596951707
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.02765528749048085,
+      "worstES95": 0.011681454886729756
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.00681506912410416,
+        "1": 0.014212715979715703
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.012735396250635467,
+        "ETHUSDT": 0.020111004640835817,
+        "SOLUSDT": -0.0013047232357414895
+      },
+      "meanCosts": 0.008728199985074766,
+      "meanFunding": -0.00015702865076715693,
+      "meanGross": 0.01939912118775187,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.010513892551909931,
+      "meanTurnover": 4.3640999925373825,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": 0.010513892551909931
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.028759337982610322,
+      "worstES95": 0.011747167068883643
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.01073989339322797,
+        "1": 0.0026485230698673292
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.011319447960244866,
+        "ETHUSDT": 0.01645676574961985,
+        "SOLUSDT": -0.007693589015221769
+      },
+      "meanCosts": 0.002709391932203768,
+      "meanFunding": -8.371931555408577e-05,
+      "meanGross": 0.009487319479305539,
+      "meanIntervention": 0.6380208333333334,
+      "meanNetReturn": 0.006694208231547649,
+      "meanTurnover": 2.709391932203768,
+      "meanTurnoverRejection": 0.036458333333333336,
+      "seedMeanReturns": {
+        "0": 0.006694208231547649
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.06488494800555544,
+      "worstES95": 0.012233095039268106
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.01048254587240686,
+        "1": 0.01895194780672956
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.015881069469868336,
+        "ETHUSDT": 0.024628079678115644,
+        "SOLUSDT": 0.003642591370720649
+      },
+      "meanCosts": 0.0043734149468181455,
+      "meanFunding": -0.000314819064167181,
+      "meanGross": 0.01940548085055354,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.01471724683956821,
+      "meanTurnover": 4.373414946818145,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": 0.01471724683956821
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.026550338464268575,
+      "worstES95": 0.011632582733486895
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.009865928426407655,
+        "1": 0.01650147370595123
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.009899339424125742,
+        "ETHUSDT": 0.017190223259439974,
+        "SOLUSDT": 0.012461540514972613
+      },
+      "meanCosts": 0.0029970684239612752,
+      "meanFunding": -0.00014526824442048992,
+      "meanGross": 0.01632603773456119,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.013183701066179443,
+      "meanTurnover": 2.997068423961275,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": 0.013183701066179443
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.018627030335802375,
+      "worstES95": 0.009467992897384508
+    },
+    {
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": -0.00482334534878918,
+        "1": -8.274839228217257e-05
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0028321677647091814,
+        "ETHUSDT": 0.006302135955256083,
+        "SOLUSDT": -0.016493444331572293
+      },
+      "meanCosts": 0.02167756587344966,
+      "meanFunding": -0.0001558451951687494,
+      "meanGross": 0.019380364198082752,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.0024530468705356765,
+      "meanTurnover": 4.335513174689932,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": -0.0024530468705356765
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.045680490421270536,
+      "worstES95": 0.012141456916139307
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.018604735531943306,
+        "1": -0.02891461290333941
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.022553078643795077,
+        "ETHUSDT": -0.03343830798321107,
+        "SOLUSDT": -0.015287636025917928
+      },
+      "meanCosts": 0.004245542150208591,
+      "meanFunding": 0.00015298383288225642,
+      "meanGross": -0.01966711590031503,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.023759674217641358,
+      "meanTurnover": 4.245542150208592,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": -0.023759674217641358
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.04952260897937866,
+      "worstES95": 0.01713471856307206
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.020522760847538974,
+        "1": -0.03122119094977338
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.024178927988823984,
+        "ETHUSDT": -0.03563711416121196,
+        "SOLUSDT": -0.017799885545932592
+      },
+      "meanCosts": 0.006361370295547717,
+      "meanFunding": 0.00015278913360662077,
+      "meanGross": -0.01966339473671509,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.02587197589865618,
+      "meanTurnover": 4.240913530365145,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": -0.02587197589865618
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.05125767957501759,
+      "worstES95": 0.017143753528091832
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.022437402428930886,
+        "1": -0.03352189714753425
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.025802024326146034,
+        "ETHUSDT": -0.037830879345329305,
+        "SOLUSDT": -0.020306045693222363
+      },
+      "meanCosts": 0.00847258323678388,
+      "meanFunding": 0.00015259467036314706,
+      "meanGross": -0.019659661221811807,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.02797964978823257,
+      "meanTurnover": 4.236291618391939,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": -0.02797964978823257
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.05305895895394508,
+      "worstES95": 0.017152797153737707
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.01533009393566509,
+        "1": -0.008932680331113274
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.01587449051846812,
+        "ETHUSDT": -0.022464514971180405,
+        "SOLUSDT": 0.0019448440894809793
+      },
+      "meanCosts": 0.0026783718148726413,
+      "meanFunding": 8.106192403607918e-05,
+      "meanGross": -0.009534077242552598,
+      "meanIntervention": 0.6380208333333334,
+      "meanNetReturn": -0.012131387133389182,
+      "meanTurnover": 2.6783718148726416,
+      "meanTurnoverRejection": 0.036458333333333336,
+      "seedMeanReturns": {
+        "0": -0.012131387133389182
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.03603474631600112,
+      "worstES95": 0.010521146611419122
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.018371769019117228,
+        "1": -0.02884175436767396
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.022378051685078337,
+        "ETHUSDT": -0.03331636338503097,
+        "SOLUSDT": -0.01512587001007748
+      },
+      "meanCosts": 0.004245809269796281,
+      "meanFunding": 0.0003059981515186828,
+      "meanGross": -0.019666950575117987,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.023606761693395595,
+      "meanTurnover": 4.245809269796282,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": -0.023606761693395595
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.0495263744229032,
+      "worstES95": 0.01714102849731839
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.015286976866370558,
+        "1": -0.023138016754549812
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.014581287657312536,
+        "ETHUSDT": -0.023193798681057032,
+        "SOLUSDT": -0.019862404093010988
+      },
+      "meanCosts": 0.0029194835855404036,
+      "meanFunding": 0.00014141811720292334,
+      "meanGross": -0.01643443134212269,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": -0.019212496810460184,
+      "meanTurnover": 2.9194835855404033,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "0": -0.019212496810460184
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.038033563368990886,
+      "worstES95": 0.012111335109560554
+    },
+    {
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.03385449024153875,
+        "1": -0.047203665283207775
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.035483046377989935,
+        "ETHUSDT": -0.05088825033708455,
+        "SOLUSDT": -0.0352159365720453
+      },
+      "meanCosts": 0.02104350736323495,
+      "meanFunding": 0.00015143282914114432,
+      "meanGross": -0.01963700322827947,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.040529077762373265,
+      "meanTurnover": 4.20870147264699,
+      "meanTurnoverRejection": 0.046875,
+      "seedMeanReturns": {
+        "0": -0.040529077762373265
+      },
+      "seedMeanSampleSD": null,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.06578903775853595,
+      "worstES95": 0.017207241497704126
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.007374848121519621,
+        "1": -0.0013882092433963175
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.009664922728369807,
+        "ETHUSDT": 0.00026547350463138606,
+        "SOLUSDT": -0.0009504379158162379
+      },
+      "meanCosts": 0.001044743791084984,
+      "meanFunding": -0.00016160577015832922,
+      "meanGross": 0.004199669000304965,
+      "meanIntervention": 0.23020833333333332,
+      "meanNetReturn": 0.0029933194390616515,
+      "meanTurnover": 1.0447437910849842,
+      "meanTurnoverRejection": 0.0015625,
+      "seedMeanReturns": {
+        "101": 0.0016857354966260396,
+        "11": -0.0002098285342610288,
+        "23": 0.012228619275847433,
+        "47": 2.7064603213222682e-05,
+        "71": 0.0012350063538825913
+      },
+      "seedMeanSampleSD": 0.005223768477774408,
+      "status": "complete",
+      "stress": "base",
+      "worstDrawdown": 0.044798175434087484,
+      "worstES95": 0.015587952299208976
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.006844406640523016,
+        "1": -0.0019036388762042019
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.009123219683002826,
+        "ETHUSDT": -0.00031823939097607167,
+        "SOLUSDT": -0.0013938286455485339
+      },
+      "meanCosts": 0.0015664794171246974,
+      "meanFunding": -0.0001615079238368477,
+      "meanGross": 0.0041983712231209525,
+      "meanIntervention": 0.23020833333333332,
+      "meanNetReturn": 0.0024703838821594068,
+      "meanTurnover": 1.0443196114164648,
+      "meanTurnoverRejection": 0.0015625,
+      "seedMeanReturns": {
+        "101": 0.0007887960370167776,
+        "11": -0.000941276300123528,
+        "23": 0.011789358924361615,
+        "47": -0.00035051124589099053,
+        "71": 0.0010655519954331598
+      },
+      "seedMeanSampleSD": 0.005273553372037568,
+      "status": "complete",
+      "stress": "cost1_5x",
+      "worstDrawdown": 0.04483022511644619,
+      "worstES95": 0.015593786634820833
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.00631432491143354,
+        "1": -0.0024185816290392664
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.008581887290813906,
+        "ETHUSDT": -0.0009014664393560024,
+        "SOLUSDT": -0.0018368059278664917
+      },
+      "meanCosts": 0.00208779126976083,
+      "meanFunding": -0.0001614101358782251,
+      "meanGross": 0.004197073046836176,
+      "meanIntervention": 0.23020833333333332,
+      "meanNetReturn": 0.001947871641197137,
+      "meanTurnover": 1.043895634880415,
+      "meanTurnoverRejection": 0.0015625,
+      "seedMeanReturns": {
+        "101": -0.00010745607449991201,
+        "11": -0.001672108870250007,
+        "23": 0.011350508966615972,
+        "47": -0.0007278223396768868,
+        "71": 0.0008962365237965194
+      },
+      "seedMeanSampleSD": 0.005338620943065839,
+      "status": "complete",
+      "stress": "cost2x",
+      "worstDrawdown": 0.04486227364843243,
+      "worstES95": 0.01559962069923266
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.006387015781572051,
+        "1": -0.003043862589796594
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.006558999212258642,
+        "ETHUSDT": 7.595725943051467e-05,
+        "SOLUSDT": -0.0016202266840259715
+      },
+      "meanCosts": 0.000631021654813763,
+      "meanFunding": -0.00014616110616866458,
+      "meanGross": 0.0024487593568701675,
+      "meanIntervention": 0.23020833333333332,
+      "meanNetReturn": 0.0016715765958877286,
+      "meanTurnover": 0.6310216548137629,
+      "meanTurnoverRejection": 0.0010416666666666667,
+      "seedMeanReturns": {
+        "101": -0.005014334642523562,
+        "11": -0.0003901968996453305,
+        "23": 0.01218501639003237,
+        "47": 0.0015773981315751657,
+        "71": 0.0
+      },
+      "seedMeanSampleSD": 0.006369610922948139,
+      "status": "complete",
+      "stress": "delay1bar",
+      "worstDrawdown": 0.04718117779412978,
+      "worstES95": 0.015593573738992046
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.007256469409971437,
+        "1": -0.0015910255242506184
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.009548483548568742,
+        "ETHUSDT": 0.00010046801288955409,
+        "SOLUSDT": -0.0011507857328770688
+      },
+      "meanCosts": 0.001044629143323311,
+      "meanFunding": -0.0003231364917239796,
+      "meanGross": 0.004200487577907701,
+      "meanIntervention": 0.23020833333333332,
+      "meanNetReturn": 0.0028327219428604094,
+      "meanTurnover": 1.044629143323311,
+      "meanTurnoverRejection": 0.0015625,
+      "seedMeanReturns": {
+        "101": 0.0014197342827509951,
+        "11": -0.0004983438769598133,
+        "23": 0.012026544910910486,
+        "47": -2.6990531873383183e-06,
+        "71": 0.0012183734507877169
+      },
+      "seedMeanSampleSD": 0.0052025149608176755,
+      "status": "complete",
+      "stress": "funding2x",
+      "worstDrawdown": 0.04520923802263577,
+      "worstES95": 0.015612943706872705
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.009642776259125988,
+        "1": -0.00227773667445903
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.00790038970593956,
+        "ETHUSDT": 0.0016210705432368466,
+        "SOLUSDT": 0.0015260991278240321
+      },
+      "meanCosts": 0.0007082870504505753,
+      "meanFunding": -0.0001651840869421476,
+      "meanGross": 0.004555990929726204,
+      "meanIntervention": 0.228125,
+      "meanNetReturn": 0.003682519792333479,
+      "meanTurnover": 0.7082870504505753,
+      "meanTurnoverRejection": 0.0,
+      "seedMeanReturns": {
+        "101": -0.0003496036700738059,
+        "11": 0.0008999133670167433,
+        "23": 0.01484008671238557,
+        "47": 0.0025092679181358637,
+        "71": 0.0005129346342030253
+      },
+      "seedMeanSampleSD": 0.006322875290259548,
+      "status": "complete",
+      "stress": "partial50pct",
+      "worstDrawdown": 0.04410615863552314,
+      "worstES95": 0.014071832986040684
+    },
+    {
+      "algorithm": "ppo",
+      "byFold": {
+        "0": 0.0031413768389995174,
+        "1": -0.005498035158125436
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.005341665103672566,
+        "ETHUSDT": -0.004390644746052041,
+        "SOLUSDT": -0.004486007836309402
+      },
+      "meanCosts": 0.005206780182963545,
+      "meanFunding": -0.00016082463209250012,
+      "meanGross": 0.004189275655493093,
+      "meanIntervention": 0.23020833333333332,
+      "meanNetReturn": -0.0011783291595629593,
+      "meanTurnover": 1.041356036592709,
+      "meanTurnoverRejection": 0.0015625,
+      "seedMeanReturns": {
+        "101": -0.005470560376560296,
+        "11": -0.006044211142781604,
+        "23": 0.008726007508794301,
+        "47": -0.0029861371368102296,
+        "71": -0.00011674465045696802
+      },
+      "seedMeanSampleSD": 0.00601230139978688,
+      "status": "complete",
+      "stress": "severe50bp",
+      "worstDrawdown": 0.04505454064645942,
+      "worstES95": 0.015634619542369853
+    }
+  ],
+  "campaign": "rl-training-budget-v3",
+  "criticMse": {
+    "cql": 8.000042619606312,
+    "cql_alpha0": 9.472823107839288,
+    "double_dqn": 1.4624927949833224
+  },
+  "fitTrainingFailures": {
+    "0/double_dqn/23/training": [
+      "endpoint_exposure"
+    ],
+    "0/ppo/71/training": [
+      "endpoint_exposure",
+      "endpoint_exposure"
+    ],
+    "1/double_dqn/101/training": [
+      "endpoint_exposure",
+      "endpoint_exposure"
+    ],
+    "1/ppo/11/training": [
+      "endpoint_exposure"
+    ]
+  },
+  "holdoutOpened": false,
+  "indexSha256": "360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039",
+  "interpretation": "Parent-budget deltas descriptive only; no best-budget/seed selection or confirmation claim.",
+  "interventions": {
+    "actionChanged": 27788,
+    "newProposalIgnored": 5568,
+    "schedulingDeferred": 5568,
+    "supportChangedAction": 26701,
+    "turnoverRejected": 1087
+  },
+  "parentBudgetBasePathDeltas": [
+    {
+      "algorithm": "ppo",
+      "difference": 0.009395097612526104,
+      "id": "0/ppo/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.0008159337678100842,
+      "id": "0/ppo/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "0/ppo/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.010141449122430535,
+      "id": "0/ppo/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.03722951926385787,
+      "id": "0/ppo/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0018822319017104405,
+      "id": "0/ppo/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0030728119756640027,
+      "id": "0/ppo/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.002653545172190741,
+      "id": "0/ppo/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.005563969528575408,
+      "id": "0/ppo/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "0/ppo/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "0/ppo/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "0/ppo/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.01446673424033329,
+      "id": "0/ppo/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.0022784862952343055,
+      "id": "0/ppo/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.012635447091564389,
+      "id": "0/ppo/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.039195230228740274,
+      "id": "0/double_dqn/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.04900993281669774,
+      "id": "0/double_dqn/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.04675391282201968,
+      "id": "0/double_dqn/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.03606718375873352,
+      "id": "0/double_dqn/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.05594892540349661,
+      "id": "0/double_dqn/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.03567781920774726,
+      "id": "0/double_dqn/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.03391886732866067,
+      "id": "0/double_dqn/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.039137773442508905,
+      "id": "0/double_dqn/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.007484997626452383,
+      "id": "0/double_dqn/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.012280956784058938,
+      "id": "0/double_dqn/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.015293837585247272,
+      "id": "0/double_dqn/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.0018444932025896144,
+      "id": "0/double_dqn/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.02507048487285879,
+      "id": "0/double_dqn/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.052827529199283796,
+      "id": "0/double_dqn/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.04243350065397189,
+      "id": "0/double_dqn/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.02601738005051568,
+      "id": "0/cql/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.000254985605724789,
+      "id": "0/cql/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.02451101573770531,
+      "id": "0/cql/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.014634291151296885,
+      "id": "0/cql/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.0006601002530981503,
+      "id": "0/cql/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.05333745275213564,
+      "id": "0/cql/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.03815872613754823,
+      "id": "0/cql/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.04555787193014105,
+      "id": "0/cql/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.045793722584495655,
+      "id": "0/cql/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.0184400859917474,
+      "id": "0/cql/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.0037483665360251717,
+      "id": "0/cql/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.03156205764489073,
+      "id": "0/cql/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.012905591971130392,
+      "id": "0/cql/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.018300287147048566,
+      "id": "0/cql/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.029640806681716647,
+      "id": "0/cql/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.003122644282844922,
+      "id": "0/behavior_cloning/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.01993373881303373,
+      "id": "0/behavior_cloning/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.04213568537345813,
+      "id": "0/behavior_cloning/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.0033535256635324195,
+      "id": "0/behavior_cloning/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.01843113306265942,
+      "id": "0/behavior_cloning/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.04728379742385347,
+      "id": "0/behavior_cloning/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.010736985954509448,
+      "id": "0/behavior_cloning/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.015993734485544087,
+      "id": "0/behavior_cloning/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.008025741025313504,
+      "id": "0/behavior_cloning/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.018264874157296385,
+      "id": "0/behavior_cloning/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.006208529125321549,
+      "id": "0/behavior_cloning/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -1.9848604610017695e-05,
+      "id": "0/behavior_cloning/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.014809135859268241,
+      "id": "0/behavior_cloning/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.012484291466442587,
+      "id": "0/behavior_cloning/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.02216122263180398,
+      "id": "0/behavior_cloning/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.03955712101518527,
+      "id": "1/ppo/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.017857863553490283,
+      "id": "1/ppo/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.03229355473318429,
+      "id": "1/ppo/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "1/ppo/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "1/ppo/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.01234726618449411,
+      "id": "1/ppo/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.026972286151810687,
+      "id": "1/ppo/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.008955764918362474,
+      "id": "1/ppo/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.024806668562167844,
+      "id": "1/ppo/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.005329165371861455,
+      "id": "1/ppo/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.0007006378343736852,
+      "id": "1/ppo/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.0,
+      "id": "1/ppo/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "ppo",
+      "difference": 0.03955712101518527,
+      "id": "1/ppo/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.007749442989443578,
+      "id": "1/ppo/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "ppo",
+      "difference": -0.04528016741908958,
+      "id": "1/ppo/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.0,
+      "id": "1/double_dqn/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.0005847612560405668,
+      "id": "1/double_dqn/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.012066193077850618,
+      "id": "1/double_dqn/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.0,
+      "id": "1/double_dqn/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.0015367771481042958,
+      "id": "1/double_dqn/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.006230765670646843,
+      "id": "1/double_dqn/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.0012400288724100372,
+      "id": "1/double_dqn/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.004147634182811277,
+      "id": "1/double_dqn/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.032851783844145,
+      "id": "1/double_dqn/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.003080945338064245,
+      "id": "1/double_dqn/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.007153035242787098,
+      "id": "1/double_dqn/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.04687812489456811,
+      "id": "1/double_dqn/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.024803902379051945,
+      "id": "1/double_dqn/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": -0.06797278388616246,
+      "id": "1/double_dqn/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "double_dqn",
+      "difference": 0.0013958786131986756,
+      "id": "1/double_dqn/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.02148654798965388,
+      "id": "1/cql/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.013107486674352131,
+      "id": "1/cql/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.030482493797065913,
+      "id": "1/cql/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.0044676544175440425,
+      "id": "1/cql/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.000545263787563921,
+      "id": "1/cql/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.011114319483554347,
+      "id": "1/cql/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.02291502212457619,
+      "id": "1/cql/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.027715732604243204,
+      "id": "1/cql/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.0036114590535510915,
+      "id": "1/cql/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.02291502212457619,
+      "id": "1/cql/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.03930348582148857,
+      "id": "1/cql/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.01894566822158994,
+      "id": "1/cql/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.014272480572051105,
+      "id": "1/cql/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql",
+      "difference": 0.028792129692791657,
+      "id": "1/cql/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql",
+      "difference": -0.020893647765680257,
+      "id": "1/cql/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.017306756659619005,
+      "id": "1/behavior_cloning/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.010664221956966036,
+      "id": "1/behavior_cloning/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.0387052133884479,
+      "id": "1/behavior_cloning/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.017306756659619005,
+      "id": "1/behavior_cloning/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.011047852041026207,
+      "id": "1/behavior_cloning/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.00931990906973268,
+      "id": "1/behavior_cloning/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.0,
+      "id": "1/behavior_cloning/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.003170221180736066,
+      "id": "1/behavior_cloning/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.009121547167970423,
+      "id": "1/behavior_cloning/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.011603501776265013,
+      "id": "1/behavior_cloning/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.009984266786674523,
+      "id": "1/behavior_cloning/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.027266562593224353,
+      "id": "1/behavior_cloning/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.01960780773234705,
+      "id": "1/behavior_cloning/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": -0.009210952049759635,
+      "id": "1/behavior_cloning/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "behavior_cloning",
+      "difference": 0.0621347361825787,
+      "id": "1/behavior_cloning/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.032877158314234545,
+      "id": "0/cql_alpha0/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.014451733166406022,
+      "id": "0/cql_alpha0/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.031825442921309066,
+      "id": "0/cql_alpha0/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.013992828998321327,
+      "id": "0/cql_alpha0/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.01789882598198833,
+      "id": "0/cql_alpha0/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.037975106017353655,
+      "id": "0/cql_alpha0/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.014348288084073069,
+      "id": "0/cql_alpha0/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.012502044824273417,
+      "id": "0/cql_alpha0/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.05998418718397491,
+      "id": "0/cql_alpha0/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.00590621832544258,
+      "id": "0/cql_alpha0/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.009816564195845867,
+      "id": "0/cql_alpha0/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": 0.005973336755514147,
+      "id": "0/cql_alpha0/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.006537906815245131,
+      "id": "0/cql_alpha0/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.015111833419504173,
+      "id": "0/cql_alpha0/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.044139202954490475,
+      "id": "0/cql_alpha0/101/base/SOLUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.04211917527498665,
+      "id": "1/cql_alpha0/11/base/BTCUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.043256487232964935,
+      "id": "1/cql_alpha0/11/base/ETHUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.04947192347214169,
+      "id": "1/cql_alpha0/11/base/SOLUSDT",
+      "seed": 11
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.013615478131609238,
+      "id": "1/cql_alpha0/23/base/BTCUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.016544445950099074,
+      "id": "1/cql_alpha0/23/base/ETHUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.05626285516955054,
+      "id": "1/cql_alpha0/23/base/SOLUSDT",
+      "seed": 23
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": 0.015407592908756262,
+      "id": "1/cql_alpha0/47/base/BTCUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.020047035881939235,
+      "id": "1/cql_alpha0/47/base/ETHUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.022258141504582496,
+      "id": "1/cql_alpha0/47/base/SOLUSDT",
+      "seed": 47
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": 0.021693725510502304,
+      "id": "1/cql_alpha0/71/base/BTCUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.037092517848545836,
+      "id": "1/cql_alpha0/71/base/ETHUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": 0.02673602552174581,
+      "id": "1/cql_alpha0/71/base/SOLUSDT",
+      "seed": 71
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.028301881256741823,
+      "id": "1/cql_alpha0/101/base/BTCUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": 0.003041777798209244,
+      "id": "1/cql_alpha0/101/base/ETHUSDT",
+      "seed": 101
+    },
+    {
+      "algorithm": "cql_alpha0",
+      "difference": -0.037336220936059705,
+      "id": "1/cql_alpha0/101/base/SOLUSDT",
+      "seed": 101
+    }
+  ],
+  "parentIndexSha256": "375289707f8b55a3d58d8ded69f7686215f0c67297dcdd9c22739e5f6a3956f4",
+  "promotionAllowed": false
+}

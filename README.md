@@ -27,6 +27,11 @@ pilot. Run `python3 scripts/research/run_rl_budget_v3.py --help`. CQL and clonin
 retain the identical 512-transition offline buffers. Observation-matched controls
 are included from the start; this is adaptive development research, disabled by
 default, with no new holdout or production authorization.
+The [executed budget report](research-notes/rl-exposure-2026-10-10/budget-v3.md)
+records another 50 fits and 1,218 complete replays. PPO (+0.299%) and Double DQN
+(+0.311%) improve on the smaller-budget means; CQL deteriorates to −1.605%.
+All remain behind the matched control and fail the intervention gate. Six
+training episodes hit economic risk termination; no integration is justified.
 
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
