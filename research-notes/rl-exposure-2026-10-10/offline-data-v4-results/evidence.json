@@ -1,0 +1,179 @@
+{
+  "DSR": "insufficient_evidence",
+  "OPE": "No real logged behavior/support. Historical replay is model-based counterfactual evidence. No valid real IS/DR/FQE estimate.",
+  "PBO": "insufficient_evidence",
+  "artifactBytesMax": 4876,
+  "artifactProvenanceClarification": "The archived trainingDatasetSha256 field names the common simulated reference buffer. Only CQL/alpha0/BC train on that buffer; PPO and DDQN collect fresh simulator transitions. The manifest panel/settlement hashes, fold and source commit identify their market training inputs. These research artifacts have no production loader.",
+  "blockers": [
+    "matched current champion",
+    "authentic first-seen data",
+    "untouched confirmation",
+    "full production safety composition",
+    "realistic precision and min-notional",
+    "short pilot compute and horizon"
+  ],
+  "elapsedSeconds": 255.32266695200087,
+  "failedFits": 0,
+  "failedReplays": 0,
+  "failureReasons": {},
+  "fitCount": 30,
+  "holdoutOpened": false,
+  "indexSha256": "a60a7d4850a8e261bf856a14e412c681eb124620b6c22d191a0f382b06a8a257",
+  "inferenceP99MaxMs": 0.20721145000000005,
+  "manifest": {
+    "algorithms": [
+      "cql",
+      "cql_alpha0",
+      "behavior_cloning"
+    ],
+    "behaviorIdentityPrefix": 512,
+    "campaign": "rl-offline-data-v4",
+    "commit": "198eceb68486acf50a172db219f56adfd5d19eed",
+    "data": {
+      "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+      "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+      "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors.",
+      "intervalMs": 28800000,
+      "license": "Binance provider terms; do not redistribute raw data",
+      "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+      "parentRegistration": "sequential-control-screen-v1.json",
+      "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT"
+      ]
+    },
+    "holdoutOpened": false,
+    "numpy": "2.3.5",
+    "observation": "causal-inventory-pending-finite-v1",
+    "offlineTransitions": 4096,
+    "pairedAlgorithms": [
+      "cql"
+    ],
+    "pairedComparators": [
+      "cash",
+      "normalized_momentum3"
+    ],
+    "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+    "promotionAllowed": false,
+    "proofLedgerSha256": "bb0f0a29dd6fc6b2d77194ad40c47f4177d220ea100277f16a1cdc3156afa3dd",
+    "python": "3.13.3",
+    "registrationSha256": "1977f18567854066b142067133724ff35e4dc2e2aba813606daee65a248b4ac2",
+    "rules": [
+      "cash",
+      "constant_long",
+      "normalized_momentum3",
+      "normalized_reversal3"
+    ],
+    "sourceHashes": {
+      "research-notes/registrations/rl-offline-data-v4.json": "1977f18567854066b142067133724ff35e4dc2e2aba813606daee65a248b4ac2",
+      "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+      "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",
+      "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+      "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+      "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+      "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+      "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+      "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+      "scripts/research/run_rl_composition.py": "d8ca42a3ae8811174652cf84ddd9d12f4970b83bbaf7cf798b8db4d8e7be83d9",
+      "scripts/research/run_rl_offline_data_v4.py": "fe98c2d24bc604883f0865cdc5941df7d32d04d8fbb1a8d12d1eff5c3033f2b4",
+      "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+      "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+      "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+      "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+    },
+    "version": "rl-admission-continuation-v2"
+  },
+  "maxRss": 83009536,
+  "paired": [
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": 0.006558285124696433,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.025423671171135438,
+        0.03646342714750277
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": 0.006558285124696433,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.02019948238939189,
+        0.03383050445000496
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": 0.006558285124696433,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.016266496729552195,
+        0.03272136101491
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "normalized_momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.008315866188078606,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.060368157427422464,
+        0.025918667744338403
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "normalized_momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.008315866188078606,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.04525712212260321,
+        0.021636501721875503
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "normalized_momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.008315866188078606,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.032080719860008905,
+        0.011249188869572154
+      ],
+      "status": "descriptive_development_only"
+    }
+  ],
+  "parameterArtifactsInGit": false,
+  "planned": 828,
+  "promotionAllowed": false,
+  "replayCount": 798,
+  "rssUnit": "bytes",
+  "source": "/private/tmp/trader-rl-offline-data-v4-evidence",
+  "traceAudit": {
+    "changedOrDeferredProposals": 22086,
+    "legacyCounter": "Archived unsafeExecutableIntents=0 was a constant and is NOT evidence. This independent audit supersedes that reporting claim.",
+    "paths": 798,
+    "rows": 51072,
+    "scope": "Post-hoc binary64 archived trace checks, tolerance 1e-12. Not a production safety proof. V2 independently reconstructs units/prices/funding/linear costs and nonterminal fills.",
+    "violationCount": 0,
+    "violations": {}
+  },
+  "trainingSeconds": 101.60592212498887
+}
