@@ -62,6 +62,7 @@ module Trader.Binance (
     fetchFuturesAccountUid,
     fetchSpotAccountUid,
     fetchOrderByClientId,
+    futuresAccountTradeTimeWindows,
     fetchAccountTrades,
     fetchFuturesIncome,
     fetchFreeBalance,
@@ -102,6 +103,7 @@ import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Ord
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With)
@@ -2034,6 +2036,25 @@ fetchOrderByClientId env symbol clientOrderId = do
     ensure2xx label resp
     pure (responseBody resp)
 
+{- | Binance USD-M futures rejects account-trade requests whose inclusive time
+range is longer than seven days. Split only fully bounded ranges; when one
+bound is absent Binance applies its own default window.
+-}
+futuresAccountTradeTimeWindows :: Maybe Int64 -> Maybe Int64 -> [(Maybe Int64, Maybe Int64)]
+futuresAccountTradeTimeWindows mStartTime mEndTime =
+    case (fmap (max 0) mStartTime, fmap (max 0) mEndTime) of
+        (Just startTime, Just endTime)
+            | startTime <= endTime -> go startTime endTime
+        normalizedRange -> [normalizedRange]
+  where
+    maxWindowSpanMs = 7 * 24 * 60 * 60 * 1000 - 1
+    go startTime endTime =
+        let windowEnd = startTime + min (endTime - startTime) maxWindowSpanMs
+         in (Just startTime, Just windowEnd)
+                : if windowEnd < endTime
+                    then go (windowEnd + 1) endTime
+                    else []
+
 fetchAccountTrades :: BinanceEnv -> Maybe String -> Maybe Int -> Maybe Int64 -> Maybe Int64 -> Maybe Int64 -> IO [BinanceTrade]
 fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
@@ -2049,12 +2070,12 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
             case mLimit of
                 Nothing -> []
                 Just lim -> [("limit", BS.pack (show (clampLimit lim)))]
-        startTimeParam =
-            case mStartTime of
+        startTimeParam rangeStartTime =
+            case rangeStartTime of
                 Nothing -> []
                 Just t -> [("startTime", BS.pack (show (max 0 t)))]
-        endTimeParam =
-            case mEndTime of
+        endTimeParam rangeEndTime =
+            case rangeEndTime of
                 Nothing -> []
                 Just t -> [("endTime", BS.pack (show (max 0 t)))]
         fromIdParam =
@@ -2066,12 +2087,25 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
                 MarketSpot -> ("/api/v3/myTrades", "account/myTrades")
                 MarketMargin -> ("/sapi/v1/margin/myTrades", "margin/myTrades")
                 MarketFutures -> ("/fapi/v1/userTrades", "futures/userTrades")
-        send ts = do
+        timeWindows =
+            case beMarket env of
+                MarketFutures -> futuresAccountTradeTimeWindows mStartTime mEndTime
+                _ -> [(mStartTime, mEndTime)]
+        -- Each window is a signed weight-5 request on the trading IP; bound the
+        -- fan-out so one history query cannot exhaust the venue rate limit.
+        maxTimeWindows = 53 :: Int
+        send rangeStartTime rangeEndTime ts = do
             let baseParams =
                     [ ("timestamp", BS.pack (show ts))
                     , ("recvWindow", binanceRecvWindowMs)
                     ]
-                params = symbolParam ++ limitParam ++ startTimeParam ++ endTimeParam ++ fromIdParam ++ baseParams
+                params =
+                    symbolParam
+                        ++ limitParam
+                        ++ startTimeParam rangeStartTime
+                        ++ endTimeParam rangeEndTime
+                        ++ fromIdParam
+                        ++ baseParams
                 queryToSign = renderSimpleQuery False params
                 sig = signQuery secret queryToSign
                 paramsSigned = params ++ [("signature", sig)]
@@ -2084,12 +2118,24 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
                         , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
                         }
             binanceHttp env label req
+        fetchWindow (rangeStartTime, rangeEndTime) = do
+            resp <- withBinanceTimestampRetry env (send rangeStartTime rangeEndTime)
+            ensure2xx label resp
+            case eitherDecode (responseBody resp) of
+                Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
+                Right trades -> pure trades
+        dedupeTrades = go Set.empty
+          where
+            go _ [] = []
+            go seen (trade : trades)
+                | key `Set.member` seen = go seen trades
+                | otherwise = trade : go (Set.insert key seen) trades
+              where
+                key = (btSymbol trade, btTradeId trade)
 
-    resp <- withBinanceTimestampRetry env send
-    ensure2xx label resp
-    case eitherDecode (responseBody resp) of
-        Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
-        Right trades -> pure trades
+    Control.Monad.when (length (take (maxTimeWindows + 1) timeWindows) > maxTimeWindows) $
+        throwIO (userError "futures account-trade range cannot exceed 371 days")
+    dedupeTrades . concat <$> mapM fetchWindow timeWindows
 
 fetchFuturesIncome :: BinanceEnv -> Maybe String -> Maybe String -> Maybe Int64 -> Maybe Int64 -> Maybe Int -> Maybe Int -> IO [FuturesIncome]
 fetchFuturesIncome env mSymbol mIncomeType mStartTime mEndTime mPage mLimit = do
