@@ -1,0 +1,141 @@
+{
+  "id": "rl-offline-data-v4",
+  "registeredOn": "2026-10-10",
+  "baseCommit": "354c853176b7ee2ac6570951f7f6f2d0aed6909d",
+  "baseVerification": "https://github.com/diegueins680/trader/actions/runs/37959950956",
+  "kind": "adaptive_development_offline_data_sensitivity_not_confirmation",
+  "hypothesis": "The 4096-update CQL result may depend on limited frozen simulator coverage. Increase only frozen uniform-proposal data from 512 to 4096 transitions per fold, holding updates, algorithm, seeds, environment and evaluation fixed. Compare CQL against matched cash and normalized momentum; paired differences from v3 are descriptive. Larger data is not assumed to help.",
+  "primaryUseCase": "single-instrument target exposure; shared policy across BTC/ETH/SOL, independent capital accounts, no portfolio allocation claim",
+  "data": {
+    "parentRegistration": "sequential-control-screen-v1.json",
+    "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+    "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT"
+    ],
+    "intervalMs": 28800000,
+    "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+    "license": "Binance provider terms; do not redistribute raw data",
+    "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+    "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors."
+  },
+  "folds": [
+    {
+      "trainStop": 1600,
+      "evaluationStart": 1606,
+      "evaluationStop": 1671
+    },
+    {
+      "trainStop": 2600,
+      "evaluationStart": 2606,
+      "evaluationStop": 2671
+    }
+  ],
+  "partition": "Stops exclusive; rewards mature strictly before trainStop. Six inherited separation bars are conservative, not a claim of an additional embargo; forward-only training has no post-test embargo region. Evaluation contains 64 transitions per symbol/fold, one cash start and one terminal close, never reset to hide a failure.",
+  "environment": {
+    "version": "rl-admission-continuation-v2",
+    "observation": "causal-close-inventory-v3 plus support flag, remaining finite-horizon fraction, pending target; explicit new 12-input version, incompatible with legacy policies",
+    "burnIn": 96,
+    "normalization": "Each episode fits only its strictly pre-decision burn-in with causal_replay_v3; immutable thereafter. No outcome-based calibration or predictor fits.",
+    "actions": [
+      -0.25,
+      0,
+      0.25
+    ],
+    "actionSemantics": "Raw categorical proposal remains the learning action. Decision support projection remains v1. At next-close simulated fill, compute the immutable exact-kernel preview. Only turnover_limit triggers a fresh zero-target execution from the ORIGINAL state; the rejected preview is never committed or charged. With partial fills, zero is a target, not a claim of immediate flatness. Other economic termination and resource failures remain unchanged.",
+    "ledger": "replay-accounting-v2 exact bounded rational unit ledger, initial equity 1, futures PnL and event funding, 5bp fee+0.5bp half-spread+4.5bp slippage, terminal costs exactly once",
+    "reward": "100*(equity_after-equity_before)/initial_equity; no shaping or clipping; external cash flow zero",
+    "discount": 1.0,
+    "discountRationale": "finite 32-transition training objective; gamma=1 preserves the telescoping economic reward. Remaining time is observed. Longer 64-step evaluation is a disclosed horizon shift.",
+    "trainingEpisodeTransitions": 32,
+    "execution": "Proposal at completed close; old units earn PnL/funding before fill at following close. Price-taking exogenous history, no market impact calibration. Delay stress holds one pending permitted target; next proposal may be ignored while a reservation is pending, explicitly logged.",
+    "risk": "Same v1 limits. A pre-fill admissible position has exposure <=0.35, so a zero target with fill in (0,1] requires turnover <=0.35 <0.50. Cost-induced economic risk still terminates and blocks adoption. This is isolated simulated recovery, not an operational live fallback.",
+    "unsupported": "zero target in isolated simulator, with costs; not a claim that flattening is an operationally safe live fallback",
+    "limits": "No authentic precision/min-notional/liquidity/queue calibration; no live inference or shared production reservations; blocks integration. Rational arithmetic exhaustion fails the trial, never silently rounds or resets.",
+    "intervention": "Log support unavailable separately; actionChanged means decision support changed the proposal or final turnover admission changed a due target. Scheduling/deferred/ignored proposals are reported separately, not called risk interventions. Final horizon liquidation is separately logged."
+  },
+  "algorithms": {
+    "cql": "same value network and target mechanism, corrected discrete scalar CQL(H)-inspired logsumexp penalty alpha .1; frozen 4096-transition uniform simulator dataset per fold before fitting; regenerate with identical factory/seed and require both original v2/v3 512-transition PREFIX hashes before any fit; no new collection during updates",
+    "behavior_cloning": "same actor, supervised likelihood on same frozen simulated uniform proposals; not counted as RL",
+    "deviations": "Only CQL, alpha-zero diagnostic and BC receive new fits: 4096 updates on a frozen 4096-transition simulated dataset. PPO/DDQN results from v3 are reused with explicit provenance, never called retrained. Offline learner receives an interaction factory that raises on use. Prefix identity is checked for BOTH folds before any fit; full buffer hash persisted before that fold is trained."
+  },
+  "baselines": [
+    "cash",
+    "constant_long",
+    "normalized_momentum3",
+    "normalized_reversal3",
+    "behavior_cloning"
+  ],
+  "champion": "Preserved. Exact live adopted-combo snapshot/causal replay not available in main; do not substitute a proxy and claim comparison. PR330 is separate evidence, not an imported baseline.",
+  "seeds": [
+    11,
+    23,
+    47,
+    71,
+    101
+  ],
+  "steps": 4096,
+  "selection": "Exactly 30 fits (10 CQL, 10 alpha0, 10 BC), 798 seven-stress replays (630 learned, 168 rules), last checkpoint only. Seeds 11/23/47/71/101, no replacement, checkpoint or budget selection. One adaptive dataset-size setting adds 30 recorded fits, not independent market samples. Frozen v3 is the 512-buffer reference; no retraining PPO/DDQN.",
+  "stresses": [
+    "base",
+    "cost1_5x",
+    "cost2x",
+    "severe50bp",
+    "delay1bar",
+    "partial50pct",
+    "funding2x"
+  ],
+  "primaryStatistic": "Paired total net equity change against cash and normalized_momentum3 over identical complete 64-transition windows, equal weight symbols/folds, all seeds. Baselines included before outcome inspection. Failed paths block comparisons and adoption. Improvement must exceed 0.001 with a positive simultaneous lower bound; all existing risk gates also required. Current champion and confirmation remain missing regardless.",
+  "materiality": 0.001,
+  "riskGates": {
+    "maxDrawdown": 0.15,
+    "maxES95": 0.02,
+    "maxInterventionRate": 0.2,
+    "executableSafetyViolations": 0,
+    "anyFailedPathBlocksAdoption": true,
+    "interventionDefinition": "actionChanged; old unsupported/deferred reason flag preserved separately, not directly comparable"
+  },
+  "statistics": "Circular blocks 3/9/21, 2000 draws, seed20261010. Only CQL versus cash and normalized_momentum3 are new primary comparisons; retain the original conservative six-comparison Bonferroni endpoints .05/12 and 1-.05/12. Exposed short windows: descriptive development intervals, no confirmatory p-values. Data-size changes versus v3 are descriptive only. No cumulative adaptive-search error control; DSR/PBO insufficient.",
+  "ope": "No real behavior logs or defensible real propensities. Frozen dataset is simulated uniform proposal behavior, with exact 1/3 probabilities and many-to-one shield mapping. Report support/action counts and critic calibration on frozen held-out simulator paths; no invented real IS/DR/FQE estimate or live support claim.",
+  "ablations": "CQL alpha0 on the same frozen buffer, all seeds; diagnostic ordinary offline DDQN, not an additional appropriate offline RL learner. No predictor, recurrence or reward shaping inputs exist to ablate.",
+  "proofGates": [
+    "reuse causal-v3 and exact-accounting SMT/conformance",
+    "new proposal/ledger composition SMT",
+    "finite lifecycle and reservation model",
+    "causality and update golden tests",
+    "source/partition/artifact identity checks",
+    "nonvacuous exact zero-target turnover lemma",
+    "rejected preview never mutates/charges ledger",
+    "turnover counterexample continues horizon",
+    "unchanged economic failure semantics",
+    "new audit validates final target and actionChanged"
+  ],
+  "budget": {
+    "trainingCpuMinutes": 30,
+    "campaignWallMinutes": 30,
+    "paidCompute": false,
+    "networkDuringTraining": false,
+    "modelsInGit": false,
+    "failureHandling": "Retain partial registry and report incomplete on interruption; no silent continuation or chosen-seed replacement."
+  },
+  "promotionAllowed": false,
+  "enabledByDefault": false,
+  "liveAuthorization": false,
+  "parentRegistration": "rl-training-budget-v3.json",
+  "parentEvidenceCommit": "9d3979f6783e59868a83d6eeed1a5e308a3081e2",
+  "limits": "No masking or decoder change: action aliasing under unsupported observations remains a known issue and the 20% intervention gate is unchanged. No production integration, authentic availability, current-champion replay, real OPE or untouched confirmation. Delayed pending commitments remain a test-time shift. This tests one simulated dataset-size sensitivity and cannot establish learning convergence or profitability.",
+  "offlineTransitions": 4096,
+  "baselineContract": "Cash and constant-long use no extra information. Normalized momentum/reversal take only sign of observation[1], the normalized three-bar return. They measure deviation from burn-in mean, not raw trend. Reuse the vector-only supplemental v2 implementation. No raw-history comparator is a primary baseline.",
+  "parentArchive": {
+    "indexSha256": "360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039",
+    "frozenCodeCommit": "c962c227cec940ca6277acbd246e1f9fdffcb399",
+    "behaviorHashes": [
+      "500c04ab4643c6d5c4959e31de18645e536971c3046c57d90143eb782eff1e60",
+      "23971b289be447f3514f1720518ee70e7324ae0419d2aca498471505e0cfef0e"
+    ],
+    "prefixTransitions": 512
+  },
+  "offlineDiagnostics": "Record uniform raw-proposal counts, supported-observation fractions, unique observations and observation ranges for full buffers and prefixes, economic termination counts, buffer hashes and held-path critic MSE. These are simulated coverage diagnostics, not real exchange overlap or calibrated uncertainty. Propensity 1/3 applies to raw proposals before many-to-one shielding."
+}
