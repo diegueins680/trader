@@ -8,7 +8,7 @@ import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
-import Trader.Binance (BinanceTrade (..), FuturesIncome (..), FuturesPositionRisk (..))
+import Trader.Binance (BinanceTrade (..), FuturesIncome (..), FuturesPositionRisk (..), futuresAccountTradeTimeWindows)
 import Trader.Revenue (RevenueBreakdown (..), RevenueExecution (..), RevenueLedger (..), RevenueSymbol (..), buildRevenueLedger)
 
 revenueSuite :: [(String, IO ())]
@@ -17,6 +17,7 @@ revenueSuite =
     , ("daily and symbol revenue remain attributable", testRevenueAttribution)
     , ("unclassified income fails closed outside net revenue", testUnclassifiedIncomeFailsClosed)
     , ("Binance futures income decodes string amounts", testFuturesIncomeDecode)
+    , ("Binance futures account-trade ranges are split into seven-day windows", testFuturesAccountTradeWindows)
     ]
 
 testExchangeIncomeAuthority :: IO ()
@@ -100,6 +101,42 @@ testFuturesIncomeDecode = do
             expectEq "income type normalized" "FUNDING_FEE" (fiIncomeType row)
             expectEq "asset normalized" "USDT" (fiAsset row)
             expectNear "income amount" (-0.375) (fiIncome row)
+
+testFuturesAccountTradeWindows :: IO ()
+testFuturesAccountTradeWindows = do
+    let dayMs = 86400000
+        startAt = 1704067200000
+        endAt = startAt + 20 * dayMs
+        windows = futuresAccountTradeTimeWindows (Just startAt) (Just endAt)
+        boundedWindows = [(start, end) | (Just start, Just end) <- windows]
+        contiguous =
+            and
+                ( zipWith
+                    (\(_, leftEnd) (rightStart, _) -> leftEnd + 1 == rightStart)
+                    boundedWindows
+                    (drop 1 boundedWindows)
+                )
+    expectEq
+        "twenty-day range splits into three compliant requests"
+        [ (Just startAt, Just (startAt + 7 * dayMs - 1))
+        , (Just (startAt + 7 * dayMs), Just (startAt + 14 * dayMs - 1))
+        , (Just (startAt + 14 * dayMs), Just endAt)
+        ]
+        windows
+    expectEq "all windows retain explicit bounds" (length windows) (length boundedWindows)
+    expectEq "split windows are contiguous" True contiguous
+    expectEq
+        "every inclusive window is at most seven days"
+        True
+        (all (\(start, end) -> end - start < 7 * dayMs) boundedWindows)
+    expectEq
+        "unbounded requests preserve Binance's default-window behavior"
+        [(Nothing, Nothing)]
+        (futuresAccountTradeTimeWindows Nothing Nothing)
+    expectEq
+        "a single supplied bound remains a single request"
+        [(Just startAt, Nothing)]
+        (futuresAccountTradeTimeWindows (Just startAt) Nothing)
 
 income :: String -> String -> Double -> Int64 -> FuturesIncome
 income symbol incomeType amount =

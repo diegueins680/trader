@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Web/API Binance: fetch explicit futures account-trade ranges in contiguous seven-day requests, then merge and deduplicate the results, avoiding Binance `-4165` failures for longer history ranges. Ranges longer than 189 days (27 requests per symbol, about Binance's six-month retention for this endpoint) or queries needing more than 160 requests across all symbols are rejected with HTTP 400 so one history query cannot exhaust the trading IP's Binance rate limit.
 - Exchange order/cancel requests are never retried by the HTTP layer, whatever `TRADER_HTTP_RETRY_WRITES` says (CE-IDEMP-001). Closes obligation 35.
 
 - Shutdown: while the server drains, bot starts are refused, bots make no new order decisions and the optimizer launches no new process (CE-DRAIN-001). Closes obligation 14.
