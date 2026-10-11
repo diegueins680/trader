@@ -1,0 +1,95 @@
+{
+  "baseCommit": "354c853176b7ee2ac6570951f7f6f2d0aed6909d",
+  "branch": "research/rl-exposure-v1-20261010",
+  "checks": {
+    "automation": {
+      "failed": 0,
+      "skipped": 0,
+      "specifications": "passed",
+      "testsPassed": 185
+    },
+    "formalRegressionTests": {
+      "passed": 341,
+      "seconds": 195.97
+    },
+    "formalReproduction": {
+      "seconds": 225.101,
+      "status": "passed"
+    },
+    "haskell": "build, fourmolu, hlint, smoke, cabal test passed",
+    "rlRegressionTests": {
+      "passed": 24,
+      "seconds": 4.931
+    },
+    "web": {
+      "build": "passed",
+      "failed": 0,
+      "skipped": 0,
+      "testsPassed": 241,
+      "typecheck": "passed"
+    }
+  },
+  "commands": [
+    {
+      "command": "python test/rl_composition_test.py",
+      "result": "24 tests passed; targeted final 3.830s"
+    },
+    {
+      "command": "python scripts/formal/rl_composition_check.py",
+      "result": "19 source identities, 7 composition + 2 admission SMT lemmas, 43 states/107 edges at bound8, 8 exact Python/Haskell cases passed"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "result": "passed",
+      "seconds": 201.52
+    },
+    {
+      "command": "env -i HOME=/Users/diegosaa TMPDIR=/private/tmp PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:/private/tmp/trader-rl-tools/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin TRADER_FORMAL_PYTHON=/private/tmp/trader-rl-tools/bin/python bash scripts/verify.sh full",
+      "exitCode": 0,
+      "result": "passed"
+    }
+  ],
+  "date": "2026-10-11",
+  "draftPrOpened": false,
+  "earlierAttempts": [
+    {
+      "command": "python test/rl_composition_test.py",
+      "result": "24 run, 2 errors: expected source-lock drift before review refresh; new prefix fixture omitted required buffer fields. Reviewed source lock and complete fixture corrected; all24 passed afterward."
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "result": "Rejected stale proof-ledger source digest before checking; reviewed mapping and its hash updated. Final full record and ordinary reproduction passed."
+    },
+    {
+      "command": "summarize_rl_offline_data_v4.py with placeholder expected digest",
+      "result": "Invocation mistake rejected by archive identity check before output creation; rerun with actual recorded index succeeded. No training or evidence archive was rerun or changed."
+    }
+  ],
+  "frozenExperimentCommit": "198eceb68486acf50a172db219f56adfd5d19eed",
+  "indexSha256": "a60a7d4850a8e261bf856a14e412c681eb124620b6c22d191a0f382b06a8a257",
+  "liveOrders": false,
+  "logHashes": {
+    "rl-v4-campaign.log": "73a2497441f5191a8783ca71b6385b9c8af384cf1fccb678c845aa7f91f7aeb3",
+    "rl-v4-formal-record-final.log": "1cd3c078317387b014a2562b7184ae487732548d9cc7c26ae786f2aaf1bcddcb",
+    "rl-v4-formal-record.log": "6baef7b7b9c9444acffc7a461f2d2e355ffe06725eaee13b5346a4b12daa656f",
+    "rl-v4-full.log": "37bd2febff39f1dcab0f916a64565537e867de90745d226ad20a895b2eff91f3",
+    "rl-v4-summary.log": "51b60dd147dd4a3ec3e63d2493b798c4d513e00fed1cbbf2c7bc97e739237bfb",
+    "rl-v4-targeted-final.log": "819eec109fbd1425d63f6af3bcb2ca47c506a06c2ff688b5a94d33550df95f0f",
+    "rl-v4-targeted.log": "f44143eb41efd0b18dbbc06429e252fd633976acf82a9ed1298004f787496d26"
+  },
+  "newLiveAuthorization": false,
+  "newTheorems": 0,
+  "preregistrationCommit": "74dce811",
+  "publicationBlocker": "Scheduled autoloop scans all PR states and may push review-driven changes directly to default branch, triggering deployment.",
+  "pushed": false,
+  "scope": "Research implementation verification, not financial efficacy or full production safety. Training and data are simulated/exposed development; no new holdout.",
+  "skippedRequiredWrapperTargets": [],
+  "unavailableMissionEvidence": [
+    "matched current champion",
+    "authentic first-seen timestamps",
+    "real logged support/OPE",
+    "untouched final confirmation",
+    "production artifact/inference parity and reservations",
+    "18 unresolved original assurance obligations"
+  ]
+}

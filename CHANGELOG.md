@@ -4,6 +4,9 @@
   CQL, its alpha-zero diagnostic and behavior cloning, preserving the v3 update
   budget and original 512-transition prefixes. Add subset-aware orchestration,
   an offline interaction guard and hash-verified comparison diagnostics.
+  All 30 fits and 798 replays completed. CQL improves to +0.656% but remains
+  behind the matched control; retain the failed promotion gates, one simulated
+  data-generation risk termination and the 51,072-row scoped audit.
 
 - Research: preregister a 4,096-step training-budget sensitivity study, preserving
   v2 accounting, shield and 512-transition offline datasets. Add an explicit

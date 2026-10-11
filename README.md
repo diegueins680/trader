@@ -32,6 +32,11 @@ frozen v3 comparison results. Both original dataset prefixes must match before
 any fit. Offline training receives no usable simulator interaction factory.
 This adaptive development experiment remains disabled by default and cannot
 promote a policy or authorize orders.
+The [executed offline-data report](research-notes/rl-exposure-2026-10-10/offline-data-v4.md)
+records 30 fits and 798 complete replays. CQL improves from −1.605% to +0.656%
+but trails the matched control (+1.487%) and fails uncertainty/intervention gates.
+Alpha-zero performs similarly (+0.696%); the conservative penalty has no
+demonstrated advantage here. Integration remains rejected.
 
 The [registered training-budget study](research-notes/registrations/rl-training-budget-v3.json)
 keeps v2 execution fixed and compares 4,096-step training with the frozen 512-step
