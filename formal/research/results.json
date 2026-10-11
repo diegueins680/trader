@@ -3474,7 +3474,7 @@
       "F-RL-COMPOSE-ARITH": "unsat"
     },
     "source": {
-      "files": 17,
+      "files": 19,
       "scope": "reviewed complete source digests and direct effect names; trusted transitive NumPy/kernel/runtime, not OS capability security",
       "status": "exhaustively_checked"
     }
@@ -4125,7 +4125,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "de35b449737a7cba839e45d7eb411bde6f041d5635618c084b1b4deb815f68da",
-    "formal/research/proof-ledger.json": "23a2dcd3195bfb49828f77baa153e79a7820b0ef4f9afb60b7088bc416735d78",
+    "formal/research/proof-ledger.json": "bb0f0a29dd6fc6b2d77194ad40c47f4177d220ea100277f16a1cdc3156afa3dd",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -4145,7 +4145,7 @@
     "formal/research/report-bundle-source.json": "e62e91b5e54506cc2db4029c79f9e8d6dc12d12df55bf73f371f2def55a8c3ef",
     "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
-    "formal/research/rl-composition-source.json": "142fd09023a0c4e71e2e15d58da76e8ce1131cfd7d47f6fd2e37b7a7ea5ad231",
+    "formal/research/rl-composition-source.json": "856fcc51f1451c868c076f2e41af59b14bd2a461b1b9d9e4a7ea4b514b1b55f3",
     "formal/research/round-min-cap-counterexample.json": "9d80fd1193755796c09eb86b76a5dda625439f9b2b565f0521f6d3986bdea06a",
     "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
@@ -4360,6 +4360,7 @@
     "research-notes/registrations/report-bundle-engineering.json": "828d4fda5c83ae66dff7da1b93a756f1144e677ac5109832d136164b01f7caa2",
     "research-notes/registrations/research-data-composition-engineering.json": "b88cedd60593b144b6bc3786615e3846d028b3c1bd40f73a6774bdcf73317de9",
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
+    "research-notes/registrations/rl-offline-data-v4.json": "1977f18567854066b142067133724ff35e4dc2e2aba813606daee65a248b4ac2",
     "research-notes/registrations/rl-training-budget-v3.json": "940988e8396245d3700bcb6237547b432259eb7ebb3d76c6fb3af4bc216e2d4e",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "research-notes/registrations/shutdown-deadline-engineering.json": "fc3a495df2ee75b347600bdb30b342b90dde8ffab91470e249533f5cb52860f3",
@@ -4460,18 +4461,20 @@
     "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
     "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
-    "scripts/research/run_rl_composition.py": "a02f6d81d5ed2584f331e5ace265e0334ebeeff235741820d22783aee18a630e",
+    "scripts/research/run_rl_composition.py": "d8ca42a3ae8811174652cf84ddd9d12f4970b83bbaf7cf798b8db4d8e7be83d9",
+    "scripts/research/run_rl_offline_data_v4.py": "fe98c2d24bc604883f0865cdc5941df7d32d04d8fbb1a8d12d1eff5c3033f2b4",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
     "scripts/research/sequential_evaluation.py": "fbe9c0a1c974c55985c8dcdfe19479072215b384af567daa5c0a710e6da2ad48",
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
     "scripts/research/summarize_rl_budget_v3.py": "1264159a96cc389229071c6c036c80efdc73d80f88f07161905925953492b84c",
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+    "scripts/research/summarize_rl_offline_data_v4.py": "048a3b889b9d81751c5b3e990b1ebf63a96e4cce9736f3fbdb325646f6350f89",
     "scripts/research/summarize_sequential_screen.py": "64963b746e913063472aa2bb4e898770916a4edc37813e32ab79d20d1dda46aa",
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
     "scripts/verify.sh": "594a476f290b84af82e607073cc16bae434202f898b4c777c176d6a7e00d90cb",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
-    "test/rl_composition_test.py": "f7b7707c2754b894fbdaf331294d23f612acc4cb72357ed15d78f9fd31761496",
+    "test/rl_composition_test.py": "8bcf81b10794ab740ade5d3a689942f29067afc573c6b772284eb5331b6a70cd",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
   },
   "splitIsolation": {

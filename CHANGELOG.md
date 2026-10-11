@@ -11,6 +11,11 @@
 - Trading/Live Fleet: the Hetzner trading profile now runs 18 live workers, one per symbol, instead of five. It keeps the five reviewed relaxed UUIDs (AVAX, UNI, SUI, ETC, ADA) and pins one strict-tier `deployable` UUID each for AAVE, ARB, ATOM, BCH, DOGE, DOT, ETH, FIL, LINK, NEAR, OP, SOL, and XRP. The 1% per-combo adoption cap is unchanged, so aggregate configured exposure rises from 5% to 18%. BNB, BTC, LTC, and TRX stay out because they have no strict-tier combo. Automatic graduation stays pending for the expanded fleet because the graduation window was not reset.
 - Trading/Pinned Fleet: live auto-start now fails closed when a pinned combo is unavailable. A flat symbol with no resolved pinned UUID is refused instead of starting from the latest-compatible or environment-default fallback; existing-position recovery is unchanged.
 - Web/API Binance: fetch explicit futures account-trade ranges in contiguous seven-day requests, then merge and deduplicate the results, avoiding Binance `-4165` failures for longer history ranges. Ranges longer than 189 days (27 requests per symbol, about Binance's six-month retention for this endpoint) or queries needing more than 160 requests across all symbols are rejected with HTTP 400 so one history query cannot exhaust the trading IP's Binance rate limit.
+- Research: preregister an isolated 4,096-transition frozen-data sensitivity for
+  CQL, its alpha-zero diagnostic and behavior cloning, preserving the v3 update
+  budget and original 512-transition prefixes. Add subset-aware orchestration,
+  an offline interaction guard and hash-verified comparison diagnostics.
+
 - Research: preregister a 4,096-step training-budget sensitivity study, preserving
   v2 accounting, shield and 512-transition offline datasets. Add an explicit
   opt-in runner, observation-matched controls and pre-fit buffer identity checks.

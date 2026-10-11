@@ -21,6 +21,18 @@ These exposed-development results reject integration of this candidate package.
 An explicitly adaptive supplemental control using exactly the RL observation
 vector averaged +1.487%; it also remains ineligible for production adoption.
 
+The [registered offline-data study](research-notes/registrations/rl-offline-data-v4.json)
+extends each frozen simulated behavior dataset from 512 to 4,096 transitions,
+holding optimizer updates and evaluation fixed. Run explicitly with
+`python scripts/research/run_rl_offline_data_v4.py --run-registered-offline-data-v4
+--panel <registered-development-panel.csv> --settlements <registered-development-settlements.csv>
+--output <new-evidence-directory>` in the pinned research environment. CQL,
+alpha-zero and behavior cloning are fitted; PPO and Double DQN retain their
+frozen v3 comparison results. Both original dataset prefixes must match before
+any fit. Offline training receives no usable simulator interaction factory.
+This adaptive development experiment remains disabled by default and cannot
+promote a policy or authorize orders.
+
 The [registered training-budget study](research-notes/registrations/rl-training-budget-v3.json)
 keeps v2 execution fixed and compares 4,096-step training with the frozen 512-step
 pilot. Run `python3 scripts/research/run_rl_budget_v3.py --help`. CQL and cloning
