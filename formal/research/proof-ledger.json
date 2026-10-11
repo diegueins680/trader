@@ -8108,7 +8108,9 @@
         "research-notes/rl-exposure-2026-10-10/contract.md",
         "scripts/research/summarize_rl_composition.py",
         "scripts/research/run_rl_budget_v3.py",
-        "scripts/research/summarize_rl_budget_v3.py"
+        "scripts/research/summarize_rl_budget_v3.py",
+        "scripts/research/run_rl_offline_data_v4.py",
+        "scripts/research/summarize_rl_offline_data_v4.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
@@ -8117,7 +8119,7 @@
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
       "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
-      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. Budget-v3 changes only registered orchestration, comparator injection and fixed-data identity checks. Its source identity is included; no new theorem or broad obligation closure is inferred.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. Budget-v3 changes only registered orchestration, comparator injection and fixed-data identity checks. Its source identity is included; no new theorem or broad obligation closure is inferred. Offline-data-v4 adds subset/prefix identity checks, a forbidden offline interaction factory and parent comparison auditing. No new theorem or closure of open obligations.",
       "counterexample": null,
       "status": "exhaustively_checked"
     },

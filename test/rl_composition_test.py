@@ -353,4 +353,73 @@ class AdmissionV2Tests(unittest.TestCase):
         self.assertEqual(len(observed),128)
 
 
+class OfflineDataV4Tests(unittest.TestCase):
+    def test_offline_factory_is_inaccessible_and_registration_is_fixed(self):
+        import json
+        from copy import deepcopy
+        from unittest.mock import Mock, patch
+        import run_rl_offline_data_v4 as data
+        reg=json.loads(data.REG.read_bytes())
+        config=data.configuration(reg)
+        self.assertEqual(config['algorithms'], ('cql','cql_alpha0','behavior_cloning'))
+        self.assertEqual(config['paired_algorithms'], ('cql',))
+        for key,value in (('steps',512),('offlineTransitions',512),('promotionAllowed',True)):
+            wrong=deepcopy(reg);wrong[key]=value
+            with self.assertRaises(ValueError): data.configuration(wrong)
+        factory=Mock()
+        def try_interaction(algorithm, forbidden, *args, **kwargs): forbidden(None)
+        with patch.object(data.v2,'train',side_effect=try_interaction):
+            for algorithm in data.ALGORITHMS:
+                with self.assertRaisesRegex(ValueError,'attempted simulator interaction'):
+                    data.offline_train(algorithm,factory,11,128,{},enabled=True)
+        factory.assert_not_called()
+        with self.assertRaisesRegex(ValueError,'offline learner required'):
+            data.offline_train('ppo',factory,11,128,{},enabled=True)
+
+    def test_prefix_in_second_fold_blocks_every_fit(self):
+        import json
+        import tempfile
+        from unittest.mock import Mock, patch
+        import run_rl_offline_data_v4 as data
+        import run_rl_composition as driver
+        config=data.configuration(json.loads(data.REG.read_bytes()))
+        frozen={'s':np.zeros((4096,12)), 'a':np.zeros(4096,dtype='int64'),
+                'r':np.zeros(4096), 'next':np.zeros((4096,12)),
+                'done':np.zeros(4096,dtype=bool), 'prob':np.full(4096,1/3)}
+        digest=r.buffer_hash({k:v[:512] for k,v in frozen.items()})
+        config['expected_behavior_hashes']=(digest,'0'*64)
+        trainer=Mock();config['trainer']=trainer
+        real=driver.subprocess.check_output
+        def committed(cmd,**kwargs):
+            if cmd[0]!='git':return real(cmd,**kwargs)
+            return 'fixture\n' if cmd[1]=='rev-parse' else (driver.ROOT/cmd[-1].split(':',1)[1]).read_bytes()
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(driver,'load',return_value=({},{})), \
+             patch.object(driver,'behavior_buffer',return_value=(None,frozen,[])) as collect, \
+             patch.object(driver.subprocess,'check_output',side_effect=committed):
+            with self.assertRaisesRegex(ValueError,'fixed dataset differs'):
+                driver.run(Path('unused'),Path('unused'),Path(directory)/'out',**config)
+            self.assertEqual(collect.call_count,2)
+            trainer.assert_not_called()
+
+    def test_real_collector_extension_and_subset_comparison(self):
+        import run_rl_composition as driver
+        import rl_admission_v2 as v2
+        from summarize_rl_offline_data_v4 import coverage
+        bars,events=fixture()
+        args=({'FIXTURE':bars},{'FIXTURE':events},{'trainStop':200},['FIXTURE'],v2.Episode,0)
+        _,short,_=driver.behavior_buffer(*args,128)
+        _,long,_=driver.behavior_buffer(*args,256)
+        self.assertEqual(r.buffer_hash(short),r.buffer_hash({k:v[:128] for k,v in long.items()}))
+        self.assertTrue(all(not v.flags.writeable for v in long.values()))
+        result=coverage(long)
+        self.assertEqual(sum(result['actionCounts']),256)
+        self.assertEqual(result['supportedFraction'],float(long['s'][:,9].mean()))
+        records=[dict(algorithm=a,fold=f,stress='base',status='complete',increments=[v]*64)
+                 for f in (0,1) for a,v in (('cql',.001),('cash',0),('normalized_momentum3',.002))]
+        result=driver.paired(records,('cash','normalized_momentum3'),('cql',))
+        self.assertEqual(len(result),6)
+        self.assertTrue(all(row['algorithm']=='cql' for row in result))
+
+
 if __name__=='__main__': unittest.main()

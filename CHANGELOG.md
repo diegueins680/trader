@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research: preregister an isolated 4,096-transition frozen-data sensitivity for
+  CQL, its alpha-zero diagnostic and behavior cloning, preserving the v3 update
+  budget and original 512-transition prefixes. Add subset-aware orchestration,
+  an offline interaction guard and hash-verified comparison diagnostics.
+
 - Research: preregister a 4,096-step training-budget sensitivity study, preserving
   v2 accounting, shield and 512-transition offline datasets. Add an explicit
   opt-in runner, observation-matched controls and pre-fit buffer identity checks.
