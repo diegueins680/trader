@@ -62,6 +62,7 @@ module Trader.Binance (
     fetchFuturesAccountUid,
     fetchSpotAccountUid,
     fetchOrderByClientId,
+    futuresAccountTradeMaxWindows,
     futuresAccountTradeTimeWindows,
     fetchAccountTrades,
     fetchFuturesIncome,
@@ -2055,6 +2056,13 @@ futuresAccountTradeTimeWindows mStartTime mEndTime =
                     then go (windowEnd + 1) endTime
                     else []
 
+{- | Binance serves only about the last six months from the synchronous
+account-trade endpoint, and each window is a signed weight-5 request on the
+trading IP, so one symbol's range is bounded to 27 windows (189 days).
+-}
+futuresAccountTradeMaxWindows :: Int
+futuresAccountTradeMaxWindows = 27
+
 fetchAccountTrades :: BinanceEnv -> Maybe String -> Maybe Int -> Maybe Int64 -> Maybe Int64 -> Maybe Int64 -> IO [BinanceTrade]
 fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
@@ -2091,9 +2099,6 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
             case beMarket env of
                 MarketFutures -> futuresAccountTradeTimeWindows mStartTime mEndTime
                 _ -> [(mStartTime, mEndTime)]
-        -- Each window is a signed weight-5 request on the trading IP; bound the
-        -- fan-out so one history query cannot exhaust the venue rate limit.
-        maxTimeWindows = 53 :: Int
         send rangeStartTime rangeEndTime ts = do
             let baseParams =
                     [ ("timestamp", BS.pack (show ts))
@@ -2133,8 +2138,8 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
               where
                 key = (btSymbol trade, btTradeId trade)
 
-    Control.Monad.when (length (take (maxTimeWindows + 1) timeWindows) > maxTimeWindows) $
-        throwIO (userError "futures account-trade range cannot exceed 371 days")
+    Control.Monad.when (length (take (futuresAccountTradeMaxWindows + 1) timeWindows) > futuresAccountTradeMaxWindows) $
+        throwIO (userError "futures account-trade range cannot exceed 189 days")
     dedupeTrades . concat <$> mapM fetchWindow timeWindows
 
 fetchFuturesIncome :: BinanceEnv -> Maybe String -> Maybe String -> Maybe Int64 -> Maybe Int64 -> Maybe Int -> Maybe Int -> IO [FuturesIncome]

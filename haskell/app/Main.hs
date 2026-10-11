@@ -227,6 +227,8 @@ import Trader.Binance (
     fetchSymbolFilters,
     fetchTicker24hPrice,
     fetchTickerPrice,
+    futuresAccountTradeMaxWindows,
+    futuresAccountTradeTimeWindows,
     getBinanceTimestampMs,
     getTimestampMs,
     keepAliveListenKey,
@@ -24086,11 +24088,20 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                 else do
                                                     let tradesTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
                                                         fetchSymbolTrades sym = fetchAccountTrades env (Just sym) limit startTime endTime fromId
+                                                        -- Bound the signed weight-5 requests one query may issue across
+                                                        -- all symbols, so it cannot exhaust the trading IP's rate limit.
+                                                        maxTradeRequests = 160 :: Int
+                                                        windowsPerSymbol
+                                                            | market == MarketFutures = length (take (futuresAccountTradeMaxWindows + 1) (futuresAccountTradeTimeWindows startTime endTime))
+                                                            | otherwise = 1
+                                                        tradeRequestCount = max 1 (length symbols) * windowsPerSymbol
                                                     result <-
                                                         trySync
                                                             ( timeout
                                                                 (tradesTimeoutSec * 1000000)
                                                                 ( do
+                                                                    when (tradeRequestCount > maxTradeRequests) $
+                                                                        throwIO (userError ("futures account-trade history needs " ++ show tradeRequestCount ++ " Binance requests; at most " ++ show maxTradeRequests ++ " are allowed per query. Use fewer symbols or a shorter range."))
                                                                     trades <-
                                                                         if allSymbols
                                                                             then fetchAccountTrades env Nothing limit startTime endTime fromId
