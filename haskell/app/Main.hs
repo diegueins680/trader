@@ -18355,6 +18355,8 @@ validateApiComputeLimitsAfterLoad :: ApiComputeLimits -> Args -> PriceSeries -> 
 validateApiComputeLimitsAfterLoad limits args series =
     case runtimeMethod (argMethod args) of
         MethodKalmanOnly -> Right ()
+        -- Technical-analysis methods train no LSTM, matching the pre-load exemption.
+        m | methodIsTechnicalAnalysis m -> Right ()
         _ ->
             let maxBars = aclMaxBarsLstm limits
                 bars = length (psClose series)
