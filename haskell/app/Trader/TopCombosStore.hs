@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.TopCombosStore (
+    TopCombosSyncFingerprint (..),
+    etagMatches,
+    topCombosSyncCanSkip,
+    topCombosSyncFingerprintComplete,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -73,9 +77,10 @@ import qualified Data.Aeson.Types as AT
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
+import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import qualified Data.Maybe
@@ -1907,3 +1912,42 @@ applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
                     Right (Aeson.Object o', stats)
                 _ -> Left "Top combos JSON missing combos array."
         _ -> Left "Top combos JSON root must be an object."
+
+{- | Cheap per-replica fingerprints (file size and mtime, a database aggregate, an S3
+ETag) taken before any leaderboard payload is decoded. 'Nothing' means the replica
+could not be fingerprinted and the sync must fall back to a full pass.
+-}
+data TopCombosSyncFingerprint = TopCombosSyncFingerprint
+    { tcsfLocal :: !(Maybe String)
+    , tcsfDb :: !(Maybe String)
+    , tcsfS3 :: !(Maybe String)
+    , tcsfStateSyncConfigured :: !Bool
+    -- ^ A state-sync peer has no cheap fingerprint, so its presence disables skipping.
+    }
+    deriving (Eq, Show)
+
+topCombosSyncFingerprintComplete :: TopCombosSyncFingerprint -> Bool
+topCombosSyncFingerprintComplete fp =
+    not (tcsfStateSyncConfigured fp) && all isJust [tcsfLocal fp, tcsfDb fp, tcsfS3 fp]
+
+{- | A sync pass may be skipped only when every replica could be fingerprinted and
+nothing changed since the last pass that found nothing to repair.
+-}
+topCombosSyncCanSkip :: Maybe TopCombosSyncFingerprint -> TopCombosSyncFingerprint -> Bool
+topCombosSyncCanSkip settled current =
+    maybe False (\prev -> topCombosSyncFingerprintComplete current && prev == current) settled
+
+-- | RFC 7232 If-None-Match evaluation for a single strong ETag (weak tags compare equal).
+etagMatches :: String -> String -> Bool
+etagMatches ifNoneMatch etag =
+    let trimmed = trimWs ifNoneMatch
+        wanted = stripWeak (trimWs etag)
+        candidates = map (stripWeak . trimWs) (splitCommas trimmed)
+     in trimmed == "*" || (not (null wanted) && wanted `elem` candidates)
+  where
+    trimWs = dropWhileEnd isSpace . dropWhile isSpace
+    stripWeak t = if "W/" `isPrefixOf` t then drop 2 t else t
+    splitCommas str =
+        case break (== ',') str of
+            (a, []) -> [a]
+            (a, _ : rest) -> a : splitCommas rest

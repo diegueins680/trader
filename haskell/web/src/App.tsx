@@ -65,6 +65,7 @@ import {
   stateSyncImport,
   signal,
   trade,
+  NOT_MODIFIED,
 } from "./lib/api";
 import { buildTenantKey } from "./lib/tenant";
 import { copyText } from "./lib/clipboard";
@@ -2169,6 +2170,9 @@ export function App() {
   const botStatusOpsAbortRef = useRef<AbortController | null>(null);
   const botOrderOpsAbortRef = useRef<AbortController | null>(null);
   const topCombosAbortRef = useRef<AbortController | null>(null);
+  // ETag of the last leaderboard applied from the API; sent back as If-None-Match so an
+  // unchanged board answers 304 instead of re-serving the full payload every poll.
+  const topCombosEtagRef = useRef<string | null>(null);
   const binanceTradesAbortRef = useRef<AbortController | null>(null);
   const binanceRevenueAbortRef = useRef<AbortController | null>(null);
   const binancePositionsAbortRef = useRef<AbortController | null>(null);
@@ -6982,6 +6986,7 @@ export function App() {
         fallbackReason: string | null,
       ) => {
         combosApplied = true;
+        if (source !== "api") topCombosEtagRef.current = null;
         setTopCombosAll(parsed.combos);
         setTopCombosPayload(parsed.payload);
         setTopCombosMeta({
@@ -7054,8 +7059,21 @@ export function App() {
                   : "API unavailable";
           throw new Error(fallbackReason);
         }
-        const payload = await optimizerCombos(apiBase, { headers: authHeaders, signal: controller.signal });
+        const knownEtag = topCombosEtagRef.current;
+        let responseEtag: string | null = null;
+        const payload = await optimizerCombos(apiBase, {
+          headers: knownEtag ? { ...authHeaders, "If-None-Match": knownEtag } : authHeaders,
+          signal: controller.signal,
+          acceptNotModified: Boolean(knownEtag),
+          onResponseHeaders: (headers) => {
+            responseEtag = headers.get("etag");
+          },
+        });
         if (isCancelled) return;
+        if (payload === NOT_MODIFIED) {
+          setTopCombosError(null);
+          return;
+        }
         const parsed = sanitizeTopCombosPayload(payload);
         if (!parsed) {
           throw new Error("Invalid optimizer combos payload.");
@@ -7073,6 +7091,7 @@ export function App() {
           }
         }
         applyTopCombos(parsed, "api", null);
+        topCombosEtagRef.current = responseEtag;
         setTopCombosError(null);
         maybeAutoApplyTopCombo(parsed.combos);
       } catch (err) {

@@ -479,6 +479,7 @@ import Trader.TopCombosStore (
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
+    TopCombosSyncFingerprint (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
@@ -494,6 +495,7 @@ import Trader.TopCombosStore (
     comboLiveStats,
     comboLiveStatsFromObject,
     comboPerformanceKey,
+    etagMatches,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
     mergeTopCombosPayloads,
@@ -501,6 +503,7 @@ import Trader.TopCombosStore (
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
+    topCombosSyncCanSkip,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
@@ -554,6 +557,7 @@ import Trader.VolConfGate (
 
 main :: IO ()
 main = do
+    testTopCombosSyncSkipAndEtag
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride
     testTradeMethodGateUsesResultEvidence
@@ -920,6 +924,22 @@ degenerate, because its largest single-bar step cannot clear the entry
 threshold. A live forecaster, or any run that actually closed trades, must not
 be flagged.
 -}
+testTopCombosSyncSkipAndEtag :: IO ()
+testTopCombosSyncSkipAndEtag = do
+    let fp = TopCombosSyncFingerprint{tcsfLocal = Just "100:1", tcsfDb = Just "3:9:9", tcsfS3 = Just "\"abc\"", tcsfStateSyncConfigured = False}
+    assert "no settled fingerprint never skips" (not (topCombosSyncCanSkip Nothing fp))
+    assert "identical complete fingerprint skips" (topCombosSyncCanSkip (Just fp) fp)
+    assert "changed local replica reruns" (not (topCombosSyncCanSkip (Just fp) fp{tcsfLocal = Just "100:2"}))
+    assert "changed S3 ETag reruns" (not (topCombosSyncCanSkip (Just fp) fp{tcsfS3 = Just "\"def\""}))
+    assert "unfingerprintable replica reruns" (not (topCombosSyncCanSkip (Just fp{tcsfDb = Nothing}) fp{tcsfDb = Nothing}))
+    assert "state-sync peer disables skipping" (not (topCombosSyncCanSkip (Just fp{tcsfStateSyncConfigured = True}) fp{tcsfStateSyncConfigured = True}))
+    assert "strong etag matches itself" (etagMatches "\"abc\"" "\"abc\"")
+    assert "weak etag compares equal" (etagMatches "W/\"abc\"" "\"abc\"")
+    assert "etag list matches any member" (etagMatches "\"x\", \"abc\"" "\"abc\"")
+    assert "star matches" (etagMatches "*" "\"abc\"")
+    assert "different etag does not match" (not (etagMatches "\"abd\"" "\"abc\""))
+    assert "empty etag never matches" (not (etagMatches "" ""))
+
 testPredictorLivenessDetectsDegenerateForecast :: IO ()
 testPredictorLivenessDetectsDegenerateForecast = do
     let openThreshold = 0.0024 :: Double
