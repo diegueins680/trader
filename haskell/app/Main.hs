@@ -2399,12 +2399,12 @@ topCombosLocalFingerprint path = do
                     IO (Either SomeException String)
             pure (either (const Nothing) Just statOrErr)
 
-{- | Content-sensitive aggregate over the combos table: an md5 over every row's identity,
-its tuple version (@xmin@, which PostgreSQL rewrites on every UPDATE whatever columns
-changed), stamps, headline metrics and the stored sizes of its JSON columns. Any insert,
-delete or update moves the digest, even one that keeps @updated_at_ms@ and the JSON
-sizes, without rendering the multi-megabyte JSON columns. A vacuum freeze can rewrite
-@xmin@ too, which only costs one extra full pass.
+{- | Content digest over the columns the leaderboard payload is built from: an md5 over
+every row's identity, headline metrics, thresholds, objective, source, creation stamp
+and the md5 of each JSON column's text. Volatile bookkeeping that the payload never
+exposes (@operation_count@, @updated_at_ms@, the tuple version) is deliberately left
+out, otherwise the per-minute bot operation counters would invalidate every ETag and
+keep the sync from ever settling.
 -}
 topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
 topCombosDbFingerprint store = do
@@ -2413,18 +2413,19 @@ topCombosDbFingerprint store = do
             withOpsConnection store $ \conn ->
                 query_
                     conn
-                    ( "SELECT count(*)::bigint, coalesce(max(updated_at_ms), 0)::bigint, "
-                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || xmin::text || ':' || coalesce(updated_at_ms::text, '') || ':' || coalesce(created_at_ms::text, '') "
+                    ( "SELECT count(*)::bigint, "
+                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || coalesce(created_at_ms::text, '') "
                         <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
                         <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
-                        <> "|| ':' || coalesce(pg_column_size(metrics_json)::text, '') || ':' || coalesce(pg_column_size(params_json)::text, ''), ',' ORDER BY combo_uuid)), '') "
+                        <> "|| ':' || coalesce(objective, '') || ':' || coalesce(source, '') "
+                        <> "|| ':' || coalesce(md5(params_json::text), '') || ':' || coalesce(md5(metrics_json::text), ''), ',' ORDER BY combo_uuid)), '') "
                         <> "FROM combos"
                     )
         ) ::
-            IO (Either SomeException [(Int64, Int64, String)])
+            IO (Either SomeException [(Int64, String)])
     pure $
         case rowsOrErr of
-            Right [(n, updated, digest)] -> Just (show n ++ ":" ++ show updated ++ ":" ++ digest)
+            Right [(n, digest)] -> Just (show n ++ ":" ++ digest)
             _ -> Nothing
 
 topCombosS3Fingerprint :: IO (Maybe String)
@@ -22117,7 +22118,11 @@ handleOptimizerCombosFull ::
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
 handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond = do
-    topVal0 <- readTopCombosValueWithDbFallback mOps topCombosStore
+    -- Decode each replica file once: the leaderboard is hundreds of megabytes of JSON and
+    -- a second decode doubles the transient heap of every request.
+    topRaw0 <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
+    rewrittenRef <- newIORef False
+    let topVal0 = fmap normalizeTopCombosPayload topRaw0
     topVal <-
         case topVal0 of
             Right v -> pure (Right v)
@@ -22163,29 +22168,12 @@ handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPa
                                         dbPersistNeeded <- withTopCombosLock topCombosStore $ do
                                             _ <- writeTopCombosValue topJsonPath mergedVal
                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                            writeIORef rewrittenRef True
                                             pure True
                                         when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
-    tmpVal <-
-        if tmpPath /= topJsonPath
-            then sanitizeVal <$> readTopCombosValueLocal tmpPath
-            else pure (Left "missing")
-    fallbackVal <-
-        if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
-            then sanitizeVal <$> readTopCombosValueLocal fallbackPath
-            else pure (Left "missing")
-    let seedVal = listToMaybe (rights [tmpVal, fallbackVal])
-    case (topValBackfilled, seedVal) of
-        (Left _, Just seed) ->
-            withTopCombosLock topCombosStore $ do
-                existsNow <- doesFileExist topJsonPath
-                unless existsNow $ do
-                    _ <- writeTopCombosValue topJsonPath seed
-                    persistTopCombosMaybe mStateSyncTarget topJsonPath
-        _ -> pure ()
-    topResponseVal <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
     tmpResponseVal <-
         if tmpPath /= topJsonPath
             then readTopCombosValueLocal tmpPath
@@ -22194,6 +22182,21 @@ handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPa
         if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
             then readTopCombosValueLocal fallbackPath
             else pure (Left "missing")
+    let tmpVal = sanitizeVal tmpResponseVal
+        fallbackVal = sanitizeVal fallbackResponseVal
+        seedVal = listToMaybe (rights [tmpVal, fallbackVal])
+    case (topValBackfilled, seedVal) of
+        (Left _, Just seed) ->
+            withTopCombosLock topCombosStore $ do
+                existsNow <- doesFileExist topJsonPath
+                unless existsNow $ do
+                    _ <- writeTopCombosValue topJsonPath seed
+                    persistTopCombosMaybe mStateSyncTarget topJsonPath
+                    writeIORef rewrittenRef True
+        _ -> pure ()
+    rewritten <- readIORef rewrittenRef
+    -- Only a write above changes the leaderboard between the first read and the response.
+    topResponseVal <- if rewritten then readTopCombosValueWithDbFallbackRaw mOps topCombosStore else pure topRaw0
     let responseVals = rights [topResponseVal, tmpResponseVal, fallbackResponseVal]
     now <- getTimestampMs
     let maxResponseCombos = max minPersist maxCombos
