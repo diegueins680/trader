@@ -2387,18 +2387,30 @@ topCombosLocalFingerprint path = do
                     IO (Either SomeException String)
             pure (either (const Nothing) Just statOrErr)
 
--- | Row count plus the newest update/creation stamps; any persisted change moves one of them.
+{- | Content-sensitive aggregate over the combos table: an md5 over every row's identity,
+stamps, headline metrics and the stored sizes of its JSON columns. Any insert, delete or
+update that touches those moves the digest even when it shares a millisecond with the
+current maximum, without rendering the multi-megabyte JSON columns.
+-}
 topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
 topCombosDbFingerprint store = do
     rowsOrErr <-
         ( trySync $
             withOpsConnection store $ \conn ->
-                query_ conn "SELECT count(*)::bigint, coalesce(max(updated_at_ms), 0)::bigint, coalesce(max(created_at_ms), 0)::bigint FROM combos"
+                query_
+                    conn
+                    ( "SELECT count(*)::bigint, coalesce(max(updated_at_ms), 0)::bigint, "
+                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || coalesce(updated_at_ms::text, '') || ':' || coalesce(created_at_ms::text, '') "
+                        <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
+                        <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
+                        <> "|| ':' || coalesce(pg_column_size(metrics_json)::text, '') || ':' || coalesce(pg_column_size(params_json)::text, ''), ',' ORDER BY combo_uuid)), '') "
+                        <> "FROM combos"
+                    )
         ) ::
-            IO (Either SomeException [(Int64, Int64, Int64)])
+            IO (Either SomeException [(Int64, Int64, String)])
     pure $
         case rowsOrErr of
-            Right [(n, updated, created)] -> Just (show n ++ ":" ++ show updated ++ ":" ++ show created)
+            Right [(n, updated, digest)] -> Just (show n ++ ":" ++ show updated ++ ":" ++ digest)
             _ -> Nothing
 
 topCombosS3Fingerprint :: IO (Maybe String)
@@ -22023,8 +22035,8 @@ handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore
         _ -> handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond
 
 {- | Fingerprint of everything the combos response depends on. 'Nothing' when the
-database or the S3 replica is configured but could not be fingerprinted, so a stale
-304 is never served.
+database or the S3 replica is configured but could not be fingerprinted, or when the
+build carries no commit identity, so a stale 304 is never served.
 -}
 optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
 optimizerCombosEtag buildInfo mOps topCombosStore paths = do
@@ -22043,15 +22055,15 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     pure $
-        case (dbFp, s3Fp) of
-            (Just dbTag, Just s3Tag) ->
+        case (dbFp, s3Fp, biCommit buildInfo) of
+            (Just dbTag, Just s3Tag, Just commit) ->
                 let payload =
                         encode
                             ( object
                                 [ -- The merge, sanitization and annotation logic lives in the
                                   -- executable, so a new build must never answer 304 to a tag
                                   -- minted by an old one.
-                                  "build" .= [biVersion buildInfo, fromMaybe "" (biCommit buildInfo)]
+                                  "build" .= [biVersion buildInfo, commit]
                                 , "files" .= fileMetas
                                 , "db" .= dbTag
                                 , "s3" .= s3Tag
