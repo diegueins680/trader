@@ -432,6 +432,7 @@ Important operational endpoints:
 - `GET /metrics` — runtime metrics
 - `POST /signal`, `/backtest`, `/trade` — synchronous work (`/trade` and `/trade/async` return 409 while a live bot owns the same account and symbol; stop the bot first or use close-position)
 - `/signal/async`, `/backtest/async`, `/trade/async` — persisted asynchronous work
+- `POST /binance/keys` — key status and a Binance `order/test` probe. When the probe cannot size the test order from `orderQuoteFraction` it reports the cause with numbers: the available quote balance for the supplied keys is zero, the fraction is not positive, or the fraction (and `maxOrderQuote`, if it capped) sizes the order at zero; set `orderQuantity`/`orderQuote` or a positive fraction, or use keys for the funded account. The generic `Provide orderQuantity or orderQuote, or set orderQuoteFraction.` remains only when none of the three is set.
 - `POST /binance/trades` — account-trade history; explicit futures ranges are split into Binance-compliant seven-day requests (at most 189 days per symbol and 160 Binance requests per query)
 - `POST /binance/revenue` — futures income, execution, and cost reconciliation (signed Binance credentials required)
 - `POST /binance/listenKey` and `GET /binance/listenKey/stream` — start and relay a tenant-scoped Binance user-data stream
