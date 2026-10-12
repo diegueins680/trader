@@ -2388,9 +2388,11 @@ topCombosLocalFingerprint path = do
             pure (either (const Nothing) Just statOrErr)
 
 {- | Content-sensitive aggregate over the combos table: an md5 over every row's identity,
-stamps, headline metrics and the stored sizes of its JSON columns. Any insert, delete or
-update that touches those moves the digest even when it shares a millisecond with the
-current maximum, without rendering the multi-megabyte JSON columns.
+its tuple version (@xmin@, which PostgreSQL rewrites on every UPDATE whatever columns
+changed), stamps, headline metrics and the stored sizes of its JSON columns. Any insert,
+delete or update moves the digest, even one that keeps @updated_at_ms@ and the JSON
+sizes, without rendering the multi-megabyte JSON columns. A vacuum freeze can rewrite
+@xmin@ too, which only costs one extra full pass.
 -}
 topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
 topCombosDbFingerprint store = do
@@ -2400,7 +2402,7 @@ topCombosDbFingerprint store = do
                 query_
                     conn
                     ( "SELECT count(*)::bigint, coalesce(max(updated_at_ms), 0)::bigint, "
-                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || coalesce(updated_at_ms::text, '') || ':' || coalesce(created_at_ms::text, '') "
+                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || xmin::text || ':' || coalesce(updated_at_ms::text, '') || ':' || coalesce(created_at_ms::text, '') "
                         <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
                         <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
                         <> "|| ':' || coalesce(pg_column_size(metrics_json)::text, '') || ':' || coalesce(pg_column_size(params_json)::text, ''), ',' ORDER BY combo_uuid)), '') "
