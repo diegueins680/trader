@@ -72,10 +72,24 @@ corsRequestHasAuthHeaders req =
 
 corsRequestHasImplicitReadOrigin :: Wai.Request -> Bool
 corsRequestHasImplicitReadOrigin req =
-    Wai.requestMethod req == "GET"
-        && path `elem` publicReadPaths
+    path `elem` publicReadPaths
+        && case Wai.requestMethod req of
+            "GET" -> True
+            -- A conditional poll (If-None-Match) makes the browser preflight; accept that
+            -- preflight for the public read paths when it asks for GET and only
+            -- conditional request headers, so it stays exactly as public as the GET.
+            "OPTIONS" -> requestedMethodIsGet && all (`elem` conditionalHeaderKeys) requestedHeaders
+            _ -> False
   where
+    hs = Wai.requestHeaders req
     path = requestPathNoApiPrefix req
+    requestedMethodIsGet =
+        fmap CI.mk (lookupHeaderNormalized "Access-Control-Request-Method" hs) == Just (CI.mk "GET")
+    requestedHeaders =
+        case lookupHeaderNormalized "Access-Control-Request-Headers" hs of
+            Nothing -> []
+            Just raw -> map normalizeKey (splitEnvList (BS.unpack raw))
+    conditionalHeaderKeys = [normalizeKey "if-none-match"]
     publicReadPaths =
         [ ["health"]
         , ["ready"]
@@ -87,7 +101,9 @@ corsHeadersFor :: CorsConfig -> Wai.Request -> ResponseHeaders
 corsHeadersFor cors req =
     let base =
             [ ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
+            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,If-None-Match,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
+            , -- Conditional leaderboard polling needs the ETag readable cross-origin.
+              ("Access-Control-Expose-Headers", "ETag")
             , ("Access-Control-Max-Age", "86400")
             ]
         mAllowed

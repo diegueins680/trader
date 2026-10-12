@@ -6,6 +6,8 @@ module Trader.S3 (
     resolveS3State,
     s3KeyFor,
     s3GetObject,
+    s3HeadObjectETag,
+    s3HeadObjectETagBounded,
     s3PutObject,
 ) where
 
@@ -19,8 +21,9 @@ import Data.Char (isSpace, toLower)
 import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
-import Network.HTTP.Client (Response, method, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
+import Network.HTTP.Client (Response, method, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Types (statusCode)
+import Network.HTTP.Types.Header (hETag)
 import Network.HTTP.Types.URI (urlEncode)
 import System.Environment (lookupEnv)
 
@@ -149,6 +152,35 @@ s3GetObject st key = do
                         then pure (Right (Just (responseBody resp)))
                         else pure (Left ("S3 GET failed (status " ++ show code ++ ")"))
 
+{- | HEAD an object and return its ETag without downloading the body. 'Right Nothing'
+means the object does not exist; a 2xx response without an ETag header is an error so
+callers never mistake a missing fingerprint for an unchanged object.
+-}
+s3HeadObjectETag :: S3State -> String -> IO (Either String (Maybe String))
+s3HeadObjectETag = s3HeadObjectETagWith s3RetryConfig Nothing
+
+{- | Single-attempt HEAD with a short response timeout, for request paths that must not
+stall on an S3 outage; callers treat 'Left' as "cannot fingerprint".
+-}
+s3HeadObjectETagBounded :: S3State -> String -> IO (Either String (Maybe String))
+s3HeadObjectETagBounded = s3HeadObjectETagWith s3RetryConfig{rcMaxRetries = 0} (Just 3000000)
+
+s3HeadObjectETagWith :: RetryConfig -> Maybe Int -> S3State -> String -> IO (Either String (Maybe String))
+s3HeadObjectETagWith retryCfg mTimeoutMicros st key = do
+    respOrErr <- s3RequestWith retryCfg mTimeoutMicros st "HEAD" key BL.empty
+    case respOrErr of
+        Left err -> pure (Left err)
+        Right resp -> do
+            let code = statusCode (responseStatus resp)
+            if code == 404
+                then pure (Right Nothing)
+                else
+                    if code >= 200 && code < 300
+                        then case lookup hETag (responseHeaders resp) of
+                            Just etag | not (BS.null etag) -> pure (Right (Just (BS.unpack etag)))
+                            _ -> pure (Left "S3 HEAD response carried no ETag")
+                        else pure (Left ("S3 HEAD failed (status " ++ show code ++ ")"))
+
 s3PutObject :: S3State -> String -> BL.ByteString -> IO (Either String ())
 s3PutObject st key body = do
     respOrErr <- s3Request st "PUT" key body
@@ -229,7 +261,10 @@ resolveContainerCredentials = do
                                     )
 
 s3Request :: S3State -> BS.ByteString -> String -> BL.ByteString -> IO (Either String (Response BL.ByteString))
-s3Request st reqMethod key body = do
+s3Request = s3RequestWith s3RetryConfig Nothing
+
+s3RequestWith :: RetryConfig -> Maybe Int -> S3State -> BS.ByteString -> String -> BL.ByteString -> IO (Either String (Response BL.ByteString))
+s3RequestWith retryCfg mTimeoutMicros st reqMethod key body = do
     now <- getCurrentTime
     manager <- getSharedManager
     let host = s3Host st
@@ -292,8 +327,9 @@ s3Request st reqMethod key body = do
                 { method = reqMethod
                 , requestHeaders = headers
                 , requestBody = HTTP.RequestBodyLBS body
+                , responseTimeout = maybe (responseTimeout req0) responseTimeoutMicro mTimeoutMicros
                 }
-    respOrErr <- trySync (httpLbsWithRetry s3RetryConfig (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry retryCfg (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
     case respOrErr of
         Left e -> pure (Left ("S3 request failed: " ++ show e))
         Right resp -> pure (Right resp)

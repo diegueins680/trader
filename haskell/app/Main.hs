@@ -62,7 +62,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status304, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -76,6 +76,7 @@ import System.Exit (ExitCode (..), die, exitFailure)
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
 import System.IO (Handle, IOMode (ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
+import System.Posix.Files (deviceID, fileID, fileSize, getFileStatus, modificationTimeHiRes)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 import System.Process (CreateProcess (..), StdStream (CreatePipe), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
 import System.Random (randomIO)
@@ -551,6 +552,8 @@ import Trader.S3 (
     S3State (..),
     resolveS3State,
     s3GetObject,
+    s3HeadObjectETag,
+    s3HeadObjectETagBounded,
     s3KeyFor,
     s3PutObject,
  )
@@ -592,6 +595,7 @@ import Trader.TopCombosStore (
     ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
+    TopCombosSyncFingerprint (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
@@ -607,6 +611,7 @@ import Trader.TopCombosStore (
     comboPerformanceKey,
     compactTopCombosPayloadForSync,
     defaultComboBacktestRefreshPolicy,
+    etagMatches,
     isTopCombosPayload,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
@@ -624,6 +629,7 @@ import Trader.TopCombosStore (
     setComboLiveStats,
     topCombosGeneratedAtMs,
     topCombosPayloadEquivalent,
+    topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
     withTopCombosLock,
     writeTopCombosValue,
@@ -2367,6 +2373,100 @@ validateTopCombosReplicaPayload name val =
             then Right normalized
             else Left (name ++ " payload missing combos array.")
 
+{- | File identity (device and inode), size and the full-resolution modification time.
+The store writes the leaderboard through a temp file and rename, so every write lands
+on a new inode even when size and timestamp coincide.
+-}
+topCombosLocalFingerprint :: FilePath -> IO (Maybe String)
+topCombosLocalFingerprint path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure (Just "missing")
+        else do
+            statOrErr <-
+                ( trySync $ do
+                    st <- getFileStatus path
+                    pure
+                        ( show (deviceID st)
+                            ++ ":"
+                            ++ show (fileID st)
+                            ++ ":"
+                            ++ show (fileSize st)
+                            ++ ":"
+                            ++ show (modificationTimeHiRes st)
+                        )
+                ) ::
+                    IO (Either SomeException String)
+            pure (either (const Nothing) Just statOrErr)
+
+{- | Content-sensitive aggregate over the combos table: an md5 over every row's identity,
+its tuple version (@xmin@, which PostgreSQL rewrites on every UPDATE whatever columns
+changed), stamps, headline metrics and the stored sizes of its JSON columns. Any insert,
+delete or update moves the digest, even one that keeps @updated_at_ms@ and the JSON
+sizes, without rendering the multi-megabyte JSON columns. A vacuum freeze can rewrite
+@xmin@ too, which only costs one extra full pass.
+-}
+topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
+topCombosDbFingerprint store = do
+    rowsOrErr <-
+        ( trySync $
+            withOpsConnection store $ \conn ->
+                query_
+                    conn
+                    ( "SELECT count(*)::bigint, coalesce(max(updated_at_ms), 0)::bigint, "
+                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || xmin::text || ':' || coalesce(updated_at_ms::text, '') || ':' || coalesce(created_at_ms::text, '') "
+                        <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
+                        <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
+                        <> "|| ':' || coalesce(pg_column_size(metrics_json)::text, '') || ':' || coalesce(pg_column_size(params_json)::text, ''), ',' ORDER BY combo_uuid)), '') "
+                        <> "FROM combos"
+                    )
+        ) ::
+            IO (Either SomeException [(Int64, Int64, String)])
+    pure $
+        case rowsOrErr of
+            Right [(n, updated, digest)] -> Just (show n ++ ":" ++ show updated ++ ":" ++ digest)
+            _ -> Nothing
+
+topCombosS3Fingerprint :: IO (Maybe String)
+topCombosS3Fingerprint = topCombosS3FingerprintWith s3HeadObjectETag
+
+-- | Request-path variant: one attempt with a short timeout, so an S3 outage cannot stall a read.
+topCombosS3FingerprintBounded :: IO (Maybe String)
+topCombosS3FingerprintBounded = topCombosS3FingerprintWith s3HeadObjectETagBounded
+
+topCombosS3FingerprintWith :: (S3State -> String -> IO (Either String (Maybe String))) -> IO (Maybe String)
+topCombosS3FingerprintWith headObject = do
+    mS3 <- resolveS3State
+    case mS3 of
+        Nothing -> do
+            -- A configured bucket whose credentials could not be resolved right now is
+            -- "cannot fingerprint", not "unconfigured": a later read may still serve S3.
+            bucketConfigured <- maybe False (not . null . trim) <$> lookupEnv "TRADER_STATE_S3_BUCKET"
+            pure (if bucketConfigured then Nothing else Just "unconfigured")
+        Just st -> do
+            result <- headObject st (s3TopCombosKey st)
+            pure $
+                case result of
+                    Right (Just etag) -> Just etag
+                    Right Nothing -> Just "missing"
+                    Left _ -> Nothing
+
+{- | Fingerprint every replica without decoding any payload. Taken before a sync pass so
+an unchanged set of replicas can skip the multi-hundred-megabyte decode and merge.
+-}
+topCombosSyncFingerprint :: Maybe OpsStore -> Maybe StateSyncTarget -> FilePath -> IO TopCombosSyncFingerprint
+topCombosSyncFingerprint mOps mStateSyncTarget path = do
+    localFp <- topCombosLocalFingerprint path
+    dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    s3Fp <- topCombosS3Fingerprint
+    pure
+        TopCombosSyncFingerprint
+            { tcsfLocal = localFp
+            , tcsfDb = dbFp
+            , tcsfS3 = s3Fp
+            , tcsfStateSyncConfigured = isJust mStateSyncTarget
+            }
+
 fetchTopCombosReplicaLocal :: FilePath -> IO TopCombosReplicaFetch
 fetchTopCombosReplicaLocal path = do
     result <- readTopCombosValueLocal path
@@ -2456,7 +2556,9 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             putStrLn (printf "Top combos sync enabled: everySec=%d initialDelaySec=%d maxCombos=%d path=%s" everySec initialDelaySec syncMaxCombos topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
             when (initialDelaySec > 0) (sleepSec initialDelaySec)
-            let loop = do
+            settledRef <- newIORef Nothing
+            skipLoggedRef <- newIORef False
+            let runPass = do
                     dbFetch <- traverse fetchTopCombosReplicaDb mOps
                     s3Fetch <- fetchTopCombosReplicaS3
                     stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
@@ -2542,6 +2644,23 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                         comboCount
                                     )
                                 )
+                    errs <- readIORef errRef
+                    pure (isNothing plan && HM.null errs)
+                loop = do
+                    fingerprint <- topCombosSyncFingerprint mOps mStateSyncTarget topJsonPath
+                    settled <- readIORef settledRef
+                    if topCombosSyncCanSkip settled fingerprint
+                        then do
+                            alreadyLogged <- readIORef skipLoggedRef
+                            unless alreadyLogged $ do
+                                writeIORef skipLoggedRef True
+                                putStrLn "Top combos sync: replicas unchanged since the last reconciled pass; skipping decode until a replica changes."
+                        else do
+                            writeIORef skipLoggedRef False
+                            -- Settle on the fingerprint taken before the pass: if a replica changed
+                            -- during the pass, the next fingerprint differs and the pass reruns.
+                            settledNow <- runPass
+                            writeIORef settledRef (if settledNow then Just fingerprint else Nothing)
                     sleepSec everySec
                     loop
             loop
@@ -18770,7 +18889,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "combos"] ->
                                         case Wai.requestMethod req of
-                                            "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respondCors
+                                            "GET" -> handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["state", "sync"] ->
                                         case Wai.requestMethod req of
@@ -18832,6 +18951,13 @@ apiErrorFromMsg msg =
                 then Just "Set market=futures or switch positioning to long-flat for spot/margin."
                 else Nothing
      in ApiError msg hint
+
+jsonValueWithHeaders :: (ToJSON a) => Status -> ResponseHeaders -> a -> Wai.Response
+jsonValueWithHeaders st extra v =
+    Wai.responseLBS
+        st
+        (("Content-Type", "application/json") : extra ++ noCacheHeaders)
+        (encode v)
 
 jsonError :: Status -> String -> Wai.Response
 jsonError st msg = jsonValue st (apiErrorFromMsg msg)
@@ -21910,17 +22036,87 @@ handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget pr
                                     respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
+    BuildInfo ->
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
     FilePath ->
     TopCombosStore ->
     FilePath ->
+    Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respond = do
+handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
     let topJsonPath = tcsPath topCombosStore
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
+    -- The response is a pure function of the replica files, the database aggregate and
+    -- static configuration, so a matching If-None-Match answers 304 before any of the
+    -- multi-hundred-megabyte decode and merge below runs.
+    mEtag <- optimizerCombosEtag buildInfo mOps topCombosStore [topJsonPath, tmpPath, fallbackPath]
+    let ifNoneMatch = BS.unpack <$> lookupHeaderNormalized "If-None-Match" (Wai.requestHeaders req)
+        etagHeaders = maybe [] (\tag -> [("ETag", BS.pack tag)]) mEtag
+    case (mEtag, ifNoneMatch) of
+        (Just tag, Just given) | etagMatches given tag -> respond (Wai.responseLBS status304 (etagHeaders ++ noCacheHeaders) BL.empty)
+        _ -> handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond
+
+{- | Fingerprint of everything the combos response depends on. 'Nothing' when any
+input (a file, the database, the S3 replica) could not be fingerprinted or the build
+carries no commit identity, so a stale 304 is never served.
+-}
+optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
+optimizerCombosEtag buildInfo mOps topCombosStore paths = do
+    fileMetas <- mapM topCombosLocalFingerprint paths
+    dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    -- The raw reader falls back to the S3 object on any local read failure, so the S3
+    -- ETag is always part of the response identity; the lookup is a single attempt with
+    -- a short timeout, and its failure withholds the ETag rather than delaying the read.
+    s3Fp <- topCombosS3FingerprintBounded
+    graduationMeta <- topCombosLocalFingerprint (portfolioGraduationPath topCombosStore)
+    overrides <- topComboDeployableOverrideUuidsFromEnv
+    configuredMode <- portfolioSelectorRolloutModeFromEnv
+    -- The effective rollout mode evaluates the whole graduation config against the review
+    -- file, so a redeploy that changes any TRADER_PORTFOLIO_AUTO_GRADUATE_* value must
+    -- also change the tag.
+    graduationConfig <- portfolioGraduationConfigFromEnv
+    minPersist <- topCombosMinPersistFromEnv
+    maxCombos <- optimizerMaxCombosFromEnv
+    pure $
+        case (sequence fileMetas, dbFp, s3Fp, graduationMeta, biCommit buildInfo) of
+            (Just fileTags, Just dbTag, Just s3Tag, Just graduationTag, Just commit) ->
+                let payload =
+                        encode
+                            ( object
+                                [ -- The merge, sanitization and annotation logic lives in the
+                                  -- executable, so a new build must never answer 304 to a tag
+                                  -- minted by an old one.
+                                  "build" .= [biVersion buildInfo, commit]
+                                , "files" .= fileTags
+                                , "db" .= dbTag
+                                , "s3" .= s3Tag
+                                , "graduation" .= graduationTag
+                                , "overrides" .= overrides
+                                , "mode" .= portfolioRolloutModeCode configuredMode
+                                , "graduationConfig" .= show graduationConfig
+                                , "minPersist" .= minPersist
+                                , "maxCombos" .= maxCombos
+                                ]
+                            )
+                 in -- Weak: the body also carries a fresh generatedAtMs, so representations
+                    -- sharing a tag are semantically equivalent rather than byte-identical.
+                    Just ("W/\"" ++ hashBytesHex payload ++ "\"")
+            _ -> Nothing
+
+handleOptimizerCombosFull ::
+    Maybe OpsStore ->
+    Maybe StateSyncTarget ->
+    TopCombosStore ->
+    FilePath ->
+    FilePath ->
+    FilePath ->
+    ResponseHeaders ->
+    (Wai.Response -> IO Wai.ResponseReceived) ->
+    IO Wai.ResponseReceived
+handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond = do
     topVal0 <- readTopCombosValueWithDbFallback mOps topCombosStore
     topVal <-
         case topVal0 of
@@ -22028,7 +22224,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                         , "dedupedCount" .= dedupedCount
                         , "combos" .= combos
                         ]
-            respond (jsonValue status200 out)
+            respond (jsonValueWithHeaders status200 etagHeaders out)
   where
     extractCombos :: Aeson.Value -> [Aeson.Value]
     extractCombos val =
