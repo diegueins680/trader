@@ -20977,6 +20977,8 @@ readTopCombosValueFromDbRaw store = do
     readDb = do
         maxCombos <- optimizerMaxCombosFromEnv
         let limitSafe = max 1 maxCombos
+        -- Tie-break on combo_uuid, not updated_at_ms: the ranking and the LIMIT cut must be a
+        -- function of payload-visible columns so the content fingerprint can stand in for it.
         rows <-
             withOpsConnection store $ \conn ->
                 query
@@ -20984,7 +20986,7 @@ readTopCombosValueFromDbRaw store = do
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms "
                         <> "FROM combos "
-                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC "
                         <> "LIMIT ?"
                     )
                     (Only limitSafe) ::
@@ -22128,6 +22130,8 @@ handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPa
             Right v -> pure (Right v)
             Left err -> do
                 recovered <- withTopCombosLock topCombosStore (recoverTopCombosFromHistory topJsonPath)
+                -- Recovery rewrites the local file, so the response must re-read it.
+                when (isJust recovered) (writeIORef rewrittenRef True)
                 pure $
                     case recovered of
                         Just val -> Right val
