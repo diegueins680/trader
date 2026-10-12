@@ -1902,10 +1902,10 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     hetznerTrading,
     /^TRADER_BOT_SYMBOLS=AVAXUSDT,UNIUSDT,SUIUSDT,ETCUSDT,ADAUSDT,AAVEUSDT,ARBUSDT,ATOMUSDT,BCHUSDT,DOGEUSDT,DOTUSDT,ETHUSDT,FILUSDT,LINKUSDT,NEARUSDT,OPUSDT,SOLUSDT,XRPUSDT$/m,
   );
-  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS=18$/m);
-  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS_STARTUP=18$/m);
-  assert.match(hetznerTrading, /^TRADER_BOT_AUTOSTART_MAX_BOTS=18$/m);
-  assert.match(hetznerTrading, /^TRADER_BOT_START_MAX_SYMBOLS=18$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS=8$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS_STARTUP=8$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_AUTOSTART_MAX_BOTS=8$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_START_MAX_SYMBOLS=8$/m);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=5/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
