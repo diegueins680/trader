@@ -1,6 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.TopCombosStore (
+    TopCombosSyncFingerprint (..),
+    etagMatches,
+    topCombosSyncCanSkip,
+    topCombosSyncFingerprintComplete,
+    withTopCombosBuildGate,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -73,9 +78,11 @@ import qualified Data.Aeson.Types as AT
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef (IORef, newIORef)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
+import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import qualified Data.Maybe
@@ -125,6 +132,10 @@ data TopCombosStore = TopCombosStore
     { tcsPath :: !FilePath
     , tcsHistoryDir :: !(Maybe FilePath)
     , tcsLock :: !(MVar ())
+    , tcsBuildGate :: !(MVar ())
+    -- ^ Serializes full leaderboard decodes and merges (see 'withTopCombosBuildGate').
+    , tcsResponseCache :: !(IORef (Maybe (String, BS.ByteString)))
+    -- ^ Last encoded @/optimizer/combos@ body with the fingerprint it was built for.
     }
 
 data TopCombosMergeStats = TopCombosMergeStats
@@ -137,7 +148,17 @@ data TopCombosMergeStats = TopCombosMergeStats
 newTopCombosStore :: FilePath -> Maybe FilePath -> IO TopCombosStore
 newTopCombosStore path historyDir = do
     lock <- newMVar ()
-    pure TopCombosStore{tcsPath = path, tcsHistoryDir = historyDir, tcsLock = lock}
+    gate <- newMVar ()
+    cache <- newIORef Nothing
+    pure TopCombosStore{tcsPath = path, tcsHistoryDir = historyDir, tcsLock = lock, tcsBuildGate = gate, tcsResponseCache = cache}
+
+{- | Run one full leaderboard decode-and-merge at a time. Each is a multi-gigabyte
+transient, and two overlapping ones (a sync pass plus a request, or two browser tabs)
+were enough to exhaust the 15.6 GiB trading box on 2026-10-12. Callers take this gate
+before 'withTopCombosLock', never the other way round.
+-}
+withTopCombosBuildGate :: TopCombosStore -> IO a -> IO a
+withTopCombosBuildGate store action = withMVar (tcsBuildGate store) (const action)
 
 withTopCombosLock :: TopCombosStore -> IO a -> IO a
 withTopCombosLock store action =
@@ -1907,3 +1928,42 @@ applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
                     Right (Aeson.Object o', stats)
                 _ -> Left "Top combos JSON missing combos array."
         _ -> Left "Top combos JSON root must be an object."
+
+{- | Cheap per-replica fingerprints (file size and mtime, a database aggregate, an S3
+ETag) taken before any leaderboard payload is decoded. 'Nothing' means the replica
+could not be fingerprinted and the sync must fall back to a full pass.
+-}
+data TopCombosSyncFingerprint = TopCombosSyncFingerprint
+    { tcsfLocal :: !(Maybe String)
+    , tcsfDb :: !(Maybe String)
+    , tcsfS3 :: !(Maybe String)
+    , tcsfStateSyncConfigured :: !Bool
+    -- ^ A state-sync peer has no cheap fingerprint, so its presence disables skipping.
+    }
+    deriving (Eq, Show)
+
+topCombosSyncFingerprintComplete :: TopCombosSyncFingerprint -> Bool
+topCombosSyncFingerprintComplete fp =
+    not (tcsfStateSyncConfigured fp) && all isJust [tcsfLocal fp, tcsfDb fp, tcsfS3 fp]
+
+{- | A sync pass may be skipped only when every replica could be fingerprinted and
+nothing changed since the last pass that found nothing to repair.
+-}
+topCombosSyncCanSkip :: Maybe TopCombosSyncFingerprint -> TopCombosSyncFingerprint -> Bool
+topCombosSyncCanSkip settled current =
+    maybe False (\prev -> topCombosSyncFingerprintComplete current && prev == current) settled
+
+-- | RFC 7232 If-None-Match evaluation for a single strong ETag (weak tags compare equal).
+etagMatches :: String -> String -> Bool
+etagMatches ifNoneMatch etag =
+    let trimmed = trimWs ifNoneMatch
+        wanted = stripWeak (trimWs etag)
+        candidates = map (stripWeak . trimWs) (splitCommas trimmed)
+     in trimmed == "*" || (not (null wanted) && wanted `elem` candidates)
+  where
+    trimWs = dropWhileEnd isSpace . dropWhile isSpace
+    stripWeak t = if "W/" `isPrefixOf` t then drop 2 t else t
+    splitCommas str =
+        case break (== ',') str of
+            (a, []) -> [a]
+            (a, _ : rest) -> a : splitCommas rest

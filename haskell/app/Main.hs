@@ -11,10 +11,10 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, finally, fromException, throwIO, uninterruptibleMask_)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, evaluate, finally, fromException, throwIO, uninterruptibleMask_)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
-import Crypto.Hash.Algorithms (SHA256)
+import Crypto.Hash.Algorithms (MD5, SHA256)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Encoding (pair, pairs)
@@ -62,7 +62,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status304, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -76,6 +76,7 @@ import System.Exit (ExitCode (..), die, exitFailure)
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
 import System.IO (Handle, IOMode (ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
+import System.Posix.Files (deviceID, fileID, fileSize, getFileStatus, modificationTimeHiRes)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 import System.Process (CreateProcess (..), StdStream (CreatePipe), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
 import System.Random (randomIO)
@@ -227,6 +228,8 @@ import Trader.Binance (
     fetchSymbolFilters,
     fetchTicker24hPrice,
     fetchTickerPrice,
+    futuresAccountTradeMaxWindows,
+    futuresAccountTradeTimeWindows,
     getBinanceTimestampMs,
     getTimestampMs,
     keepAliveListenKey,
@@ -549,6 +552,8 @@ import Trader.S3 (
     S3State (..),
     resolveS3State,
     s3GetObject,
+    s3HeadObjectETag,
+    s3HeadObjectETagBounded,
     s3KeyFor,
     s3PutObject,
  )
@@ -590,6 +595,7 @@ import Trader.TopCombosStore (
     ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
+    TopCombosSyncFingerprint (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
@@ -605,6 +611,7 @@ import Trader.TopCombosStore (
     comboPerformanceKey,
     compactTopCombosPayloadForSync,
     defaultComboBacktestRefreshPolicy,
+    etagMatches,
     isTopCombosPayload,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
@@ -622,7 +629,9 @@ import Trader.TopCombosStore (
     setComboLiveStats,
     topCombosGeneratedAtMs,
     topCombosPayloadEquivalent,
+    topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
+    withTopCombosBuildGate,
     withTopCombosLock,
     writeTopCombosValue,
  )
@@ -2365,6 +2374,101 @@ validateTopCombosReplicaPayload name val =
             then Right normalized
             else Left (name ++ " payload missing combos array.")
 
+{- | File identity (device and inode), size and the full-resolution modification time.
+The store writes the leaderboard through a temp file and rename, so every write lands
+on a new inode even when size and timestamp coincide.
+-}
+topCombosLocalFingerprint :: FilePath -> IO (Maybe String)
+topCombosLocalFingerprint path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure (Just "missing")
+        else do
+            statOrErr <-
+                ( trySync $ do
+                    st <- getFileStatus path
+                    pure
+                        ( show (deviceID st)
+                            ++ ":"
+                            ++ show (fileID st)
+                            ++ ":"
+                            ++ show (fileSize st)
+                            ++ ":"
+                            ++ show (modificationTimeHiRes st)
+                        )
+                ) ::
+                    IO (Either SomeException String)
+            pure (either (const Nothing) Just statOrErr)
+
+{- | Content digest over the columns the leaderboard payload is built from: an md5 over
+every row's identity, headline metrics, thresholds, objective, source, creation stamp
+and the md5 of each JSON column's text. Volatile bookkeeping that the payload never
+exposes (@operation_count@, @updated_at_ms@, the tuple version) is deliberately left
+out, otherwise the per-minute bot operation counters would invalidate every ETag and
+keep the sync from ever settling.
+-}
+topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
+topCombosDbFingerprint store = do
+    rowsOrErr <-
+        ( trySync $
+            withOpsConnection store $ \conn ->
+                query_
+                    conn
+                    ( "SELECT count(*)::bigint, "
+                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || coalesce(created_at_ms::text, '') "
+                        <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
+                        <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
+                        <> "|| ':' || coalesce(objective, '') || ':' || coalesce(source, '') "
+                        <> "|| ':' || coalesce(md5(params_json::text), '') || ':' || coalesce(md5(metrics_json::text), ''), ',' ORDER BY combo_uuid)), '') "
+                        <> "FROM combos"
+                    )
+        ) ::
+            IO (Either SomeException [(Int64, String)])
+    pure $
+        case rowsOrErr of
+            Right [(n, digest)] -> Just (show n ++ ":" ++ digest)
+            _ -> Nothing
+
+topCombosS3Fingerprint :: IO (Maybe String)
+topCombosS3Fingerprint = topCombosS3FingerprintWith s3HeadObjectETag
+
+-- | Request-path variant: one attempt with a short timeout, so an S3 outage cannot stall a read.
+topCombosS3FingerprintBounded :: IO (Maybe String)
+topCombosS3FingerprintBounded = topCombosS3FingerprintWith s3HeadObjectETagBounded
+
+topCombosS3FingerprintWith :: (S3State -> String -> IO (Either String (Maybe String))) -> IO (Maybe String)
+topCombosS3FingerprintWith headObject = do
+    mS3 <- resolveS3State
+    case mS3 of
+        Nothing -> do
+            -- A configured bucket whose credentials could not be resolved right now is
+            -- "cannot fingerprint", not "unconfigured": a later read may still serve S3.
+            bucketConfigured <- maybe False (not . null . trim) <$> lookupEnv "TRADER_STATE_S3_BUCKET"
+            pure (if bucketConfigured then Nothing else Just "unconfigured")
+        Just st -> do
+            result <- headObject st (s3TopCombosKey st)
+            pure $
+                case result of
+                    Right (Just etag) -> Just etag
+                    Right Nothing -> Just "missing"
+                    Left _ -> Nothing
+
+{- | Fingerprint every replica without decoding any payload. Taken before a sync pass so
+an unchanged set of replicas can skip the multi-hundred-megabyte decode and merge.
+-}
+topCombosSyncFingerprint :: Maybe OpsStore -> Maybe StateSyncTarget -> FilePath -> IO TopCombosSyncFingerprint
+topCombosSyncFingerprint mOps mStateSyncTarget path = do
+    localFp <- topCombosLocalFingerprint path
+    dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    s3Fp <- topCombosS3Fingerprint
+    pure
+        TopCombosSyncFingerprint
+            { tcsfLocal = localFp
+            , tcsfDb = dbFp
+            , tcsfS3 = s3Fp
+            , tcsfStateSyncConfigured = isJust mStateSyncTarget
+            }
+
 fetchTopCombosReplicaLocal :: FilePath -> IO TopCombosReplicaFetch
 fetchTopCombosReplicaLocal path = do
     result <- readTopCombosValueLocal path
@@ -2454,7 +2558,9 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             putStrLn (printf "Top combos sync enabled: everySec=%d initialDelaySec=%d maxCombos=%d path=%s" everySec initialDelaySec syncMaxCombos topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
             when (initialDelaySec > 0) (sleepSec initialDelaySec)
-            let loop = do
+            settledRef <- newIORef Nothing
+            skipLoggedRef <- newIORef False
+            let runPass = withTopCombosBuildGate topCombosStore $ do
                     dbFetch <- traverse fetchTopCombosReplicaDb mOps
                     s3Fetch <- fetchTopCombosReplicaS3
                     stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
@@ -2540,6 +2646,23 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                         comboCount
                                     )
                                 )
+                    errs <- readIORef errRef
+                    pure (isNothing plan && HM.null errs)
+                loop = do
+                    fingerprint <- topCombosSyncFingerprint mOps mStateSyncTarget topJsonPath
+                    settled <- readIORef settledRef
+                    if topCombosSyncCanSkip settled fingerprint
+                        then do
+                            alreadyLogged <- readIORef skipLoggedRef
+                            unless alreadyLogged $ do
+                                writeIORef skipLoggedRef True
+                                putStrLn "Top combos sync: replicas unchanged since the last reconciled pass; skipping decode until a replica changes."
+                        else do
+                            writeIORef skipLoggedRef False
+                            -- Settle on the fingerprint taken before the pass: if a replica changed
+                            -- during the pass, the next fingerprint differs and the pass reruns.
+                            settledNow <- runPass
+                            writeIORef settledRef (if settledNow then Just fingerprint else Nothing)
                     sleepSec everySec
                     loop
             loop
@@ -10956,12 +11079,23 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                     }
                                             else argsSym0
                                     adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
+                                    -- Pinned fleets fail closed: a flat symbol whose pinned combo is missing must not
+                                    -- start from the latest-compatible or environment-default fallback.
+                                    pinnedTargetMissing =
+                                        bsTradeEnabled settings
+                                            && topComboAdoptionEnabled
+                                            && argAdoptionRelaxGates argsBase
+                                            && not (null deployableOverrideUuids)
+                                            && isNothing mCombo
                                 adoptReqOrErr <-
                                     if adoptable
                                         then resolveAdoptionRequirement mOps argsSym sym
                                         else pure (Right (AdoptRequirement False False))
                                 case adoptReqOrErr of
                                     Left err -> recordError sym err
+                                    Right adoptReq
+                                        | pinnedTargetMissing && not (arActive adoptReq) ->
+                                            recordError sym "Pinned top combo unavailable; refusing an unpinned live start."
                                     Right adoptReq -> do
                                         (argsCombo, mComboUuid) <-
                                             if not topComboAdoptionEnabled
@@ -18301,10 +18435,12 @@ validateApiComputeLimits limits args =
                         (_, Just _) -> resolveBarsForCsv args
                         _ -> fromMaybe 0 (argBars args)
                 barsLabel = "bars too high"
+                -- Technical-analysis methods train no LSTM, so the LSTM bars cap does not apply to them.
+                barsCapApplies = not (methodIsTechnicalAnalysis (runtimeMethod (argMethod args)))
 
             case argBinanceSymbol args of
                 Just _ ->
-                    if bars > maxBars
+                    if barsCapApplies && bars > maxBars
                         then
                             Left
                                 ( "Request too expensive for this API instance: "
@@ -18315,7 +18451,7 @@ validateApiComputeLimits limits args =
                                 )
                         else Right ()
                 Nothing ->
-                    if bars > 0 && bars > maxBars
+                    if barsCapApplies && bars > 0 && bars > maxBars
                         then
                             Left
                                 ( "Request too expensive for this API instance: "
@@ -18340,6 +18476,8 @@ validateApiComputeLimitsAfterLoad :: ApiComputeLimits -> Args -> PriceSeries -> 
 validateApiComputeLimitsAfterLoad limits args series =
     case runtimeMethod (argMethod args) of
         MethodKalmanOnly -> Right ()
+        -- Technical-analysis methods train no LSTM, matching the pre-load exemption.
+        m | methodIsTechnicalAnalysis m -> Right ()
         _ ->
             let maxBars = aclMaxBarsLstm limits
                 bars = length (psClose series)
@@ -18753,7 +18891,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "combos"] ->
                                         case Wai.requestMethod req of
-                                            "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respondCors
+                                            "GET" -> handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["state", "sync"] ->
                                         case Wai.requestMethod req of
@@ -18815,6 +18953,20 @@ apiErrorFromMsg msg =
                 then Just "Set market=futures or switch positioning to long-flat for spot/margin."
                 else Nothing
      in ApiError msg hint
+
+jsonValueWithHeaders :: (ToJSON a) => Status -> ResponseHeaders -> a -> Wai.Response
+jsonValueWithHeaders st extra v =
+    Wai.responseLBS
+        st
+        (("Content-Type", "application/json") : extra ++ noCacheHeaders)
+        (encode v)
+
+jsonBytesWithHeaders :: Status -> ResponseHeaders -> BS.ByteString -> Wai.Response
+jsonBytesWithHeaders st extra body =
+    Wai.responseLBS
+        st
+        (("Content-Type", "application/json") : extra ++ noCacheHeaders)
+        (BL.fromStrict body)
 
 jsonError :: Status -> String -> Wai.Response
 jsonError st msg = jsonValue st (apiErrorFromMsg msg)
@@ -20451,10 +20603,25 @@ persistTopCombosMaybe mSync path = do
                     case mS3 of
                         Nothing -> pure ()
                         Just st -> do
-                            _ <- s3PutObject st (s3TopCombosKey st) contents
+                            unchanged <- s3TopCombosObjectUnchanged st contents
+                            _ <- if unchanged then pure (Right ()) else s3PutObject st (s3TopCombosKey st) contents
                             persistTopCombosHistoryMaybe path st contents
                             pure ()
                     syncTopCombosMaybe mSync contents
+
+{- | True when the S3 object already holds exactly these bytes (a single-part upload's
+ETag is the body md5), so an identical leaderboard is not re-uploaded and its ETag,
+which every fingerprint includes, stays put. Any doubt means upload.
+-}
+s3TopCombosObjectUnchanged :: S3State -> BL.ByteString -> IO Bool
+s3TopCombosObjectUnchanged st contents = do
+    r <- s3HeadObjectETagBounded st (s3TopCombosKey st)
+    pure $
+        case r of
+            Right (Just etag) -> filter (/= '"') (stripWeak etag) == show (hash (BL.toStrict contents) :: Digest MD5)
+            _ -> False
+  where
+    stripWeak t = if "W/" `isPrefixOf` t then drop 2 t else t
 
 persistTopCombosTargets :: [String] -> Maybe StateSyncTarget -> FilePath -> IO [String]
 persistTopCombosTargets targets mSync path =
@@ -20472,7 +20639,8 @@ persistTopCombosTargets targets mSync path =
                                 case mS3 of
                                     Nothing -> pure []
                                     Just st -> do
-                                        result <- s3PutObject st (s3TopCombosKey st) contents
+                                        unchanged <- s3TopCombosObjectUnchanged st contents
+                                        result <- if unchanged then pure (Right ()) else s3PutObject st (s3TopCombosKey st) contents
                                         case result of
                                             Left _ -> pure []
                                             Right _ -> do
@@ -20833,6 +21001,8 @@ readTopCombosValueFromDbRaw store = do
     readDb = do
         maxCombos <- optimizerMaxCombosFromEnv
         let limitSafe = max 1 maxCombos
+        -- Tie-break on combo_uuid, not updated_at_ms: the ranking and the LIMIT cut must be a
+        -- function of payload-visible columns so the content fingerprint can stand in for it.
         rows <-
             withOpsConnection store $ \conn ->
                 query
@@ -20840,7 +21010,7 @@ readTopCombosValueFromDbRaw store = do
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms "
                         <> "FROM combos "
-                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC "
                         <> "LIMIT ?"
                     )
                     (Only limitSafe) ::
@@ -21893,23 +22063,122 @@ handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget pr
                                     respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
+    BuildInfo ->
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
     FilePath ->
     TopCombosStore ->
     FilePath ->
+    Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respond = do
+handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
     let topJsonPath = tcsPath topCombosStore
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
-    topVal0 <- readTopCombosValueWithDbFallback mOps topCombosStore
+    -- The response is a pure function of the replica files, the database aggregate and
+    -- static configuration, so a matching If-None-Match answers 304 before any of the
+    -- multi-hundred-megabyte decode and merge below runs.
+    mEtag <- optimizerCombosEtag buildInfo mOps topCombosStore [topJsonPath, tmpPath, fallbackPath]
+    let ifNoneMatch = BS.unpack <$> lookupHeaderNormalized "If-None-Match" (Wai.requestHeaders req)
+        etagHeaders = maybe [] (\tag -> [("ETag", BS.pack tag)]) mEtag
+    let serveCached body = respond (jsonBytesWithHeaders status200 etagHeaders body)
+        cachedFor tag = do
+            cached <- readIORef (tcsResponseCache topCombosStore)
+            pure $ case cached of
+                Just (cachedTag, body) | cachedTag == tag -> Just body
+                _ -> Nothing
+    case (mEtag, ifNoneMatch) of
+        (Just tag, Just given) | etagMatches given tag -> respond (Wai.responseLBS status304 (etagHeaders ++ noCacheHeaders) BL.empty)
+        _ -> do
+            -- The last built body is reused while its fingerprint still matches, and at most
+            -- one build runs at a time; a waiter re-checks the cache once it holds the gate.
+            hit <- maybe (pure Nothing) cachedFor mEtag
+            case hit of
+                Just body -> serveCached body
+                Nothing -> withTopCombosBuildGate topCombosStore $ do
+                    hit' <- maybe (pure Nothing) cachedFor mEtag
+                    case hit' of
+                        Just body -> serveCached body
+                        Nothing -> do
+                            built <- buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath
+                            case built of
+                                Left errResponse -> respond errResponse
+                                Right body -> do
+                                    forM_ mEtag $ \tag -> writeIORef (tcsResponseCache topCombosStore) (Just (tag, body))
+                                    serveCached body
+
+{- | Fingerprint of everything the combos response depends on. 'Nothing' when any
+input (a file, the database, the S3 replica) could not be fingerprinted or the build
+carries no commit identity, so a stale 304 is never served.
+-}
+optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
+optimizerCombosEtag buildInfo mOps topCombosStore paths = do
+    fileMetas <- mapM topCombosLocalFingerprint paths
+    dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    -- The raw reader falls back to the S3 object on any local read failure, so the S3
+    -- ETag is always part of the response identity; the lookup is a single attempt with
+    -- a short timeout, and its failure withholds the ETag rather than delaying the read.
+    s3Fp <- topCombosS3FingerprintBounded
+    graduationMeta <- topCombosLocalFingerprint (portfolioGraduationPath topCombosStore)
+    overrides <- topComboDeployableOverrideUuidsFromEnv
+    configuredMode <- portfolioSelectorRolloutModeFromEnv
+    -- The effective rollout mode evaluates the whole graduation config against the review
+    -- file, so a redeploy that changes any TRADER_PORTFOLIO_AUTO_GRADUATE_* value must
+    -- also change the tag.
+    graduationConfig <- portfolioGraduationConfigFromEnv
+    minPersist <- topCombosMinPersistFromEnv
+    maxCombos <- optimizerMaxCombosFromEnv
+    pure $
+        case (sequence fileMetas, dbFp, s3Fp, graduationMeta, biCommit buildInfo) of
+            (Just fileTags, Just dbTag, Just s3Tag, Just graduationTag, Just commit) ->
+                let payload =
+                        encode
+                            ( object
+                                [ -- The merge, sanitization and annotation logic lives in the
+                                  -- executable, so a new build must never answer 304 to a tag
+                                  -- minted by an old one.
+                                  "build" .= [biVersion buildInfo, commit]
+                                , "files" .= fileTags
+                                , "db" .= dbTag
+                                , "s3" .= s3Tag
+                                , "graduation" .= graduationTag
+                                , "overrides" .= overrides
+                                , "mode" .= portfolioRolloutModeCode configuredMode
+                                , "graduationConfig" .= show graduationConfig
+                                , "minPersist" .= minPersist
+                                , "maxCombos" .= maxCombos
+                                ]
+                            )
+                 in -- Weak: the body also carries a fresh generatedAtMs, so representations
+                    -- sharing a tag are semantically equivalent rather than byte-identical.
+                    Just ("W/\"" ++ hashBytesHex payload ++ "\"")
+            _ -> Nothing
+
+{- | Decode the replicas, merge and encode the leaderboard body. The result is a fully
+evaluated strict ByteString so the cache never retains the decoded JSON behind a thunk.
+-}
+buildOptimizerCombosBody ::
+    Maybe OpsStore ->
+    Maybe StateSyncTarget ->
+    TopCombosStore ->
+    FilePath ->
+    FilePath ->
+    FilePath ->
+    IO (Either Wai.Response BS.ByteString)
+buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath = do
+    -- Decode each replica file once: the leaderboard is hundreds of megabytes of JSON and
+    -- a second decode doubles the transient heap of every request.
+    topRaw0 <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
+    rewrittenRef <- newIORef False
+    let topVal0 = fmap normalizeTopCombosPayload topRaw0
     topVal <-
         case topVal0 of
             Right v -> pure (Right v)
             Left err -> do
                 recovered <- withTopCombosLock topCombosStore (recoverTopCombosFromHistory topJsonPath)
+                -- Recovery rewrites the local file, so the response must re-read it.
+                when (isJust recovered) (writeIORef rewrittenRef True)
                 pure $
                     case recovered of
                         Just val -> Right val
@@ -21950,29 +22219,12 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                                         dbPersistNeeded <- withTopCombosLock topCombosStore $ do
                                             _ <- writeTopCombosValue topJsonPath mergedVal
                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                            writeIORef rewrittenRef True
                                             pure True
                                         when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
-    tmpVal <-
-        if tmpPath /= topJsonPath
-            then sanitizeVal <$> readTopCombosValueLocal tmpPath
-            else pure (Left "missing")
-    fallbackVal <-
-        if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
-            then sanitizeVal <$> readTopCombosValueLocal fallbackPath
-            else pure (Left "missing")
-    let seedVal = listToMaybe (rights [tmpVal, fallbackVal])
-    case (topValBackfilled, seedVal) of
-        (Left _, Just seed) ->
-            withTopCombosLock topCombosStore $ do
-                existsNow <- doesFileExist topJsonPath
-                unless existsNow $ do
-                    _ <- writeTopCombosValue topJsonPath seed
-                    persistTopCombosMaybe mStateSyncTarget topJsonPath
-        _ -> pure ()
-    topResponseVal <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
     tmpResponseVal <-
         if tmpPath /= topJsonPath
             then readTopCombosValueLocal tmpPath
@@ -21981,6 +22233,21 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
         if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
             then readTopCombosValueLocal fallbackPath
             else pure (Left "missing")
+    let tmpVal = sanitizeVal tmpResponseVal
+        fallbackVal = sanitizeVal fallbackResponseVal
+        seedVal = listToMaybe (rights [tmpVal, fallbackVal])
+    case (topValBackfilled, seedVal) of
+        (Left _, Just seed) ->
+            withTopCombosLock topCombosStore $ do
+                existsNow <- doesFileExist topJsonPath
+                unless existsNow $ do
+                    _ <- writeTopCombosValue topJsonPath seed
+                    persistTopCombosMaybe mStateSyncTarget topJsonPath
+                    writeIORef rewrittenRef True
+        _ -> pure ()
+    rewritten <- readIORef rewrittenRef
+    -- Only a write above changes the leaderboard between the first read and the response.
+    topResponseVal <- if rewritten then readTopCombosValueWithDbFallbackRaw mOps topCombosStore else pure topRaw0
     let responseVals = rights [topResponseVal, tmpResponseVal, fallbackResponseVal]
     now <- getTimestampMs
     let maxResponseCombos = max minPersist maxCombos
@@ -21998,7 +22265,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                 responseVals
         payloadSource = listToMaybe payloadSources
     if null combos
-        then respond (jsonError status404 "Optimizer combos not available yet.")
+        then pure (Left (jsonError status404 "Optimizer combos not available yet."))
         else do
             let out =
                     object
@@ -22011,7 +22278,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                         , "dedupedCount" .= dedupedCount
                         , "combos" .= combos
                         ]
-            respond (jsonValue status200 out)
+            Right <$> evaluate (BL.toStrict (encode out))
   where
     extractCombos :: Aeson.Value -> [Aeson.Value]
     extractCombos val =
@@ -24086,11 +24353,20 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                 else do
                                                     let tradesTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
                                                         fetchSymbolTrades sym = fetchAccountTrades env (Just sym) limit startTime endTime fromId
+                                                        -- Bound the signed weight-5 requests one query may issue across
+                                                        -- all symbols, so it cannot exhaust the trading IP's rate limit.
+                                                        maxTradeRequests = 160 :: Int
+                                                        windowsPerSymbol
+                                                            | market == MarketFutures = length (take (futuresAccountTradeMaxWindows + 1) (futuresAccountTradeTimeWindows startTime endTime))
+                                                            | otherwise = 1
+                                                        tradeRequestCount = max 1 (length symbols) * windowsPerSymbol
                                                     result <-
                                                         trySync
                                                             ( timeout
                                                                 (tradesTimeoutSec * 1000000)
                                                                 ( do
+                                                                    when (tradeRequestCount > maxTradeRequests) $
+                                                                        throwIO (userError ("futures account-trade history needs " ++ show tradeRequestCount ++ " Binance requests; at most " ++ show maxTradeRequests ++ " are allowed per query. Use fewer symbols or a shorter range."))
                                                                     trades <-
                                                                         if allSymbols
                                                                             then fetchAccountTrades env Nothing limit startTime endTime fromId
@@ -26066,23 +26342,16 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                         case argOrderQuote args of
                                             Just q | q > 0 -> Just q
                                             _ -> Nothing
-                                qq <-
+                                (qq, sizingErr) <-
                                     case (qty, qqArg, argOrderQuoteFraction args) of
                                         (Nothing, Nothing, Just f) | f > 0 -> do
                                             let (_baseAsset, quoteAsset) = splitSymbol sym''
                                             quoteBal <- fetchFreeBalance env quoteAsset
-                                            let q0 = quoteBal * f
-                                                q0Scaled = q0
-                                                q1 =
-                                                    let mCap =
-                                                            case argMaxOrderQuote args of
-                                                                Just q | q > 0 -> Just q
-                                                                _ -> Nothing
-                                                     in maybe q0Scaled (`min` q0Scaled) mCap
-                                            pure (if q1 > 0 then Just q1 else Nothing)
-                                        _ -> pure qqArg
+                                            pure (probeQuoteFromFraction quoteAsset quoteBal f (argMaxOrderQuote args))
+                                        (Nothing, Nothing, Just f) -> pure (Nothing, Just (fractionNotPositiveMsg f))
+                                        _ -> pure (qqArg, Nothing)
                                 if isNothing qty && isNothing qq
-                                    then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                                    then pure (Just (mkSkippedProbe "order/test" (fromMaybe missingSizingMsg sizingErr)))
                                     else do
                                         (mFilters, mFiltersErr) <- fetchFilters env sym''
                                         case mFilters of
@@ -26177,26 +26446,19 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                     (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
                                                                 )
                                     Nothing -> do
-                                        qq <-
+                                        (qq, sizingErr) <-
                                             case argOrderQuote args of
-                                                Just qq | qq > 0 -> pure (Just qq)
+                                                Just qq | qq > 0 -> pure (Just qq, Nothing)
                                                 _ ->
                                                     case argOrderQuoteFraction args of
                                                         Just f | f > 0 -> do
                                                             let (_baseAsset, quoteAsset) = splitSymbol sym''
                                                             bal <- fetchFuturesAvailableBalance env quoteAsset
-                                                            let q0 = bal * f
-                                                                q0Scaled = q0
-                                                                q1 =
-                                                                    let mCap =
-                                                                            case argMaxOrderQuote args of
-                                                                                Just q | q > 0 -> Just q
-                                                                                _ -> Nothing
-                                                                     in maybe q0Scaled (`min` q0Scaled) mCap
-                                                            pure (if q1 > 0 then Just q1 else Nothing)
-                                                        _ -> pure Nothing
+                                                            pure (probeQuoteFromFraction quoteAsset bal f (argMaxOrderQuote args))
+                                                        Just f -> pure (Nothing, Just (fractionNotPositiveMsg f))
+                                                        Nothing -> pure (Nothing, Nothing)
                                         case qq of
-                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
+                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" (fromMaybe missingSizingMsg sizingErr)))
                                             Just qq0 -> do
                                                 (mFilters, mFiltersErr) <- fetchFilters env sym''
                                                 case mFilters of
@@ -26242,10 +26504,51 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                     | otherwise = p
             pure baseStatus{abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe}
   where
-    missingSizingMsg =
-        if isJust (argOrderQuoteFraction args)
-            then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
-            else "Provide orderQuantity or orderQuote."
+    missingSizingMsg = "Provide orderQuantity or orderQuote, or set orderQuoteFraction."
+
+    -- Size the test order from the available quote balance, and say exactly why that
+    -- fails instead of a generic "sufficient quote balance" hint.
+    probeQuoteFromFraction :: String -> Double -> Double -> Maybe Double -> (Maybe Double, Maybe String)
+    probeQuoteFromFraction quoteAsset bal f mCapRaw =
+        let q0 = bal * f
+            mCap =
+                case mCapRaw of
+                    Just c | c > 0 -> Just c
+                    _ -> Nothing
+            q1 = maybe q0 (`min` q0) mCap
+         in if bal <= 0
+                then
+                    ( Nothing
+                    , Just
+                        ( "available "
+                            ++ quoteAsset
+                            ++ " balance is "
+                            ++ fmtProbeDouble bal
+                            ++ " for these keys; fund the wallet or provide orderQuantity/orderQuote."
+                        )
+                    )
+                else
+                    if q1 <= 0
+                        then
+                            ( Nothing
+                            , Just
+                                ( "orderQuoteFraction "
+                                    ++ fmtProbeDouble f
+                                    ++ " of available "
+                                    ++ quoteAsset
+                                    ++ " "
+                                    ++ fmtProbeDouble bal
+                                    ++ maybe "" (\c -> " (maxOrderQuote " ++ fmtProbeDouble c ++ ")") mCap
+                                    ++ " sizes the test order at "
+                                    ++ fmtProbeDouble q1
+                                    ++ "; raise it or provide orderQuantity/orderQuote."
+                                )
+                            )
+                        else (Just q1, Nothing)
+
+    fractionNotPositiveMsg :: Double -> String
+    fractionNotPositiveMsg f =
+        "orderQuoteFraction must be greater than 0 (got " ++ fmtProbeDouble f ++ "); provide orderQuantity/orderQuote or a positive fraction."
     missingSymbolMsg = "Provide binanceSymbol for the trade test."
     missingFiltersMsg = "Exchange info unavailable (cannot validate precision)."
     missingFiltersMsgWith mDetail =
