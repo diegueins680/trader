@@ -5,6 +5,7 @@ module Trader.TopCombosStore (
     etagMatches,
     topCombosSyncCanSkip,
     topCombosSyncFingerprintComplete,
+    withTopCombosBuildGate,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -79,6 +80,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef (IORef, newIORef)
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
@@ -130,6 +132,10 @@ data TopCombosStore = TopCombosStore
     { tcsPath :: !FilePath
     , tcsHistoryDir :: !(Maybe FilePath)
     , tcsLock :: !(MVar ())
+    , tcsBuildGate :: !(MVar ())
+    -- ^ Serializes full leaderboard decodes and merges (see 'withTopCombosBuildGate').
+    , tcsResponseCache :: !(IORef (Maybe (String, BS.ByteString)))
+    -- ^ Last encoded @/optimizer/combos@ body with the fingerprint it was built for.
     }
 
 data TopCombosMergeStats = TopCombosMergeStats
@@ -142,7 +148,17 @@ data TopCombosMergeStats = TopCombosMergeStats
 newTopCombosStore :: FilePath -> Maybe FilePath -> IO TopCombosStore
 newTopCombosStore path historyDir = do
     lock <- newMVar ()
-    pure TopCombosStore{tcsPath = path, tcsHistoryDir = historyDir, tcsLock = lock}
+    gate <- newMVar ()
+    cache <- newIORef Nothing
+    pure TopCombosStore{tcsPath = path, tcsHistoryDir = historyDir, tcsLock = lock, tcsBuildGate = gate, tcsResponseCache = cache}
+
+{- | Run one full leaderboard decode-and-merge at a time. Each is a multi-gigabyte
+transient, and two overlapping ones (a sync pass plus a request, or two browser tabs)
+were enough to exhaust the 15.6 GiB trading box on 2026-10-12. Callers take this gate
+before 'withTopCombosLock', never the other way round.
+-}
+withTopCombosBuildGate :: TopCombosStore -> IO a -> IO a
+withTopCombosBuildGate store action = withMVar (tcsBuildGate store) (const action)
 
 withTopCombosLock :: TopCombosStore -> IO a -> IO a
 withTopCombosLock store action =
