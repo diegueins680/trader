@@ -18852,7 +18852,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "combos"] ->
                                         case Wai.requestMethod req of
-                                            "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
+                                            "GET" -> handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["state", "sync"] ->
                                         case Wai.requestMethod req of
@@ -21999,6 +21999,7 @@ handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget pr
                                     respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
+    BuildInfo ->
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
     FilePath ->
@@ -22007,14 +22008,14 @@ handleOptimizerCombos ::
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
+handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
     let topJsonPath = tcsPath topCombosStore
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
     -- The response is a pure function of the replica files, the database aggregate and
     -- static configuration, so a matching If-None-Match answers 304 before any of the
     -- multi-hundred-megabyte decode and merge below runs.
-    mEtag <- optimizerCombosEtag mOps topCombosStore [topJsonPath, tmpPath, fallbackPath]
+    mEtag <- optimizerCombosEtag buildInfo mOps topCombosStore [topJsonPath, tmpPath, fallbackPath]
     let ifNoneMatch = BS.unpack <$> lookupHeaderNormalized "If-None-Match" (Wai.requestHeaders req)
         etagHeaders = maybe [] (\tag -> [("ETag", BS.pack tag)]) mEtag
     case (mEtag, ifNoneMatch) of
@@ -22025,8 +22026,8 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
 database or the S3 replica is configured but could not be fingerprinted, so a stale
 304 is never served.
 -}
-optimizerCombosEtag :: Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
-optimizerCombosEtag mOps topCombosStore paths = do
+optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
+optimizerCombosEtag buildInfo mOps topCombosStore paths = do
     fileMetas <- mapM csvCacheMeta paths
     dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
     -- The raw reader serves the S3 object when the local file is absent, so the S3
@@ -22047,7 +22048,11 @@ optimizerCombosEtag mOps topCombosStore paths = do
                 let payload =
                         encode
                             ( object
-                                [ "files" .= fileMetas
+                                [ -- The merge, sanitization and annotation logic lives in the
+                                  -- executable, so a new build must never answer 304 to a tag
+                                  -- minted by an old one.
+                                  "build" .= [biVersion buildInfo, fromMaybe "" (biCommit buildInfo)]
+                                , "files" .= fileMetas
                                 , "db" .= dbTag
                                 , "s3" .= s3Tag
                                 , "graduation" .= graduationMeta

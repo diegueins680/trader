@@ -72,10 +72,24 @@ corsRequestHasAuthHeaders req =
 
 corsRequestHasImplicitReadOrigin :: Wai.Request -> Bool
 corsRequestHasImplicitReadOrigin req =
-    Wai.requestMethod req == "GET"
-        && path `elem` publicReadPaths
+    path `elem` publicReadPaths
+        && case Wai.requestMethod req of
+            "GET" -> True
+            -- A conditional poll (If-None-Match) makes the browser preflight; accept that
+            -- preflight for the public read paths when it asks for GET and only
+            -- conditional request headers, so it stays exactly as public as the GET.
+            "OPTIONS" -> requestedMethodIsGet && all (`elem` conditionalHeaderKeys) requestedHeaders
+            _ -> False
   where
+    hs = Wai.requestHeaders req
     path = requestPathNoApiPrefix req
+    requestedMethodIsGet =
+        fmap CI.mk (lookupHeaderNormalized "Access-Control-Request-Method" hs) == Just (CI.mk "GET")
+    requestedHeaders =
+        case lookupHeaderNormalized "Access-Control-Request-Headers" hs of
+            Nothing -> []
+            Just raw -> map normalizeKey (splitEnvList (BS.unpack raw))
+    conditionalHeaderKeys = [normalizeKey "if-none-match"]
     publicReadPaths =
         [ ["health"]
         , ["ready"]
