@@ -3,7 +3,7 @@
     "certified": {
       "rollForwardQueries": 15,
       "rollForwardRoundings": 14,
-      "termQueries": 15,
+      "termQueries": 19,
       "terms": {
         "fee": {
           "absolute": 8.000000000000002,
@@ -4372,7 +4372,7 @@
     "research-notes/registrations/worker-registry-engineering.json": "b953fe44a73076e465749fb4ff18e05c939ec7ef1b0c04da5ca598fac85f0eca",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
     "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
-    "scripts/formal/accounting_reconciliation.py": "0c6d24a1f6e22040ff14d86a122bf131903bb9c5c83c6647f50c2b96a1f0ddb2",
+    "scripts/formal/accounting_reconciliation.py": "9becdfbc9ad38d1e2cc41d5d10b52b01b0d3a6486a1914ec347e18eed636c6d4",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
     "scripts/formal/artifact_admission.py": "3a431db8ce7522046308af1c97375a9a96957c2a34b553ffc07fe822e2a7200e",
     "scripts/formal/artifact_composition.py": "011e213a9c445e4b325084cdd4f90aa73abad83f4c133470160a1178739426f7",

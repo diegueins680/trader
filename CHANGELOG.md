@@ -6,6 +6,10 @@
   and final attestation. Keep the existing overlay behavior behind explicit
   `environment_mode: apply`. No current runtime values or RL eligibility change.
 
+- Formal: decompose the gross-P&L rounding bound into four exhaustive sign
+  cases after a monolithic solver timeout. Check coverage and nonvacuity;
+  preserve the original assumptions, conclusion, and 10-second query deadline.
+
 - Research: preregister an isolated 4,096-transition frozen-data sensitivity for
   CQL, its alpha-zero diagnostic and behavior cloning, preserving the v3 update
   budget and original 512-transition prefixes. Add subset-aware orchestration,
