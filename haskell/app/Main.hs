@@ -11,10 +11,10 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, finally, fromException, throwIO, uninterruptibleMask_)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, evaluate, finally, fromException, throwIO, uninterruptibleMask_)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
-import Crypto.Hash.Algorithms (SHA256)
+import Crypto.Hash.Algorithms (MD5, SHA256)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Encoding (pair, pairs)
@@ -631,6 +631,7 @@ import Trader.TopCombosStore (
     topCombosPayloadEquivalent,
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
+    withTopCombosBuildGate,
     withTopCombosLock,
     writeTopCombosValue,
  )
@@ -2559,7 +2560,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             when (initialDelaySec > 0) (sleepSec initialDelaySec)
             settledRef <- newIORef Nothing
             skipLoggedRef <- newIORef False
-            let runPass = do
+            let runPass = withTopCombosBuildGate topCombosStore $ do
                     dbFetch <- traverse fetchTopCombosReplicaDb mOps
                     s3Fetch <- fetchTopCombosReplicaS3
                     stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
@@ -18960,6 +18961,13 @@ jsonValueWithHeaders st extra v =
         (("Content-Type", "application/json") : extra ++ noCacheHeaders)
         (encode v)
 
+jsonBytesWithHeaders :: Status -> ResponseHeaders -> BS.ByteString -> Wai.Response
+jsonBytesWithHeaders st extra body =
+    Wai.responseLBS
+        st
+        (("Content-Type", "application/json") : extra ++ noCacheHeaders)
+        (BL.fromStrict body)
+
 jsonError :: Status -> String -> Wai.Response
 jsonError st msg = jsonValue st (apiErrorFromMsg msg)
 
@@ -20595,10 +20603,25 @@ persistTopCombosMaybe mSync path = do
                     case mS3 of
                         Nothing -> pure ()
                         Just st -> do
-                            _ <- s3PutObject st (s3TopCombosKey st) contents
+                            unchanged <- s3TopCombosObjectUnchanged st contents
+                            _ <- if unchanged then pure (Right ()) else s3PutObject st (s3TopCombosKey st) contents
                             persistTopCombosHistoryMaybe path st contents
                             pure ()
                     syncTopCombosMaybe mSync contents
+
+{- | True when the S3 object already holds exactly these bytes (a single-part upload's
+ETag is the body md5), so an identical leaderboard is not re-uploaded and its ETag,
+which every fingerprint includes, stays put. Any doubt means upload.
+-}
+s3TopCombosObjectUnchanged :: S3State -> BL.ByteString -> IO Bool
+s3TopCombosObjectUnchanged st contents = do
+    r <- s3HeadObjectETagBounded st (s3TopCombosKey st)
+    pure $
+        case r of
+            Right (Just etag) -> filter (/= '"') (stripWeak etag) == show (hash (BL.toStrict contents) :: Digest MD5)
+            _ -> False
+  where
+    stripWeak t = if "W/" `isPrefixOf` t then drop 2 t else t
 
 persistTopCombosTargets :: [String] -> Maybe StateSyncTarget -> FilePath -> IO [String]
 persistTopCombosTargets targets mSync path =
@@ -20616,7 +20639,8 @@ persistTopCombosTargets targets mSync path =
                                 case mS3 of
                                     Nothing -> pure []
                                     Just st -> do
-                                        result <- s3PutObject st (s3TopCombosKey st) contents
+                                        unchanged <- s3TopCombosObjectUnchanged st contents
+                                        result <- if unchanged then pure (Right ()) else s3PutObject st (s3TopCombosKey st) contents
                                         case result of
                                             Left _ -> pure []
                                             Right _ -> do
@@ -22058,9 +22082,31 @@ handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore
     mEtag <- optimizerCombosEtag buildInfo mOps topCombosStore [topJsonPath, tmpPath, fallbackPath]
     let ifNoneMatch = BS.unpack <$> lookupHeaderNormalized "If-None-Match" (Wai.requestHeaders req)
         etagHeaders = maybe [] (\tag -> [("ETag", BS.pack tag)]) mEtag
+    let serveCached body = respond (jsonBytesWithHeaders status200 etagHeaders body)
+        cachedFor tag = do
+            cached <- readIORef (tcsResponseCache topCombosStore)
+            pure $ case cached of
+                Just (cachedTag, body) | cachedTag == tag -> Just body
+                _ -> Nothing
     case (mEtag, ifNoneMatch) of
         (Just tag, Just given) | etagMatches given tag -> respond (Wai.responseLBS status304 (etagHeaders ++ noCacheHeaders) BL.empty)
-        _ -> handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond
+        _ -> do
+            -- The last built body is reused while its fingerprint still matches, and at most
+            -- one build runs at a time; a waiter re-checks the cache once it holds the gate.
+            hit <- maybe (pure Nothing) cachedFor mEtag
+            case hit of
+                Just body -> serveCached body
+                Nothing -> withTopCombosBuildGate topCombosStore $ do
+                    hit' <- maybe (pure Nothing) cachedFor mEtag
+                    case hit' of
+                        Just body -> serveCached body
+                        Nothing -> do
+                            built <- buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath
+                            case built of
+                                Left errResponse -> respond errResponse
+                                Right body -> do
+                                    forM_ mEtag $ \tag -> writeIORef (tcsResponseCache topCombosStore) (Just (tag, body))
+                                    serveCached body
 
 {- | Fingerprint of everything the combos response depends on. 'Nothing' when any
 input (a file, the database, the S3 replica) could not be fingerprinted or the build
@@ -22109,17 +22155,18 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
                     Just ("W/\"" ++ hashBytesHex payload ++ "\"")
             _ -> Nothing
 
-handleOptimizerCombosFull ::
+{- | Decode the replicas, merge and encode the leaderboard body. The result is a fully
+evaluated strict ByteString so the cache never retains the decoded JSON behind a thunk.
+-}
+buildOptimizerCombosBody ::
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
     TopCombosStore ->
     FilePath ->
     FilePath ->
     FilePath ->
-    ResponseHeaders ->
-    (Wai.Response -> IO Wai.ResponseReceived) ->
-    IO Wai.ResponseReceived
-handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond = do
+    IO (Either Wai.Response BS.ByteString)
+buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath = do
     -- Decode each replica file once: the leaderboard is hundreds of megabytes of JSON and
     -- a second decode doubles the transient heap of every request.
     topRaw0 <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
@@ -22218,7 +22265,7 @@ handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPa
                 responseVals
         payloadSource = listToMaybe payloadSources
     if null combos
-        then respond (jsonError status404 "Optimizer combos not available yet.")
+        then pure (Left (jsonError status404 "Optimizer combos not available yet."))
         else do
             let out =
                     object
@@ -22231,7 +22278,7 @@ handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPa
                         , "dedupedCount" .= dedupedCount
                         , "combos" .= combos
                         ]
-            respond (jsonValueWithHeaders status200 etagHeaders out)
+            Right <$> evaluate (BL.toStrict (encode out))
   where
     extractCombos :: Aeson.Value -> [Aeson.Value]
     extractCombos val =
