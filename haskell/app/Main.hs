@@ -26295,23 +26295,16 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                         case argOrderQuote args of
                                             Just q | q > 0 -> Just q
                                             _ -> Nothing
-                                qq <-
+                                (qq, sizingErr) <-
                                     case (qty, qqArg, argOrderQuoteFraction args) of
                                         (Nothing, Nothing, Just f) | f > 0 -> do
                                             let (_baseAsset, quoteAsset) = splitSymbol sym''
                                             quoteBal <- fetchFreeBalance env quoteAsset
-                                            let q0 = quoteBal * f
-                                                q0Scaled = q0
-                                                q1 =
-                                                    let mCap =
-                                                            case argMaxOrderQuote args of
-                                                                Just q | q > 0 -> Just q
-                                                                _ -> Nothing
-                                                     in maybe q0Scaled (`min` q0Scaled) mCap
-                                            pure (if q1 > 0 then Just q1 else Nothing)
-                                        _ -> pure qqArg
+                                            pure (probeQuoteFromFraction quoteAsset quoteBal f (argMaxOrderQuote args))
+                                        (Nothing, Nothing, Just f) -> pure (Nothing, Just (fractionNotPositiveMsg f))
+                                        _ -> pure (qqArg, Nothing)
                                 if isNothing qty && isNothing qq
-                                    then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                                    then pure (Just (mkSkippedProbe "order/test" (fromMaybe missingSizingMsg sizingErr)))
                                     else do
                                         (mFilters, mFiltersErr) <- fetchFilters env sym''
                                         case mFilters of
@@ -26406,26 +26399,19 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                     (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
                                                                 )
                                     Nothing -> do
-                                        qq <-
+                                        (qq, sizingErr) <-
                                             case argOrderQuote args of
-                                                Just qq | qq > 0 -> pure (Just qq)
+                                                Just qq | qq > 0 -> pure (Just qq, Nothing)
                                                 _ ->
                                                     case argOrderQuoteFraction args of
                                                         Just f | f > 0 -> do
                                                             let (_baseAsset, quoteAsset) = splitSymbol sym''
                                                             bal <- fetchFuturesAvailableBalance env quoteAsset
-                                                            let q0 = bal * f
-                                                                q0Scaled = q0
-                                                                q1 =
-                                                                    let mCap =
-                                                                            case argMaxOrderQuote args of
-                                                                                Just q | q > 0 -> Just q
-                                                                                _ -> Nothing
-                                                                     in maybe q0Scaled (`min` q0Scaled) mCap
-                                                            pure (if q1 > 0 then Just q1 else Nothing)
-                                                        _ -> pure Nothing
+                                                            pure (probeQuoteFromFraction quoteAsset bal f (argMaxOrderQuote args))
+                                                        Just f -> pure (Nothing, Just (fractionNotPositiveMsg f))
+                                                        Nothing -> pure (Nothing, Nothing)
                                         case qq of
-                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
+                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" (fromMaybe missingSizingMsg sizingErr)))
                                             Just qq0 -> do
                                                 (mFilters, mFiltersErr) <- fetchFilters env sym''
                                                 case mFilters of
@@ -26471,10 +26457,51 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                     | otherwise = p
             pure baseStatus{abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe}
   where
-    missingSizingMsg =
-        if isJust (argOrderQuoteFraction args)
-            then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
-            else "Provide orderQuantity or orderQuote."
+    missingSizingMsg = "Provide orderQuantity or orderQuote, or set orderQuoteFraction."
+
+    -- Size the test order from the available quote balance, and say exactly why that
+    -- fails instead of a generic "sufficient quote balance" hint.
+    probeQuoteFromFraction :: String -> Double -> Double -> Maybe Double -> (Maybe Double, Maybe String)
+    probeQuoteFromFraction quoteAsset bal f mCapRaw =
+        let q0 = bal * f
+            mCap =
+                case mCapRaw of
+                    Just c | c > 0 -> Just c
+                    _ -> Nothing
+            q1 = maybe q0 (`min` q0) mCap
+         in if bal <= 0
+                then
+                    ( Nothing
+                    , Just
+                        ( "available "
+                            ++ quoteAsset
+                            ++ " balance is "
+                            ++ fmtProbeDouble bal
+                            ++ " for these keys; fund the wallet or provide orderQuantity/orderQuote."
+                        )
+                    )
+                else
+                    if q1 <= 0
+                        then
+                            ( Nothing
+                            , Just
+                                ( "orderQuoteFraction "
+                                    ++ fmtProbeDouble f
+                                    ++ " of available "
+                                    ++ quoteAsset
+                                    ++ " "
+                                    ++ fmtProbeDouble bal
+                                    ++ maybe "" (\c -> " (maxOrderQuote " ++ fmtProbeDouble c ++ ")") mCap
+                                    ++ " sizes the test order at "
+                                    ++ fmtProbeDouble q1
+                                    ++ "; raise it or provide orderQuantity/orderQuote."
+                                )
+                            )
+                        else (Just q1, Nothing)
+
+    fractionNotPositiveMsg :: Double -> String
+    fractionNotPositiveMsg f =
+        "orderQuoteFraction must be greater than 0 (got " ++ fmtProbeDouble f ++ "); provide orderQuantity/orderQuote or a positive fraction."
     missingSymbolMsg = "Provide binanceSymbol for the trade test."
     missingFiltersMsg = "Exchange info unavailable (cannot validate precision)."
     missingFiltersMsgWith mDetail =
