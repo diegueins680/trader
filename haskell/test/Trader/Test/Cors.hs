@@ -100,7 +100,7 @@ testTenantWritePreflightAllowsRequestProgressHeader = do
         (lookupResponseHeader "Access-Control-Allow-Origin" headers)
     expectEq
         "OPTIONS /binance/positions allows request-progress header"
-        (Just "Authorization,Content-Type,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
+        (Just "Authorization,Content-Type,If-None-Match,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
         (lookupResponseHeader "Access-Control-Allow-Headers" headers)
 
 expectEq :: (Eq a, Show a) => String -> a -> a -> IO ()

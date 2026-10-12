@@ -22022,26 +22022,30 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
         _ -> handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond
 
 {- | Fingerprint of everything the combos response depends on. 'Nothing' when the
-database is configured but could not be fingerprinted, so a stale 304 is never served.
+database or the S3 replica is configured but could not be fingerprinted, so a stale
+304 is never served.
 -}
 optimizerCombosEtag :: Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
 optimizerCombosEtag mOps topCombosStore paths = do
     fileMetas <- mapM csvCacheMeta paths
     dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    -- The raw reader serves the S3 object when the local file is absent, so the S3
+    -- ETag is part of the response identity too.
+    s3Fp <- topCombosS3Fingerprint
     graduationMeta <- csvCacheMeta (portfolioGraduationPath topCombosStore)
     overrides <- topComboDeployableOverrideUuidsFromEnv
     configuredMode <- portfolioSelectorRolloutModeFromEnv
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     pure $
-        case dbFp of
-            Nothing -> Nothing
-            Just dbTag ->
+        case (dbFp, s3Fp) of
+            (Just dbTag, Just s3Tag) ->
                 let payload =
                         encode
                             ( object
                                 [ "files" .= fileMetas
                                 , "db" .= dbTag
+                                , "s3" .= s3Tag
                                 , "graduation" .= graduationMeta
                                 , "overrides" .= overrides
                                 , "mode" .= portfolioRolloutModeCode configuredMode
@@ -22050,6 +22054,7 @@ optimizerCombosEtag mOps topCombosStore paths = do
                                 ]
                             )
                  in Just ("\"" ++ hashBytesHex payload ++ "\"")
+            _ -> Nothing
 
 handleOptimizerCombosFull ::
     Maybe OpsStore ->
