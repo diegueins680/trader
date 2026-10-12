@@ -76,6 +76,7 @@ import System.Exit (ExitCode (..), die, exitFailure)
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
 import System.IO (Handle, IOMode (ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
+import System.Posix.Files (deviceID, fileID, fileSize, getFileStatus, modificationTimeHiRes)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 import System.Process (CreateProcess (..), StdStream (CreatePipe), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
 import System.Random (randomIO)
@@ -2371,6 +2372,10 @@ validateTopCombosReplicaPayload name val =
             then Right normalized
             else Left (name ++ " payload missing combos array.")
 
+{- | File identity (device and inode), size and the full-resolution modification time.
+The store writes the leaderboard through a temp file and rename, so every write lands
+on a new inode even when size and timestamp coincide.
+-}
 topCombosLocalFingerprint :: FilePath -> IO (Maybe String)
 topCombosLocalFingerprint path = do
     exists <- doesFileExist path
@@ -2379,10 +2384,16 @@ topCombosLocalFingerprint path = do
         else do
             statOrErr <-
                 ( trySync $ do
-                    size <- getFileSize path
-                    mtime <- getModificationTime path
-                    let mtimeMs = floor (utcTimeToPOSIXSeconds mtime * 1000) :: Int64
-                    pure (show size ++ ":" ++ show mtimeMs)
+                    st <- getFileStatus path
+                    pure
+                        ( show (deviceID st)
+                            ++ ":"
+                            ++ show (fileID st)
+                            ++ ":"
+                            ++ show (fileSize st)
+                            ++ ":"
+                            ++ show (modificationTimeHiRes st)
+                        )
                 ) ::
                     IO (Either SomeException String)
             pure (either (const Nothing) Just statOrErr)
@@ -22044,9 +22055,11 @@ optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePat
 optimizerCombosEtag buildInfo mOps topCombosStore paths = do
     fileMetas <- mapM csvCacheMeta paths
     dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
-    -- The raw reader serves the S3 object when the local file is absent, so the S3
-    -- ETag is part of the response identity too.
-    s3Fp <- topCombosS3Fingerprint
+    -- The raw reader serves the S3 object only when the local file is absent, so the
+    -- S3 ETag is part of the response identity only then; a healthy local replica must
+    -- never wait on an S3 round trip.
+    localPresent <- maybe (pure False) doesFileExist (listToMaybe paths)
+    s3Fp <- if localPresent then pure (Just "local-present") else topCombosS3Fingerprint
     graduationMeta <- csvCacheMeta (portfolioGraduationPath topCombosStore)
     overrides <- topComboDeployableOverrideUuidsFromEnv
     configuredMode <- portfolioSelectorRolloutModeFromEnv
