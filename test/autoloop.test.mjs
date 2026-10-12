@@ -1900,12 +1900,12 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /^TRADER_BOT_DISABLED_SYMBOLS=MATICUSDT$/m);
   assert.match(
     hetznerTrading,
-    /TRADER_BOT_SYMBOLS=AVAXUSDT,UNIUSDT,SUIUSDT,ETCUSDT,ADAUSDT/,
+    /^TRADER_BOT_SYMBOLS=AVAXUSDT,UNIUSDT,SUIUSDT,ETCUSDT,ADAUSDT,AAVEUSDT,ARBUSDT,ATOMUSDT,BCHUSDT,DOGEUSDT,DOTUSDT,ETHUSDT,FILUSDT,LINKUSDT,NEARUSDT,OPUSDT,SOLUSDT,XRPUSDT$/m,
   );
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=5/);
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=5/);
-  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=5/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=5/);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS=18$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS_STARTUP=18$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_AUTOSTART_MAX_BOTS=18$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_START_MAX_SYMBOLS=18$/m);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=5/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
@@ -1920,6 +1920,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY=0\.95/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY=0\.99/);
   assert.match(hetznerTrading, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
+  assert.match(main, /pinnedTargetMissing && not \(arActive adoptReq\) ->\s+recordError sym "Pinned top combo unavailable; refusing an unpinned live start\."/);
   assert.match(hetznerTrading, /TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false/);
   assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true/);
