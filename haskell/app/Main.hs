@@ -553,6 +553,7 @@ import Trader.S3 (
     resolveS3State,
     s3GetObject,
     s3HeadObjectETag,
+    s3HeadObjectETagBounded,
     s3KeyFor,
     s3PutObject,
  )
@@ -2427,12 +2428,19 @@ topCombosDbFingerprint store = do
             _ -> Nothing
 
 topCombosS3Fingerprint :: IO (Maybe String)
-topCombosS3Fingerprint = do
+topCombosS3Fingerprint = topCombosS3FingerprintWith s3HeadObjectETag
+
+-- | Request-path variant: one attempt with a short timeout, so an S3 outage cannot stall a read.
+topCombosS3FingerprintBounded :: IO (Maybe String)
+topCombosS3FingerprintBounded = topCombosS3FingerprintWith s3HeadObjectETagBounded
+
+topCombosS3FingerprintWith :: (S3State -> String -> IO (Either String (Maybe String))) -> IO (Maybe String)
+topCombosS3FingerprintWith headObject = do
     mS3 <- resolveS3State
     case mS3 of
         Nothing -> pure (Just "unconfigured")
         Just st -> do
-            result <- s3HeadObjectETag st (s3TopCombosKey st)
+            result <- headObject st (s3TopCombosKey st)
             pure $
                 case result of
                     Right (Just etag) -> Just etag
@@ -22047,20 +22055,19 @@ handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore
         (Just tag, Just given) | etagMatches given tag -> respond (Wai.responseLBS status304 (etagHeaders ++ noCacheHeaders) BL.empty)
         _ -> handleOptimizerCombosFull mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath etagHeaders respond
 
-{- | Fingerprint of everything the combos response depends on. 'Nothing' when the
-database or the S3 replica is configured but could not be fingerprinted, or when the
-build carries no commit identity, so a stale 304 is never served.
+{- | Fingerprint of everything the combos response depends on. 'Nothing' when any
+input (a file, the database, the S3 replica) could not be fingerprinted or the build
+carries no commit identity, so a stale 304 is never served.
 -}
 optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
 optimizerCombosEtag buildInfo mOps topCombosStore paths = do
-    fileMetas <- mapM csvCacheMeta paths
+    fileMetas <- mapM topCombosLocalFingerprint paths
     dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
-    -- The raw reader serves the S3 object only when the local file is absent, so the
-    -- S3 ETag is part of the response identity only then; a healthy local replica must
-    -- never wait on an S3 round trip.
-    localPresent <- maybe (pure False) doesFileExist (listToMaybe paths)
-    s3Fp <- if localPresent then pure (Just "local-present") else topCombosS3Fingerprint
-    graduationMeta <- csvCacheMeta (portfolioGraduationPath topCombosStore)
+    -- The raw reader falls back to the S3 object on any local read failure, so the S3
+    -- ETag is always part of the response identity; the lookup is a single attempt with
+    -- a short timeout, and its failure withholds the ETag rather than delaying the read.
+    s3Fp <- topCombosS3FingerprintBounded
+    graduationMeta <- topCombosLocalFingerprint (portfolioGraduationPath topCombosStore)
     overrides <- topComboDeployableOverrideUuidsFromEnv
     configuredMode <- portfolioSelectorRolloutModeFromEnv
     -- The effective rollout mode evaluates the whole graduation config against the review
@@ -22070,8 +22077,8 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     pure $
-        case (dbFp, s3Fp, biCommit buildInfo) of
-            (Just dbTag, Just s3Tag, Just commit) ->
+        case (sequence fileMetas, dbFp, s3Fp, graduationMeta, biCommit buildInfo) of
+            (Just fileTags, Just dbTag, Just s3Tag, Just graduationTag, Just commit) ->
                 let payload =
                         encode
                             ( object
@@ -22079,10 +22086,10 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
                                   -- executable, so a new build must never answer 304 to a tag
                                   -- minted by an old one.
                                   "build" .= [biVersion buildInfo, commit]
-                                , "files" .= fileMetas
+                                , "files" .= fileTags
                                 , "db" .= dbTag
                                 , "s3" .= s3Tag
-                                , "graduation" .= graduationMeta
+                                , "graduation" .= graduationTag
                                 , "overrides" .= overrides
                                 , "mode" .= portfolioRolloutModeCode configuredMode
                                 , "graduationConfig" .= show graduationConfig
