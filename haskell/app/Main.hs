@@ -22035,6 +22035,10 @@ optimizerCombosEtag mOps topCombosStore paths = do
     graduationMeta <- csvCacheMeta (portfolioGraduationPath topCombosStore)
     overrides <- topComboDeployableOverrideUuidsFromEnv
     configuredMode <- portfolioSelectorRolloutModeFromEnv
+    -- The effective rollout mode evaluates the whole graduation config against the review
+    -- file, so a redeploy that changes any TRADER_PORTFOLIO_AUTO_GRADUATE_* value must
+    -- also change the tag.
+    graduationConfig <- portfolioGraduationConfigFromEnv
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     pure $
@@ -22049,6 +22053,7 @@ optimizerCombosEtag mOps topCombosStore paths = do
                                 , "graduation" .= graduationMeta
                                 , "overrides" .= overrides
                                 , "mode" .= portfolioRolloutModeCode configuredMode
+                                , "graduationConfig" .= show graduationConfig
                                 , "minPersist" .= minPersist
                                 , "maxCombos" .= maxCombos
                                 ]
