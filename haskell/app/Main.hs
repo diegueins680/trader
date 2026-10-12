@@ -10958,12 +10958,23 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                     }
                                             else argsSym0
                                     adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
+                                    -- Pinned fleets fail closed: a flat symbol whose pinned combo is missing must not
+                                    -- start from the latest-compatible or environment-default fallback.
+                                    pinnedTargetMissing =
+                                        bsTradeEnabled settings
+                                            && topComboAdoptionEnabled
+                                            && argAdoptionRelaxGates argsBase
+                                            && not (null deployableOverrideUuids)
+                                            && isNothing mCombo
                                 adoptReqOrErr <-
                                     if adoptable
                                         then resolveAdoptionRequirement mOps argsSym sym
                                         else pure (Right (AdoptRequirement False False))
                                 case adoptReqOrErr of
                                     Left err -> recordError sym err
+                                    Right adoptReq
+                                        | pinnedTargetMissing && not (arActive adoptReq) ->
+                                            recordError sym "Pinned top combo unavailable; refusing an unpinned live start."
                                     Right adoptReq -> do
                                         (argsCombo, mComboUuid) <-
                                             if not topComboAdoptionEnabled

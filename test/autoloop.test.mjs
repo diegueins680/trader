@@ -1920,6 +1920,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY=0\.95/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY=0\.99/);
   assert.match(hetznerTrading, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
+  assert.match(main, /pinnedTargetMissing && not \(arActive adoptReq\) ->\s+recordError sym "Pinned top combo unavailable; refusing an unpinned live start\."/);
   assert.match(hetznerTrading, /TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false/);
   assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true/);
