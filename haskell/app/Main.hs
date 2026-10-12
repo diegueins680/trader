@@ -2438,7 +2438,11 @@ topCombosS3FingerprintWith :: (S3State -> String -> IO (Either String (Maybe Str
 topCombosS3FingerprintWith headObject = do
     mS3 <- resolveS3State
     case mS3 of
-        Nothing -> pure (Just "unconfigured")
+        Nothing -> do
+            -- A configured bucket whose credentials could not be resolved right now is
+            -- "cannot fingerprint", not "unconfigured": a later read may still serve S3.
+            bucketConfigured <- maybe False (not . null . trim) <$> lookupEnv "TRADER_STATE_S3_BUCKET"
+            pure (if bucketConfigured then Nothing else Just "unconfigured")
         Just st -> do
             result <- headObject st (s3TopCombosKey st)
             pure $
@@ -22097,7 +22101,9 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
                                 , "maxCombos" .= maxCombos
                                 ]
                             )
-                 in Just ("\"" ++ hashBytesHex payload ++ "\"")
+                 in -- Weak: the body also carries a fresh generatedAtMs, so representations
+                    -- sharing a tag are semantically equivalent rather than byte-identical.
+                    Just ("W/\"" ++ hashBytesHex payload ++ "\"")
             _ -> Nothing
 
 handleOptimizerCombosFull ::
