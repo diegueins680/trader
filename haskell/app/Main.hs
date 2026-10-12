@@ -18314,10 +18314,12 @@ validateApiComputeLimits limits args =
                         (_, Just _) -> resolveBarsForCsv args
                         _ -> fromMaybe 0 (argBars args)
                 barsLabel = "bars too high"
+                -- Technical-analysis methods train no LSTM, so the LSTM bars cap does not apply to them.
+                barsCapApplies = not (methodIsTechnicalAnalysis (runtimeMethod (argMethod args)))
 
             case argBinanceSymbol args of
                 Just _ ->
-                    if bars > maxBars
+                    if barsCapApplies && bars > maxBars
                         then
                             Left
                                 ( "Request too expensive for this API instance: "
@@ -18328,7 +18330,7 @@ validateApiComputeLimits limits args =
                                 )
                         else Right ()
                 Nothing ->
-                    if bars > 0 && bars > maxBars
+                    if barsCapApplies && bars > 0 && bars > maxBars
                         then
                             Left
                                 ( "Request too expensive for this API instance: "
