@@ -1,0 +1,21 @@
+{
+  "id": "rl-bridge-timing-2026-10-13",
+  "registeredOn": "2026-10-13",
+  "sourceBaseline": "45a4dffe3b36f6230d720e54b3e165209909a1fe",
+  "purpose": "Locate existing trained-policy inference-bridge failures without changing admission deadlines or financial policy selection.",
+  "kind": "synthetic engineering diagnostic, not a financial experiment",
+  "sourceContract": "formal/research/ppo-process-bridge-v3-contract.md",
+  "seeds": [11, 23, 47],
+  "horizons": [1, 3, 6],
+  "steps": 17,
+  "observationsPerPolicy": 3,
+  "observationSeed": 20261005,
+  "data": "Same analytic 180-row ALPHA/BETA fixture as the source-bound conformance test. No market data, protected holdout or production state.",
+  "protocol": "One unmodified and one phase-instrumented invocation for each of 27 observations; alternate invocation order by case. Compile both with the pinned GHC9.4.8 -O2 process toolchain. Persist every result, timeout, invalid output and mismatch. No reruns or best-case selection within the diagnostic.",
+  "instrumentation": "Temporary source copy only. Add monotonic timestamps before initialization and after exchange; emit startup, exchange and cleanup durations to stderr only after final acceptance time is recorded. Keep all original admission, child, cleanup, input and output semantics. Record both source hashes and full generated diagnostic source outside Git.",
+  "limits": {"acceptanceMilliseconds": 20, "outerInvocationSeconds": 3, "compileSecondsPerBuild": 90, "fits": 9, "requests": 54},
+  "interpretation": "Instrumentation and scheduling affect timings. Outer startup latency is distinct from the admission interval. Safe absences do not count as successful inference; only observed matching accepted actions do. This does not supersede canonical checks or establish a timing guarantee.",
+  "financialTrials": 0,
+  "promotionAllowed": false,
+  "liveAuthorization": false
+}
