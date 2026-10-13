@@ -1,5 +1,12 @@
 # Trader
 
+The research-only inference timing diagnostic runs with
+`python scripts/research/diagnose_rl_bridge.py --run-registered --output /path/to/new-directory`.
+It compares the unchanged Haskell bridge with a temporary phase-instrumented copy
+on nine synthetic policies, preserving the 20 ms admission deadline. It reads no
+market or production data and cannot authorize orders. Safe absences, timeouts
+and action mismatches remain separate from successful inference.
+
 RL research continuation (2026-10-13): the [current-main replication report](research-notes/rl-exposure-2026-10-10/reproduction-2026-10-13.md)
 collects the isolated PPO, simulator Double DQN and fixed-dataset CQL path,
 registered five-seed evidence and adoption blockers. The new

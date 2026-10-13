@@ -107,7 +107,7 @@
     "scripts/formal/verify.py": "b5d2d604e87269d379190595624f1da8179829944ff56c00c98320e44373ae0b",
     "scripts/formal/test_integrity.py": "8719cea8350866d9b2f4d2f1d8e8a378d6b492024eed20b38d3f7c73f7541b3c",
     "formal/research/Conformance.hs": "61f21a31c95f90b302dce54ffd71db505189b04241bdc53cd9bf3f4c0e000603",
-    "scripts/verify.sh": "1bed937aefed53b9d9d8cb4dbcc2fae57adbeddcdc595d7e906ad6f5e59d746b",
+    "scripts/verify.sh": "73540be0c08b7005b7003a5330b2d68656d116d3cf41879b9c3950a0b8892b76",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
