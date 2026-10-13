@@ -1,0 +1,153 @@
+{
+  "id": "rl-matched-horizon-v5",
+  "registeredOn": "2026-10-13",
+  "baseCommit": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "baseVerification": "https://github.com/diegueins680/trader/actions/runs/38313512581",
+  "kind": "adaptive_development_training_horizon_sensitivity_not_confirmation",
+  "hypothesis": "Matching the finite training objective to the 64-transition evaluation objective may improve the shielded sequential decision policy. Change only episode length from 32 to 64 transitions, holding interaction/update budgets, frozen dataset size, seeds, observations, costs and evaluation windows fixed. This necessarily changes sampled training episodes, reset frequency, terminal proportion and generated buffer; no claim to separate those mechanisms.",
+  "primaryUseCase": "single-instrument target exposure; shared policy across BTC/ETH/SOL, independent capital accounts, no portfolio allocation claim",
+  "data": {
+    "parentRegistration": "sequential-control-screen-v1.json",
+    "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+    "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT"
+    ],
+    "intervalMs": 28800000,
+    "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+    "license": "Binance provider terms; do not redistribute raw data",
+    "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+    "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors."
+  },
+  "folds": [
+    {
+      "trainStop": 1600,
+      "evaluationStart": 1606,
+      "evaluationStop": 1671
+    },
+    {
+      "trainStop": 2600,
+      "evaluationStart": 2606,
+      "evaluationStop": 2671
+    }
+  ],
+  "partition": "Stops exclusive; rewards mature strictly before trainStop. Six inherited separation bars are conservative, not a claim of an additional embargo; forward-only training has no post-test embargo region. Evaluation contains 64 transitions per symbol/fold, one cash start and one terminal close, never reset to hide a failure.",
+  "environment": {
+    "version": "rl-admission-continuation-v2",
+    "observation": "causal-close-inventory-v3 plus support flag, remaining finite-horizon fraction, pending target; explicit new 12-input version, incompatible with legacy policies",
+    "burnIn": 96,
+    "normalization": "Each episode fits only its strictly pre-decision burn-in with causal_replay_v3; immutable thereafter. No outcome-based calibration or predictor fits.",
+    "actions": [
+      -0.25,
+      0,
+      0.25
+    ],
+    "actionSemantics": "Raw categorical proposal remains the learning action. Decision support projection remains v1. At next-close simulated fill, compute the immutable exact-kernel preview. Only turnover_limit triggers a fresh zero-target execution from the ORIGINAL state; the rejected preview is never committed or charged. With partial fills, zero is a target, not a claim of immediate flatness. Other economic termination and resource failures remain unchanged.",
+    "ledger": "replay-accounting-v2 exact bounded rational unit ledger, initial equity 1, futures PnL and event funding, 5bp fee+0.5bp half-spread+4.5bp slippage, terminal costs exactly once",
+    "reward": "100*(equity_after-equity_before)/initial_equity; no shaping or clipping; external cash flow zero",
+    "discount": 1.0,
+    "discountRationale": "Gamma=1 for a finite 64-transition economic objective with costed terminal liquidation, matching evaluation. Remaining fraction is observed; neither market observability nor stationarity is assumed. No bootstrap beyond economic or declared finite-objective termination; batch boundaries bootstrap as before.",
+    "trainingEpisodeTransitions": 64,
+    "execution": "Proposal at completed close; old units earn PnL/funding before fill at following close. Price-taking exogenous history, no market impact calibration. Delay stress holds one pending permitted target; next proposal may be ignored while a reservation is pending, explicitly logged.",
+    "risk": "Same v1 limits. A pre-fill admissible position has exposure <=0.35, so a zero target with fill in (0,1] requires turnover <=0.35 <0.50. Cost-induced economic risk still terminates and blocks adoption. This is isolated simulated recovery, not an operational live fallback.",
+    "unsupported": "zero target in isolated simulator, with costs; not a claim that flattening is an operationally safe live fallback",
+    "limits": "No authentic precision/min-notional/liquidity/queue calibration; no live inference or shared production reservations; blocks integration. Rational arithmetic exhaustion fails the trial, never silently rounds or resets.",
+    "intervention": "Log support unavailable separately; actionChanged means decision support changed the proposal or final turnover admission changed a due target. Scheduling/deferred/ignored proposals are reported separately, not called risk interventions. Final horizon liquidation is separately logged."
+  },
+  "algorithms": {
+    "ppo": "12x16 tanh categorical actor/separate value net; immutable optimizer_snapshot_v2; raw GAE v2 lambda=.95; checked PPO clipped surrogate .2; lr .0003; 4 epochs/128 fresh simulator transitions",
+    "double_dqn": "12x16 tanh, online argmax/target evaluation, epsilon=.2 fresh simulation blocks with replay, batch64, lr .001, target snapshot sync every100 updates, corrected value_objective_v2 alpha0",
+    "cql": "same value network and target mechanism, corrected discrete scalar CQL(H)-inspired logsumexp penalty alpha .1; frozen 512-transition uniform simulator dataset per fold before fitting; regenerate with identical factory/seed and require both original v2 buffer hashes before any fit; no new collection during updates",
+    "behavior_cloning": "same actor, supervised likelihood on same frozen simulated uniform proposals; not counted as RL",
+    "deviations": "Same NumPy PPO, simulator Double DQN, CQL(H)-inspired alpha .1, diagnostic alpha0 and BC as v3. All 50 fits are new. Uniform simulated frozen buffer remains 512 transitions per fold, generated before fitting on 64-transition episodes. Offline fits receive an interaction factory that raises. No action masking, penalty or network changes."
+  },
+  "baselines": [
+    "cash",
+    "constant_long",
+    "normalized_momentum3",
+    "normalized_reversal3",
+    "behavior_cloning"
+  ],
+  "champion": "Preserved. Exact live adopted-combo snapshot/causal replay not available in main; do not substitute a proxy and claim comparison. PR330 is separate evidence, not an imported baseline.",
+  "seeds": [
+    11,
+    23,
+    47,
+    71,
+    101
+  ],
+  "steps": 4096,
+  "selection": "Exactly 50 fits (30 primary RL, 10 CQL alpha0, 10 BC), 1218 seven-stress replays, final checkpoint, every seed 11/23/47/71/101. No outcome-driven retries or substitutions. One adaptive horizon setting; paired same-seed deltas are descriptive. Prior 180 October fits, 108 September screen fits and 50 numerical replication fits remain disclosed; the replication adds no selection trial.",
+  "stresses": [
+    "base",
+    "cost1_5x",
+    "cost2x",
+    "severe50bp",
+    "delay1bar",
+    "partial50pct",
+    "funding2x"
+  ],
+  "primaryStatistic": "Paired total net equity change against cash and normalized_momentum3 over identical complete 64-transition windows, equal weight symbols/folds, all seeds. Baselines included before outcome inspection. Failed paths block comparisons and adoption. Improvement must exceed 0.001 with a positive simultaneous lower bound; all existing risk gates also required. Current champion and confirmation remain missing regardless.",
+  "materiality": 0.001,
+  "riskGates": {
+    "maxDrawdown": 0.15,
+    "maxES95": 0.02,
+    "maxInterventionRate": 0.2,
+    "executableSafetyViolations": 0,
+    "anyFailedPathBlocksAdoption": true,
+    "interventionDefinition": "actionChanged; old unsupported/deferred reason flag preserved separately, not directly comparable"
+  },
+  "statistics": "As v2: circular blocks 3/9/21, 2000 draws, seed20261010, six primary comparisons with Bonferroni intervals. Dependence assumptions are weak with only two exposed windows. No confirmatory p-values. Parent-horizon changes are descriptive only, no extra hypothesis-testing claims. DSR/PBO insufficient. This correction is within campaign only and does not control all cumulative adaptive research selection.",
+  "ope": "No real behavior logs or defensible real propensities. Frozen dataset is simulated uniform proposal behavior, with exact 1/3 probabilities and many-to-one shield mapping. Report support/action counts and critic calibration on frozen held-out simulator paths; no invented real IS/DR/FQE estimate or live support claim.",
+  "ablations": "CQL alpha0 on the same frozen buffer, all seeds; diagnostic ordinary offline DDQN, not an additional appropriate offline RL learner. No predictor, recurrence or reward shaping inputs exist to ablate.",
+  "proofGates": [
+    "reuse causal-v3 and exact-accounting SMT/conformance",
+    "new proposal/ledger composition SMT",
+    "finite lifecycle and reservation model",
+    "causality and update golden tests",
+    "source/partition/artifact identity checks",
+    "nonvacuous exact zero-target turnover lemma",
+    "rejected preview never mutates/charges ledger",
+    "turnover counterexample continues horizon",
+    "unchanged economic failure semantics",
+    "new audit validates final target and actionChanged",
+    "generalized bounded horizon maturity SMT lemma with satisfiable premises",
+    "actual factory prefix ownership, 64-step terminal cost and unchanged 32-step default conformance",
+    "all offline learners reject fresh interaction factories",
+    "exact deterministic baseline identity against frozen v3 replication"
+  ],
+  "budget": {
+    "trainingCpuMinutes": 30,
+    "campaignWallMinutes": 45,
+    "paidCompute": false,
+    "networkDuringTraining": false,
+    "modelsInGit": false,
+    "failureHandling": "Retain partial registry and report incomplete on interruption; no silent continuation or chosen-seed replacement."
+  },
+  "promotionAllowed": false,
+  "enabledByDefault": false,
+  "liveAuthorization": false,
+  "parentRegistration": "rl-training-budget-v3.json",
+  "parentEvidenceCommit": "91346ad43db7359d710eee4edddd422af0328c60",
+  "limits": "No masking or decoder change: action aliasing under unsupported observations remains a known issue and the 20% intervention gate is unchanged. No production integration, authentic availability, current-champion replay, real OPE or untouched confirmation. Delayed pending commitments remain a test-time shift. This tests one training-horizon sensitivity and cannot establish learning convergence or profitability.",
+  "offlineTransitions": 512,
+  "baselineContract": "Cash and constant-long use no extra information. Normalized momentum/reversal take only sign of observation[1], the normalized three-bar return. They measure deviation from burn-in mean, not raw trend. Reuse the vector-only supplemental v2 implementation. No raw-history comparator is a primary baseline.",
+  "parentArchive": {
+    "indexSha256": "5bd417ee7b981004f6e9dfd7600426f8a6a0300c9d48d5fdb8a75e344d9f92e1",
+    "path": ".tmp/research/rl-budget-v3-reproduction-20261013",
+    "role": "32-step training reference; compare deterministic baselines exactly; changed simulated buffers must NOT satisfy old buffer hashes"
+  },
+  "registrationParentCommit": "91346ad43db7359d710eee4edddd422af0328c60",
+  "researchBasis": {
+    "searchedOn": "2026-10-13",
+    "query": "Pardo Tavakoli Levdik Kormushev 2018 Time Limits Reinforcement Learning finite horizon remaining time",
+    "primarySource": "https://proceedings.mlr.press/v80/pardo18a.html",
+    "citation": "Pardo, Tavakoli, Levdik, Kormushev. Time Limits in Reinforcement Learning. ICML 2018, PMLR 80:4045\u20134054.",
+    "status": "peer-reviewed proceedings version",
+    "contribution": "Distinguishes finite-objective termination from training-only truncation; remaining time belongs in a finite-objective state.",
+    "fit": "Supports auditing finite horizon and bootstrapping; does not predict trading efficacy. Finite liquidation is an explicit experiment objective, not arbitrary truncation of a continuing task.",
+    "deviations": "No paper algorithm/code copied; unchanged local PPO/value learners. No new upstream code license introduced. Financial generalization unsupported."
+  }
+}
