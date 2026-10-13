@@ -1,13 +1,16 @@
 """Conditional process lifecycle model, source-bound guard SMT and compiled tests."""
 from collections import deque
+import ast
 import hashlib
 import itertools
+import math
 import os
 import json
 from pathlib import Path
 import random
 import re
 import subprocess
+import struct
 import tempfile
 
 import z3 as z
@@ -27,12 +30,13 @@ def extract(source=None):
     registry = json.loads((ROOT / REGISTRY).read_text())
     require(hashlib.sha256(source.encode()).hexdigest() == registry['sha256'], 'reviewed source drift')
     require(re.findall(r'^import (.+)$', source, re.M) == registry['imports'], 'unreviewed import')
-    require(source.count('createProcess (proc executable ["--offline-inference-v2", "--worker"])') == 1,
+    require(source.count('createProcess (proc executable ["--offline-inference-v2", "--worker-bits-v4"])') == 1,
             'launch identity drift')
     require('env = Just [], close_fds = True, create_group = True' in source, 'child isolation drift')
     require('executable <- getExecutablePath' in source and 'module Main (main) where' in source, 'self boundary drift')
     require(source.rstrip().endswith('_ -> putStrLn "(Absent,True)"'), 'default dispatch drift')
     require(source.count('readMaybe') == 4, 'unreviewed decoder')
+    require(registry.get('internalTransport') == 'worker-bits-v4', 'internal transport version drift')
     expected = '''admission elapsed clean frame
     | not clean || elapsed < 0 || elapsed >= budgetNS = Absent
     | frame == "IPV2 -1" = QuarterTarget (-1)
@@ -43,6 +47,8 @@ def extract(source=None):
     cap = re.findall(r'^budgetNS = ([0-9]+)$', source, re.M)
     require(cap == ['20000000'], 'admission deadline changed')
     require(set(registry['helperHashes']) == {'haskell/research/SnapshotRequestV3.hs'}, 'missing decoder coverage')
+    require(set(registry['controlBodies']) == {'supervise', 'main', 'stopChild', 'exchange', 'cleanup',
+                                              'waitExit', 'encodeChild', 'workerBits'}, 'missing control coverage')
     for path, expected in registry['helperHashes'].items():
         require(hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected, 'decoder helper drift')
     # Exact reviewed IO bodies are separately locked, not interpreted as an IO theorem.
@@ -161,6 +167,55 @@ def invoke(exe, args, payload='', seconds=3):
     return result.stdout.strip()
 
 
+def transport_conformance():
+    """Actual encoder/decoder bit identity, not a compiler or IEEE754 theorem."""
+    extract()
+    source = (ROOT / SOURCE).read_text()
+    probe = '''
+transportProbe :: IO ()
+transportProbe = do
+    raw <- frameRead 32768 stdin
+    let result = do
+            text <- raw
+            request <- decodeSnapshot text
+            decoded <- decodeSnapshot (encodeChild request)
+            let (observation, parameters) = decoded
+            pure (length (encodeChild request), map castDoubleToWord64 observation, map castDoubleToWord64 parameters)
+    print result
+'''
+    source += probe
+    source = source.replace('    case args of\n', '    case args of\n        ["--transport-probe"] -> transportProbe\n')
+    rng = random.Random(20261013)
+    special = [0, 2**63, 1, 2**63+1, 0x000fffffffffffff, 0x800fffffffffffff,
+               0x0010000000000000, 0x8010000000000000, 0x408f400000000000, 0xc08f400000000000]
+    cases = []
+    for offset in range(len(special)):
+        words = (special[offset:] + special[:offset]) * 28
+        cases.append((words[:12], words[12:271]))
+    for _ in range(22):
+        words = []
+        while len(words) < 271:
+            word = rng.getrandbits(64)
+            value = struct.unpack('<d', struct.pack('<Q', word))[0]
+            if math.isfinite(value) and abs(value) <= 1000:
+                words.append(word)
+        cases.append((words[:12], words[12:]))
+    maximum = 0
+    with tempfile.TemporaryDirectory(prefix='trader-bit-transport-') as directory:
+        exe = compile_source(source, Path(directory), optimization='-O2')
+        for ow, pw in cases:
+            frame = f'("PPO-SNAPSHOT-V3",4,{ow},{pw})\n'
+            actual = invoke(exe, ['--transport-probe'], frame)
+            require(actual.startswith('Just '), 'internal transport rejected valid fixture')
+            width, got_o, got_p = ast.literal_eval(actual[5:])
+            require((got_o, got_p) == (ow, pw), 'internal transport changed bits')
+            require(0 < width < 32768, 'internal frame size')
+            maximum = max(maximum, width)
+    return {'version': 'worker-bits-v4', 'cases': len(cases), 'wordsPerCase': 271,
+            'generatedSeed': 20261013, 'maximumFixtureFrameBytes': maximum,
+            'scope': 'Compiled pure encoder/decoder fixtures including signed zero, subnormals and +/-1000; not universal refinement.'}
+
+
 def conformance(source):
     with tempfile.TemporaryDirectory(prefix='trader-inference-process-') as directory:
         root = Path(directory); exe = compile_source(source, root / 'base')
@@ -212,7 +267,7 @@ def conformance(source):
         with subprocess.Popen([str(exe), '--offline-inference-v2'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as child:
             child.wait(timeout=3)
             require(child.stdout.read().strip() == '(Absent,True)', 'blocked request was not cancelled')
-        line = '    let answer = raw >>= readMaybe >>= workerCompute'
+        line = '    let answer = raw >>= decodeSnapshot >>= workerCompute'
         mutants = {
             'hang': source.replace(line, '    threadDelay 5000000\n' + line),
             'ignore_term': source.replace('import System.Posix.Signals (', 'import System.Posix.Signals (Handler (Ignore), installHandler, sigTERM, ').replace('    putStrLn "IPV2 ready"', '    void (installHandler sigTERM Ignore Nothing)\n    putStrLn "IPV2 ready"').replace(line, '    threadDelay 5000000\n' + line),
@@ -227,7 +282,7 @@ def conformance(source):
         for name, mutation in mutants.items():
             pid_file = root / (name + '.pid')
             mutation = mutation.replace('import System.Posix.Signals (', 'import System.Posix.Process (getProcessID)\nimport System.Posix.Signals (')
-            mutation = mutation.replace('worker = do', 'worker = do\n    getProcessID >>= writeFile ' + json.dumps(str(pid_file)) + ' . show')
+            mutation = mutation.replace('workerBits = do', 'workerBits = do\n    getProcessID >>= writeFile ' + json.dumps(str(pid_file)) + ' . show')
             mutant = compile_source(mutation, root / name)
             expected = '(Absent,False)' if name == 'cleanup_failed' else '(Absent,True)'
             require(invoke(mutant, ['--offline-inference-v2'], request) == expected, 'fault escaped boundary: ' + name)
@@ -249,8 +304,9 @@ def check_process():
     lock = json.loads((ROOT / 'formal/research/toolchain.json').read_text())
     require(lock['process'] == '1.6.18.0' and lock['unix'] == '2.7.3' and lock['bytestring'] == '0.11.5.3' and lock['researchWorkerRts'] == '-threaded -with-rtsopts=-V0.001', 'worker toolchain drift')
     return {'smt': prove_guard(cap), 'model': check_model(),
+            'transportConformance': transport_conformance(),
             'conformance': conformance((ROOT / SOURCE).read_text()),
             'isolation': {'requirement': 'F-RL-PROCESS-ISOLATION', 'status': 'exhaustively_checked',
-                          'sourceSha256': registry['sha256'], 'dispatchCases': 6,
+                          'sourceSha256': registry['sha256'], 'dispatchCases': 7,
                           'launchCommands': 1, 'childEnvironment': [], 'productionComponents': 0,
                           'scope': 'reviewed closed source boundary under A-INFERENCE-PROCESS, not OS sandbox'}}

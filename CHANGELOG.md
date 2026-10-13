@@ -6,6 +6,11 @@
   budget and production integration unchanged.
   Add a separately registered, temporary exact-bit child-transport comparison;
   retain the existing worker and external request semantics in its control.
+- Research/Haskell: replace internal decimal child transport with explicit
+  `worker-bits-v4` exact-bit transport in the isolated supervisor. Preserve legacy
+  interfaces, the 20 ms cleanup-inclusive admission budget and default-disabled
+  production status. Bind the encoder/worker to verification and check 32 actual
+  round-trip fixtures plus fault injection against the launched worker.
 
 - Research: transplant the existing causal RL campaign onto verified main and
   register a complete five-seed training/evaluation replication. Add strict

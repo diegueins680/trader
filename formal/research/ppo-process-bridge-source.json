@@ -9,6 +9,6 @@
   "helperHashes": {
     "scripts/research/ppo_successor_v2.py": "89d66f4f096e378ee476a630f670975f6c175b118f8821765207ac562b2ac049",
     "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
-    "haskell/research/InferenceProcessV2.hs": "d5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1"
+    "haskell/research/InferenceProcessV2.hs": "134dcf26b31fa940e5726dfe24f10dbe71b3eb0ee225964e8d20bd104ac43afc"
   }
 }

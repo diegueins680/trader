@@ -27,7 +27,7 @@ class BridgeDiagnosticTests(unittest.TestCase):
                          'accepted_matching')
 
     def test_instrumentation_preserves_original_control(self):
-        source = (d.ROOT / d.bridge.process.SOURCE).read_text()
+        source = d.original_source()
         variant = d.phase_source(source)
         self.assertEqual(variant.count('RLTIMING'), 1)
         self.assertIn('budgetNS = 20000000', variant)
@@ -36,7 +36,7 @@ class BridgeDiagnosticTests(unittest.TestCase):
             d.phase_source(source.replace('    ended <- clockNS\n', ''))
 
     def test_candidate_keeps_legacy_worker_and_admission(self):
-        source = (d.ROOT / d.bridge.process.SOURCE).read_text()
+        source = d.original_source()
         variant = bits.candidate_source(source)
         self.assertIn(source[source.index('worker :: IO ()'):source.index('waitExit ::')], variant)
         self.assertIn('budgetNS = 20000000', variant)

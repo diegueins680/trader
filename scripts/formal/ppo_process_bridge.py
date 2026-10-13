@@ -212,7 +212,7 @@ def conformance():
             child.wait(timeout=3)
             require(child.stdout.read().strip() == '(Absent,True)', 'input deadline failed')
         # Real child hangs/invalid reply and cleanup-failure branches in the new mode.
-        line = '    let answer = raw >>= readMaybe >>= workerCompute'
+        line = '    let answer = raw >>= decodeSnapshot >>= workerCompute'
         faults = {'hang': source.replace(line, '    threadDelay 1000000\n'+line),
                   'cleanup_failed': source.replace('pure (stopped && a && b && c)', 'pure (stopped && a && b && c && False)'),
                   'bad_reply': source.replace('putStrLn (maybe "IPV2 absent" (("IPV2 " ++) . show) answer)', 'putStrLn "IPV2 7"')}
@@ -220,7 +220,7 @@ def conformance():
             require(mutated != source, 'fixture failed to mutate')
             pid_file = root / (name + '.pid')
             mutated = mutated.replace('import System.Posix.Signals (', 'import System.Posix.Process (getProcessID)\nimport System.Posix.Signals (')
-            mutated = mutated.replace('worker = do', 'worker = do\n    getProcessID >>= writeFile ' + json.dumps(str(pid_file)) + ' . show')
+            mutated = mutated.replace('workerBits = do', 'workerBits = do\n    getProcessID >>= writeFile ' + json.dumps(str(pid_file)) + ' . show')
             faulty = process.compile_source(mutated, root / name, optimization="-O2")
             expected = '(Absent,False)' if name == 'cleanup_failed' else '(Absent,True)'
             require(process.invoke(faulty, ['--offline-snapshot-v3'], frame.decode('ascii')) == expected, 'fault escaped: '+name)

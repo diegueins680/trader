@@ -48,7 +48,7 @@ def run(parent: Path, expected_hash: str, output: Path) -> dict:
         if d.digest(frame) != row['requestSha256']:
             raise ValueError('request hash mismatch')
         admitted.append((row, frame.decode('ascii')))
-    source = (d.ROOT / d.bridge.process.SOURCE).read_text()
+    source = d.original_source()
     candidate = candidate_source(source)
     timed = d.phase_source(candidate)
     output.mkdir(parents=True, exist_ok=False)

@@ -31,8 +31,11 @@ worker. No existing v2 flag or payload acquires different semantics.
 The new explicit `--offline-snapshot-v3` mode selects this decoder inside the
 existing 20 ms supervised exchange. Factor only the pure decoder parameter through
 exchange/supervise/offline; preserve child identity, empty environment, startup
-budget, response protocol, cleanup and final admission guard. The child continues
-to receive the existing Haskell Show/Read Double request. Revalidate decoded input
+budget, response protocol, cleanup and final admission guard. The original child
+received a Haskell Show/Read Double request. The 2026-10-13 internal
+`worker-bits-v4` successor instead encodes the validated Request through the
+existing bit envelope and bounded decoder. External v2/v3 requests and the legacy
+`--worker` flag retain their original semantics. Revalidate decoded input
 before sending. Parsing, reply and cleanup remain inside the admission budget.
 Unknown/default modes still reject before input/spawn. Existing v2 fixtures must
 all pass; new-mode timeout/cleanup tests must use actual processes, not mocks.

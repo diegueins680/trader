@@ -7,6 +7,7 @@ import Control.Monad (join, void)
 import qualified Data.ByteString.Char8 as BS
 import Data.List (transpose)
 import GHC.Clock (getMonotonicTimeNSec)
+import GHC.Float (castDoubleToWord64)
 import SnapshotRequestV3 (decodeSnapshot, snapshotBits)
 import System.Environment (getArgs, getExecutablePath)
 import System.IO (BufferMode (NoBuffering), Handle, hClose, hFlush, hGetChar, hSetBuffering, stdin, stdout)
@@ -85,12 +86,25 @@ workerCompute request@(observation, parameters)
                     | c > a && c > b -> Just 1
                 _ -> Nothing
 
+-- Internal v4 transport reuses the bounded bit envelope. The constant step is
+-- compatibility metadata, never evidence of training provenance.
+encodeChild :: Request -> String
+encodeChild request = show ("PPO-SNAPSHOT-V3" :: String, 4 :: Int, map castDoubleToWord64 (fst request), map castDoubleToWord64 (snd request))
+
 worker :: IO ()
 worker = do
     hSetBuffering stdout NoBuffering
     putStrLn "IPV2 ready"
     raw <- frameRead 32768 stdin
     let answer = raw >>= readMaybe >>= workerCompute
+    putStrLn (maybe "IPV2 absent" (("IPV2 " ++) . show) answer)
+
+workerBits :: IO ()
+workerBits = do
+    hSetBuffering stdout NoBuffering
+    putStrLn "IPV2 ready"
+    raw <- frameRead 32768 stdin
+    let answer = raw >>= decodeSnapshot >>= workerCompute
     putStrLn (maybe "IPV2 absent" (("IPV2 " ++) . show) answer)
 
 waitExit :: Int -> ProcessHandle -> IO Bool
@@ -149,7 +163,7 @@ exchange decode started input output = do
                 raw <- frameRead 32768 stdin
                 case raw >>= decode of
                     Just request | validRequest request -> do
-                        let payload = BS.pack (show (request :: Request))
+                        let payload = BS.pack (encodeChild request)
                         if BS.length payload >= 32768
                             then pure Nothing
                             else do
@@ -162,7 +176,7 @@ exchange decode started input output = do
 supervise :: (String -> Maybe Request) -> IO (Decision, Bool)
 supervise decode = mask $ \restore -> do
     executable <- getExecutablePath
-    handles@(input, output, _, _) <- createProcess (proc executable ["--offline-inference-v2", "--worker"]){std_in = CreatePipe, std_out = CreatePipe, std_err = NoStream, env = Just [], close_fds = True, create_group = True}
+    handles@(input, output, _, _) <- createProcess (proc executable ["--offline-inference-v2", "--worker-bits-v4"]){std_in = CreatePipe, std_out = CreatePipe, std_err = NoStream, env = Just [], close_fds = True, create_group = True}
     let session = case (input, output) of
             (Just requestPipe, Just replyPipe) -> do
                 hSetBuffering requestPipe NoBuffering
@@ -199,5 +213,6 @@ main = do
         ["--offline-snapshot-v3"] -> offline decodeSnapshot
         ["--snapshot-contract-v3"] -> frameRead 32768 stdin >>= print . (>>= snapshotBits)
         ["--offline-inference-v2", "--worker"] -> worker
+        ["--offline-inference-v2", "--worker-bits-v4"] -> workerBits
         ["--offline-inference-v2", "--contract"] -> contractProbe
         _ -> putStrLn "(Absent,True)"

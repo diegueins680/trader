@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "scope": "Reviewed synthetic diagnostic consumers, not additional financial replay or original Replay receiver theorem. CLI opt-in, fixed synthetic training call and helper bytes checked; Python/compiler/OS semantics trusted.",
+  "sha256": {
+    "scripts/research/diagnose_rl_bridge.py": "26f2cf215cb905657b1ec2e153745fe47d31680b9a19f6f407b45255b3cad38c",
+    "scripts/research/diagnose_rl_bit_transport.py": "f4a89bb4fef1f7d42889f5e947da6c47f856f9ed13f2cea816c8ed531a71fe65",
+    "formal/research/fixtures/inference-process-decimal-v3.hs": "d5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1"
+  }
+}

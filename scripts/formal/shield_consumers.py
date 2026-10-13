@@ -32,6 +32,33 @@ COMPOSITION_IMPORTS = {
     },
     'scripts/research/run_rl_composition.py': {'from causal_replay_v3 import Bar'},
 }
+DIAGNOSTIC_IMPORTS = {
+    'from ppo_successor_v2 import train_ppo_v2',
+    'from ppo_inference_v3 import encode_request_v3',
+}
+
+
+def diagnostic_importer(path, source, node):
+    require(path == 'scripts/research/diagnose_rl_bridge.py' and ast.unparse(node) in DIAGNOSTIC_IMPORTS,
+            'unregistered diagnostic import')
+    lock = json.loads((ROOT/'formal/research/rl-bridge-diagnostic-source.json').read_text())
+    expected = {'scripts/research/diagnose_rl_bridge.py', 'scripts/research/diagnose_rl_bit_transport.py',
+                'formal/research/fixtures/inference-process-decimal-v3.hs'}
+    require(set(lock['sha256']) == expected, 'diagnostic helper coverage')
+    for name, checksum in lock['sha256'].items():
+        raw = source.encode() if name == path else (ROOT/name).read_bytes()
+        require(hashlib.sha256(raw).hexdigest() == checksum, 'diagnostic source drift: '+name)
+    tree = ast.parse(source)
+    calls = [ast.unparse(n) for n in ast.walk(tree)
+             if isinstance(n,ast.Call) and ast.unparse(n.func) == 'train_ppo_v2']
+    require(calls == ['train_ppo_v2(prices, funding, horizon, seed, 17, enabled=True)'], 'synthetic training call drift')
+    main = next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name == 'main')
+    require(any(isinstance(n,ast.If) and ast.unparse(n.test) == 'not args.run_registered'
+                and ast.unparse(n.body[0]).startswith('parser.error(') for n in main.body),
+            'diagnostic opt-in guard missing')
+    require('np.arange(180, dtype=float)' in source and
+            "funding = {s: np.zeros(len(p)) for s, p in prices.items()}" in source,
+            'synthetic data construction drift')
 
 
 def require(ok, message):
@@ -71,6 +98,10 @@ def research_importers(sources=None):
             names = [a.name for a in n.names] if isinstance(n,ast.Import) else [n.module] if isinstance(n,ast.ImportFrom) else []
             if any(name in delivered for name in names):
                 if path not in {'scripts/research/'+name+'.py' for name in delivered}:
+                    if path == 'scripts/research/diagnose_rl_bridge.py':
+                        diagnostic_importer(path, source, n)
+                        found.append([path,ast.unparse(n)])
+                        continue
                     # New exact-ledger consumers have separate certificates.
                     # Admit only their reviewed complete bytes and exact kernel
                     # imports; this does not widen the old Replay receiver proof.

@@ -2,13 +2,16 @@
 
 The research-only inference timing diagnostic runs with
 `python scripts/research/diagnose_rl_bridge.py --run-registered --output /path/to/new-directory`.
-It compares the unchanged Haskell bridge with a temporary phase-instrumented copy
+It compares the frozen decimal-transport control with a temporary phase-instrumented copy
 on nine synthetic policies, preserving the 20 ms admission deadline. It reads no
 market or production data and cannot authorize orders. Safe absences, timeouts
 and action mismatches remain separate from successful inference.
 `python scripts/research/diagnose_rl_bit_transport.py --help` describes a separately
 registered temporary exact-bit child-transport comparison using all 27 frozen
-synthetic requests. It does not replace the current bridge implementation.
+synthetic requests. The isolated supervisor now uses internal `worker-bits-v4`
+transport with the existing bounded bit decoder, preserving legacy external
+interfaces and the cleanup-inclusive deadline. These commands reproduce the
+registered engineering comparison; they cannot enable a trading policy.
 
 RL research continuation (2026-10-13): the [current-main replication report](research-notes/rl-exposure-2026-10-10/reproduction-2026-10-13.md)
 collects the isolated PPO, simulator Double DQN and fixed-dataset CQL path,

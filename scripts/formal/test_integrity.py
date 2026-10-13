@@ -2526,10 +2526,18 @@ class InferenceProcessTests(unittest.TestCase):
             ('env = Just []', 'env = Nothing'),
             ('signalProcess sigKILL identity', 'pure ()'),
             ('admission (ended - started) clean', 'admission 0 True'),
+            ('map castDoubleToWord64 (fst request)', 'map (const 0) (fst request)'),
             ('_ -> putStrLn "(Absent,True)"', '_ -> offline'),
         ]:
             with self.subTest(change=old), self.assertRaises(ValueError):
                 process.extract(source.replace(old, new))
+
+    def test_internal_bit_transport_roundtrip(self):
+        import inference_process as process
+        result = process.transport_conformance()
+        self.assertEqual(result['cases'], 32)
+        self.assertEqual(result['wordsPerCase'], 271)
+        self.assertLess(result['maximumFixtureFrameBytes'], 32768)
 
     def test_lifecycle_rejects_unbounded_poll_and_restart(self):
         import inference_process as process
@@ -3612,6 +3620,16 @@ class ChampionArchiveTests(unittest.TestCase):
 
 
 class ShieldConsumerTests(unittest.TestCase):
+    def test_registered_diagnostic_consumer_rejects_source_drift(self):
+        import shield_consumers as p
+        name = 'scripts/research/diagnose_rl_bridge.py'
+        source = (ROOT/name).read_text()
+        self.assertEqual(len(p.research_importers({name: source})), 2)
+        changed = source.replace('horizon, seed, 17, enabled=True', 'horizon, seed, 18, enabled=True')
+        self.assertNotEqual(source, changed)
+        with self.assertRaisesRegex(ValueError, 'diagnostic source drift'):
+            p.research_importers({name: changed})
+
     def test_source_origin_and_repeated_call_model(self):
         import shield_consumers as p
         surface=p.extract()

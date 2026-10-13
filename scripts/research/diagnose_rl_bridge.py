@@ -26,6 +26,13 @@ from ppo_inference_v3 import encode_request_v3
 REGISTRATION = ROOT / 'research-notes/registrations/rl-bridge-timing-2026-10-13.json'
 
 
+def original_source() -> str:
+    raw = (ROOT / 'formal/research/fixtures/inference-process-decimal-v3.hs').read_bytes()
+    if digest(raw) != 'd5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1':
+        raise ValueError('frozen decimal-transport fixture drift')
+    return raw.decode('utf-8')
+
+
 def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
@@ -96,7 +103,7 @@ def invoke(exe: Path, request: str, expected: str, instrumented: bool) -> dict:
 def run(output: Path) -> dict:
     bridge.extract()  # Authenticate the current original source and helpers.
     registration = json.loads(REGISTRATION.read_bytes())
-    source = (ROOT / bridge.process.SOURCE).read_text()
+    source = original_source()
     instrumented = phase_source(source)
     output.mkdir(parents=True, exist_ok=False)
     (output / 'instrumented.hs').write_text(instrumented)

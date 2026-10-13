@@ -98,3 +98,30 @@ cleanup and previous flags retain their semantics. A sixth dispatch case include
 the pure bit probe. The source inventory locks the new helper. See the separate
 PPO bridge contract and F-RL-BRIDGE-V3 evidence for trained-input conformance;
 there is still no persistent artifact loader or production caller.
+
+### Internal bit transport, 2026-10-13
+
+The isolated supervisor now starts its self executable with explicit internal
+`--worker-bits-v4`, after the registered synthetic phase/transport experiments.
+The parent encodes each validated finite bounded Double with
+`castDoubleToWord64`, using the existing bounded snapshot envelope. Internal
+step=4 is only a compatibility constant, not training provenance. The child
+restores those bits with the existing decoder and calls the unchanged evaluator.
+Legacy external `--offline-inference-v2`, snapshot-v3 and direct `--worker`
+semantics are preserved; no saved artifact is reinterpreted.
+
+Source-bound admission SMT and lifecycle states are unchanged: one child, one
+request, empty child environment, no retries, successful cleanup required and
+final elapsed time strictly below 20ms. The encoder and new worker bodies join
+the mandatory source inventory. Fault injection now targets the actual launched
+worker, including CPU hangs, ignored termination, EOF, late/malformed responses
+and failed cleanup; checking an unused legacy worker would not establish this.
+
+Thirty-two compiled pure round-trip fixtures compare 271 words each, including
+both zeros, signed subnormals, minimum normals and +/-1000. They establish tested
+bit preservation and frame bounds, not a universal parser/compiler theorem.
+GHC binary64 cast inverses, Word64 decimal formatting and the existing runtime
+assumptions remain trusted. The constant envelope step introduces no new policy
+or order authority. Original decimal source is frozen as a diagnostic fixture.
+The timing comparison is single-host engineering evidence; it supplies no
+unconditional OS deadline guarantee or financial adoption claim.
