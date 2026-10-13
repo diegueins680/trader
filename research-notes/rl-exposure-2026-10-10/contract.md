@@ -57,3 +57,18 @@ reviewed zero-fill call to the kernel's private pure transition after the public
 input predicate succeeds with fill=1. A zero-fill transition preserves units unless
 risk termination liquidates; it cannot silently rebalance. No economic parameters,
 search space, data or registered evaluation endpoints were changed.
+
+
+The 2026-10-13 `rl-matched-horizon-v5` successor changes only the declared
+training objective length to 64 transitions, matching the evaluation window.
+The original entrypoints default to 32. The factory accepts integer horizons
+1..128, slices both prices and funding at the training cutoff and samples
+`96 <= start < cutoff-horizon`, with exclusive `stop=start+horizon+1`.
+The generalized SMT maturity lemma proves `stop<=cutoff` and the last reward
+index `stop-1<cutoff`; satisfiable premises are checked before UNSAT negation.
+Actual factory, poisoned future suffix, immutable buffer, costed terminal and
+offline-interaction guard tests establish selected implementation correspondence,
+not universal Python refinement. The same bounded lifecycle and accounting
+certificates apply; no unrelated mission obligation is closed. Remaining-time
+fraction and terminal liquidation define a finite-objective task, not a proof
+that this horizon is appropriate for continuing production operation.

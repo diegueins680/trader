@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "baseMain": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "registrationCommit": "d92df941",
+  "trainingSourceCommit": "629dd38d",
+  "verificationSourceCommit": "30364a7ff4c0c080281ff6d2bcbd23aeff6788b8",
+  "formalResultSha256": "9ecaa507ddb94b39a27b0aa475f54abe37a12ad1bef174e09b9eb22eb61a3c0a",
+  "studyIndexSha256": "6451d127fbdc9a5e8b9e0a285b55c794e75297e5e67653984f55c7152c39c957",
+  "environment": {
+    "cleanViaEnvI": true,
+    "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+    "TRADER_ENV_FILE": "",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3-solver": "4.15.4.0",
+    "ghc": "9.4.8",
+    "node": "20.19.0"
+  },
+  "checks": [
+    {
+      "command": "python test/rl_composition_test.py",
+      "exitCode": 1,
+      "detail": "28 tests; one stale reviewed source binding error, corrected before training",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-targeted.log",
+      "logSha256": "6259877d104a15ebb18356c2f58d2f6a9ae7a77c3812eb3ff559dfbc7c009faa"
+    },
+    {
+      "command": "python test/rl_composition_test.py",
+      "exitCode": 0,
+      "detail": "28 tests passed",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-targeted-2.log",
+      "logSha256": "95a959ef20c268c6a49cb61ad6b297676904692909c860564e857b8a3d43865a"
+    },
+    {
+      "command": "python test/rl_composition_test.py",
+      "exitCode": 0,
+      "detail": "29 tests passed",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-targeted-3.log",
+      "logSha256": "799fd2862ad8b6bcedd18e2c587857263b924ff31b589a0fdb3eef0c54acc014"
+    },
+    {
+      "command": "python scripts/formal/rl_composition_check.py",
+      "exitCode": 0,
+      "detail": "seven composition SMT queries, two admission lemmas, finite lifecycle and Haskell witnesses",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-composition-final.log",
+      "logSha256": "6f8749e30d8ffd693b3df2448ebfec9b1752d9ced35850340cb15aa580128f7c"
+    },
+    {
+      "command": "node scripts/verify-formal-specs.mjs",
+      "exitCode": 0,
+      "detail": "40 specs, 353 features, 553 clauses, 699 implementation files, 259 evidence links, 34 risks",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-spec-coverage.log",
+      "logSha256": "153d9dd911bb3c298161c8aeb83760eb3e99e8ab64d9854e1a806bedeb0f2e22"
+    },
+    {
+      "command": "python scripts/research/run_rl_horizon_v5.py --run-registered-horizon-v5 --panel .tmp/research/historical-funding-campaign-v1/registered-development-panel.csv --settlements .tmp/research/historical-funding-campaign-v1/registered-development-settlements.csv --output .tmp/research/rl-matched-horizon-v5-20261013",
+      "exitCode": 0,
+      "detail": "50 fits,1218 replays; zero failed fits/evaluation paths",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-campaign.log",
+      "logSha256": "b45a0ba329f193ae296ffea3772a0b09c894043ce8479964b08f8223fc54460b"
+    },
+    {
+      "command": "summarize_rl_horizon_v5.summarize(source,parent,output,expected_index_sha256)",
+      "exitCode": 0,
+      "detail": "complete roster, identical baseline traces, zero trace-audit violations",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-export.log",
+      "logSha256": "8aadfc7b35d65b69e7f4f27b3c009f094f64a7b8d8b5ec1c6b9a9e7fb8df35fe"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "detail": "144.992 seconds; missionComplete false; 20 scoped closures,18 open/partial",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-formal-record.log",
+      "logSha256": "7856b68d103e10d677195f92a3eaba683ec05d2f779d5ac32a98252302d50216"
+    },
+    {
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "detail": "pre-compatibility full run; its six archive tests preceded commit30364a7f; superseded by final full run",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-full.log",
+      "logSha256": "9e83e2f35262172e7075d23c631ba054f1fa37812e18dddcefb8102500396be9"
+    },
+    {
+      "command": "python test/rl_replication_test.py",
+      "exitCode": 0,
+      "detail": "seven tests passed",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-replication-compatibility.log",
+      "logSha256": "4190e6532da5d52050bd5ea71ff40310f4ffe0846610b4b159650675a5a9c2b2"
+    },
+    {
+      "command": "python scripts/research/compare_rl_replication.py --parent .tmp/research/rl-training-budget-v3-20261010 --replica .tmp/research/rl-budget-v3-reproduction-20261013 --parent-sha256 360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039 --replica-sha256 5bd417ee7b981004f6e9dfd7600426f8a6a0300c9d48d5fdb8a75e344d9f92e1 --output research-notes/rl-exposure-2026-10-10/horizon-v5-results/legacy-replication-compatibility.json",
+      "exitCode": 0,
+      "detail": "12950 parameters and77952 rows match1e-12; no new fits",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-legacy-archive.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "detail": "343 formal,7 archive,4 diagnostic,29 RL; certificate reproduction151.097s; Haskell build/format/lint/smoke/one suite; web typecheck241 tests/build;185 automation; no skipped target",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/horizon-full-final.log",
+      "logSha256": "3b603215fdae2475a7ddec1358a6e0e4fbaef287218f2c55aa9433dca78bd671"
+    }
+  ],
+  "skippedRequiredTargets": [],
+  "timedOutRequiredChecks": [],
+  "unavailableRequiredChecks": [],
+  "fullVerification": "passed",
+  "integrationEligible": false,
+  "liveAuthorization": false,
+  "holdoutOpened": false,
+  "publication": "local only: scheduled all-state PR autoloop can push main and trigger deployment",
+  "limitations": "Development-only finite-objective study; no current champion replay, first-seen data, untouched confirmation, real OPE or complete production assurance. Twenty scoped mission closures and18 open/partial. V5 not independently retrained."
+}

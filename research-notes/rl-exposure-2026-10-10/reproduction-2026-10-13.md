@@ -461,3 +461,15 @@ supply the missing historical champion, create fresh confirmation data, or rever
 the financial result. No production integration, live authorization, order,
 deployment, merge or publication occurred. The branch remains local because the
 PR automation isolation blocker is unchanged.
+
+
+## Registered RL continuation: matched horizon
+
+The [64-step training successor](horizon-v5.md) completed 50 new fits and 1,218
+replays, retaining all five seeds, the original interaction/update budget,
+matched observations and unchanged baseline traces. PPO/DDQN means rose only
+0.137pp each to +0.437/+0.448%; CQL worsened to −1.921%, versus matched momentum
++1.487%. All three failed the 20% intervention gate. These are adaptive
+registered development results, not another numerical replication or holdout.
+The champion-export adoption blocker remains, as explicitly accepted by the
+user. The new package is rejected for integration; no production path changes.

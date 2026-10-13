@@ -4,6 +4,10 @@
   simulator Double DQN and frozen-data CQL, with five seeds and matched controls.
   Preserve 32-step defaults; check prefix maturity, terminal costs and offline
   interaction isolation. No production integration or new holdout access.
+  Complete all 50 fits/1,218 replays; retain all seeds and exact baseline traces.
+  Matching the horizon does not pass economic/intervention gates; reject integration.
+  Preserve legacy replication checks with explicit integer-32 horizon metadata;
+  reject changed horizons and malformed metadata.
 
 - Research: add a registered synthetic inference-bridge timing diagnostic with
   paired original/instrumented executions, preserved failure records, and strict

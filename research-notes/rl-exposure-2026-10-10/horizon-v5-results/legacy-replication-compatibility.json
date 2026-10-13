@@ -1,0 +1,29 @@
+{
+  "absoluteTolerance": 1e-12,
+  "fits": 50,
+  "holdoutOpened": false,
+  "newIndependentMarketSamples": 0,
+  "newSelectionTrials": 0,
+  "parametersCompared": 12950,
+  "parentCommit": "c962c227cec940ca6277acbd246e1f9fdffcb399",
+  "parentIndexSha256": "360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039",
+  "parentPlatform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+  "parentProofLedgerSha256": "23a2dcd3195bfb49828f77baa153e79a7820b0ef4f9afb60b7088bc416735d78",
+  "pathsCompared": 1218,
+  "promotionAllowed": false,
+  "relativeTolerance": 1e-12,
+  "replicaCommit": "8e83b2d9d4085044b03a93ca0712b43edfff8574",
+  "replicaIndexSha256": "5bd417ee7b981004f6e9dfd7600426f8a6a0300c9d48d5fdb8a75e344d9f92e1",
+  "replicaPlatform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+  "replicaProofLedgerSha256": "bb0f0a29dd6fc6b2d77194ad40c47f4177d220ea100277f16a1cdc3156afa3dd",
+  "rowsCompared": 77952,
+  "schema": "rl-replication-v1",
+  "scope": "Same-runtime numerical and full-path replication, not mathematical proof or financial confirmation.",
+  "sourceDifferences": {
+    "scripts/research/run_rl_composition.py": [
+      "a02f6d81d5ed2584f331e5ace265e0334ebeeff235741820d22783aee18a630e",
+      "d8ca42a3ae8811174652cf84ddd9d12f4970b83bbaf7cf798b8db4d8e7be83d9"
+    ]
+  },
+  "status": "reproduced_within_tolerance"
+}

@@ -21,6 +21,10 @@ Run explicitly with `python scripts/research/run_rl_horizon_v5.py
 --settlements <registered-development-settlements.csv> --output <fresh-directory>`.
 This command admits only registered development hashes; it grants no live authority.
 The existing runners retain 32-step training by default.
+The [executed horizon report](research-notes/rl-exposure-2026-10-10/horizon-v5.md)
+records 50 fits and 1,218 replays: PPO +0.437%, Double DQN +0.448%, CQL -1.921%
+mean net versus matched momentum +1.487%. All RL intervention rates exceed the
+20% gate; the candidate package is rejected for integration.
 
 RL research continuation (2026-10-13): the [current-main replication report](research-notes/rl-exposure-2026-10-10/reproduction-2026-10-13.md)
 collects the isolated PPO, simulator Double DQN and fixed-dataset CQL path,

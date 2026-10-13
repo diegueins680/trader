@@ -3482,7 +3482,7 @@
       "F-RL-COMPOSE-ARITH": "unsat"
     },
     "source": {
-      "files": 19,
+      "files": 21,
       "scope": "reviewed complete source digests and direct effect names; trusted transitive NumPy/kernel/runtime, not OS capability security",
       "status": "exhaustively_checked"
     }
@@ -4142,7 +4142,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "de35b449737a7cba839e45d7eb411bde6f041d5635618c084b1b4deb815f68da",
-    "formal/research/proof-ledger.json": "31b6fd67a910d24d7d84b49848123a303ffae80c23718d315d3e36663446a131",
+    "formal/research/proof-ledger.json": "b06b0c1180b534752fdbe4677178bfe6b2feab9c27c3639e01cc574f568744de",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -4163,7 +4163,7 @@
     "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
     "formal/research/rl-bridge-diagnostic-source.json": "36594004cd66866cff66ca38ea89f77d8ed0e30b1bb6336d4f0859035cc471e2",
-    "formal/research/rl-composition-source.json": "381291c3e1876557933dad6825dbd248713e3cd6abf2a445add9d5ceea3c82b3",
+    "formal/research/rl-composition-source.json": "74ef6e65edf15369333e030c76cab37b3548b5a6f94c5052870a993cdff29550",
     "formal/research/round-min-cap-counterexample.json": "9d80fd1193755796c09eb86b76a5dda625439f9b2b565f0521f6d3986bdea06a",
     "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
@@ -4444,7 +4444,7 @@
     "scripts/formal/report_bundle.py": "4d6ff62c1e8aa275a16f44d50123ebf44acdda0fbda0b72a6347fe7b7a50d336",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
-    "scripts/formal/rl_composition_check.py": "1459d32b4ffea0befe385dce0f0fc7323da9c9cd5e06ecc5c30ad64a82445039",
+    "scripts/formal/rl_composition_check.py": "c964e139e484df5985ed98d9595869c06019819186dda93f983ec05b2997ba6c",
     "scripts/formal/shield_consumers.py": "15d176379d5a73b3648d58bc9432c0f21749ef851470ac6c1b414c33652e775c",
     "scripts/formal/shutdown_deadline.py": "793e0dd083da053b9d3a1a57ed24f279a8e4024290e4e6cc466bc47d1ec593d7",
     "scripts/formal/sizing_inputs.py": "9a1b098828f5b10f6ed41824fafa069d8e1f4cb02659c8559d8d9c562bc657ea",
@@ -4481,7 +4481,8 @@
     "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
     "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
-    "scripts/research/run_rl_composition.py": "d8ca42a3ae8811174652cf84ddd9d12f4970b83bbaf7cf798b8db4d8e7be83d9",
+    "scripts/research/run_rl_composition.py": "3a01e0514057cf914d8258a1e5678ed1a867be629d21f104187104b4681bd7ae",
+    "scripts/research/run_rl_horizon_v5.py": "ce983ec60808668b5c65eb44c3c9537ff719027f1763b829885e37c7158d21a0",
     "scripts/research/run_rl_offline_data_v4.py": "fe98c2d24bc604883f0865cdc5941df7d32d04d8fbb1a8d12d1eff5c3033f2b4",
     "scripts/research/run_sequential_screen.py": "405934b1446218f1975c6876160398d8dda2e51834ab27a8796e3b1ed36823fb",
     "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
@@ -4489,12 +4490,13 @@
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
     "scripts/research/summarize_rl_budget_v3.py": "1264159a96cc389229071c6c036c80efdc73d80f88f07161905925953492b84c",
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+    "scripts/research/summarize_rl_horizon_v5.py": "909477e24e21b00d7000862424f059b5b7c7918b926bd0156682da6ecabc628e",
     "scripts/research/summarize_rl_offline_data_v4.py": "048a3b889b9d81751c5b3e990b1ebf63a96e4cce9736f3fbdb325646f6350f89",
     "scripts/research/summarize_sequential_screen.py": "64963b746e913063472aa2bb4e898770916a4edc37813e32ab79d20d1dda46aa",
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
     "scripts/verify.sh": "73540be0c08b7005b7003a5330b2d68656d116d3cf41879b9c3950a0b8892b76",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
-    "test/rl_composition_test.py": "8bcf81b10794ab740ade5d3a689942f29067afc573c6b772284eb5331b6a70cd",
+    "test/rl_composition_test.py": "4292490219ee83c8e52b743486994d8b4ff975fe8ec0127937f8967603e032ed",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
   },
   "splitIsolation": {
