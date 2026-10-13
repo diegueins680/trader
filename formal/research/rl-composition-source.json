@@ -12,7 +12,7 @@
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
-    "scripts/formal/shield_consumers.py": "3ad42b9ad8024dba9a0acf00b1e85f4cfc7bee0283f427fef2d3f56cd6438338",
+    "scripts/formal/shield_consumers.py": "15d176379d5a73b3648d58bc9432c0f21749ef851470ac6c1b414c33652e775c",
     "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
     "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",

@@ -561,7 +561,7 @@
     "scripts/research/run_rl_composition.py": "d8ca42a3ae8811174652cf84ddd9d12f4970b83bbaf7cf798b8db4d8e7be83d9",
     "scripts/formal/rl_composition_check.py": "1459d32b4ffea0befe385dce0f0fc7323da9c9cd5e06ecc5c30ad64a82445039",
     "test/rl_composition_test.py": "8bcf81b10794ab740ade5d3a689942f29067afc573c6b772284eb5331b6a70cd",
-    "formal/research/rl-composition-source.json": "856fcc51f1451c868c076f2e41af59b14bd2a461b1b9d9e4a7ea4b514b1b55f3",
+    "formal/research/rl-composition-source.json": "381291c3e1876557933dad6825dbd248713e3cd6abf2a445add9d5ceea3c82b3",
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
     "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
