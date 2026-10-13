@@ -48,8 +48,9 @@ def prove():
     lemma(z.BoolVal(True),100*(e1-e0)+100*(e2-e1)==100*(e2-e0))
     decision,close,available=z.Ints('decision close available')
     lemma(z.And(0<=decision,decision<close,close<=available),decision<available)
-    start,stop,cutoff=z.Ints('start stop cutoff')
-    lemma(z.And(start>=96,start<cutoff-32,stop==start+33),stop<=cutoff)
+    start,stop,cutoff,horizon=z.Ints('start stop cutoff horizon')
+    lemma(z.And(horizon>=1,horizon<=128,start>=96,start<cutoff-horizon,
+                stop==start+horizon+1),z.And(stop<=cutoff,stop-1<cutoff))
     due,pending,new=z.Bools('due pending new')
     admitted=z.And(new,z.Not(pending)); consumed=z.And(pending,due)
     count=z.If(pending,1,0)+z.If(admitted,1,0)-z.If(consumed,1,0)

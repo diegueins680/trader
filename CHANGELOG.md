@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research: preregister a 64-step matched-training-horizon sensitivity for PPO,
+  simulator Double DQN and frozen-data CQL, with five seeds and matched controls.
+  Preserve 32-step defaults; check prefix maturity, terminal costs and offline
+  interaction isolation. No production integration or new holdout access.
+
 - Research: add a registered synthetic inference-bridge timing diagnostic with
   paired original/instrumented executions, preserved failure records, and strict
   telemetry regressions in formal/full verification. Keep the 20 ms admission

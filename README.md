@@ -13,6 +13,15 @@ transport with the existing bounded bit decoder, preserving legacy external
 interfaces and the cleanup-inclusive deadline. These commands reproduce the
 registered engineering comparison; they cannot enable a trading policy.
 
+The [matched-horizon registration](research-notes/registrations/rl-matched-horizon-v5.json)
+tests 64-step training against the frozen 32-step research reference, retaining
+all three RL learners, five seeds, costs, observations and evaluation windows.
+Run explicitly with `python scripts/research/run_rl_horizon_v5.py
+--run-registered-horizon-v5 --panel <registered-development-panel.csv>
+--settlements <registered-development-settlements.csv> --output <fresh-directory>`.
+This command admits only registered development hashes; it grants no live authority.
+The existing runners retain 32-step training by default.
+
 RL research continuation (2026-10-13): the [current-main replication report](research-notes/rl-exposure-2026-10-10/reproduction-2026-10-13.md)
 collects the isolated PPO, simulator Double DQN and fixed-dataset CQL path,
 registered five-seed evidence and adoption blockers. The new

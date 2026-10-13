@@ -147,14 +147,18 @@ def paired(records, comparators=('cash', 'momentum3'), algorithms=('ppo', 'doubl
     return result
 
 
-def behavior_buffer(bars, events, fold, symbols, episode_type, fold_index, count):
+def behavior_buffer(bars, events, fold, symbols, episode_type, fold_index, count,
+                    training_transitions=32):
+    require(type(training_transitions) is int and 1 <= training_transitions <= 128 and
+            fold['trainStop'] > 96 + training_transitions, 'invalid training horizon')
     # Each closure owns a physically sliced training prefix, including funding.
     train_bars = {s:v[:fold['trainStop']] for s,v in bars.items()}
     train_events = {s:v[:fold['trainStop']] for s,v in events.items()}
     def factory(rng):
         symbol = symbols[int(rng.integers(len(symbols)))]
-        start = int(rng.integers(96, fold['trainStop']-32))
-        return episode_type(train_bars[symbol], train_events[symbol], start, start+33, enabled=True)
+        start = int(rng.integers(96, fold['trainStop']-training_transitions))
+        return episode_type(train_bars[symbol], train_events[symbol], start,
+                            start+training_transitions+1, enabled=True)
     collector = Collector(factory, 20261010+fold_index)
     frozen = collector.collect(lambda _: np.full(3, 1/3), count)
     for value in frozen.values(): value.setflags(write=False)
@@ -166,7 +170,8 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
         extra_sources=(), rules=RULES, rule_policy=baseline,
         comparators=('cash', 'momentum3'), offline_transitions=None,
         expected_behavior_hashes=None, behavior_identity_prefix=None,
-        algorithms=ALGORITHMS, paired_algorithms=('ppo', 'double_dqn', 'cql')):
+        algorithms=ALGORITHMS, paired_algorithms=('ppo', 'double_dqn', 'cql'),
+        training_transitions=32):
     # Explicit dependency injection keeps v1 defaults and artifact meanings;
     # successor entrypoints register and hash their own environment adapters.
     REG, Episode, train, VERSION, OBSERVATION = registration, episode_type, trainer, version, observation
@@ -177,6 +182,9 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
     selected_algorithms = algorithms
     require(len(comparators) == 2 and set(comparators) <= set(RULES), 'invalid paired comparators')
     raw = REG.read_bytes(); reg = json.loads(raw)
+    require(type(training_transitions) is int and
+            training_transitions == reg['environment']['trainingEpisodeTransitions'],
+            'training horizon differs from registration')
     frozen_count = reg['steps'] if offline_transitions is None else offline_transitions
     require(type(frozen_count) is int and 128 <= frozen_count <= 4096, 'invalid fixed dataset size')
     require(expected_behavior_hashes is None or len(expected_behavior_hashes) == len(reg['folds']),
@@ -198,6 +206,7 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
     manifest = {'version': VERSION, 'observation': OBSERVATION, 'commit':commit,
         'campaign':reg['id'], 'rules':list(RULES), 'pairedComparators':list(comparators),
         'offlineTransitions':frozen_count, 'algorithms':list(selected_algorithms),
+        'trainingEpisodeTransitions':training_transitions,
         'pairedAlgorithms':list(paired_algorithms), 'behaviorIdentityPrefix':behavior_identity_prefix,
         'registrationSha256':sha(raw), 'sourceHashes':{k:sha(v) for k,v in sources.items()},
         'python':platform.python_version(), 'numpy':np.__version__, 'platform':platform.platform(),
@@ -223,13 +232,14 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
         prepared = []
         if expected_behavior_hashes is not None:
             for fi, fold in enumerate(reg['folds']):
-                item = behavior_buffer(bars, events, fold, reg['data']['symbols'], Episode, fi, frozen_count)
+                item = behavior_buffer(bars, events, fold, reg['data']['symbols'], Episode, fi,
+                                       frozen_count, training_transitions)
                 require(identity(item[1]) == expected_behavior_hashes[fi],
                         'fixed dataset differs from registered parent')
                 prepared.append(item)
         for fi, fold in enumerate(reg['folds']):
             factory, frozen, behavior_failures = prepared[fi] if prepared else behavior_buffer(
-                bars, events, fold, reg['data']['symbols'], Episode, fi, frozen_count)
+                bars, events, fold, reg['data']['symbols'], Episode, fi, frozen_count, training_transitions)
             dataset_sha = buffer_hash(frozen)
             require(expected_behavior_hashes is None or identity(frozen) == expected_behavior_hashes[fi],
                     'fixed dataset differs from registered parent')
@@ -248,6 +258,7 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
                             # No production loader accepts this schema. Parameter bytes are only research evidence.
                             artifact = {'version':VERSION, 'observation':OBSERVATION, 'algorithm':alg,
                                 'seed':seed, 'fold':fi, 'mode':'research_only', 'sourceCommit':commit,
+                                'trainingEpisodeTransitions':training_transitions,
                                 'registrationSha256':sha(raw), 'simulatedReferenceDatasetSha256':dataset_sha,
                                 'trainingInput': 'frozen_simulated_reference_buffer' if alg in ('cql','cql_alpha0','behavior_cloning') else 'fresh_simulator_rollouts_from_registered_training_prefix',
                                 'parametersLittleEndianHex':[p.hex() for p in fit.actor.p],

@@ -422,4 +422,69 @@ class OfflineDataV4Tests(unittest.TestCase):
         self.assertTrue(all(row['algorithm']=='cql' for row in result))
 
 
+class HorizonTests(unittest.TestCase):
+    def test_horizon_ownership_maturity_and_terminal_cost(self):
+        from run_rl_composition import behavior_buffer
+        import rl_admission_v2 as v2
+        bars,events=fixture()
+        args=({'FIXTURE':bars},{'FIXTURE':events},{'trainStop':180},['FIXTURE'],v2.Episode,0,128)
+        factory,data,_=behavior_buffer(*args,training_transitions=64)
+        ep=factory(np.random.default_rng(7))
+        self.assertEqual(len(ep.bars),180)
+        self.assertEqual(len(ep.events),180)
+        self.assertEqual(ep.stop-ep.start,65)
+        self.assertLess(ep.stop-1,180)
+        total=0
+        while not ep.done:
+            _,reward,_=ep.step(2);total+=reward
+        self.assertEqual(len(ep.rows),64)
+        self.assertEqual(ep.session.state.units,0)
+        self.assertEqual(ep.rows[-1]['liquidation'],'flat')
+        self.assertGreater(ep.rows[-1]['fee'],0)
+        self.assertAlmostEqual(total,100*float(ep.session.state.equity-1),places=11)
+        self.assertEqual(int(data['done'].sum()),2)
+        self.assertTrue(np.all(data['next'][data['done']]==0))
+        self.assertTrue(all(not a.flags.writeable for a in data.values()))
+        # Poison everything past the allowed prefix: observations/rewards match.
+        poisoned=bars[:180]+tuple(Bar('BAD',-1,-1,F(-1)) for _ in bars[180:])
+        _,other,_=behavior_buffer({'FIXTURE':poisoned},args[1],*args[2:],training_transitions=64)
+        self.assertEqual(r.buffer_hash(data),r.buffer_hash(other))
+
+    def test_default_32_is_preserved_and_invalid_horizons_rejected(self):
+        from run_rl_composition import behavior_buffer
+        import rl_admission_v2 as v2
+        bars,events=fixture()
+        args=({'FIXTURE':bars},{'FIXTURE':events},{'trainStop':180},['FIXTURE'],v2.Episode,0,128)
+        _,old,_=behavior_buffer(*args)
+        _,explicit,_=behavior_buffer(*args,training_transitions=32)
+        self.assertEqual(r.buffer_hash(old),r.buffer_hash(explicit))
+        for invalid in (True,0,-1,129,64.,None):
+            with self.assertRaises(ValueError): behavior_buffer(*args,training_transitions=invalid)
+
+    def test_offline_guard_and_online_factory(self):
+        from unittest.mock import patch
+        import run_rl_horizon_v5 as v5
+        factory=object()
+        def inspect(alg,received,*args,**kwargs):
+            if alg in ('ppo','double_dqn'): self.assertIs(received,factory)
+            else:
+                with self.assertRaisesRegex(ValueError,'offline training'): received(None)
+            return 'checked'
+        with patch.object(v5.v2,'train',side_effect=inspect):
+            for alg in ('ppo','double_dqn','cql','cql_alpha0','behavior_cloning'):
+                self.assertEqual(v5.train(alg,factory,11,128,{},enabled=True),'checked')
+
+    def test_registration_and_explicit_opt_in(self):
+        import json,subprocess
+        import run_rl_horizon_v5 as v5
+        reg=json.loads(v5.REG.read_bytes())
+        self.assertEqual(v5.configuration(reg)['training_transitions'],64)
+        reg['environment']['trainingEpisodeTransitions']=32
+        with self.assertRaises(ValueError): v5.configuration(reg)
+        result=subprocess.run([sys.executable,str(v5.ROOT/'scripts/research/run_rl_horizon_v5.py'),
+            '--panel','absent','--settlements','absent','--output','absent'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,2)
+        self.assertIn('disabled:',result.stderr)
+
+
 if __name__=='__main__': unittest.main()
