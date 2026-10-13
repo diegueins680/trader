@@ -1,5 +1,71 @@
 # Trader
 
+Code releases preserve the existing Hetzner runtime environment by default.
+Automatic deployments and manual dispatches use `environment_mode: preserve`;
+the deploy script defaults `TRADER_HETZNER_ENV_MODE` to `preserve`, rejects
+environment overlays in that mode, and checks the remote environment digest
+before container replacement and final commit attestation. Neither credentials
+nor authorization, fleet or risk settings are reapplied by a code-only release.
+The existing overlay mechanism requires explicit `environment_mode: apply`
+(or `TRADER_HETZNER_ENV_MODE=apply` for the script) for a separately reviewed
+configuration release. This does not qualify or activate the RL challenger.
+Preserve mode requires an existing running API with a readable commit identity;
+it cannot bootstrap a new server from a dormant environment file.
+Deployment and rollback use one private temporary environment snapshot, removed
+on exit. A late change to the source environment fails the release while rollback
+is still armed; rollback retains the captured settings without overwriting the
+operator's edit to the source file.
+
+The opt-in [causal RL composition pilot](research-notes/rl-exposure-2026-10-10/contract.md)
+connects PPO, Double DQN and fixed-dataset discrete CQL to exact research accounting.
+It is disabled by default, cannot authorize orders, and uses only hash-pinned,
+already-exposed development exports. Run `python3 scripts/research/run_rl_composition.py --help`;
+install the existing pinned research/formal dependencies first. Its regression and
+scoped proof checks run through `bash scripts/verify.sh formal` and `full`.
+The [executed report and all-seed evidence](research-notes/rl-exposure-2026-10-10/report.md)
+record 50 fits and 1,218 replays. Turnover-guard stops invalidate the primary
+equal-horizon comparisons; no challenger qualifies. The report includes exact
+reproduction commands, data/artifact hashes and remaining assurance gates.
+
+The registered [admission-continuation successor](research-notes/rl-exposure-2026-10-10/admission-v2.md)
+revalidates turnover at simulated fill and continues after a rejected reversal
+with a costed zero target. Run `python3 scripts/research/run_rl_admission_v2.py --help`.
+It has a distinct environment/artifact version and remains disabled by default.
+Its 50 fits and 1,218 replays all completed, but PPO (+0.107%), Double DQN
+(−0.520%) and CQL (−0.285%) trail the raw-momentum contextual mean (+0.965%).
+These exposed-development results reject integration of this candidate package.
+An explicitly adaptive supplemental control using exactly the RL observation
+vector averaged +1.487%; it also remains ineligible for production adoption.
+
+The [registered offline-data study](research-notes/registrations/rl-offline-data-v4.json)
+extends each frozen simulated behavior dataset from 512 to 4,096 transitions,
+holding optimizer updates and evaluation fixed. Run explicitly with
+`python scripts/research/run_rl_offline_data_v4.py --run-registered-offline-data-v4
+--panel <registered-development-panel.csv> --settlements <registered-development-settlements.csv>
+--output <new-evidence-directory>` in the pinned research environment. CQL,
+alpha-zero and behavior cloning are fitted; PPO and Double DQN retain their
+frozen v3 comparison results. Both original dataset prefixes must match before
+any fit. Offline training receives no usable simulator interaction factory.
+This adaptive development experiment remains disabled by default and cannot
+promote a policy or authorize orders.
+The [executed offline-data report](research-notes/rl-exposure-2026-10-10/offline-data-v4.md)
+records 30 fits and 798 complete replays. CQL improves from −1.605% to +0.656%
+but trails the matched control (+1.487%) and fails uncertainty/intervention gates.
+Alpha-zero performs similarly (+0.696%); the conservative penalty has no
+demonstrated advantage here. Integration remains rejected.
+
+The [registered training-budget study](research-notes/registrations/rl-training-budget-v3.json)
+keeps v2 execution fixed and compares 4,096-step training with the frozen 512-step
+pilot. Run `python3 scripts/research/run_rl_budget_v3.py --help`. CQL and cloning
+retain the identical 512-transition offline buffers. Observation-matched controls
+are included from the start; this is adaptive development research, disabled by
+default, with no new holdout or production authorization.
+The [executed budget report](research-notes/rl-exposure-2026-10-10/budget-v3.md)
+records another 50 fits and 1,218 complete replays. PPO (+0.299%) and Double DQN
+(+0.311%) improve on the smaller-budget means; CQL deteriorates to −1.605%.
+All remain behind the matched control and fail the intervention gate. Six
+training episodes hit economic risk termination; no integration is justified.
+
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
 Drain gates (2026-10-09): obligation 14 **closes**. After SIGTERM, running bots, the bot auto-start loop and the auto-optimizer used to keep starting new work until their own shutdown step (CE-DRAIN-001). Now, once the server drains, bot start is refused, bots make no new order decisions (a routine already in flight still places its protection orders; positions carry over to adoption after restart), and no optimizer process is launched. HTTP work routes and backtests were already gated; credential probes stay available.

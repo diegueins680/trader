@@ -90,6 +90,7 @@ verify_formal() {
   require_cmd "$formal_python"
   run_step "formal specification coverage" node "$ROOT_DIR/scripts/verify-formal-specs.mjs"
   run_step "proof ledger and model regression tests" "$formal_python" "$ROOT_DIR/scripts/formal/test_integrity.py"
+  run_step "causal RL learner and accounting regressions" "$formal_python" "$ROOT_DIR/test/rl_composition_test.py"
   run_step "SMT, state model and Haskell conformance" "$formal_python" "$ROOT_DIR/scripts/formal/verify.py"
 }
 

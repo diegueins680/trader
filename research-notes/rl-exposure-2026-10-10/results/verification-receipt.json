@@ -1,0 +1,80 @@
+{
+  "automationTests": 185,
+  "cabal": "3.12.1.0",
+  "closedMissionObligations": 20,
+  "formalReceiptSha256": "7a9c433fea123bee66ea48e55fb883fa4b09633e38674b9a68e209a1faeb9eca",
+  "formalRegressionTests": 341,
+  "fullCommand": "bash scripts/verify.sh full",
+  "fullExitCode": 0,
+  "ghc": "9.4.8",
+  "haskellSuite": "PASS",
+  "logs": {
+    "rl-automation-2.log": {
+      "bytes": 386,
+      "sha256": "a9fd287cc5056241f9b09125b4d46c004c775a4c3e13b25c1589f48201b92437"
+    },
+    "rl-automation.log": {
+      "bytes": 40887,
+      "sha256": "9d79d167c144e923c6214285bb60da003f91fcdafe8bbaab6bd74e8233edd971"
+    },
+    "rl-experiment.log": {
+      "bytes": 4388,
+      "sha256": "d0b63f457ff37aafdd849c59e7c35abbcf293c2a6b901820354a2f8f5784af56"
+    },
+    "rl-formal-record-2.log": {
+      "bytes": 679,
+      "sha256": "234bd90ce0cab6ec26795f46f895950b2b946a88e45205b0ac4d965290979a5a"
+    },
+    "rl-formal-record-3.log": {
+      "bytes": 1235,
+      "sha256": "c3ee44cb6018da072e3c512c0bc4dce30495b751663d8f745fcc339faa308b6e"
+    },
+    "rl-formal-record-4.log": {
+      "bytes": 1534,
+      "sha256": "bad45e0da56944a1e3d41e132aba7abf11f741c165f8921705a9a1ddef87085b"
+    },
+    "rl-formal-record-5.log": {
+      "bytes": 1656,
+      "sha256": "82df9941171f5b2ccd0e88252fd4d1a5f8753ee5e92d41a4a49fe06a05828b9a"
+    },
+    "rl-formal-record-6.log": {
+      "bytes": 49,
+      "sha256": "1ea04da0efb6a07c8ee77de34bde8529953a1714bd7851a4fccf6fc35bd674e3"
+    },
+    "rl-formal-record-7.log": {
+      "bytes": 45141,
+      "sha256": "ea062ca880bfb88bd23efab69ef38bc1078c90ca3dbad039ac5986b6bc939ffb"
+    },
+    "rl-formal-record.log": {
+      "bytes": 679,
+      "sha256": "234bd90ce0cab6ec26795f46f895950b2b946a88e45205b0ac4d965290979a5a"
+    },
+    "rl-full.log": {
+      "bytes": 144820,
+      "sha256": "091156efa10af7d70dc36fa1ca35ff6782cf82d05e11c5f18ce2627a75bc3d5a"
+    },
+    "rl-haskell.log": {
+      "bytes": 86297,
+      "sha256": "bf2e4ab71ab97f221c2c1d21f788ae93f66c36a1afd4c5072ccd1811ce6961cf"
+    },
+    "rl-targeted-final.log": {
+      "bytes": 112,
+      "sha256": "a1530a358ab0da9beabda866184f7ed69e49021e9f9efb08bd6a3653abeb94fc"
+    },
+    "rl-web.log": {
+      "bytes": 54989,
+      "sha256": "d32a7167a04bbac517eb8b0d1529be9700d18097e1bbc3b03fa429cf522d96c7"
+    }
+  },
+  "logsDirectory": "/Users/diegosaa/GitHub/trader/.tmp/research/rl-causal-composition-delivery-20261010",
+  "missionComplete": false,
+  "node": "20.19.0",
+  "numpy": "2.3.5",
+  "openMissionObligations": 18,
+  "python": "3.13.3",
+  "rlRegressionTests": 13,
+  "scopedCertificateReproduction": "PASS",
+  "verifiedCodeCommit": "81f41f228dda45360807a4cdc97ed902ee0cfecb",
+  "webTests": 241,
+  "z3": "4.15.4.0"
+}

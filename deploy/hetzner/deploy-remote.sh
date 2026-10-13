@@ -24,6 +24,8 @@ set -euo pipefail
 #   TRADER_HETZNER_SSH_PORT      SSH port (default: 22)
 #   TRADER_HETZNER_REPO_DIR      Repo path on the host (default: /opt/trader)
 #   TRADER_HETZNER_ENV_FILE      Env file relative to repo dir (default: deploy/hetzner/trader.env)
+#   TRADER_HETZNER_ENV_MODE     preserve (default) keeps the remote env unchanged;
+#                              apply explicitly permits the existing overlay mechanism.
 #   TRADER_HETZNER_MANAGED_ENV_FILE  Optional checked-in KEY=VALUE overlay relative to the
 #                                repo dir; each key is updated-or-appended into the box's
 #                                env file before compose up, so non-secret tuning ships
@@ -60,6 +62,7 @@ ssh_user="${TRADER_HETZNER_SSH_USER:-root}"
 ssh_port="${TRADER_HETZNER_SSH_PORT:-22}"
 repo_dir="${TRADER_HETZNER_REPO_DIR:-/opt/trader}"
 env_file="${TRADER_HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
+env_mode="${TRADER_HETZNER_ENV_MODE:-preserve}"
 managed_env_file="${TRADER_HETZNER_MANAGED_ENV_FILE:-}"
 env_overrides_file="${TRADER_HETZNER_ENV_OVERRIDES_FILE:-}"
 compose_file="${TRADER_HETZNER_COMPOSE_FILE:-deploy/hetzner/docker-compose.yml}"
@@ -67,6 +70,17 @@ ssh_connect_timeout="${TRADER_HETZNER_SSH_CONNECT_TIMEOUT:-10}"
 ssh_connection_attempts="${TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS:-3}"
 health_timeout="${TRADER_HETZNER_HEALTH_TIMEOUT:-180}"
 rollback_image="${TRADER_HETZNER_ROLLBACK_IMAGE:-trader-api:rollback}"
+
+case "$env_mode" in
+  preserve)
+    if [[ -n "$managed_env_file" || -n "$env_overrides_file" ]]; then
+      echo "ERROR: preserve mode refuses environment overlays." >&2
+      exit 1
+    fi
+    ;;
+  apply) ;;
+  *) echo "ERROR: environment mode must be preserve or apply." >&2; exit 1 ;;
+esac
 
 if [[ ! "$commit" =~ ^[0-9A-Fa-f]{7,64}$ ]]; then
   echo "ERROR: TRADER_GIT_COMMIT must be a 7-64 character hexadecimal commit, got: $commit" >&2
@@ -136,6 +150,7 @@ echo "==> Syncing ${commit} to ${ssh_user}@${host}:${repo_dir}"
 # the box's secrets (trader.env), Caddyfile, or runtime data. Excluded paths are
 # protected from deletion regardless.
 rsync -az --human-readable \
+  --exclude "/${env_file#${repo_dir%/}/}" \
   --exclude '.git' \
   --exclude '.git/' \
   --exclude 'node_modules/' \
@@ -185,6 +200,7 @@ remote_command="env"
 for assignment in \
   "REPO_DIR=${repo_dir}" \
   "ENV_FILE=${env_file}" \
+  "ENV_MODE=${env_mode}" \
   "MANAGED_ENV_FILE=${managed_env_file}" \
   "ENV_OVERRIDES_FILE=${remote_env_overrides_file}" \
   "COMPOSE_FILE=${compose_file}" \
@@ -213,6 +229,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# BEGIN environment contract (also executed against synthetic files in tests).
 merge_env_overlay() {
   local overlay_file="$1"
   local target_file="$2"
@@ -234,19 +251,62 @@ merge_env_overlay() {
   rm -f "$merged"
 }
 
-# Merge the checked-in managed overlay into the box's env file: update each
-# overlay key in place, append keys the box doesn't have yet, leave everything
-# else (secrets, operator overrides of unmanaged keys) untouched.
-merge_env_overlay "$MANAGED_ENV_FILE" "$ENV_FILE" "managed env overlay ${MANAGED_ENV_FILE}"
-
-# Merge optional CI-supplied overrides after the managed overlay. This is for
-# secrets such as shared Binance credentials and is uploaded over SSH stdin, not
-# rsynced from the working tree.
-merge_env_overlay "$ENV_OVERRIDES_FILE" "$ENV_FILE" "runtime env overrides"
-rm -f "${ENV_OVERRIDES_FILE:-}"
+environment_digest() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum < "${1:-$ENV_FILE}"
+  else
+    shasum -a 256 < "${1:-$ENV_FILE}"
+  fi
+}
+compose_env_file="$ENV_FILE"
+preserved_env_file=""
+cleanup_preserved_environment() {
+  if [[ -n "$preserved_env_file" ]]; then
+    rm -f -- "$preserved_env_file"
+  fi
+}
+trap cleanup_preserved_environment EXIT
+environment_before="$(environment_digest)"
+case "$ENV_MODE" in
+  preserve)
+    if [[ -n "$MANAGED_ENV_FILE" || -n "$ENV_OVERRIDES_FILE" ]]; then
+      echo "ERROR: preserve mode refuses environment overlays." >&2
+      exit 1
+    fi
+    # Compose re-reads --env-file on each invocation. Use one private snapshot
+    # for both deployment and rollback; never restore over an operator's edit.
+    preserved_env_file="$(mktemp)"
+    cat -- "$ENV_FILE" > "$preserved_env_file"
+    if [[ "$(environment_digest "$preserved_env_file")" != "$environment_before" ]]; then
+      echo "ERROR: runtime environment changed while taking deployment snapshot." >&2
+      exit 1
+    fi
+    compose_env_file="$preserved_env_file"
+    echo "==> Preserving existing runtime environment"
+    ;;
+  apply)
+    merge_env_overlay "$MANAGED_ENV_FILE" "$ENV_FILE" "managed env overlay ${MANAGED_ENV_FILE}"
+    merge_env_overlay "$ENV_OVERRIDES_FILE" "$ENV_FILE" "runtime env overrides"
+    rm -f "${ENV_OVERRIDES_FILE:-}"
+    ;;
+  *) echo "ERROR: invalid remote environment mode." >&2; exit 1 ;;
+esac
+assert_environment_preserved() {
+  if [[ "$ENV_MODE" == preserve && "$(environment_digest)" != "$environment_before" ]]; then
+    echo "ERROR: runtime environment changed during preserve-mode deployment." >&2
+    return 1
+  fi
+}
+assert_existing_release() {
+  if [[ "$ENV_MODE" == preserve && ( -z "$previous_container" || -z "$previous_image_id" || -z "$previous_commit" ) ]]; then
+    echo "ERROR: preserve mode requires an existing running, commit-attested API." >&2
+    return 1
+  fi
+}
+# END environment contract.
 
 export TRADER_GIT_COMMIT
-compose=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+compose=(docker compose -f "$COMPOSE_FILE" --env-file "$compose_env_file")
 
 api_health_json() {
   # This remote program is itself streamed to `bash -s` over SSH. Compose exec
@@ -293,6 +353,7 @@ if [[ -n "$previous_container" ]]; then
   previous_image_id="$(docker inspect --format '{{.Image}}' "$previous_container" 2>/dev/null || true)"
   previous_commit="$(api_health_json 2>/dev/null | health_commit || true)"
 fi
+assert_existing_release
 if [[ -n "$previous_image_id" ]]; then
   docker image tag "$previous_image_id" "$ROLLBACK_IMAGE"
   echo "==> Retained previous API image as ${ROLLBACK_IMAGE}${previous_commit:+ (${previous_commit})}"
@@ -365,6 +426,12 @@ trap 'rollback_deployment $?' ERR
 # unchanged; that would update the static UI but leave the API's commit stale.
 "${compose[@]}" build api
 "${compose[@]}" run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null
+# A concurrent operator edit must not cause even a rollback recreation using
+# changed settings. No API replacement has happened at this point.
+if ! assert_environment_preserved; then
+  trap - ERR
+  exit 1
+fi
 "${compose[@]}" up -d --no-deps --force-recreate api
 "${compose[@]}" up -d --remove-orphans
 wait_for_api_health
@@ -411,6 +478,7 @@ until "${compose[@]}" exec -T api /bin/sh -ec '
   ((rollup_attempt += 1))
 done
 
+assert_environment_preserved
 trap - ERR
 rm -f "${caddy_rollback_file:-}"
 docker image prune -f >/dev/null 2>&1 || true

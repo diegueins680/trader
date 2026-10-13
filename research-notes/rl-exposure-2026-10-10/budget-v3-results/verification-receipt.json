@@ -1,0 +1,119 @@
+{
+  "branch": "research/rl-exposure-v1-20261010",
+  "checks": {
+    "automation": {
+      "failed": 0,
+      "skipped": 0,
+      "specifications": "passed",
+      "testsPassed": 185
+    },
+    "formalRegressionTests": {
+      "passed": 341,
+      "seconds": 204.499
+    },
+    "formalReproduction": {
+      "seconds": 215.892,
+      "status": "passed"
+    },
+    "haskell": "build, fourmolu, hlint, smoke and cabal test passed",
+    "rlRegressionTests": {
+      "passed": 21,
+      "seconds": 3.036
+    },
+    "web": {
+      "build": "passed",
+      "failed": 0,
+      "skipped": 0,
+      "testsPassed": 241,
+      "typecheck": "passed"
+    }
+  },
+  "date": "2026-10-10",
+  "draftPrOpened": false,
+  "earlierAttempts": [
+    {
+      "command": "python test/rl_composition_test.py",
+      "result": "20 passed, 1 test-mock error: mocked subprocess.check_output also intercepted platform uname; fixed fixture to delegate non-git calls. Final targeted 21 tests passed in 4.947s."
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "log": "rl-v3-formal-record.log",
+      "result": "failed: inherited PPO bridge hang fixture exceeded 3s outer subprocess deadline; no successful certificate recorded"
+    },
+    {
+      "command": "ppo_process_bridge.conformance()",
+      "log": "rl-v3-bridge-retry.log",
+      "result": "passed unchanged: 9 synthetic fits, 27 trained observation cases, 16 bit cases, 20 invalid cases, 3 fault fixtures"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "log": "rl-v3-formal-record-retry.log",
+      "result": "failed at inherited accounting gross lemma expected-status check: SAT/UNKNOWN/vacuous proof. Original diagnostic does not distinguish SAT from unknown; not counted as success."
+    },
+    {
+      "command": "isolated accounting gross/funding SAT/UNSAT diagnostics, same 10s limit and seed0",
+      "log": "rl-v3-accounting-retry.log",
+      "result": "passed: both premises SAT, claims UNSAT; gross claim 9.279s and funding claim 0.425s; narrow timing margin retained"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "log": "rl-v3-formal-record-final.log",
+      "result": "passed in 184.281s; subsequently reproduced by ordinary canonical full run"
+    }
+  ],
+  "experiment": {
+    "evaluationReplays": 1218,
+    "failedEvaluationReplays": 0,
+    "failedFits": 0,
+    "fits": 50,
+    "independentlyAuditedEvaluationRows": 77952,
+    "indexSha256": "360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039",
+    "scopedAuditViolations": 0,
+    "trainingRiskTerminations": 6
+  },
+  "experimentCommit": "c962c227cec940ca6277acbd246e1f9fdffcb399",
+  "fullCommand": "env -i HOME=/Users/diegosaa TMPDIR=/private/tmp PATH=/private/tmp/node-v20.19.0-darwin-x64/bin:/private/tmp/trader-rl-tools/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin TRADER_FORMAL_PYTHON=/private/tmp/trader-rl-tools/bin/python bash scripts/verify.sh full",
+  "fullExitCode": 0,
+  "holdoutOpened": false,
+  "liveAuthorizationAdded": false,
+  "logDirectory": "/Users/diegosaa/GitHub/trader/.tmp/research/rl-training-budget-v3-delivery-20261010/logs",
+  "logSha256": {
+    "rl-v3-accounting-retry.log": "a4f8bcf57f1a959ea7b07cbf1e757e562191e25aaba54bf2d3abe9956554310a",
+    "rl-v3-bridge-retry.log": "5fb8c4c6a29643ca9c449fa7db9b74e7653cc326dc35dd679143d723960a1de5",
+    "rl-v3-campaign.log": "93954b353edcab294809fd16f57d5c3e2cce5b89be5ddb4b3339363fb1e3c91d",
+    "rl-v3-formal-record-final.log": "76fc03af66f1b30b1b8032b10266c5fbeb0d174ae75e7c2541683b3131385510",
+    "rl-v3-formal-record-retry.log": "bad45e0da56944a1e3d41e132aba7abf11f741c165f8921705a9a1ddef87085b",
+    "rl-v3-formal-record.log": "8ec403a5988edaa6d5d5febce109a43933839188593e4446795c306668f833d5",
+    "rl-v3-full.log": "303b2fac75c02b647002d531b0d24ca6890bbbbb42598b56360702665abf360d",
+    "rl-v3-targeted-final.log": "89fa142de8aa13bf19e536062ed1c888a913164249de074acd5e5b08f32a6afc",
+    "rl-v3-targeted.log": "6840776b870790005d65450224bb9735a8607de224a4b3994c0d565f756f06cf"
+  },
+  "orphanCheck": "Read-only process name/parent check found no remaining trader-ppo-bridge, trader-inference-process or trader-rl worker path.",
+  "promotionAllowed": false,
+  "publicationBlocker": "Scheduled autoloop reviews all PR states without draft exclusion and may push review fixes directly to main, triggering deployment.",
+  "pushed": false,
+  "registrationCommit": "ff3cce38",
+  "reliabilityLimitation": "Retain the initial 3s process timeout and SMT expected-status failure despite subsequent successful checks. Successful final verification is not a claim of unconditionally reliable timing.",
+  "remainingEvidence": [
+    "current-champion matched replay",
+    "authentic first-seen availability",
+    "untouched chronological confirmation",
+    "real behavior support/OPE",
+    "Haskell operational inference parity and admission composition",
+    "realistic precision, minimum-notional and liquidity calibration"
+  ],
+  "scope": {
+    "assuranceLedger": "formal/research/proof-ledger.json",
+    "broadObligationsClosed": 20,
+    "broadObligationsOpen": 18,
+    "compositionSmtLemmas": 9,
+    "haskellExactLedgerWitnesses": 8,
+    "lifecycleEdges": 107,
+    "lifecycleStates": 43,
+    "lifecycleStepBound": 8,
+    "missionComplete": false,
+    "newTheoremsThisBudgetStudy": 0,
+    "sourceLockedFiles": 17
+  },
+  "verifiedMain": "354c853176b7ee2ac6570951f7f6f2d0aed6909d"
+}

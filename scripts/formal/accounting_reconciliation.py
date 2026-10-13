@@ -163,7 +163,7 @@ def _factors(node):
 
 
 def _direct(name):
-    """Final inequality for gross/funding as one query on the AST-translated rounded expression."""
+    """Final gross/funding inequality over the AST-translated rounded expression."""
     u, h = z.RealVal(str(U)), z.RealVal(str(H))
     node, cons, count = _source_expr(name), [], [0]
     Uv, p0, p1, ft, m, Ev = z.Reals(f'ar_{name}_U ar_{name}_p0 ar_{name}_p1 ar_{name}_f ar_{name}_m ar_{name}_E')
@@ -188,6 +188,12 @@ def _direct(name):
         premise = z.And(*cons, Ev >= z.RealVal('4/5'), Ev <= z.RealVal(str(HIGH)), p0 >= z.RealVal(str(LOW_PRICE)),
                         p1 >= p0 / 2, p1 <= 3 * p0 / 2, _abs(Uv) * p0 <= z.RealVal(str(x0)) * Ev)
         claim = _abs(computed - exact) <= 3 * u * _abs(exact) + z.RealVal(str(GROSS_E)) * Ev + 2 * h
+        # The monolithic nonlinear query can exceed the unchanged 10s deadline.
+        # Split the same claim by exhaustive position/price-move signs, checking
+        # coverage and each case's nonvacuity rather than assuming any sign.
+        cases = [z.And(position, movement) for position in (Uv >= 0, Uv < 0)
+                 for movement in (p1 >= p0, p1 < p0)]
+        return _query(premise, z.Or(*cases)) + sum(_query(z.And(premise, case), claim) for case in cases)
     else:
         premise = z.And(*cons, m >= 0, m <= 2)
         claim = _abs(computed - exact) <= STATED['funding'][0] * u * _abs(exact) + STATED['funding'][1] * h

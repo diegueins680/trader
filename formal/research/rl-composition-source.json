@@ -1,0 +1,24 @@
+{
+  "review": "Economic kernels and default learners unchanged. V4 explicitly selects offline families, checks both registered original buffer prefixes before any fit, refuses new offline training interactions, and verifies unchanged baselines. Prefix and full hashes bind different objects explicitly. No new safety theorem; source identity and conformance are not semantic proof.",
+  "sha256": {
+    "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+    "scripts/research/run_rl_composition.py": "d8ca42a3ae8811174652cf84ddd9d12f4970b83bbaf7cf798b8db4d8e7be83d9",
+    "scripts/formal/rl_composition_check.py": "1459d32b4ffea0befe385dce0f0fc7323da9c9cd5e06ecc5c30ad64a82445039",
+    "test/rl_composition_test.py": "8bcf81b10794ab740ade5d3a689942f29067afc573c6b772284eb5331b6a70cd",
+    "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+    "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+    "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+    "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+    "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
+    "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+    "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+    "scripts/formal/shield_consumers.py": "3ad42b9ad8024dba9a0acf00b1e85f4cfc7bee0283f427fef2d3f56cd6438338",
+    "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+    "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
+    "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",
+    "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+    "scripts/research/summarize_rl_budget_v3.py": "1264159a96cc389229071c6c036c80efdc73d80f88f07161905925953492b84c",
+    "scripts/research/run_rl_offline_data_v4.py": "fe98c2d24bc604883f0865cdc5941df7d32d04d8fbb1a8d12d1eff5c3033f2b4",
+    "scripts/research/summarize_rl_offline_data_v4.py": "048a3b889b9d81751c5b3e990b1ebf63a96e4cce9736f3fbdb325646f6350f89"
+  }
+}

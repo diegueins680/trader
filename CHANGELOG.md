@@ -1,5 +1,49 @@
 ## Unreleased
 
+- Deployment: preserve the existing Hetzner environment on automatic and default
+  manual code releases. Withhold exchange credential inputs, reject overlays in
+  preserve mode, and check the remote environment before container replacement
+  and final attestation. Keep the existing overlay behavior behind explicit
+  `environment_mode: apply`. No current runtime values or RL eligibility change.
+  Keep rollback armed through the final environment check and use one private
+  snapshot for every Compose call in preserve mode, including rollback. Remove
+  the snapshot on exit without overwriting concurrent operator edits.
+
+- Formal: decompose the gross-P&L rounding bound into four exhaustive sign
+  cases after a monolithic solver timeout. Check coverage and nonvacuity;
+  preserve the original assumptions, conclusion, and 10-second query deadline.
+
+- Research: preregister an isolated 4,096-transition frozen-data sensitivity for
+  CQL, its alpha-zero diagnostic and behavior cloning, preserving the v3 update
+  budget and original 512-transition prefixes. Add subset-aware orchestration,
+  an offline interaction guard and hash-verified comparison diagnostics.
+  All 30 fits and 798 replays completed. CQL improves to +0.656% but remains
+  behind the matched control; retain the failed promotion gates, one simulated
+  data-generation risk termination and the 51,072-row scoped audit.
+
+- Research: preregister a 4,096-step training-budget sensitivity study, preserving
+  v2 accounting, shield and 512-transition offline datasets. Add an explicit
+  opt-in runner, observation-matched controls and pre-fit buffer identity checks.
+  Preserve previous experiment versions and default behavior.
+  Execute all 50 fits and 1,218 evaluation replays, retain six training risk
+  terminations, audit 77,952 evaluation rows and reject integration. More training
+  improves PPO/Double DQN means but worsens the fixed-dataset CQL result.
+
+- Research: add disabled `rl-admission-continuation-v2`, separating turnover
+  rejection from economic termination and independently auditing traced fills
+  and costs. Preserve v1 artifacts; require retraining in the new environment.
+  All 50 successor fits and 1,218 replays completed; paired uncertainty and
+  intervention gates still reject integration. Record every seed and stress.
+  Correct the raw-momentum observation-matching claim and retain 84 separately
+  registered normalized-observation control replays without retraining RL.
+
+- Research: add versioned causal RL composition pilot with PPO, Double DQN,
+  fixed simulated-data discrete CQL, matched controls, exact equity rewards,
+  explicit delay reservations, all-seed reporting and scoped formal checks.
+  Execute all 50 pilot fits and 1,218 replays; retain 314 turnover-guard stops,
+  report insufficient primary comparison evidence and reject integration.
+  Disabled by default; no production policy, permissions or live settings changed.
+
 - Trading/Live Fleet: re-pin NEAR and OP to the current strict-tier leaders (`9d121903…`, `fdde9030…`). Their previous pins were pruned from the shared leaderboard by the research refresh, and the fail-closed guard correctly left those two symbols idle rather than starting unpinned. Pinned UUIDs are not yet protected from pruning; that is a follow-up.
 - Trading/Live Fleet: restore the Hetzner worker caps to 18 (one worker per pinned symbol). They were held at 8 on 2026-10-12 while the leaderboard sync and build memory churn was fixed; with the sync change detection, the ETag/304 path and the single-flight cached build in place the API idles near 0.5 GiB and a single build peaks near 7 GiB on the 15.6 GiB box. Aggregate configured exposure cap returns to 18%. `TRADER_BOT_START_MAX_SYMBOLS` stays at 8 so a manual or recovery bulk start launches at most eight initialisation workers at once.
 - Performance/Top Combos: full leaderboard builds are now serialized through one gate shared by the replica sync pass and `GET /optimizer/combos`, and the last built body is kept in memory and reused while its fingerprint still matches, so several browser tabs or a tab plus a sync pass can no longer stack multi-gigabyte builds (that stacking OOM-killed the trading API on 2026-10-12 at 16:11Z). The sync also skips re-uploading an identical leaderboard to S3 (object ETag equals the body md5), which previously changed every fingerprint each pass.

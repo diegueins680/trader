@@ -1,5 +1,15 @@
 # Trader Firm — Risk Register
 
+Offline RL development evidence (2026-10-11): the registered larger frozen-data
+study completed 30 fits and 798 replays. CQL improves to +0.656% mean net return,
+but trails the observation-matched control and fails uncertainty/intervention
+gates; integration remains rejected. One economic termination during simulated
+data collection remains represented. The 51,072-row audit found no violations
+within its scope, without closing any broad formal or production-risk obligation.
+Real behavior support, authentic availability, matched champion evidence,
+untouched confirmation and operational inference remain open. See the
+[study and policy card](../research-notes/rl-exposure-2026-10-10/offline-data-v4.md).
+
 Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
 
 Drain gates (2026-10-09): obligation 14 **closes**. After SIGTERM, running bots, the bot auto-start loop and the auto-optimizer used to keep starting new work until their own shutdown step (CE-DRAIN-001). Now, once the server drains, bot start is refused, bots make no new order decisions (a routine already in flight still places its protection orders; positions carry over to adoption after restart), and no optimizer process is launched. HTTP work routes and backtests were already gated; credential probes stay available.

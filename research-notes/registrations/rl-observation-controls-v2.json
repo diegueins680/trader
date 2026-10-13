@@ -1,0 +1,23 @@
+{
+  "id": "rl-observation-controls-v2",
+  "registeredOn": "2026-10-10",
+  "kind": "adaptive_post_v2_baseline_fidelity_diagnostic_not_confirmation",
+  "parentRegistration": "rl-admission-continuation-v2.json",
+  "frozenPolicyCommit": "fb23bc3e4a39f24dfc43fc5afbda25613f055925",
+  "archiveIndexSha256": "375289707f8b55a3d58d8ded69f7686215f0c67297dcdd9c22739e5f6a3956f4",
+  "reason": "After v2 outcomes, code review found raw momentum3 reads episode history while the RL vector contains centered/scaled returns without the scale parameters. Raw momentum is a contextual comparator, not exactly observation-matched. Preserve v2 outcome evidence; add an explicitly adaptive matched-observation diagnostic.",
+  "hypothesis": "Frozen RL proposals can be compared with deterministic sign and reverse-sign rules using only the same twelve-entry observation vector. No additional learner fits or selected checkpoint.",
+  "policies": [
+    "normalized_momentum3",
+    "normalized_reversal3"
+  ],
+  "policyDefinition": "Sign of observation[1], the centered/scaled 3-bar return; action=1+sign for normalized_momentum3 and 1-sign for normalized_reversal3; exact zero maps to cash. The other eleven entries are available but unused. Same shield, execution, capital and costs. This is deviation from burn-in mean, not raw trend direction.",
+  "plan": "84 new replays = two rules x two existing folds x three symbols x seven stresses. Retain all outcomes. Reuse the identical archived 30 primary RL fits and their full traces; no retraining or new hyperparameter search.",
+  "primaryStatistic": "Descriptive incremental net equity against cash and normalized_momentum3, same all-seed/fold/symbol averaging and blocks3/9/21,2000 resamples,Bonferroni six comparisons. Normalized reversal diagnostic only. Do not relabel this as the original preregistered primary comparison.",
+  "seedSelection": "All original five seeds and last checkpoints unchanged.",
+  "data": "Only parent hash-pinned already-exposed development exports; no new holdout or data inspection outside these inputs.",
+  "gates": "Parent materiality0.001 and risk gates retained; original action-intervention failures still block integration. No newly favorable statistic can cure missing champion/authentic availability/confirmation/formal composition.",
+  "promotionAllowed": false,
+  "enabledByDefault": false,
+  "liveAuthorization": false
+}

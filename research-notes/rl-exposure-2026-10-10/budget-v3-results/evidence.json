@@ -1,0 +1,313 @@
+{
+  "DSR": "insufficient_evidence",
+  "OPE": "No real logged behavior/support. Historical replay is model-based counterfactual evidence. No valid real IS/DR/FQE estimate.",
+  "PBO": "insufficient_evidence",
+  "artifactBytesMax": 4893,
+  "artifactProvenanceClarification": "The archived trainingDatasetSha256 field names the common simulated reference buffer. Only CQL/alpha0/BC train on that buffer; PPO and DDQN collect fresh simulator transitions. The manifest panel/settlement hashes, fold and source commit identify their market training inputs. These research artifacts have no production loader.",
+  "blockers": [
+    "matched current champion",
+    "authentic first-seen data",
+    "untouched confirmation",
+    "full production safety composition",
+    "realistic precision and min-notional",
+    "short pilot compute and horizon"
+  ],
+  "elapsedSeconds": 637.2965380839996,
+  "failedFits": 0,
+  "failedReplays": 0,
+  "failureReasons": {},
+  "fitCount": 50,
+  "holdoutOpened": false,
+  "indexSha256": "360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039",
+  "inferenceP99MaxMs": 0.1937673600000004,
+  "manifest": {
+    "campaign": "rl-training-budget-v3",
+    "commit": "c962c227cec940ca6277acbd246e1f9fdffcb399",
+    "data": {
+      "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+      "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+      "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors.",
+      "intervalMs": 28800000,
+      "license": "Binance provider terms; do not redistribute raw data",
+      "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+      "parentRegistration": "sequential-control-screen-v1.json",
+      "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT"
+      ]
+    },
+    "holdoutOpened": false,
+    "numpy": "2.3.5",
+    "observation": "causal-inventory-pending-finite-v1",
+    "offlineTransitions": 512,
+    "pairedComparators": [
+      "cash",
+      "normalized_momentum3"
+    ],
+    "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+    "promotionAllowed": false,
+    "proofLedgerSha256": "23a2dcd3195bfb49828f77baa153e79a7820b0ef4f9afb60b7088bc416735d78",
+    "python": "3.13.3",
+    "registrationSha256": "940988e8396245d3700bcb6237547b432259eb7ebb3d76c6fb3af4bc216e2d4e",
+    "rules": [
+      "cash",
+      "constant_long",
+      "normalized_momentum3",
+      "normalized_reversal3"
+    ],
+    "sourceHashes": {
+      "research-notes/registrations/rl-training-budget-v3.json": "940988e8396245d3700bcb6237547b432259eb7ebb3d76c6fb3af4bc216e2d4e",
+      "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+      "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",
+      "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+      "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+      "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+      "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+      "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+      "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+      "scripts/research/run_rl_composition.py": "a02f6d81d5ed2584f331e5ace265e0334ebeeff235741820d22783aee18a630e",
+      "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+      "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+      "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+      "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+    },
+    "version": "rl-admission-continuation-v2"
+  },
+  "maxRss": 82862080,
+  "paired": [
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": 0.002993319439061655,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.014522424069968596,
+        0.024950053486792908
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": 0.002993319439061655,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.0119580653486016,
+        0.022262507143390155
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": 0.002993319439061655,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.010008647974866648,
+        0.021689908881822997
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "normalized_momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.011880831873713384,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05312161014841059,
+        0.01990050766607495
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "normalized_momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.011880831873713384,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.04620900587254242,
+        0.016134267618655693
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "ppo",
+      "baseline": "normalized_momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.011880831873713384,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.033762645663822796,
+        0.007581400479161712
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": 0.0031122883168694018,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.015714739634438313,
+        0.021184182591411797
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": 0.0031122883168694018,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.012639428767911699,
+        0.018975512756166577
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": 0.0031122883168694018,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.00967601986048798,
+        0.017409713421287422
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "normalized_momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.01176186299590563,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05787507596662372,
+        0.021434230521815586
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "normalized_momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.01176186299590563,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.04603401914208344,
+        0.017739694420068987
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "double_dqn",
+      "baseline": "normalized_momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.01176186299590563,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.03516912970657698,
+        0.008816834354793504
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.016053184786460676,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.04274922891271433,
+        0.005542569127798635
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.016053184786460676,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.03275998782521022,
+        -0.000738593354416875
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.016053184786460676,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.029195308360876193,
+        -0.002930895838249447
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "normalized_momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.030927336099235703,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.09948135230363504,
+        0.021698643879740423
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "normalized_momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.030927336099235703,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.07747014486833415,
+        0.008778645513322844
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "cql",
+      "baseline": "normalized_momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.030927336099235703,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.06509466717011399,
+        -0.003163528734506901
+      ],
+      "status": "descriptive_development_only"
+    }
+  ],
+  "parameterArtifactsInGit": false,
+  "planned": 1268,
+  "promotionAllowed": false,
+  "replayCount": 1218,
+  "rssUnit": "bytes",
+  "source": "/private/tmp/trader-rl-budget-v3-evidence",
+  "traceAudit": {
+    "changedOrDeferredProposals": 31987,
+    "legacyCounter": "Archived unsafeExecutableIntents=0 was a constant and is NOT evidence. This independent audit supersedes that reporting claim.",
+    "paths": 1218,
+    "rows": 77952,
+    "scope": "Post-hoc binary64 archived trace checks, tolerance 1e-12. Not a production safety proof. V2 independently reconstructs units/prices/funding/linear costs and nonterminal fills.",
+    "violationCount": 0,
+    "violations": {}
+  },
+  "trainingSeconds": 425.0431753669891
+}

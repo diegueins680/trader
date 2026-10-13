@@ -145,6 +145,11 @@
         "A-SEQUENTIAL-RESEARCH"
       ],
       "requires": [
+        {"id": "F-RL-ADMISSION-V2", "statement": "SMT SAT premises and UNSAT negated turnover and post-cost exposure formulas over exact reals. Selected exact-rational conformance: 3-step turnover counterexample continues 32 steps with 13 independently recomputed zero-target fallbacks."},
+        {"id": "F-RL-COMPOSE-SOURCE", "statement": "Complete reviewed source identities and direct effect exclusions reproduce; default-disabled isolated learner and runner have no order/production interface. Transitive library effects remain trusted."},
+        {"id": "F-RL-COMPOSE-ARITH", "statement": "Seven nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, and projected action mass. All valid domain values quantified; no probability lower-bound or market-risk theorem."},
+        {"id": "F-RL-COMPOSE-FLOW", "statement": "Exhaustive reachable fixed point of eight-step single-owner lifecycle with two proposal identities checks one reservation, no live authority and reachable terminal/disabled states. Retry self-loops have no liveness guarantee."},
+        {"id": "F-RL-COMPOSE-CONFORMANCE", "statement": "Eight synthetic optimized-vs-public replay transitions reproduce the exact same immutable session and agree with the compiled Haskell Rational ledger oracle; targeted tests validate learned toy policies and analytical gradients."},
         {
           "id": "F-RL-ASSUMPTIONS",
           "statement": "Every claim names assumptions and exact verification scope; critical unresolved claims block candidate integration."
