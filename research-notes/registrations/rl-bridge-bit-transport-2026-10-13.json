@@ -1,0 +1,15 @@
+{
+  "id": "rl-bridge-bit-transport-2026-10-13",
+  "registeredOn": "2026-10-13",
+  "parentDiagnostic": "rl-bridge-timing-2026-10-13",
+  "kind": "adaptive engineering transport experiment, not a financial trial",
+  "hypothesis": "Reuse the existing bounded exact-bit decoder for internal child transport to reduce decimal Show/Read overhead while preserving the final 20 ms admission guard and cleanup.",
+  "protocol": "Reuse all 27 frozen synthetic request fixtures and expected actions from the parent archive, verify their hashes, and invoke the unchanged control and a temporary bit-transport candidate once each per fixture with alternating order. Instrument only the candidate after final time measurement. Keep GHC9.4.8 -O2 and all timeouts. No retry selection.",
+  "candidateContract": "Keep all existing external flags and the legacy --worker decoder unchanged. Introduce an explicit --worker-bits-v4 child mode accepting the existing PPO-SNAPSHOT-V3 bit envelope with internal step=4; this compatibility field is not evidence of training provenance. Only the parent after validated decoding may encode finite bounded Double values using GHC castDoubleToWord64. Preserve zero/subnormal/sign bits. Same bounded decoder restores the Request and workerCompute; no new action semantics or authority. Only the supervisor's internal worker mode and serialization change.",
+  "implementationGate": "All candidate accepted actions must match their fixed references, no late accepted action or cleanup failure, and at least one accepted inference per each of nine policies. Preserve all absences and failures. Observed speed is not a real-time guarantee. If promising, require source-bound SMT, lifecycle/conformance, legacy compatibility, exact-bit tests and canonical verification before adopting the implementation change.",
+  "bounds": {"requests": 54, "newFits": 0, "admissionMilliseconds": 20, "outerTimeoutSeconds": 3},
+  "financialTrials": 0,
+  "holdoutOpened": false,
+  "promotionAllowed": false,
+  "liveAuthorization": false
+}
