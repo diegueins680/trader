@@ -253,11 +253,19 @@ merge_env_overlay() {
 
 environment_digest() {
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum < "$ENV_FILE"
+    sha256sum < "${1:-$ENV_FILE}"
   else
-    shasum -a 256 < "$ENV_FILE"
+    shasum -a 256 < "${1:-$ENV_FILE}"
   fi
 }
+compose_env_file="$ENV_FILE"
+preserved_env_file=""
+cleanup_preserved_environment() {
+  if [[ -n "$preserved_env_file" ]]; then
+    rm -f -- "$preserved_env_file"
+  fi
+}
+trap cleanup_preserved_environment EXIT
 environment_before="$(environment_digest)"
 case "$ENV_MODE" in
   preserve)
@@ -265,6 +273,15 @@ case "$ENV_MODE" in
       echo "ERROR: preserve mode refuses environment overlays." >&2
       exit 1
     fi
+    # Compose re-reads --env-file on each invocation. Use one private snapshot
+    # for both deployment and rollback; never restore over an operator's edit.
+    preserved_env_file="$(mktemp)"
+    cat -- "$ENV_FILE" > "$preserved_env_file"
+    if [[ "$(environment_digest "$preserved_env_file")" != "$environment_before" ]]; then
+      echo "ERROR: runtime environment changed while taking deployment snapshot." >&2
+      exit 1
+    fi
+    compose_env_file="$preserved_env_file"
     echo "==> Preserving existing runtime environment"
     ;;
   apply)
@@ -289,7 +306,7 @@ assert_existing_release() {
 # END environment contract.
 
 export TRADER_GIT_COMMIT
-compose=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+compose=(docker compose -f "$COMPOSE_FILE" --env-file "$compose_env_file")
 
 api_health_json() {
   # This remote program is itself streamed to `bash -s` over SSH. Compose exec
@@ -461,9 +478,9 @@ until "${compose[@]}" exec -T api /bin/sh -ec '
   ((rollup_attempt += 1))
 done
 
+assert_environment_preserved
 trap - ERR
 rm -f "${caddy_rollback_file:-}"
 docker image prune -f >/dev/null 2>&1 || true
-assert_environment_preserved
 echo "==> Deploy healthy and commit-attested ($TRADER_GIT_COMMIT)"
 REMOTE

@@ -80,7 +80,86 @@ test("preserve detects runtime mutation before successful attestation", async (t
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /environment changed/);
   assert.match(script, /if ! assert_environment_preserved; then\n  trap - ERR\n  exit 1\nfi\n"\$\{compose\[@\]\}" up/);
-  assert.match(script, /assert_environment_preserved\necho "==> Deploy healthy and commit-attested/);
+  assert.match(script, /assert_environment_preserved\ntrap - ERR\nrm -f "\$\{caddy_rollback_file:-\}"/);
+});
+
+test("late env mutation rolls back with the private original snapshot and cleans it up", async (t) => {
+  const f = await fixture(t);
+  const remote = script.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
+  const originalFile = path.join(f.directory, "original.env");
+  const traceFile = path.join(f.directory, "trace");
+  await fs.writeFile(originalFile, f.original);
+  await fs.writeFile(path.join(f.directory, "Caddyfile"), "original proxy\n");
+  // Run the actual remote Bash program, replacing only Docker with a finite
+  // synthetic host. No SSH, containers, credentials, or exchange clients.
+  const docker = `
+active_commit=oldcommit
+docker() {
+  case "$1" in
+    image) return 0 ;;
+    inspect)
+      case "$3" in
+        *Mounts*) printf '%s\\n' "$REPO_DIR/Caddyfile" ;;
+        *Health*) echo healthy ;;
+        *) echo old-image ;;
+      esac
+      return 0 ;;
+    cp) printf 'original proxy\\n' > "$3"; return 0 ;;
+    compose) ;;
+    *) return 90 ;;
+  esac
+  selected_env="$5"
+  cmp -s "$selected_env" "$ORIGINAL_FILE" || return 91
+  printf 'snapshot=%s\\n' "$selected_env" >> "$TRACE_FILE"
+  shift 5
+  case "$1" in
+    ps) echo "\${3:-}" ;;
+    build|run|logs) return 0 ;;
+    up)
+      [[ "\${!#}" == caddy ]] && return 0
+      if [[ "\${TRADER_API_IMAGE:-}" == rollback-image ]]; then
+        active_commit=oldcommit
+        echo rollback >> "$TRACE_FILE"
+      else
+        active_commit=newcommit
+      fi ;;
+    exec)
+      if [[ "$3" == api && "$4" == curl ]]; then
+        printf '{"commit":"%s"}\\n' "$active_commit"
+      elif [[ "$3" == api && "$4" == /bin/sh && "$MUTATE" == yes ]]; then
+        printf 'SETTING=operator-change\\n' >> "$ENV_FILE"
+      fi ;;
+    *) return 92 ;;
+  esac
+}
+`;
+  for (const mutate of ["no", "yes"]) {
+    await fs.writeFile(f.envFile, f.original);
+    await fs.writeFile(traceFile, "");
+    const result = spawnSync("bash", ["-c", docker + remote], { encoding: "utf8", env: {
+      PATH: process.env.PATH, REPO_DIR: f.directory, ENV_FILE: f.envFile, ENV_MODE: "preserve",
+      MANAGED_ENV_FILE: "", ENV_OVERRIDES_FILE: "", COMPOSE_FILE: "unused.yml",
+      TRADER_GIT_COMMIT: "newcommit", DEPLOY_HEALTH_TIMEOUT_SEC: "1", ROLLBACK_IMAGE: "rollback-image",
+      ORIGINAL_FILE: originalFile, TRACE_FILE: traceFile, MUTATE: mutate,
+    } });
+    assert.equal(result.status, mutate === "yes" ? 1 : 0, result.stdout + result.stderr);
+    const trace = await fs.readFile(traceFile, "utf8");
+    const snapshots = new Set([...trace.matchAll(/^snapshot=(.+)$/gm)].map((m) => m[1]));
+    assert.equal(snapshots.size, 1);
+    for (const snapshot of snapshots) {
+      assert.notEqual(snapshot, f.envFile);
+      await assert.rejects(fs.stat(snapshot), { code: "ENOENT" });
+    }
+    if (mutate === "yes") {
+      assert.match(trace, /^rollback$/m);
+      assert.match(result.stdout, /Rollback healthy and attested at oldcommit/);
+      assert.doesNotMatch(result.stdout, /Deploy healthy and commit-attested/);
+      assert.equal(await fs.readFile(f.envFile, "utf8"), f.original + "SETTING=operator-change\n");
+    } else {
+      assert.doesNotMatch(trace, /^rollback$/m);
+      assert.match(result.stdout, /Deploy healthy and commit-attested \(newcommit\)/);
+    }
+  }
 });
 
 test("explicit apply retains overlay precedence and unrelated settings", async (t) => {

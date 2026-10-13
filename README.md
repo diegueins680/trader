@@ -11,6 +11,10 @@ The existing overlay mechanism requires explicit `environment_mode: apply`
 configuration release. This does not qualify or activate the RL challenger.
 Preserve mode requires an existing running API with a readable commit identity;
 it cannot bootstrap a new server from a dormant environment file.
+Deployment and rollback use one private temporary environment snapshot, removed
+on exit. A late change to the source environment fails the release while rollback
+is still armed; rollback retains the captured settings without overwriting the
+operator's edit to the source file.
 
 The opt-in [causal RL composition pilot](research-notes/rl-exposure-2026-10-10/contract.md)
 connects PPO, Double DQN and fixed-dataset discrete CQL to exact research accounting.

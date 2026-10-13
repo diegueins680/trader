@@ -5,6 +5,9 @@
   preserve mode, and check the remote environment before container replacement
   and final attestation. Keep the existing overlay behavior behind explicit
   `environment_mode: apply`. No current runtime values or RL eligibility change.
+  Keep rollback armed through the final environment check and use one private
+  snapshot for every Compose call in preserve mode, including rollback. Remove
+  the snapshot on exit without overwriting concurrent operator edits.
 
 - Formal: decompose the gross-P&L rounding bound into four exhaustive sign
   cases after a monolithic solver timeout. Check coverage and nonvacuity;
