@@ -6,6 +6,9 @@ It compares the unchanged Haskell bridge with a temporary phase-instrumented cop
 on nine synthetic policies, preserving the 20 ms admission deadline. It reads no
 market or production data and cannot authorize orders. Safe absences, timeouts
 and action mismatches remain separate from successful inference.
+`python scripts/research/diagnose_rl_bit_transport.py --help` describes a separately
+registered temporary exact-bit child-transport comparison using all 27 frozen
+synthetic requests. It does not replace the current bridge implementation.
 
 RL research continuation (2026-10-13): the [current-main replication report](research-notes/rl-exposure-2026-10-10/reproduction-2026-10-13.md)
 collects the isolated PPO, simulator Double DQN and fixed-dataset CQL path,

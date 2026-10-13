@@ -4,6 +4,8 @@
   paired original/instrumented executions, preserved failure records, and strict
   telemetry regressions in formal/full verification. Keep the 20 ms admission
   budget and production integration unchanged.
+  Add a separately registered, temporary exact-bit child-transport comparison;
+  retain the existing worker and external request semantics in its control.
 
 - Research: transplant the existing causal RL campaign onto verified main and
   register a complete five-seed training/evaluation replication. Add strict

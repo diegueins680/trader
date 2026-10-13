@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts/research'))
 import diagnose_rl_bridge as d
+import diagnose_rl_bit_transport as bits
 
 
 class BridgeDiagnosticTests(unittest.TestCase):
@@ -33,6 +34,15 @@ class BridgeDiagnosticTests(unittest.TestCase):
         self.assertIn('    clean <- cleanup handles\n    ended <- clockNS\n    hPutStrLn stderr', variant)
         with self.assertRaises(ValueError):
             d.phase_source(source.replace('    ended <- clockNS\n', ''))
+
+    def test_candidate_keeps_legacy_worker_and_admission(self):
+        source = (d.ROOT / d.bridge.process.SOURCE).read_text()
+        variant = bits.candidate_source(source)
+        self.assertIn(source[source.index('worker :: IO ()'):source.index('waitExit ::')], variant)
+        self.assertIn('budgetNS = 20000000', variant)
+        self.assertIn('["--offline-inference-v2", "--worker-bits-v4"] -> workerBits', variant)
+        self.assertEqual(variant.count('createProcess (proc executable'), 1)
+        self.assertIn('raw >>= decodeSnapshot >>= workerCompute', variant)
 
 
 if __name__ == '__main__':
