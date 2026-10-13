@@ -13,6 +13,12 @@ import compare_rl_replication as r
 
 
 class ReplicationTests(unittest.TestCase):
+    def test_explicit_legacy_horizon_is_checked(self):
+        self.assertEqual(r.legacy_horizon({}), r.legacy_horizon({'trainingEpisodeTransitions': 32}))
+        for value in (64, 32., True, None, '32'):
+            with self.assertRaisesRegex(ValueError, 'horizon changed'):
+                r.legacy_horizon({'trainingEpisodeTransitions': value})
+
     def test_strict_json(self):
         for raw in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":1e400}'):
             with self.assertRaises(ValueError):
@@ -65,6 +71,9 @@ class ReplicationTests(unittest.TestCase):
                                            for n in (192, 16, 48, 3)]}
         b = {**a, 'sourceCommit': 'new', 'assuranceLedgerSha256': 'new'}
         self.assertEqual(r.policy_parameters(a, b), 259)
+        self.assertEqual(r.policy_parameters(a, {**b, 'trainingEpisodeTransitions': 32}), 259)
+        with self.assertRaisesRegex(ValueError, 'horizon changed'):
+            r.policy_parameters(a, {**b, 'trainingEpisodeTransitions': 64})
         b['parametersLittleEndianHex'] = list(a['parametersLittleEndianHex'])
         b['parametersLittleEndianHex'][3] = np.ones(3, dtype='<f8').tobytes().hex()
         with self.assertRaisesRegex(ValueError, 'parameter mismatch'):

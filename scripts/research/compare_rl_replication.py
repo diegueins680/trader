@@ -96,7 +96,15 @@ def without(value: dict, fields: tuple[str, ...]) -> dict:
     return {k: v for k, v in value.items() if k not in fields}
 
 
+def legacy_horizon(value: dict) -> dict:
+    """V3 omitted this field; its only valid explicit equivalent is integer 32."""
+    horizon = value.get('trainingEpisodeTransitions', 32)
+    require(type(horizon) is int and horizon == 32, 'replication training horizon changed')
+    return {**value, 'trainingEpisodeTransitions': horizon}
+
+
 def policy_parameters(left: dict, right: dict) -> int:
+    left, right = legacy_horizon(left), legacy_horizon(right)
     same(without(left, ('sourceCommit', 'assuranceLedgerSha256', 'parametersLittleEndianHex')),
          without(right, ('sourceCommit', 'assuranceLedgerSha256', 'parametersLittleEndianHex')),
          'policy metadata')
@@ -147,7 +155,7 @@ def compare(parent: Path, replica: Path, parent_sha: str, replica_sha: str) -> d
     require(a.keys() == b.keys(), "archive file set differs")
     reconcile(a)
     reconcile(b)
-    am, bm = decode(a['manifest.json']), decode(b['manifest.json'])
+    am, bm = legacy_horizon(decode(a['manifest.json'])), legacy_horizon(decode(b['manifest.json']))
     same(without(am, ('commit', 'sourceHashes', 'proofLedgerSha256', 'platform',
                      'behaviorIdentityPrefix', 'algorithms', 'pairedAlgorithms')),
          without(bm, ('commit', 'sourceHashes', 'proofLedgerSha256', 'platform',
