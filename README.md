@@ -20,8 +20,10 @@ registered five-seed evidence and adoption blockers. The new
 complete archive identities and compares trained parameters, fixed buffers and
 economic paths at 1e-12 tolerance. Its regressions run in `verify.sh formal/full`.
 The executed replication matched 50 fits and 1,218 replays; none of the three RL
-learners beat the matched momentum mean. Full verification remains blocked by
-the existing inference-bridge check. No policy is enabled or adopted.
+learners beat the matched momentum mean. The internal bit-transport follow-up
+resolved the observed inference-bridge blocker and passed canonical full
+verification. Economic and broader assurance blockers remain; no policy is
+enabled or adopted.
 
 The opt-in [causal RL composition pilot](research-notes/rl-exposure-2026-10-10/contract.md)
 connects PPO, Double DQN and fixed-dataset discrete CQL to exact research accounting.

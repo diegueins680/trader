@@ -1,0 +1,12 @@
+{
+  "candidateSha256": "68ab3c8a908205a42532ef290e40ea8c026974afbe65d86beda4c4751ad51c7a",
+  "commit": "f22acd02de2a61daebef9de1b345cdff3604cd2d",
+  "financialTrials": 0,
+  "instrumentedSha256": "41952f118ccec71eacce90e1ead43f6094c0dbec5754e80d82d7be40c5d12ea1",
+  "newFits": 0,
+  "originalSha256": "d5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1",
+  "parentReportSha256": "e18b95dd47f2f74b61dac28d696aaabc4698247ee139f286bc7048db0fda31b1",
+  "promotionAllowed": false,
+  "registrationSha256": "447fa329dea072e0e83a44debb5ce42f0321e19a7cff81869613295f77fb4717",
+  "runnerSha256": "018ad92e76d8124dcd39cd6007b4990dad0a7935e8957ecaad812ad690ec36c7"
+}

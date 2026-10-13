@@ -1,0 +1,72 @@
+{
+  "assuranceLedgerSha256": "31b6fd67a910d24d7d84b49848123a303ffae80c23718d315d3e36663446a131",
+  "bindingCommit": "85fd2a20",
+  "checks": [
+    {
+      "detail": "8 bridge/transport tests",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-bits-targeted.log",
+      "sha256": "83c2cc4232cfe75707601efc3c3c0e70025f2eac09ba763a1e829a075dd3d666",
+      "status": "passed"
+    },
+    {
+      "detail": "8 consumer tests",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-consumers-targeted.log",
+      "sha256": "7ee80406f2c491390acaa8705785393cf5f0d2201e51bf8f8f01e27200ebb048",
+      "status": "passed"
+    },
+    {
+      "detail": "stale test source binding in admission-progress registry",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-bits-formal-record.log",
+      "sha256": "19531adde029ab859764adff601c67d68cfce1b82283fb56a73aca1291ee9f94",
+      "status": "failed"
+    },
+    {
+      "detail": "diagnostic learner consumer missing from reviewed inventory",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-bits-formal-record-2.log",
+      "sha256": "d21fe53d81e2055e60cea72ff2891aff3cb64776986c36497758f785e9482448",
+      "status": "failed"
+    },
+    {
+      "detail": "composition registry still pinned predecessor consumer-checker hash",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-bits-formal-record-3.log",
+      "sha256": "8928400bd7dbe39e9996f0f6379c87b630fa5c3d34c9b1a08d7d36a66a8a93b2",
+      "status": "failed"
+    },
+    {
+      "detail": "all scoped certificates reproduced after bindings and inventory were corrected",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-bits-formal-record-4.log",
+      "sha256": "9b2ec86d8fbf0cb0e8129aeb2956d4c014d738673702342bcf1a10118139c3fb",
+      "status": "passed"
+    }
+  ],
+  "date": "2026-10-13",
+  "deadlinesChanged": false,
+  "financialTrials": 0,
+  "fullCommand": "bash scripts/verify.sh full",
+  "fullExitCode": 0,
+  "fullLog": ".tmp/rl-reproduction-20261013/logs/bridge-bits-full.log",
+  "fullLogSha256": "895cee6481b1f496ecf4f3e024afbeecb62da82678bf6f1c96c850d538761607",
+  "fullStages": {
+    "archiveRegressions": 6,
+    "automation": "185 tests passed",
+    "diagnosticRegressions": 4,
+    "formalRegressions": 343,
+    "haskell": "build/format/lint/smoke/1 Cabal suite passed",
+    "proofReceipt": "reproduced",
+    "rlRegressions": 24,
+    "skipped": 0,
+    "web": "typecheck/241 tests/build passed"
+  },
+  "fullVerification": "passed",
+  "holdoutOpened": false,
+  "implementationCommit": "23a4c8a2",
+  "integrationEligible": false,
+  "note": "Canonical conformance repeats synthetic fits; none is an independent financial trial. The first exploratory composed-check command used the nonexistent check_composition name; the corrected check_composed command passed. All named formal file-hash bindings were audited before the successful record run.",
+  "operationalTimingGuarantee": false,
+  "productionIntegration": false,
+  "promotionAllowed": false,
+  "proofReceiptSha256": "1fb50ac6531069503e5a3f200716905e8be4cf4609a28f8bcf83fc2750329a95",
+  "registeredEngineeringFits": 9,
+  "schema": "rl-bridge-followup-verification-v1",
+  "verificationCommandPrefix": "env -i PATH=/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin TRADER_ENV_FILE= OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1"
+}

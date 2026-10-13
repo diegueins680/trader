@@ -1,0 +1,55 @@
+{
+  "commit": "f5dae81193027518f0e51c4d72dda1585e462cf0",
+  "financialTrials": 0,
+  "holdoutOpened": false,
+  "instrumentedSha256": "ac13f8d1ca6ca5ac7bbd9ef8f009deec54f66e9116a90b9c6b2090f1759be3b2",
+  "loadBefore": [
+    30.5732421875,
+    46.96826171875,
+    68.7578125
+  ],
+  "logicalCpus": 16,
+  "numpy": "2.3.5",
+  "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+  "promotionAllowed": false,
+  "python": "3.13.3",
+  "registration": {
+    "data": "Same analytic 180-row ALPHA/BETA fixture as the source-bound conformance test. No market data, protected holdout or production state.",
+    "financialTrials": 0,
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "id": "rl-bridge-timing-2026-10-13",
+    "instrumentation": "Temporary source copy only. Add monotonic timestamps before initialization and after exchange; emit startup, exchange and cleanup durations to stderr only after final acceptance time is recorded. Keep all original admission, child, cleanup, input and output semantics. Record both source hashes and full generated diagnostic source outside Git.",
+    "interpretation": "Instrumentation and scheduling affect timings. Outer startup latency is distinct from the admission interval. Safe absences do not count as successful inference; only observed matching accepted actions do. This does not supersede canonical checks or establish a timing guarantee.",
+    "kind": "synthetic engineering diagnostic, not a financial experiment",
+    "limits": {
+      "acceptanceMilliseconds": 20,
+      "compileSecondsPerBuild": 90,
+      "fits": 9,
+      "outerInvocationSeconds": 3,
+      "requests": 54
+    },
+    "liveAuthorization": false,
+    "observationSeed": 20261005,
+    "observationsPerPolicy": 3,
+    "promotionAllowed": false,
+    "protocol": "One unmodified and one phase-instrumented invocation for each of 27 observations; alternate invocation order by case. Compile both with the pinned GHC9.4.8 -O2 process toolchain. Persist every result, timeout, invalid output and mismatch. No reruns or best-case selection within the diagnostic.",
+    "purpose": "Locate existing trained-policy inference-bridge failures without changing admission deadlines or financial policy selection.",
+    "registeredOn": "2026-10-13",
+    "seeds": [
+      11,
+      23,
+      47
+    ],
+    "sourceBaseline": "45a4dffe3b36f6230d720e54b3e165209909a1fe",
+    "sourceContract": "formal/research/ppo-process-bridge-v3-contract.md",
+    "steps": 17
+  },
+  "registrationSha256": "d31f65894e98c597c920ee9be5463f21de5fa212aa5d79f159d5a370fd9f465c",
+  "runnerSha256": "46acdb0fb0c07b7c2b9888ece9d9cb3b6db74b9fca762130027b84f7ca1dcfd1",
+  "schema": "rl-bridge-timing-v1",
+  "sourceSha256": "d5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1"
+}

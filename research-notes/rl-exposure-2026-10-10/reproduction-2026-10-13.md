@@ -1,6 +1,6 @@
 # Current-main RL replication, 2026-10-13
 
-The decision remains **no RL adoption**. This continuation reuses the existing
+The decision remains **no RL adoption**. The later [inference-bridge follow-up](#inference-bridge-continuation-2026-10-13) resolved the observed canonical-verification failure; economic results and broader assurance gaps remain unchanged. This continuation reuses the existing
 causal target-exposure research implementation and reproduces its five-seed
 budget study on verified main. It is engineering replication of consumed
 development evidence, not a new independent financial trial. It cannot establish
@@ -357,3 +357,107 @@ inference-bridge failure remain explicit.
 change, merge, deployment or new scheduled process was introduced. Existing
 production operation was preserved. Publication remains local because the
 repository's automatic PR-repair path is not isolated from main deployment.
+
+## Inference-bridge continuation, 2026-10-13
+
+This follow-up addresses the full-verification blocker above. It changes only the
+isolated research supervisor's internal child transport; it does not retrain or
+select a financial policy, replace a champion, or integrate a production loader.
+The economic results and adoption rejection remain unchanged. Original failure
+logs and the original decimal-transport source remain preserved.
+
+Two engineering protocols were registered before execution:
+[phase timing](../registrations/rl-bridge-timing-2026-10-13.json) and the adaptive
+[exact-bit transport comparison](../registrations/rl-bridge-bit-transport-2026-10-13.json).
+The first repeats the existing nine synthetic PPO configurations (seeds
+11/23/47, horizons 1/3/6, 17 training steps) and generates the same three
+observations per policy. These nine engineering fits are **not** additional
+financial trials or market replications. The second reuses all 27 hash-verified
+requests without new fitting. Each experiment invokes both variants once for
+each request, with alternating order; failures and absences are not discarded.
+
+| Registered run | Variant | Matching accepted / 27 | Safe absence / 27 |
+|---|---|---:|---:|
+| Phase diagnosis | Original decimal transport | 4 | 23 |
+| Phase diagnosis | Instrumented decimal transport | 2 | 25 |
+| Transport comparison | Original decimal transport | 26 | 1 |
+| Transport comparison | Instrumented bit transport | 27 | 0 |
+
+The first instrumented run had a median exchange time of 17.044 ms, cleanup
+6.227 ms and total admission interval 23.345 ms. Every one of its 25 absences
+finished exchange below 20 ms but crossed the deadline by the end of cleanup.
+This localizes that observed failure; it does not establish a scheduler-independent
+root cause for all earlier timeouts. Startup is outside the acceptance interval
+and was measured separately. The original control's changing acceptance rate
+shows why the two runs must not be treated as a controlled 4-to-27 improvement.
+
+In the paired transport comparison, the candidate's median exchange time was
+5.553 ms, cleanup 4.123 ms and admission interval 10.352 ms, with a maximum
+15.926 ms. End-to-end medians including startup were 62.644 ms for the original
+and 58.216 ms for the candidate. Every candidate policy had three accepted
+matching actions. No mismatch, late accepted action, outer timeout or reported
+cleanup failure occurred in either registered experiment. Instrumentation adds
+clock reads and post-measurement stderr telemetry; these measurements are not
+hard real-time guarantees or financial evidence. Raw observations and source
+identities are in [phase results](bridge-followup-results/timing-report.json)
+and [paired results](bridge-followup-results/bits-report.json).
+
+The applied change adds explicit internal `--worker-bits-v4` and `encodeChild`.
+A validated Request is serialized as Word64 bit patterns using GHC's cast
+primitive, decoded with the existing bounded snapshot decoder, and passed to the
+unchanged neural evaluator. The internal envelope's constant step=4 is a
+compatibility field, not a claim about actual training steps. Existing external
+v2/v3 input formats, legacy direct `--worker`, responses, empty child environment,
+startup/cleanup limits and final strict 20 ms admission guard are preserved.
+No decimal Double Show/Read conversion remains on the internal child path.
+
+The encoder and actual worker join the mandatory source-bound control inventory.
+Fault injection was redirected to the worker now actually launched, including
+hangs, ignored termination, malformed replies, EOF, late replies and failed
+cleanup; legacy direct-worker tests remain. Thirty-two compiled round-trip
+fixtures compare 271 words each, including positive/negative zero, subnormals,
+minimum normals and +/-1000, and check frame sizes. These tests supply concrete
+code correspondence, not a universal compiler/bit-cast theorem. Existing codec
+SMT bounds and admission/lifecycle statements remain unchanged; standard GHC
+bit-cast inverses, Word64 formatting and OS/compiler assumptions are explicit in
+the same assurance ledger. No broad obligation is newly closed.
+
+Reproduce the diagnostic using the commands shown in the README with fresh
+output paths; the second runner requires the parent report SHA256
+`e18b95dd47f2f74b61dac28d696aaabc4698247ee139f286bc7048db0fda31b1`.
+The decimal control is frozen as
+`formal/research/fixtures/inference-process-decimal-v3.hs` with hash
+`d5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1`.
+Raw temporary executables, synthetic requests and source variants remain in
+`.tmp/research/rl-bridge-timing-20261013` and
+`.tmp/research/rl-bridge-bits-20261013`, outside Git.
+
+
+Final follow-up verification: **`bash scripts/verify.sh full` passed**, using the
+pinned tools and clean environment with `TRADER_ENV_FILE=`. It ran 343 formal
+regressions, six archive regressions, four diagnostic regressions, 24 causal RL
+regressions, full certificate reproduction, Haskell build/format/lint/smoke and
+its Cabal suite, web typecheck/241 tests/build, and 185 automation tests. No tests
+were skipped. See the [follow-up verification receipt](bridge-followup-results/verification.json)
+for commands, hashes and failed prerequisite attempts. Three earlier record
+attempts correctly stopped on source binding/inventory drift; all were corrected,
+and the named file-hash dependencies were audited before successful reproduction.
+The historical failure section above remains evidence of the predecessor.
+
+The recorded process certificate checks the unchanged strict integer admission
+predicate, a 57-state/143-transition lifecycle model, 226 compiled guard cases,
+12 direct legacy-network fixtures, eight process fault types, and 32 internal
+bit round trips of 271 words each (maximum fixture frame 5,559 bytes). The trained
+PPO bridge checks nine synthetic fits/27 observations, an 83-state/189-transition
+model, codec SMT, invalid frames and actual cleanup failures. The original RL
+composition check still records its 43-state/107-transition model and eight exact
+ledger witnesses. These are scoped machine checks and conformance evidence, not
+a global Haskell/OS/NN theorem or guaranteed operational timing.
+
+**Current decisions:** research remains partially complete; reject the evaluated
+RL packages for integration and continue isolated research. The local code now
+passes canonical verification, but that does not close the 18 broader obligations,
+supply the missing historical champion, create fresh confirmation data, or reverse
+the financial result. No production integration, live authorization, order,
+deployment, merge or publication occurred. The branch remains local because the
+PR automation isolation blocker is unchanged.
