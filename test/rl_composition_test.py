@@ -423,6 +423,16 @@ class OfflineDataV4Tests(unittest.TestCase):
 
 
 class HorizonTests(unittest.TestCase):
+    def test_reference_refuses_changed_or_duplicate_controls(self):
+        from summarize_rl_horizon_v5 import reference
+        rows=[dict(id=str(i),algorithm='cash',netReturn=0.) for i in range(168)]
+        self.assertEqual(len(reference({'records':rows},{'records':rows})),168)
+        changed=[*rows[:-1],dict(rows[-1],netReturn=.01)]
+        with self.assertRaisesRegex(ValueError,'baseline changed'):
+            reference({'records':changed},{'records':rows})
+        with self.assertRaisesRegex(ValueError,'duplicate controls'):
+            reference({'records':[*rows[:-1],rows[0]]},{'records':rows})
+
     def test_horizon_ownership_maturity_and_terminal_cost(self):
         from run_rl_composition import behavior_buffer
         import rl_admission_v2 as v2

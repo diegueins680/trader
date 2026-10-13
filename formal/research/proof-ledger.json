@@ -682,7 +682,8 @@
     "scripts/research/diagnose_rl_bit_transport.py",
     "formal/research/fixtures/inference-process-decimal-v3.hs",
     "formal/research/rl-bridge-diagnostic-source.json",
-    "scripts/research/run_rl_horizon_v5.py"
+    "scripts/research/run_rl_horizon_v5.py",
+    "scripts/research/summarize_rl_horizon_v5.py"
   ],
   "entries": [
     {
@@ -8120,7 +8121,8 @@
         "scripts/research/summarize_rl_budget_v3.py",
         "scripts/research/run_rl_offline_data_v4.py",
         "scripts/research/summarize_rl_offline_data_v4.py",
-        "scripts/research/run_rl_horizon_v5.py"
+        "scripts/research/run_rl_horizon_v5.py",
+        "scripts/research/summarize_rl_horizon_v5.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
